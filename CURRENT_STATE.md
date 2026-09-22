@@ -230,6 +230,27 @@ Current major implementation areas:
   validation devices; other supported syntax remains covered only by
   deterministic regression tests where previously noted.
 
+## Codex Orchestration — OrbitFlow-Evo
+
+A GitHub-hosted ChatGPT/Atlas-to-Codex orchestration foundation is implemented in OrbitFlow-Evo.
+
+Current behavior:
+- GitHub Issues act as scoped task records;
+- the repository owner can trigger initial implementation with `codex-task`;
+- GitHub Actions runs the official `openai/codex-action@v1` with the `:workspace` permission profile;
+- each task uses an isolated `codex/issue-<number>` branch and pull request;
+- Atlas-requested corrections use a marked review comment plus `codex-revise` and update the same PR branch;
+- issue comments track implementation/review iteration state;
+- automated revision stops after iteration 15 and moves the task to `codex-replan-required`;
+- no workflow auto-merges to `main`;
+- Codex receives no Teleport or network-device credentials, and live validation remains local/operator-controlled.
+
+Setup requires the `OPENAI_API_KEY` GitHub Actions secret and a one-time run of the `Codex Orchestration Bootstrap` workflow to create orchestration labels.
+
+Validation status: implemented but not yet end-to-end validated. The first controlled test issue must confirm bootstrap, Codex execution, branch/PR creation, Atlas revision, test reporting, and the review state transitions.
+
+Detailed model: `docs/architecture/codex-orchestration.md`.
+
 ## Known Limitations
 
 - Current SSH host-key defaults are permissive and therefore do not provide MITM protection.
