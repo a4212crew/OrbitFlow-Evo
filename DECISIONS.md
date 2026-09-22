@@ -117,3 +117,16 @@ OrbitFlow-Evo experiment
 ```
 
 **Reason:** OrbitFlow-Evo exists specifically to isolate experimentation from the stable codebase.
+
+
+## DEC-018 — Limit Codex implementation/review cycles to 15 iterations
+
+**Decision:** A Codex task may undergo at most 15 implementation/revision and Atlas review iterations under the same approved implementation plan.
+
+One iteration is one Codex implementation or revision followed by one Atlas review.
+
+If the fifteenth review still requires changes, automated implementation stops and the task enters `codex-replan-required`. Atlas and the user must revisit and approve the architecture or implementation plan before another implementation cycle begins. A newly approved plan starts a fresh iteration counter.
+
+**Reason:** Repeated patching beyond this point is more likely to indicate a flawed or incomplete implementation plan than a simple implementation defect. Stopping and replanning limits design drift and unproductive automated retries.
+
+**Consequence:** Codex orchestration must track the current iteration deterministically and must not automatically schedule iteration 16 under the same plan.
