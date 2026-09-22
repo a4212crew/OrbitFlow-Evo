@@ -121,13 +121,14 @@ This provides task isolation without sharing one mutable local workstation check
 ## Bootstrap and First Validation
 
 1. Add the `OPENAI_API_KEY` Actions secret.
-2. Run `Codex Orchestration Bootstrap` manually from GitHub Actions.
-3. Confirm the eight orchestration labels were created.
-4. Create a trivial, non-network test issue.
-5. Have Atlas review the issue and apply `codex-task`.
-6. Confirm Codex creates a branch and PR and the repository tests run.
-7. Have Atlas request one controlled revision using a marked review comment plus `codex-revise`.
-8. Confirm the same PR branch updates and the issue returns to `codex-review`.
-9. Merge only after explicit user approval.
+2. In GitHub repository **Settings → Actions → General**, ensure workflow permissions allow the repository workflow to write contents/issues and enable **Allow GitHub Actions to create and approve pull requests**. The workflow never auto-approves or auto-merges; this setting is required only so `GITHUB_TOKEN` can open the implementation PR.
+3. Run `Codex Orchestration Bootstrap` manually from GitHub Actions.
+4. Confirm the eight orchestration labels were created.
+5. Create a trivial, non-network test issue.
+6. Have Atlas review the issue and apply `codex-task`.
+7. Confirm Codex creates a branch and PR and the repository tests run.
+8. Have Atlas request one controlled revision using a marked review comment plus `codex-revise`.
+9. Confirm the same PR branch updates and the issue returns to `codex-review`.
+10. Merge only after explicit user approval.
 
 The orchestration foundation is not considered live validated until this end-to-end test succeeds.
