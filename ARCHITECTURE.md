@@ -194,26 +194,34 @@ Promotion to OrbitFlow requires explicit review and approval and may use reimple
 
 ## 14. Codex Orchestration
 
-OrbitFlow-Evo now contains a GitHub-hosted Codex orchestration foundation using GitHub Issues, GitHub Actions, the official `openai/codex-action@v1`, isolated `codex/issue-<number>` branches, pull requests, and Atlas review.
+OrbitFlow-Evo uses a local Codex CLI worker controlled through GitHub Issues.
 
-The lifecycle is:
+The control flow is:
 
 ```text
 Atlas-approved GitHub issue
  -> codex-task
- -> GitHub Actions / Codex implementation
- -> codex/issue-<number> branch
- -> pull request
+ -> local controller on the operator workstation
+ -> ChatGPT-authenticated Codex CLI
+ -> dedicated codex/issue-<number> worktree/branch
+ -> tests
+ -> push + pull request
  -> codex-review
  -> Atlas approval or codex-revise
  -> explicit human merge gate
 ```
 
-Revision runs update the same task branch and enforce the 15-iteration replan gate. The workflows do not auto-merge and do not receive Teleport identities or network-device credentials. Live network validation remains operator-controlled and local.
+GitHub remains the coordination and audit layer, while Codex execution occurs locally on the operator workstation. Codex is authenticated with the user's ChatGPT account rather than an API key, so this orchestration does not require `OPENAI_API_KEY`.
+
+The controller validates repository identity and a clean main checkout, prevents duplicate initial execution, isolates tasks in dedicated Git worktrees, updates issue labels/comments, creates the task PR, and reuses the same task branch for revisions.
+
+The 15-iteration replan gate remains mandatory. Revision 16 is never executed under the same approved plan.
+
+No automatic merge is permitted. Teleport and network-device credentials remain outside Codex prompts and GitHub. Live network validation remains operator-controlled.
 
 Detailed model and setup: `docs/architecture/codex-orchestration.md`.
 
-This orchestration foundation must be considered implemented but not end-to-end validated until the bootstrap and first controlled test issue complete successfully.
+The local orchestration foundation is implemented but must be considered not end-to-end validated until bootstrap and a controlled test issue complete successfully.
 
 ## 15. Parallel Development Direction
 
