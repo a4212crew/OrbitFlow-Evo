@@ -232,7 +232,9 @@ Scripts validated in the lab included:
 - finalize.ps1
 - merge-approved.ps1
 
-This orchestration model may later be adapted for OrbitFlow-Evo after appropriate safety hardening.
+This lab model informed the OrbitFlow-Evo implementation, but the primary Evo path is now GitHub-hosted rather than a local polling controller. OrbitFlow-Evo uses GitHub Issues, GitHub Actions, `openai/codex-action@v1`, isolated `codex/issue-<number>` branches, pull requests, Atlas review, and the existing explicit merge gate. See `docs/architecture/codex-orchestration.md`.
+
+The GitHub-hosted foundation is implemented but remains pending end-to-end validation until the bootstrap and first controlled test task succeed.
 
 ---
 
