@@ -1,4 +1,19 @@
 # AGENTS.md — OrbitFlow Network Automation
+# OrbitFlow-Evo
+
+This repository is the experimental evolution sandbox for OrbitFlow.
+
+Purpose:
+- Test new architecture and capabilities safely.
+- Prototype orchestration and automation workflows.
+- Validate ideas before promoting them to the stable OrbitFlow repository.
+- Preserve compatibility with OrbitFlow where practical.
+
+Safety rules:
+- Do not assume changes in this repository are production-ready.
+- Do not modify the stable OrbitFlow repository unless explicitly instructed.
+- Keep changes scoped and reviewable.
+- Prefer feature branches and pull requests for development work.
 
 ## 1. Project Purpose
 
