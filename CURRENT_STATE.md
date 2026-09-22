@@ -2,6 +2,8 @@
 
 Use this file as the concise source of truth for what is implemented and validated today.
 
+> **OrbitFlow-Evo note:** This repository was cloned from OrbitFlow as an experimental evolution sandbox. Existing capability status below reflects the inherited OrbitFlow baseline unless a later OrbitFlow-Evo entry explicitly supersedes it.
+
 Keep this document short. Historical implementation detail belongs in `docs/devlog/YYYY-MM.md`.
 
 ## Project
