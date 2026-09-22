@@ -227,6 +227,9 @@ When modifying this repository:
 16. Keep API/integration code thin: it may validate/authenticate/serialize, but must not duplicate network-device logic already implemented in capabilities or workflows.
 17. Prefer intent/capability APIs over exposing raw vendor CLI as the primary external OSS interface.
 18. If a requested change conflicts with these rules, surface the conflict before implementing it.
+19. A Codex implementation/review cycle is limited to 15 iterations under one approved implementation plan. One iteration is one Codex implementation or revision followed by Atlas review.
+20. If iteration 15 still requires changes, stop automated implementation and move the task to `codex-replan-required`. Atlas and the user must revisit and approve the implementation plan before a new cycle begins.
+21. A newly approved implementation plan starts a new iteration counter; do not continue patching indefinitely under the failed plan.
 
 ## 12. Documentation Responsibilities
 
