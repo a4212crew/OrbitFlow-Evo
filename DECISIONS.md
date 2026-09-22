@@ -130,3 +130,14 @@ If the fifteenth review still requires changes, automated implementation stops a
 **Reason:** Repeated patching beyond this point is more likely to indicate a flawed or incomplete implementation plan than a simple implementation defect. Stopping and replanning limits design drift and unproductive automated retries.
 
 **Consequence:** Codex orchestration must track the current iteration deterministically and must not automatically schedule iteration 16 under the same plan.
+
+
+## DEC-019 — Use GitHub-hosted Codex orchestration in OrbitFlow-Evo
+
+**Decision:** Use GitHub Issues and GitHub Actions with the official `openai/codex-action@v1` as the primary OrbitFlow-Evo implementation orchestration path. Each task uses an isolated `codex/issue-<number>` branch and pull request.
+
+**Reason:** This removes the local polling/controller process from the primary path, provides isolated GitHub-hosted workspaces for parallel tasks, keeps task state persistent in GitHub, and preserves Atlas and human review gates.
+
+**Security boundary:** Codex may modify and test repository code but must not receive Teleport identities, device credentials, OTPs, or production network access. Live-device validation remains operator-controlled and local.
+
+**Consequence:** No orchestration workflow may auto-merge to `main`. Atlas review remains required, and the 15-iteration replan gate from DEC-018 applies to revision cycles.
