@@ -232,22 +232,24 @@ Current major implementation areas:
 
 ## Codex Orchestration — OrbitFlow-Evo
 
-A GitHub-hosted ChatGPT/Atlas-to-Codex orchestration foundation is implemented in OrbitFlow-Evo.
+A local ChatGPT/Atlas-to-Codex orchestration foundation is implemented in OrbitFlow-Evo.
 
 Current behavior:
-- GitHub Issues act as scoped task records;
-- the repository owner can trigger initial implementation with `codex-task`;
-- GitHub Actions runs the official `openai/codex-action@v1` with the `:workspace` permission profile;
-- each task uses an isolated `codex/issue-<number>` branch and pull request;
-- Atlas-requested corrections use a marked review comment plus `codex-revise` and update the same PR branch;
+- GitHub Issues act as scoped task records and orchestration state;
+- the operator workstation runs `scripts/orchestration/controller.ps1`;
+- Codex executes locally through the Codex CLI authenticated with the user's ChatGPT account;
+- no `OPENAI_API_KEY` is required by the orchestration;
+- each task uses an isolated `codex/issue-<number>` Git branch and dedicated Git worktree;
+- the controller runs deterministic tests, commits/pushes the task branch, opens the PR, and returns the issue to `codex-review`;
+- Atlas-requested corrections use a marked review comment plus `codex-revise` and update the same task branch/PR;
 - issue comments track implementation/review iteration state;
 - automated revision stops after iteration 15 and moves the task to `codex-replan-required`;
 - no workflow auto-merges to `main`;
 - Codex receives no Teleport or network-device credentials, and live validation remains local/operator-controlled.
 
-Setup requires the `OPENAI_API_KEY` GitHub Actions secret and a one-time run of the `Codex Orchestration Bootstrap` workflow to create orchestration labels.
+Setup requires authenticated GitHub CLI and Codex CLI on the local workstation plus a one-time run of `scripts/orchestration/bootstrap.ps1`.
 
-Validation status: implemented but not yet end-to-end validated. The first controlled test issue must confirm bootstrap, Codex execution, branch/PR creation, Atlas revision, test reporting, and the review state transitions.
+Validation status: implemented but not yet end-to-end validated. The first controlled test issue must confirm bootstrap, local Codex execution, worktree/branch creation, PR creation, automated tests, one Atlas-requested revision, and the review state transitions.
 
 Detailed model: `docs/architecture/codex-orchestration.md`.
 
