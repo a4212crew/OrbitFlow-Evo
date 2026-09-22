@@ -192,23 +192,28 @@ Changes made here must not automatically modify the stable OrbitFlow repository.
 
 Promotion to OrbitFlow requires explicit review and approval and may use reimplementation, cherry-pick, or a dedicated migration PR depending on the change.
 
-## 14. Codex Orchestration Direction
+## 14. Codex Orchestration
 
-The separate Codex-Orchestrator-Lab proved a GitHub-Issue-driven workflow:
+OrbitFlow-Evo now contains a GitHub-hosted Codex orchestration foundation using GitHub Issues, GitHub Actions, the official `openai/codex-action@v1`, isolated `codex/issue-<number>` branches, pull requests, and Atlas review.
+
+The lifecycle is:
 
 ```text
-codex-task
- -> local Codex execution
- -> codex-review
- -> Atlas approval
- -> codex-approved
- -> feature branch / commit / push
+Atlas-approved GitHub issue
+ -> codex-task
+ -> GitHub Actions / Codex implementation
+ -> codex/issue-<number> branch
  -> pull request
- -> codex-pr
- -> explicit merge gate
+ -> codex-review
+ -> Atlas approval or codex-revise
+ -> explicit human merge gate
 ```
 
-Before adapting that workflow here, it should be hardened with repository identity checks, dirty-tree protection, per-task branches/worktrees, duplicate-execution protection, failure states, task-specific diffs, clean recovery, explicit iteration tracking, and the 15-iteration replan gate.
+Revision runs update the same task branch and enforce the 15-iteration replan gate. The workflows do not auto-merge and do not receive Teleport identities or network-device credentials. Live network validation remains operator-controlled and local.
+
+Detailed model and setup: `docs/architecture/codex-orchestration.md`.
+
+This orchestration foundation must be considered implemented but not end-to-end validated until the bootstrap and first controlled test issue complete successfully.
 
 ## 15. Parallel Development Direction
 
