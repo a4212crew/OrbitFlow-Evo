@@ -207,7 +207,7 @@ Read only:
 
 ## 11. Codex Working Rules
 
-OrbitFlow-Evo's GitHub-hosted Codex orchestration is documented in `docs/architecture/codex-orchestration.md`.
+OrbitFlow-Evo's GitHub-Issue-driven local Codex CLI orchestration is documented in `docs/architecture/codex-orchestration.md`.
 
 When modifying this repository:
 
