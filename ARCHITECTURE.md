@@ -171,6 +171,19 @@ Requirement
 
 ChatGPT / Atlas is the architecture, orchestration, and review layer. Codex is the implementation engineer. The user remains the final technical authority.
 
+### Implementation / Review Iteration Limit
+
+Each approved implementation plan may undergo a maximum of 15 Codex implementation/revision and Atlas review iterations.
+
+One iteration consists of:
+
+```text
+Codex implementation or revision
+    -> Atlas review
+```
+
+If the fifteenth review still requires changes, automated implementation must stop and the task moves to `codex-replan-required`. Atlas and the user then reassess the architecture or implementation plan. A newly approved plan begins a new implementation cycle with its own 15-iteration limit.
+
 ## 13. OrbitFlow-Evo Boundary
 
 OrbitFlow-Evo is the experimentation environment.
@@ -195,7 +208,7 @@ codex-task
  -> explicit merge gate
 ```
 
-Before adapting that workflow here, it should be hardened with repository identity checks, dirty-tree protection, per-task branches/worktrees, duplicate-execution protection, failure states, task-specific diffs, and clean recovery.
+Before adapting that workflow here, it should be hardened with repository identity checks, dirty-tree protection, per-task branches/worktrees, duplicate-execution protection, failure states, task-specific diffs, clean recovery, explicit iteration tracking, and the 15-iteration replan gate.
 
 ## 15. Parallel Development Direction
 
