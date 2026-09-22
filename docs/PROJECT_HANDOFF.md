@@ -251,11 +251,15 @@ Before introducing automated Codex orchestration into OrbitFlow-Evo, consider:
   - codex-approved
   - codex-pr
   - codex-failed
+  - codex-replan-required
 - Capture task-specific diffs only.
 - Validate repository identity before execution.
 - Never automatically merge directly into main without an explicit approval gate.
 - Support clean failure recovery.
 - Keep Codex prompts concise.
+- Track implementation/review iterations explicitly. One iteration is one Codex implementation or revision followed by Atlas review.
+- Allow a maximum of 15 iterations under one approved implementation plan.
+- If iteration 15 still fails review, stop automated implementation, move the task to `codex-replan-required`, and require Atlas plus the user to revisit the implementation plan before starting a new cycle.
 
 ---
 
