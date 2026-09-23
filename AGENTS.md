@@ -232,6 +232,8 @@ When modifying this repository:
 19. A Codex implementation/review cycle is limited to 15 iterations under one approved implementation plan. One iteration is one Codex implementation or revision followed by Atlas review.
 20. If iteration 15 still requires changes, stop automated implementation and move the task to `codex-replan-required`. Atlas and the user must revisit and approve the implementation plan before a new cycle begins.
 21. A newly approved implementation plan starts a new iteration counter; do not continue patching indefinitely under the failed plan.
+22. Local Codex orchestration entry points must remain Python-based and portable across Windows and Linux. Shared orchestration logic/tests must use platform-aware paths and must not hard-code OS-specific separators.
+23. The orchestration dry-run path must be non-mutating, and failed deterministic tests must stop the controller before commit, push, or PR creation/update.
 
 ## 12. Documentation Responsibilities
 
