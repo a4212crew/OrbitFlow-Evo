@@ -40,6 +40,8 @@ def run_command(args: list[str]) -> str:
         args,
         check=False,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
     )
     if completed.returncode != 0:
