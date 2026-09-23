@@ -141,3 +141,13 @@ If the fifteenth review still requires changes, automated implementation stops a
 **Security boundary:** Codex may modify and test repository code but must not receive Teleport identities, device credentials, OTPs, or production network access. Live-device validation remains operator-controlled and local.
 
 **Consequence:** The local controller owns Git operations and GitHub state transitions. Codex itself must not commit, push, create PRs, or merge. No orchestration path may auto-merge to `main`. The 15-iteration replan gate from DEC-018 applies to revision cycles.
+
+## DEC-020 — Use Python for local Codex orchestration
+
+**Decision:** OrbitFlow-Evo local Codex orchestration uses Python entry points (`scripts/orchestration/bootstrap.py` and `scripts/orchestration/controller.py`) rather than PowerShell-specific controller scripts.
+
+**Reason:** The orchestration control plane must run from the same codebase on both Windows and Linux. Python provides platform-aware filesystem/process handling, deterministic pytest coverage, and avoids maintaining separate shell implementations.
+
+**Operational rules:** Shared orchestration code and tests must not hard-code operating-system path separators. Dry-run must be non-mutating. The deterministic pytest suite is a hard gate: failed tests must stop the controller before commit, push, or pull-request creation/update.
+
+**Consequence:** PowerShell orchestration entry points are retired. GitHub Issues, local ChatGPT-authenticated Codex CLI execution, dedicated task worktrees/branches, the 15-iteration replan gate, and explicit human merge approval remain unchanged.

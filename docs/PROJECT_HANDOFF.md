@@ -234,9 +234,11 @@ Scripts validated in the lab included:
 
 This lab model is the basis of the OrbitFlow-Evo implementation. GitHub Issues remain the control plane, while the Codex CLI runs locally on the operator workstation using ChatGPT authentication rather than an API key.
 
-OrbitFlow-Evo adds hardening around the lab model: repository identity checks, clean-tree protection, one dedicated worktree/branch per issue, duplicate-execution protection, explicit failure states, automatic PR creation by the controller, revision handling on the same branch, and the 15-iteration replan gate. See `docs/architecture/codex-orchestration.md`.
+The original lab used PowerShell helper scripts. OrbitFlow-Evo now implements the operational bootstrap and controller in cross-platform Python: `scripts/orchestration/bootstrap.py` and `scripts/orchestration/controller.py`. The same controller is intended to run on Windows and Linux.
 
-The local orchestration foundation is implemented but remains pending end-to-end validation until bootstrap and the first controlled test task succeed.
+OrbitFlow-Evo adds hardening around the lab model: local repository identity checks, clean-tree protection, one dedicated worktree/branch per issue, duplicate-execution protection, explicit failure states, a non-mutating dry-run, a blocking pytest gate before commit/push/PR progression, automatic PR creation by the controller, revision handling on the same branch, and the 15-iteration replan gate. See `docs/architecture/codex-orchestration.md`.
+
+The Python orchestration foundation has deterministic tests but remains pending end-to-end validation until bootstrap and the first controlled test task succeed.
 
 ---
 

@@ -141,11 +141,11 @@ PYTHONPATH=src pytest
 
 ## Local ChatGPT-to-Codex orchestration
 
-OrbitFlow-Evo can use GitHub Issues as the task queue while running Codex locally on the Windows development workstation.
+OrbitFlow-Evo can use GitHub Issues as the task queue while running Codex locally on either Windows or Linux.
 
 Prerequisites:
 
-```powershell
+```bash
 gh auth status
 codex --version
 codex login
@@ -153,18 +153,26 @@ codex login
 
 Bootstrap the labels once:
 
-```powershell
-.\scripts\orchestration\bootstrap.ps1
+```bash
+python scripts/orchestration/bootstrap.py
 ```
 
 Run the controller continuously:
 
-```powershell
-.\scripts\orchestration\controller.ps1 -Watch
+```bash
+python scripts/orchestration/controller.py --watch
 ```
 
-The controller polls for `codex-task` and `codex-revise`, creates one dedicated Git worktree/branch per issue, invokes the locally authenticated Codex CLI, runs tests, pushes the branch, opens/updates the PR, and returns the issue to Atlas review.
+Preview the next queued task without mutating GitHub or Git state:
+
+```bash
+python scripts/orchestration/controller.py --dry-run
+```
+
+The controller polls for `codex-task` and `codex-revise`, creates one dedicated Git worktree/branch per issue, invokes the locally authenticated Codex CLI, runs the full deterministic pytest suite, and only commits/pushes/opens or updates the PR after tests pass. It then returns the issue to Atlas review.
+
+The Python orchestration layer is intentionally cross-platform. Shared orchestration logic and tests must use platform-aware paths rather than hard-coded Windows or POSIX separators.
 
 This path does **not** require `OPENAI_API_KEY`. Codex authentication is through the local ChatGPT login. Device/Teleport credentials must never be placed in task issues or Codex prompts.
 
-See `docs/architecture/codex-orchestration.md` for the complete state machine, 15-iteration replan gate, and first-validation procedure.
+See `docs/architecture/codex-orchestration.md` for the complete state machine, test gate, 15-iteration replan gate, and first-validation procedure.
