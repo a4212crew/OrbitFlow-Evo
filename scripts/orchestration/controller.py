@@ -214,9 +214,14 @@ def verify_repository(repo: str, repo_root: Path) -> None:
         raise RuntimeError(
             f"Repository identity mismatch. Expected '{repo}', got '{actual}'."
         )
-    if git(["status", "--porcelain"], repo_root):
+    dirty = git(["status", "--porcelain"], repo_root)
+    if dirty:
         raise RuntimeError(
             "Main checkout is dirty. Commit, stash, or discard local changes before running Codex."
+            + os.linesep
+            + "Dirty paths:"
+            + os.linesep
+            + dirty
         )
 
 
@@ -613,7 +618,7 @@ def process_one(repo: str, *, dry_run: bool = False) -> bool:
                 repo,
                 issue_number,
                 add=("codex-failed",),
-                remove=("codex-running",),
+                remove=("codex-task", "codex-revise", "codex-running"),
             )
             add_issue_comment(
                 repo,
