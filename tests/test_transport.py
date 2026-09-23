@@ -181,8 +181,8 @@ def test_linux_uses_certificate_and_direct_tcpip(
 
     session = connect_linux("192.0.2.10", credentials, config)
 
-    from_path.assert_called_once_with("/profile/key")
-    key.load_certificate.assert_called_once_with("/profile/key-cert.pub")
+    from_path.assert_called_once_with(str(config.teleport_key_path))
+    key.load_certificate.assert_called_once_with(str(config.teleport_cert_path))
     assert "tsh proxy ssh" in proxy_command.call_args.args[0]
     transport.open_channel.assert_called_once_with(
         "direct-tcpip", ("192.0.2.10", 22), ("127.0.0.1", 0)
