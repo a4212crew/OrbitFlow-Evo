@@ -89,7 +89,7 @@ def test_live_validation_delegates_to_transport_resolver_and_store(monkeypatch):
     )
     assert calls[5] == ("contexts",)
     assert "platform_override" not in calls[4][2]
-    assert "snapshot_path: validation/inventory.json\n" in output.getvalue()
+    assert f"snapshot_path: {Path('validation/inventory.json')}\n" in output.getvalue()
 
 
 def test_context_output_includes_all_normalized_fields_and_events():
