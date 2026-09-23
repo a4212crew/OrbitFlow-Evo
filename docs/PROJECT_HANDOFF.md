@@ -232,7 +232,11 @@ Scripts validated in the lab included:
 - finalize.ps1
 - merge-approved.ps1
 
-This orchestration model may later be adapted for OrbitFlow-Evo after appropriate safety hardening.
+This lab model is the basis of the OrbitFlow-Evo implementation. GitHub Issues remain the control plane, while the Codex CLI runs locally on the operator workstation using ChatGPT authentication rather than an API key.
+
+OrbitFlow-Evo adds hardening around the lab model: repository identity checks, clean-tree protection, one dedicated worktree/branch per issue, duplicate-execution protection, explicit failure states, automatic PR creation by the controller, revision handling on the same branch, and the 15-iteration replan gate. See `docs/architecture/codex-orchestration.md`.
+
+The local orchestration foundation is implemented but remains pending end-to-end validation until bootstrap and the first controlled test task succeed.
 
 ---
 

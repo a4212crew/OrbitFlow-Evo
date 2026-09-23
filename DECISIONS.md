@@ -130,3 +130,14 @@ If the fifteenth review still requires changes, automated implementation stops a
 **Reason:** Repeated patching beyond this point is more likely to indicate a flawed or incomplete implementation plan than a simple implementation defect. Stopping and replanning limits design drift and unproductive automated retries.
 
 **Consequence:** Codex orchestration must track the current iteration deterministically and must not automatically schedule iteration 16 under the same plan.
+
+
+## DEC-019 — Use local ChatGPT-authenticated Codex CLI orchestration in OrbitFlow-Evo
+
+**Decision:** Use GitHub Issues as the orchestration/control plane while running Codex locally on the operator workstation through the Codex CLI authenticated with the user's ChatGPT account. Each task uses an isolated `codex/issue-<number>` branch and dedicated Git worktree.
+
+**Reason:** This preserves the proven Codex-Orchestrator-Lab model, uses GitHub for persistent coordination and review state, supports parallel isolated tasks, and avoids requiring OpenAI API-key billing for the implementation worker.
+
+**Security boundary:** Codex may modify and test repository code but must not receive Teleport identities, device credentials, OTPs, or production network access. Live-device validation remains operator-controlled and local.
+
+**Consequence:** The local controller owns Git operations and GitHub state transitions. Codex itself must not commit, push, create PRs, or merge. No orchestration path may auto-merge to `main`. The 15-iteration replan gate from DEC-018 applies to revision cycles.

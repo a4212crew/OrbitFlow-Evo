@@ -137,3 +137,34 @@ The suite uses mocks and does not contact Teleport or network devices:
 ```bash
 PYTHONPATH=src pytest
 ```
+
+
+## Local ChatGPT-to-Codex orchestration
+
+OrbitFlow-Evo can use GitHub Issues as the task queue while running Codex locally on the Windows development workstation.
+
+Prerequisites:
+
+```powershell
+gh auth status
+codex --version
+codex login
+```
+
+Bootstrap the labels once:
+
+```powershell
+.\scripts\orchestration\bootstrap.ps1
+```
+
+Run the controller continuously:
+
+```powershell
+.\scripts\orchestration\controller.ps1 -Watch
+```
+
+The controller polls for `codex-task` and `codex-revise`, creates one dedicated Git worktree/branch per issue, invokes the locally authenticated Codex CLI, runs tests, pushes the branch, opens/updates the PR, and returns the issue to Atlas review.
+
+This path does **not** require `OPENAI_API_KEY`. Codex authentication is through the local ChatGPT login. Device/Teleport credentials must never be placed in task issues or Codex prompts.
+
+See `docs/architecture/codex-orchestration.md` for the complete state machine, 15-iteration replan gate, and first-validation procedure.

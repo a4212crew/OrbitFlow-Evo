@@ -192,23 +192,36 @@ Changes made here must not automatically modify the stable OrbitFlow repository.
 
 Promotion to OrbitFlow requires explicit review and approval and may use reimplementation, cherry-pick, or a dedicated migration PR depending on the change.
 
-## 14. Codex Orchestration Direction
+## 14. Codex Orchestration
 
-The separate Codex-Orchestrator-Lab proved a GitHub-Issue-driven workflow:
+OrbitFlow-Evo uses a local Codex CLI worker controlled through GitHub Issues.
+
+The control flow is:
 
 ```text
-codex-task
- -> local Codex execution
+Atlas-approved GitHub issue
+ -> codex-task
+ -> local controller on the operator workstation
+ -> ChatGPT-authenticated Codex CLI
+ -> dedicated codex/issue-<number> worktree/branch
+ -> tests
+ -> push + pull request
  -> codex-review
- -> Atlas approval
- -> codex-approved
- -> feature branch / commit / push
- -> pull request
- -> codex-pr
- -> explicit merge gate
+ -> Atlas approval or codex-revise
+ -> explicit human merge gate
 ```
 
-Before adapting that workflow here, it should be hardened with repository identity checks, dirty-tree protection, per-task branches/worktrees, duplicate-execution protection, failure states, task-specific diffs, clean recovery, explicit iteration tracking, and the 15-iteration replan gate.
+GitHub remains the coordination and audit layer, while Codex execution occurs locally on the operator workstation. Codex is authenticated with the user's ChatGPT account rather than an API key, so this orchestration does not require `OPENAI_API_KEY`.
+
+The controller validates repository identity and a clean main checkout, prevents duplicate initial execution, isolates tasks in dedicated Git worktrees, updates issue labels/comments, creates the task PR, and reuses the same task branch for revisions.
+
+The 15-iteration replan gate remains mandatory. Revision 16 is never executed under the same approved plan.
+
+No automatic merge is permitted. Teleport and network-device credentials remain outside Codex prompts and GitHub. Live network validation remains operator-controlled.
+
+Detailed model and setup: `docs/architecture/codex-orchestration.md`.
+
+The local orchestration foundation is implemented but must be considered not end-to-end validated until bootstrap and a controlled test issue complete successfully.
 
 ## 15. Parallel Development Direction
 
