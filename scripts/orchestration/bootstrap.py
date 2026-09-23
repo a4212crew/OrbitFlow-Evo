@@ -55,12 +55,30 @@ def ensure_executable(name: str) -> None:
         raise RuntimeError(f"{name} was not found on PATH.")
 
 
+def verify_git_identity() -> tuple[str, str]:
+    values = []
+    for key in ("user.name", "user.email"):
+        try:
+            values.append(run_command(["git", "config", "--get", key]).strip())
+        except RuntimeError:
+            values.append("")
+
+    if not all(values):
+        raise RuntimeError(
+            "Git author identity is not configured. "
+            "Set user.name and user.email before running the Codex controller."
+        )
+    return values[0], values[1]
+
+
 def bootstrap(repo: str = DEFAULT_REPO) -> None:
     print("Validating OrbitFlow-Evo local Codex prerequisites...")
 
+    ensure_executable("git")
     ensure_executable("gh")
     ensure_executable("codex")
 
+    git_name, git_email = verify_git_identity()
     run_command(["gh", "auth", "status"])
     codex_version = run_command(["codex", "--version"])
 
@@ -92,6 +110,7 @@ def bootstrap(repo: str = DEFAULT_REPO) -> None:
     print("Bootstrap complete.")
     print(f"Repository: {repo}")
     print("GitHub CLI: authenticated")
+    print(f"Git author: {git_name} <{git_email}>")
     print(f"Codex CLI: {codex_version}")
     print()
     print("Codex authentication must use your ChatGPT account.")
