@@ -201,7 +201,7 @@ The control flow is:
 ```text
 Atlas-approved GitHub issue
  -> codex-task
- -> local controller on the operator workstation
+ -> cross-platform Python controller on the operator workstation
  -> ChatGPT-authenticated Codex CLI
  -> dedicated codex/issue-<number> worktree/branch
  -> tests
@@ -213,7 +213,7 @@ Atlas-approved GitHub issue
 
 GitHub remains the coordination and audit layer, while Codex execution occurs locally on the operator workstation. Codex is authenticated with the user's ChatGPT account rather than an API key, so this orchestration does not require `OPENAI_API_KEY`.
 
-The controller validates repository identity and a clean main checkout, prevents duplicate initial execution, isolates tasks in dedicated Git worktrees, updates issue labels/comments, creates the task PR, and reuses the same task branch for revisions.
+The Python controller validates local repository identity and a clean main checkout, prevents duplicate initial execution, isolates tasks in dedicated Git worktrees, updates issue labels/comments, enforces a passing pytest gate before commit/push/PR progression, creates or updates the task PR, and reuses the same task branch for revisions. Its dry-run mode is non-mutating. The same controller implementation is used on Windows and Linux.
 
 The 15-iteration replan gate remains mandatory. Revision 16 is never executed under the same approved plan.
 
