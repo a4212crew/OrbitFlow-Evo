@@ -7,4 +7,4 @@ venv/
 htmlcov/
 *.log
 .env
-
+data/live_validation/
