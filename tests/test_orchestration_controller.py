@@ -222,3 +222,70 @@ def test_process_one_failure_removes_queue_labels(monkeypatch):
     assert comments[0][1] == 42
     assert "boom" in comments[0][2]
 
+def test_run_codex_uses_workspace_write_and_worktree_temp(monkeypatch, tmp_path):
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    output_path = tmp_path / "codex-output.txt"
+    captured = {}
+
+    class FakeStdout:
+        def __iter__(self):
+            return iter(["done\n"])
+
+    class FakeProcess:
+        stdout = FakeStdout()
+
+        def wait(self):
+            return 0
+
+    def fake_popen(args, **kwargs):
+        captured["args"] = args
+        captured["cwd"] = kwargs["cwd"]
+        captured["env"] = kwargs["env"]
+        return FakeProcess()
+
+    monkeypatch.setattr(controller.subprocess, "Popen", fake_popen)
+
+    controller.run_codex("test prompt", worktree, output_path)
+
+    assert captured["args"] == [
+        "codex",
+        "exec",
+        "--sandbox",
+        "workspace-write",
+        "test prompt",
+    ]
+    assert captured["cwd"] == worktree
+    assert captured["env"]["TEMP"] == str(worktree / ".codex-tmp")
+    assert captured["env"]["TMP"] == str(worktree / ".codex-tmp")
+    assert captured["env"]["TMPDIR"] == str(worktree / ".codex-tmp")
+    assert not (worktree / ".codex-tmp").exists()
+    assert output_path.read_text(encoding="utf-8") == "done\n"
+
+
+def test_run_codex_cleans_temp_dir_on_failure(monkeypatch, tmp_path):
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    output_path = tmp_path / "codex-output.txt"
+
+    class FakeStdout:
+        def __iter__(self):
+            return iter(())
+
+    class FakeProcess:
+        stdout = FakeStdout()
+
+        def wait(self):
+            return 9
+
+    monkeypatch.setattr(
+        controller.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: FakeProcess(),
+    )
+
+    with pytest.raises(RuntimeError, match="Codex exited with code 9"):
+        controller.run_codex("test prompt", worktree, output_path)
+
+    assert not (worktree / ".codex-tmp").exists()
+

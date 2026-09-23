@@ -67,13 +67,14 @@ It:
 2. verifies that the local checkout is the expected GitHub repository;
 3. rejects a dirty main checkout;
 4. creates or reuses a dedicated task worktree;
-5. invokes local `codex exec`;
-6. runs the deterministic pytest suite with `PYTHONPATH=src`;
-7. stops if tests fail, without committing, pushing, or creating/updating a PR;
-8. commits and pushes only after tests pass;
-9. creates the initial PR or updates the existing PR branch;
-10. posts the iteration result to the GitHub issue;
-11. returns the issue to `codex-review`.
+5. invokes local `codex exec` with an explicit `workspace-write` sandbox scoped to the task worktree;
+6. provides Codex a disposable temporary directory inside the task worktree so tools such as pytest can create temporary files on Windows/Linux, then removes it before repository change detection;
+7. runs the deterministic pytest suite with `PYTHONPATH=src`;
+8. stops if tests fail, without committing, pushing, or creating/updating a PR;
+9. commits and pushes only after tests pass;
+10. creates the initial PR or updates the existing PR branch;
+11. posts the iteration result to the GitHub issue;
+12. returns the issue to `codex-review`.
 
 Run once:
 
@@ -202,6 +203,7 @@ GitHub access uses the locally authenticated `gh` CLI.
 
 ## Security Boundaries
 
+- Codex runs with `workspace-write`, not unrestricted filesystem access. The writable task area is the dedicated issue worktree; Git metadata and unrelated paths remain outside the intended modification boundary.
 - Codex receives repository/task context only.
 - Device passwords, OTPs, Teleport private keys/certificates, and production secrets must not be placed in GitHub issues or Codex prompts.
 - The controller may run repository tests but does not perform live network validation.
