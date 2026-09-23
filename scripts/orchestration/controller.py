@@ -203,9 +203,11 @@ def repository_root() -> Path:
 
 
 def verify_repository(repo: str, repo_root: Path) -> None:
-    actual = json.loads(
-        gh(["repo", "view", repo, "--json", "nameWithOwner"])
-    )["nameWithOwner"]
+    completed = run_command(
+        ["gh", "repo", "view", "--json", "nameWithOwner"],
+        cwd=repo_root,
+    )
+    actual = json.loads(completed.stdout)["nameWithOwner"]
     if actual != repo:
         raise RuntimeError(
             f"Repository identity mismatch. Expected '{repo}', got '{actual}'."
