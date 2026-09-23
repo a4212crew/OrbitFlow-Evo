@@ -204,6 +204,24 @@ def repository_root() -> Path:
     return Path(completed.stdout.strip()).resolve()
 
 
+def verify_git_identity(repo_root: Path) -> None:
+    values = {}
+    for key in ("user.name", "user.email"):
+        completed = run_command(
+            ["git", "config", "--get", key],
+            cwd=repo_root,
+            check=False,
+        )
+        values[key] = completed.stdout.strip() if completed.returncode == 0 else ""
+
+    missing = [key for key, value in values.items() if not value]
+    if missing:
+        raise RuntimeError(
+            "Git author identity is not configured for this repository. "
+            "Configure user.name and user.email before running Codex."
+        )
+
+
 def verify_repository(repo: str, repo_root: Path) -> None:
     completed = run_command(
         ["gh", "repo", "view", "--json", "nameWithOwner"],
@@ -214,6 +232,7 @@ def verify_repository(repo: str, repo_root: Path) -> None:
         raise RuntimeError(
             f"Repository identity mismatch. Expected '{repo}', got '{actual}'."
         )
+    verify_git_identity(repo_root)
     dirty = git(["status", "--porcelain"], repo_root)
     if dirty:
         raise RuntimeError(
