@@ -160,3 +160,65 @@ def test_iteration_limit_dry_run_does_not_mutate(tmp_path, monkeypatch, capsys):
     )
 
     assert "would move to codex-replan-required" in capsys.readouterr().out
+
+def test_verify_repository_reports_dirty_paths(monkeypatch, tmp_path):
+    class Completed:
+        stdout = '{"nameWithOwner":"a4212crew/OrbitFlow-Evo"}'
+
+    monkeypatch.setattr(controller, "run_command", lambda *_args, **_kwargs: Completed())
+    monkeypatch.setattr(
+        controller,
+        "git",
+        lambda *_args, **_kwargs: " M README.md\n?? local-note.txt",
+    )
+
+    with pytest.raises(RuntimeError) as error:
+        controller.verify_repository("a4212crew/OrbitFlow-Evo", tmp_path)
+
+    message = str(error.value)
+    assert "Dirty paths:" in message
+    assert "README.md" in message
+    assert "local-note.txt" in message
+
+
+def test_process_one_failure_removes_queue_labels(monkeypatch):
+    task = _task("initial")
+    label_calls = []
+    comments = []
+
+    monkeypatch.setattr(controller, "get_next_task", lambda _repo: task)
+    monkeypatch.setattr(
+        controller,
+        "process_task",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    monkeypatch.setattr(
+        controller,
+        "set_issue_labels",
+        lambda repo, issue_number, **kwargs: label_calls.append(
+            (repo, issue_number, kwargs)
+        ),
+    )
+    monkeypatch.setattr(
+        controller,
+        "add_issue_comment",
+        lambda repo, issue_number, body: comments.append(
+            (repo, issue_number, body)
+        ),
+    )
+
+    assert controller.process_one("a4212crew/OrbitFlow-Evo") is True
+
+    assert label_calls == [
+        (
+            "a4212crew/OrbitFlow-Evo",
+            42,
+            {
+                "add": ("codex-failed",),
+                "remove": ("codex-task", "codex-revise", "codex-running"),
+            },
+        )
+    ]
+    assert comments[0][1] == 42
+    assert "boom" in comments[0][2]
+

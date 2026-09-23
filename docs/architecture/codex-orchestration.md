@@ -212,7 +212,7 @@ GitHub access uses the locally authenticated `gh` CLI.
 
 ## Failure Handling
 
-If the local controller fails, it applies `codex-failed` and posts the failure reason to the issue where possible.
+If the local controller fails, it removes the queue labels (`codex-task` / `codex-revise`), applies `codex-failed`, and posts the failure reason to the issue where possible. This prevents `--watch` from retrying the same failed task indefinitely. Repository-cleanliness failures also include the dirty paths so the operator can correct them explicitly.
 
 A failed run does not count as a completed implementation/review iteration unless an iteration marker was successfully posted for Atlas review.
 
