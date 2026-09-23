@@ -28,12 +28,27 @@ class JsonInventoryStore:
         matches = [item for item in devices.values() if serial_key and _serial_key(str(item.get("vendor", "")), str(item.get("serial_number", ""))) == serial_key]
         prior_at_ip = [item for item in devices.values() if observed.management_ip in item.get("observed_management_ips", [])]
 
+        # Enrich only one serial-less identity observed at this exact address.
+        # Hostname and model are deliberately not physical identity evidence.
+        serial_discovery_match = (
+            prior_at_ip[0]
+            if observed.serial_number
+            and len(prior_at_ip) == 1
+            and not str(prior_at_ip[0].get("serial_number", "")).strip()
+            else None
+        )
+
         if matches:
             previous = matches[0]
             device_id = str(previous["device_id"])
             ips = tuple(dict.fromkeys((*previous.get("observed_management_ips", []), observed.management_ip)))
             if observed.management_ip not in previous.get("observed_management_ips", []):
                 events.append("management_ip_changed")
+        elif serial_discovery_match:
+            previous = serial_discovery_match
+            device_id = str(previous["device_id"])
+            ips = tuple(dict.fromkeys((*previous.get("observed_management_ips", []), observed.management_ip)))
+            events.append("serial_number_discovered")
         else:
             device_id = self._id_factory()
             ips = (observed.management_ip,)
