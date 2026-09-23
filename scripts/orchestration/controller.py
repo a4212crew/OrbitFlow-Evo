@@ -366,24 +366,36 @@ def build_prompt(
 
 
 def run_codex(prompt: str, worktree: Path, output_path: Path) -> None:
-    with output_path.open("w", encoding="utf-8") as output:
-        process = subprocess.Popen(
-            ["codex", "exec", prompt],
-            cwd=worktree,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            bufsize=1,
-        )
-        assert process.stdout is not None
-        for line in process.stdout:
-            print(line, end="")
-            output.write(line)
-        return_code = process.wait()
-    if return_code != 0:
-        raise RuntimeError(f"Codex exited with code {return_code}.")
+    temp_dir = worktree / ".codex-tmp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    env = os.environ.copy()
+    env["TEMP"] = str(temp_dir)
+    env["TMP"] = str(temp_dir)
+    env["TMPDIR"] = str(temp_dir)
+
+    try:
+        with output_path.open("w", encoding="utf-8") as output:
+            process = subprocess.Popen(
+                ["codex", "exec", "--sandbox", "workspace-write", prompt],
+                cwd=worktree,
+                env=env,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+            )
+            assert process.stdout is not None
+            for line in process.stdout:
+                print(line, end="")
+                output.write(line)
+            return_code = process.wait()
+        if return_code != 0:
+            raise RuntimeError(f"Codex exited with code {return_code}.")
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def run_tests(worktree: Path) -> None:
