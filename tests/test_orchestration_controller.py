@@ -1,5 +1,6 @@
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -10,6 +11,7 @@ _CONTROLLER_PATH = (
 _SPEC = spec_from_file_location("orbitflow_orchestration_controller", _CONTROLLER_PATH)
 assert _SPEC is not None and _SPEC.loader is not None
 controller = module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = controller
 _SPEC.loader.exec_module(controller)
 
 
