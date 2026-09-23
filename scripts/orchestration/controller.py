@@ -52,6 +52,8 @@ def run_command(
         cwd=cwd,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         check=False,
     )
@@ -364,6 +366,8 @@ def run_codex(prompt: str, worktree: Path, output_path: Path) -> None:
             ["codex", "exec", prompt],
             cwd=worktree,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             bufsize=1,
