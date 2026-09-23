@@ -250,3 +250,6 @@ First end-to-end validation:
 9. Merge only after explicit user approval.
 
 The orchestration foundation is not considered end-to-end validated until this controlled test succeeds on at least one workstation. Cross-platform portability is covered deterministically, while full live orchestration should be exercised on both Windows and Linux when both environments are available.
+
+
+The controller preflights a resolved Git author identity (`user.name` and `user.email`) before any Codex execution so commit failures are caught before implementation work begins.
