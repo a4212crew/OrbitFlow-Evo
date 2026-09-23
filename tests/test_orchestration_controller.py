@@ -166,6 +166,7 @@ def test_verify_repository_reports_dirty_paths(monkeypatch, tmp_path):
         stdout = '{"nameWithOwner":"a4212crew/OrbitFlow-Evo"}'
 
     monkeypatch.setattr(controller, "run_command", lambda *_args, **_kwargs: Completed())
+    monkeypatch.setattr(controller, "verify_git_identity", lambda *_args: None)
     monkeypatch.setattr(
         controller,
         "git",
@@ -288,4 +289,40 @@ def test_run_codex_cleans_temp_dir_on_failure(monkeypatch, tmp_path):
         controller.run_codex("test prompt", worktree, output_path)
 
     assert not (worktree / ".codex-tmp").exists()
+
+def test_verify_git_identity_rejects_missing_email(monkeypatch, tmp_path):
+    class Completed:
+        def __init__(self, returncode, stdout):
+            self.returncode = returncode
+            self.stdout = stdout
+
+    def fake_run(args, **_kwargs):
+        if args[-1] == "user.name":
+            return Completed(0, "a4212crew\n")
+        return Completed(1, "")
+
+    monkeypatch.setattr(controller, "run_command", fake_run)
+
+    with pytest.raises(RuntimeError, match="Git author identity is not configured"):
+        controller.verify_git_identity(tmp_path)
+
+
+def test_verify_git_identity_accepts_resolved_name_and_email(monkeypatch, tmp_path):
+    class Completed:
+        returncode = 0
+
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    values = {
+        "user.name": "a4212crew\n",
+        "user.email": "dev@example.test\n",
+    }
+    monkeypatch.setattr(
+        controller,
+        "run_command",
+        lambda args, **_kwargs: Completed(values[args[-1]]),
+    )
+
+    controller.verify_git_identity(tmp_path)
 
