@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
-from openpyxl import load_workbook
+from orbitflow.targets import load_targets
 
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.logging import module_logger
@@ -24,7 +24,6 @@ BASTION_HOST = "bastion-lyn-dc1-vic"
 BASTION_USER = "lightningadmin"
 INVENTORY_PATH = Path("data/live_validation/inventory.json")
 RESULTS_PATH = Path("data/live_validation/inventory_validation_results.json")
-REQUIRED_COLUMNS = ("management_ip", "username", "password")
 
 
 def _linux_teleport_identity_paths() -> tuple[Path | None, Path | None]:
@@ -33,47 +32,6 @@ def _linux_teleport_identity_paths() -> tuple[Path | None, Path | None]:
     proxy_host = TELEPORT_PROXY.rsplit(":", 1)[0]
     key_path = Path.home() / ".tsh" / "keys" / proxy_host / BASTION_USER
     return key_path, key_path.with_name(f"{key_path.name}-cert.pub")
-
-
-def load_targets(path: str | Path) -> list[dict[str, str]]:
-    """Load required target fields while ignoring future-compatible columns."""
-    workbook = load_workbook(path, read_only=True, data_only=True)
-    try:
-        sheet = workbook.active
-        rows = sheet.iter_rows(values_only=True)
-        header_row = next(rows, None)
-        if header_row is None:
-            raise ValueError("Excel input is empty")
-        headers = {
-            str(value).strip().casefold(): index
-            for index, value in enumerate(header_row)
-            if value is not None
-        }
-        missing = [name for name in REQUIRED_COLUMNS if name not in headers]
-        if missing:
-            raise ValueError(
-                f"Excel input is missing required columns: {', '.join(missing)}"
-            )
-        targets = []
-        for row_number, row in enumerate(rows, start=2):
-            values = {
-                name: (
-                    ""
-                    if headers[name] >= len(row) or row[headers[name]] is None
-                    else str(row[headers[name]]).strip()
-                )
-                for name in REQUIRED_COLUMNS
-            }
-            if not any(values.values()):
-                continue
-            if not all(values.values()):
-                raise ValueError(f"Excel row {row_number} has an empty required field")
-            targets.append(values)
-        if not targets:
-            raise ValueError("Excel input contains no device rows")
-        return targets
-    finally:
-        workbook.close()
 
 
 def _serialize_context(context: DeviceContext) -> dict[str, object]:

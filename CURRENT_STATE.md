@@ -284,6 +284,19 @@ The controller implements controller-owned staging, commit with the preflighted 
 
 Codex and controller pytest temporary files use unique task/purpose-isolated `orbitflow-` directories under the OS temporary directory. Codex receives the external path through `TEMP`, `TMP`, and `TMPDIR`; controller pytest also receives an external `--basetemp`. Cleanup uses bounded retries without administrator privileges or ACL resets, refuses reparse points, and reports retained paths as stderr warnings without blocking Git operations or masking worker/test failures. Full end-to-end validation is complete. After retirement, the full deterministic pytest suite passes (206 tests). The legacy implementation and its implementation-specific tests were retired in Issue #18; Issue #22 adds safe watch polling and the 10-iteration gate; deterministic validation passes (237 tests). Live watch validation was not performed.
 
+## Batch Interface/VLAN Reporting
+
+`scripts/device_interface_vlan_report.py` composes the shared Excel target loader,
+inventory resolver, InterfaceService, and VlanService in a sequential read-only
+batch. Inventory and both capabilities reuse one established session per target.
+The workbook is written once at the end with Interfaces, VLAN_Database, and
+Run_Errors sheets; failures are isolated by device/stage, and successful partial
+observations are retained. Canonical interface joins preserve logical interfaces
+and aligned service detail without deriving VLAN IDs from service identities.
+Reporting uses the shared logging foundation and sanitized literal Excel text.
+Deterministic tests cover these contracts and a simulated 1,500-device batch.
+No live reporting validation has been performed.
+
 ## Known Limitations
 
 - Current SSH host-key defaults are permissive and therefore do not provide MITM protection.

@@ -18,7 +18,8 @@ MAX_BYTES = 2 * 1024 * 1024
 BACKUP_COUNT = 3
 
 
-def _safe(value):
+def sanitize_text(value):
+    """Sanitize scalar text for operational output without stringifying objects."""
     if not isinstance(value, (str, int, float, bool)):
         return "[REDACTED]"
     text = str(value)
@@ -26,7 +27,11 @@ def _safe(value):
     return re.sub(
         r"(?i)(password|passwd|otp|token|secret|authorization|pkey|private_key|credentials)\s*['\"]?\s*[:=]\s*.*",
         r"\1=[REDACTED]", text, flags=re.S,
-    )[:4096]
+    )
+
+
+def _safe(value):
+    return sanitize_text(value)[:4096]
 
 
 class SafeFormatter(logging.Formatter):
