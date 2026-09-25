@@ -16,6 +16,9 @@ lifecycle has already passed.
    deterministic pytest gate, and reaches `codex-review` with
    `<!-- orbitflow-codex-iteration:2 -->`.
 
+Iteration 1 was published successfully to PR #17, and this revision is intentionally
+used to validate same-branch/same-worktree/same-PR reuse.
+
 The controller and Atlas review records must establish these checkpoints;
 creating this file and passing local tests alone do not establish E2E success.
 
