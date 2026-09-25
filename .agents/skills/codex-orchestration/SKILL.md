@@ -68,7 +68,7 @@ User requirement
     -> same branch/PR reused for revisions
 ```
 
-One-task execution through the operational v2 controller is the supported mode:
+One-task execution remains the default operational mode:
 
 ```bash
 python scripts/orchestration_v2/controller.py
@@ -80,7 +80,7 @@ Preview the next queued task without mutation with:
 python scripts/orchestration_v2/controller.py --dry-run
 ```
 
-Watch mode is not supported.
+Optional `--watch` mode is supported for serial queue polling. It defaults to 15 seconds, accepts `--poll-seconds` values of 5 seconds or more, prioritizes revisions, continues after successful tasks, stops on execution failure, and exits cleanly on Ctrl+C.
 
 ## Task Contract
 
@@ -189,9 +189,9 @@ Codex implementation or revision
     -> Atlas review
 ```
 
-Maximum: 15 iterations under one approved plan.
+Maximum: 10 iterations under one approved plan.
 
-After iteration 15, move to `codex-replan-required` and require Atlas + user to approve a new plan.
+After iteration 10, move to `codex-replan-required` and require Atlas + user to approve a new plan.
 
 ## Merge Boundary
 
