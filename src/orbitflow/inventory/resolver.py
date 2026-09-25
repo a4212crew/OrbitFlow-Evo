@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
 from typing import Callable, Protocol
 
@@ -26,6 +27,8 @@ class _Runner(Protocol):
 
     def run_command(self, command: str, timeout: float = 10.0) -> str: ...
 
+    def close(self) -> None: ...
+
 
 class DeviceInventoryResolver:
     """Collect stable identity without reconnecting or owning the session."""
@@ -46,38 +49,38 @@ class DeviceInventoryResolver:
         try:
             if platform_override and platform_override not in self._SUPPORTED:
                 raise DeviceInventoryError(f"unsupported platform override: {platform_override}")
-            runner = self._runner_factory(session)
-            show_version = runner.run_command("show version", timeout=self._timeout)
-            display_version = ""
-            show_identified = sum(
-                parser(show_version, "") is not None
-                for parser in (parse_cisco_identity, parse_edgeswitch_identity)
-            ) == 1
-            if (not show_identified and
-                    platform_override not in {"cisco_ios", "cisco_xe", "cisco_xr", "ubiquiti_edgeswitch"}):
-                runner.run_command("screen-length 0 temporary", timeout=self._timeout)
-                display_version = runner.run_command("display version", timeout=self._timeout)
-            facts, detected_group = self._detect(show_version, display_version, platform_override)
-            if detected_group == "cisco":
-                command = "show chassis" if facts.get("platform") == "cisco_xr" else "show inventory"
-                details = runner.run_command(command, timeout=self._timeout)
-                facts = parse_cisco_identity(show_version, details) or facts
-            elif detected_group == "huawei":
-                details = runner.run_command("display esn", timeout=self._timeout)
-                facts = parse_huawei_identity(display_version, details) or facts
-                facts["hostname"] = extract_huawei_hostname(runner.prompt)
-            else:
-                facts["hostname"] = extract_edgeswitch_hostname(runner.prompt)
-            if platform_override and facts.get("device_family") != "ME3600X":
-                facts["platform"] = platform_override
-            if not facts.get("hostname"):
-                raise DeviceInventoryError("identification output did not contain a hostname")
-            context = DeviceContext(device_id="", management_ip=management_ip,
-                                    observed_management_ips=(management_ip,),
-                                    last_successful_collection=attempted_at,
-                                    last_collection_attempt=attempted_at, **facts)  # type: ignore[arg-type]
-            context, self.last_events = self.store.reconcile(context)
-            return context
+            with closing(self._runner_factory(session)) as runner:
+                show_version = runner.run_command("show version", timeout=self._timeout)
+                display_version = ""
+                show_identified = sum(
+                    parser(show_version, "") is not None
+                    for parser in (parse_cisco_identity, parse_edgeswitch_identity)
+                ) == 1
+                if (not show_identified and
+                        platform_override not in {"cisco_ios", "cisco_xe", "cisco_xr", "ubiquiti_edgeswitch"}):
+                    runner.run_command("screen-length 0 temporary", timeout=self._timeout)
+                    display_version = runner.run_command("display version", timeout=self._timeout)
+                facts, detected_group = self._detect(show_version, display_version, platform_override)
+                if detected_group == "cisco":
+                    command = "show chassis" if facts.get("platform") == "cisco_xr" else "show inventory"
+                    details = runner.run_command(command, timeout=self._timeout)
+                    facts = parse_cisco_identity(show_version, details) or facts
+                elif detected_group == "huawei":
+                    details = runner.run_command("display esn", timeout=self._timeout)
+                    facts = parse_huawei_identity(display_version, details) or facts
+                    facts["hostname"] = extract_huawei_hostname(runner.prompt)
+                else:
+                    facts["hostname"] = extract_edgeswitch_hostname(runner.prompt)
+                if platform_override and facts.get("device_family") != "ME3600X":
+                    facts["platform"] = platform_override
+                if not facts.get("hostname"):
+                    raise DeviceInventoryError("identification output did not contain a hostname")
+                context = DeviceContext(device_id="", management_ip=management_ip,
+                                        observed_management_ips=(management_ip,),
+                                        last_successful_collection=attempted_at,
+                                        last_collection_attempt=attempted_at, **facts)  # type: ignore[arg-type]
+                context, self.last_events = self.store.reconcile(context)
+                return context
         except Exception as exc:
             safe_error = f"identification failed ({type(exc).__name__})"
             self.store.record_failure(management_ip, attempted_at, safe_error)

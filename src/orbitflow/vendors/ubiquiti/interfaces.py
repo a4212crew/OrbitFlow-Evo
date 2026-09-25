@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import re
 
 from orbitflow.transport import DeviceSession
@@ -99,19 +100,19 @@ class EdgeSwitchInterfaceAdapter:
         self._timeout = timeout
 
     def collect(self) -> InterfaceCollection:
-        cli = PromptCLI(
+        with closing(PromptCLI(
             self._session,
             paging_command="terminal length 0",
             prompt_pattern=r"^([^\r\n]+[>#])[ \t]*$",
             rejected=lambda output: bool(_REJECTED.search(output)),
             platform_name="Ubiquiti EdgeSwitch",
             timeout=self._timeout,
-        )
-        command = "show interfaces status all"
-        output = cli.run_command(command, timeout=self._timeout)
-        if _REJECTED.search(output):
-            raise ValueError(f"EdgeSwitch rejected approved command {command!r}")
-        return InterfaceCollection(
-            device_name=extract_edgeswitch_hostname(cli.prompt),
-            observations=parse_interfaces_status(output),
-        )
+        )) as cli:
+            command = "show interfaces status all"
+            output = cli.run_command(command, timeout=self._timeout)
+            if _REJECTED.search(output):
+                raise ValueError(f"EdgeSwitch rejected approved command {command!r}")
+            return InterfaceCollection(
+                device_name=extract_edgeswitch_hostname(cli.prompt),
+                observations=parse_interfaces_status(output),
+            )

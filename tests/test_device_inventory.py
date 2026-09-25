@@ -13,6 +13,9 @@ NOW = datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc)
 
 
 class Runner:
+    def close(self):
+        self.closed = True
+
     def __init__(self, outputs, prompt="device#"):
         self.outputs = outputs
         self.prompt = prompt

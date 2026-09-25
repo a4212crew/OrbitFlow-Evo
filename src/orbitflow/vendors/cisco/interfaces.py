@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import re
 
 from orbitflow.transport import DeviceSession
@@ -101,16 +102,16 @@ class CiscoInterfaceAdapter:
         self._timeout = timeout
 
     def collect(self) -> InterfaceCollection:
-        cli = self.cli_type(self._session, timeout=self._timeout)
-        output = cli.run_command("show interfaces description", timeout=self._timeout)
-        if _REJECTED.search(output):
-            raise ValueError(
-                "Cisco rejected approved command 'show interfaces description'"
+        with closing(self.cli_type(self._session, timeout=self._timeout)) as cli:
+            output = cli.run_command("show interfaces description", timeout=self._timeout)
+            if _REJECTED.search(output):
+                raise ValueError(
+                    "Cisco rejected approved command 'show interfaces description'"
+                )
+            return InterfaceCollection(
+                device_name=self.extract_hostname(cli.prompt),
+                observations=self.parse_output(output),
             )
-        return InterfaceCollection(
-            device_name=self.extract_hostname(cli.prompt),
-            observations=self.parse_output(output),
-        )
 
     cli_type = CiscoIOSCLI
     extract_hostname = staticmethod(extract_ios_hostname)
