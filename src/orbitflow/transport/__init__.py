@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import platform
 
+from orbitflow.logging import transport_logging
+
 from .exceptions import (
     DeviceConnectionError,
     TeleportError,
@@ -23,16 +25,17 @@ def connect_device(
     system: str | None = None,
 ) -> DeviceSession:
     """Connect to a device using the validated transport for the current OS."""
-    operating_system = (system or platform.system()).lower()
-    if operating_system == "windows":
-        from .windows import connect_windows
+    with transport_logging(device_host):
+        operating_system = (system or platform.system()).lower()
+        if operating_system == "windows":
+            from .windows import connect_windows
 
-        return connect_windows(device_host, credentials, config)
-    if operating_system == "linux":
-        from .linux import connect_linux
+            return connect_windows(device_host, credentials, config)
+        if operating_system == "linux":
+            from .linux import connect_linux
 
-        return connect_linux(device_host, credentials, config)
-    raise UnsupportedPlatformError(f"unsupported operating system: {operating_system}")
+            return connect_linux(device_host, credentials, config)
+        raise UnsupportedPlatformError(f"unsupported operating system: {operating_system}")
 
 
 __all__ = [

@@ -130,6 +130,38 @@ the device's existing CLI prompt; no additional device command is sent.
 Obtain credentials and configuration through the approved operator-side secret
 and Teleport-profile mechanisms; do not place secret values in the script.
 
+## Module logs
+
+Inventory batch validation writes concise per-device console status followed by
+totals and result/log paths. Its JSON results are unchanged. File logs live under
+`logs/inventory/YYYY-MM-DD/inventory_batch.log` and connection diagnostics under
+`logs/transport/YYYY-MM-DD/transport.log`, relative to the working directory.
+Dates use UTC at logger creation. Each file rotates at 2 MiB with three backups;
+older dated directories remain available for operator archival or removal.
+
+Future modules can use the same scoped writer:
+
+```python
+from orbitflow.logging import module_logger
+
+with module_logger("interfaces") as (logger, log_path):
+    logger.info("Collection completed", extra={"management_ip": "192.0.2.1"})
+```
+
+Logs contain JSON lines with timestamps, levels, module names, management IPs,
+and error categories. Use fixed operational messages; never pass credentials,
+raw device output, or other secrets. Formatting arguments and non-scalar objects
+are omitted, and labeled secret values are redacted. Exception logging retains
+chained exception types, OS error numbers, and traceback frame locations, while
+omitting arbitrary exception text, source lines, and locals.
+
+During `connect_device`, Paramiko warnings/errors are routed to the transport
+file as diagnostic markers; caught exceptions provide the structured details.
+Paramiko logging configuration is restored afterward. This routing is intended
+for sequential operation: its temporary configuration is process-wide. Writers
+must not share a log file across processes. Batch callers may set `log_root` for
+an alternative destination; nested transport logging uses that same root.
+
 ## Tests
 
 The suite uses mocks and does not contact Teleport or network devices:

@@ -127,6 +127,7 @@ def test_batch_uses_row_credentials_no_override_continues_and_excludes_secrets(
         results_path=results_path,
         output=output,
         clock=lambda: NOW,
+        log_root=tmp_path / "logs",
     )
 
     assert [
@@ -155,7 +156,16 @@ def test_batch_uses_row_credentials_no_override_continues_and_excludes_secrets(
         "reconciliation_events": [],
         "error": "inventory validation failed (RuntimeError)",
     }
-    rendered = results_path.read_text() + output.getvalue()
+    log_path = next((tmp_path / "logs" / "inventory").glob("*/inventory_batch.log"))
+    records = [json.loads(line) for line in log_path.read_text().splitlines()]
+    failure = next(record for record in records if record["level"] == "ERROR")
+    assert failure["management_ip"] == "192.0.2.2"
+    assert failure["error_category"] == "RuntimeError"
+    assert failure["exception_chain"][0]["category"] == "RuntimeError"
+    assert "Total: 3\nSuccessful: 2\nFailed: 1" in output.getvalue()
+    assert f"Results: {results_path}" in output.getvalue()
+    assert f"Log: {log_path}" in output.getvalue()
+    rendered = results_path.read_text() + output.getvalue() + log_path.read_text()
     for secret in (
         "user-one",
         "user-two",

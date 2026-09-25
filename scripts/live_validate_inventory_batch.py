@@ -14,6 +14,7 @@ from typing import TextIO
 from openpyxl import load_workbook
 
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
+from orbitflow.logging import module_logger
 from orbitflow.models import DeviceContext
 from orbitflow.transport import DeviceCredentials, TransportConfig, connect_device
 
@@ -99,7 +100,7 @@ def _write_json(path: str | Path, payload: dict[str, object]) -> None:
     temporary.replace(destination)
 
 
-def run_batch_validation(
+def _run_batch_validation(
     targets: list[dict[str, str]],
     transport_config: TransportConfig,
     *,
@@ -107,11 +108,14 @@ def run_batch_validation(
     results_path: str | Path = RESULTS_PATH,
     output: TextIO = sys.stdout,
     clock=lambda: datetime.now(timezone.utc),
+    logger,
+    log_path,
 ) -> dict[str, object]:
     """Validate every target sequentially and retain per-device snapshots."""
     store = JsonInventoryStore(inventory_path)
     results: list[dict[str, object]] = []
     successful = 0
+    logger.info("Inventory batch started")
     for target in targets:
         management_ip = target["management_ip"]
         resolver = DeviceInventoryResolver(store)
@@ -128,9 +132,13 @@ def run_batch_validation(
                 "reconciliation_events": list(resolver.last_events),
                 "error": "",
             }
+            logger.info("Inventory validation succeeded", extra={"management_ip": management_ip})
             successful += 1
             print(f"{management_ip}: success", file=output)
         except Exception as exc:
+            logger.error("Inventory validation failed", exc_info=True,
+                         extra={"management_ip": management_ip,
+                                "error_category": type(exc).__name__})
             result = {
                 "management_ip": management_ip,
                 "success": False,
@@ -149,8 +157,32 @@ def run_batch_validation(
         "results": results,
     }
     _write_json(results_path, payload)
-    print(f"results_path: {results_path}", file=output)
+    logger.info("Inventory batch completed")
+    print(f"\nTotal: {len(results)}", file=output)
+    print(f"Successful: {successful}", file=output)
+    print(f"Failed: {len(results) - successful}", file=output)
+    print(f"Results: {results_path}", file=output)
+    print(f"Log: {log_path}", file=output)
     return payload
+
+
+def run_batch_validation(
+    targets: list[dict[str, str]],
+    transport_config: TransportConfig,
+    *,
+    inventory_path: str | Path = INVENTORY_PATH,
+    results_path: str | Path = RESULTS_PATH,
+    output: TextIO = sys.stdout,
+    clock=lambda: datetime.now(timezone.utc),
+    log_root: str | Path = "logs",
+) -> dict[str, object]:
+    """Validate a safe sequential batch with module-owned file diagnostics."""
+    with module_logger("inventory", "inventory_batch", log_root=log_root) as (logger, path):
+        return _run_batch_validation(
+            targets, transport_config, inventory_path=inventory_path,
+            results_path=results_path, output=output, clock=clock,
+            logger=logger, log_path=path,
+        )
 
 
 def main(argv: list[str] | None = None) -> None:
