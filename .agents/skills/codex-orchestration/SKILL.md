@@ -28,7 +28,7 @@ Atlas is the default:
 
 Atlas should not normally implement feature code directly.
 
-Atlas may directly patch the orchestration/bootstrap mechanism when Codex cannot operate because that mechanism itself is broken or unavailable. Keep such repair work small, reviewable, and explicitly identified as orchestration repair.
+Atlas may directly patch the orchestration mechanism when Codex cannot operate because that mechanism itself is broken or unavailable. Keep such repair work small, reviewable, and explicitly identified as orchestration repair.
 
 ### Codex
 
@@ -68,13 +68,19 @@ User requirement
     -> same branch/PR reused for revisions
 ```
 
-One-task execution is the default:
+One-task execution through the operational v2 controller is the supported mode:
 
 ```bash
-python scripts/orchestration/controller.py
+python scripts/orchestration_v2/controller.py
 ```
 
-Use `--watch` only when unattended queue processing is explicitly desired and validated.
+Preview the next queued task without mutation with:
+
+```bash
+python scripts/orchestration_v2/controller.py --dry-run
+```
+
+Watch mode is not supported.
 
 ## Task Contract
 
