@@ -234,11 +234,14 @@ Current major implementation areas:
 
 A local ChatGPT/Atlas-to-Codex orchestration foundation is implemented in OrbitFlow-Evo.
 
-Current behavior:
+Current behavior and approved operating model:
 - GitHub Issues act as scoped task records and orchestration state;
+- Atlas owns architecture, task scope, orchestration coordination, and PR review; Codex is the default implementation engineer for normal feature work;
+- direct Atlas coding is reserved for narrowly scoped orchestration/bootstrap repair when the Codex path itself is broken or unavailable;
 - the operator workstation runs the cross-platform Python controller at `scripts/orchestration/controller.py`;
+- one-task execution (`python scripts/orchestration/controller.py`) is the default operator mode; `--watch` is optional for explicitly approved unattended processing;
 - Codex executes locally through the Codex CLI authenticated with the user's ChatGPT account;
-- no `OPENAI_API_KEY` is required by the orchestration;
+- the intended path has no `OPENAI_API_KEY` dependency, no automatic API-billing fallback, and no automatic paid-credit use;
 - each task uses an isolated `codex/issue-<number>` Git branch and dedicated Git worktree;
 - `--dry-run` is non-mutating and does not create branches/worktrees or change GitHub state;
 - the controller runs the deterministic pytest suite as a hard gate;
@@ -247,13 +250,13 @@ Current behavior:
 - Atlas-requested corrections use a marked review comment plus `codex-revise` and update the same task branch/PR;
 - issue comments track implementation/review iteration state;
 - automated revision stops after iteration 15 and moves the task to `codex-replan-required`;
-- no workflow auto-merges to `main`;
+- no workflow auto-merges to `main`; merge still requires explicit user approval;
 - Codex receives no Teleport or network-device credentials, and live validation remains local/operator-controlled;
 - orchestration code and tests are required to remain portable across Windows and Linux.
 
 Setup requires authenticated GitHub CLI and Codex CLI plus a one-time run of `python scripts/orchestration/bootstrap.py`.
 
-Validation status: deterministic orchestration tests are implemented; end-to-end local controller validation remains required. The first controlled test issue must confirm bootstrap, local Codex execution, worktree/branch creation, passing automated tests, PR creation, one Atlas-requested revision, and the review state transitions.
+Validation status: deterministic orchestration tests are implemented, but the controlled Issue #7 smoke test exposed multiple environment/orchestration problems and did not complete the full branch/push/PR/review lifecycle. End-to-end validation therefore remains incomplete. The role/authentication/default-run policy is now documented; any controller changes needed to enforce the remaining policy are follow-up implementation work.
 
 Detailed model: `docs/architecture/codex-orchestration.md`.
 
