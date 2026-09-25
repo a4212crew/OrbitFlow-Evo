@@ -1,3 +1,7 @@
+---
+name: codex-orchestration
+description: Implement and operate the OrbitFlow-Evo local Codex controller, task lifecycle, and review loop.
+---
 # Codex Orchestration Skill
 
 Use this skill for OrbitFlow-Evo development tasks involving ChatGPT / Atlas, GitHub Issues, the local Python controller, Codex CLI, Codex task/revision lifecycle, PR review, or orchestration troubleshooting.
@@ -212,3 +216,4 @@ After meaningful orchestration changes:
 - update `DECISIONS.md` for durable decisions;
 - append detailed work to the current monthly devlog;
 - keep `AGENTS.md` focused on permanent rules.
+

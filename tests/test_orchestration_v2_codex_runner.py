@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import sys
+import tempfile
 
 import pytest
 
@@ -51,8 +52,12 @@ def test_run_codex_uses_workspace_write_and_strips_api_key(monkeypatch, tmp_path
     assert captured["args"] == ["codex", "exec", "--sandbox", "workspace-write", "prompt"]
     assert captured["cwd"] == worktree
     assert "OPENAI_API_KEY" not in captured["env"]
-    assert captured["env"]["TEMP"] == str(worktree / ".codex-tmp")
-    assert not (worktree / ".codex-tmp").exists()
+    temp = Path(captured["env"]["TEMP"])
+    assert temp.parent == Path(tempfile.gettempdir()).resolve()
+    assert worktree not in temp.parents
+    assert captured["env"]["TMP"] == captured["env"]["TMPDIR"] == str(temp)
+    assert not temp.exists()
+    assert list(worktree.iterdir()) == []
     assert output_path.read_text(encoding="utf-8") == "done\n"
 
 
@@ -69,3 +74,63 @@ def test_run_tests_classifies_failure(monkeypatch, tmp_path):
 
     assert error.value.category is FailureCategory.TEST
     assert "remain uncommitted" in str(error.value)
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_pytest_uses_external_basetemp_and_cleans_on_exit(monkeypatch, tmp_path, returncode):
+    from types import SimpleNamespace
+    captured = {}
+    def run(args, **kwargs):
+        temp = Path(kwargs['env']['TEMP'])
+        assert temp.is_dir() and tmp_path not in temp.parents
+        assert kwargs['env']['TMP'] == kwargs['env']['TMPDIR'] == str(temp)
+        assert Path(args[args.index('--basetemp') + 1]) == temp / 'pytest'
+        (temp / 'artifact').write_text('temporary')
+        captured['temp'] = temp
+        return SimpleNamespace(returncode=returncode, stdout='', stderr='')
+    monkeypatch.setattr(codex_runner.subprocess, 'run', run)
+    if returncode:
+        with pytest.raises(OrchestrationError):
+            codex_runner.run_tests(tmp_path)
+    else:
+        codex_runner.run_tests(tmp_path)
+    assert not captured['temp'].exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize('fails', [False, True])
+def test_cleanup_warning_does_not_mask_test_result(monkeypatch, tmp_path, capsys, fails):
+    import temp_cleanup
+    original = temp_cleanup.cleanup_temp
+    retained = []
+    def fail_cleanup(path):
+        retained.append(path)
+        raise OrchestrationError(FailureCategory.CONTROLLER, f'cleanup failed at {path}: denied')
+    def tests(*args):
+        if fails:
+            raise OrchestrationError(FailureCategory.TEST, 'test failure')
+    monkeypatch.setattr(temp_cleanup, 'cleanup_temp', fail_cleanup)
+    monkeypatch.setattr(codex_runner, '_run_tests', tests)
+    try:
+        if fails:
+            with pytest.raises(OrchestrationError) as error:
+                codex_runner.run_tests(tmp_path)
+            assert error.value.category is FailureCategory.TEST
+        else:
+            codex_runner.run_tests(tmp_path)
+        assert str(retained[0]) in capsys.readouterr().err
+        assert list(tmp_path.iterdir()) == []
+    finally:
+        for path in retained:
+            original(path)
+
+
+def test_codex_launch_failure_cleans_external_temp(monkeypatch, tmp_path):
+    captured = []
+    def fail(args, **kwargs):
+        captured.append(Path(kwargs['env']['TEMP']))
+        raise OSError('launch failed')
+    monkeypatch.setattr(codex_runner.subprocess, 'Popen', fail)
+    with pytest.raises(OSError, match='launch failed'):
+        codex_runner.run_codex('prompt', tmp_path, tmp_path / 'output.txt')
+    assert not captured[0].exists()
