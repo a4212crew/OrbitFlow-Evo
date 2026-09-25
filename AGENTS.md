@@ -103,8 +103,8 @@ Permanent orchestration boundaries:
 - Codex implements/tests only;
 - no `OPENAI_API_KEY` dependency or silent API-billing fallback;
 - revisions reuse the same branch/worktree/PR;
-- maximum 15 implementation/review iterations per approved plan;
-- no watch mode;
+- maximum 10 implementation/review iterations per approved plan;
+- optional safe watch mode;
 - no auto-merge.
 
 For detailed lifecycle behaviour, load `.agents/skills/codex-orchestration/SKILL.md`.

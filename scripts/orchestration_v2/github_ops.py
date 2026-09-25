@@ -6,7 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from models import FailureCategory, OrchestrationError, Task
+from models import MAX_ITERATIONS, FailureCategory, OrchestrationError, Task
 
 
 def gh(args: list[str], *, cwd: Path) -> str:
@@ -39,6 +39,9 @@ def get_next_task(repo: str, repo_root: Path) -> Task | None:
                     repo,
                     "--label",
                     label,
+                    "--search",
+                    "-label:codex-review -label:codex-approved -label:codex-failed "
+                    "-label:codex-replan-required -label:codex-running -label:codex-pr",
                     "--state",
                     "open",
                     "--limit",
@@ -95,7 +98,7 @@ def review_context(repo: str, task: Task, cwd: Path) -> tuple[int, str]:
                  re.findall(r'<!-- orbitflow-codex-iteration:(\d+) -->', c['body'])), default=0)
     reviews = [c for c in trusted if '<!-- atlas-review -->' in c['body']]
     review = max(reviews, key=lambda c: (c['created_at'], c['id']))['body'] if reviews else ''
-    if task.mode == 'revision' and count < 15 and not review:
+    if task.mode == 'revision' and count < MAX_ITERATIONS and not review:
         raise OrchestrationError(FailureCategory.PREREQUISITE,
                                  'Revision requires an owner-authored <!-- atlas-review --> comment.')
     return count, review
