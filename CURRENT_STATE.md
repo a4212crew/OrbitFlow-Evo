@@ -260,6 +260,20 @@ Validation status: deterministic orchestration tests are implemented, but the co
 
 Detailed model: `docs/architecture/codex-orchestration.md`.
 
+### Fresh orchestration replacement candidate
+
+A clean replacement candidate now exists under `scripts/orchestration_v2/` while the existing `scripts/orchestration/` implementation remains untouched.
+
+Implemented replacement phases:
+- complete controller-time preflight for Git, Git identity, GitHub CLI authentication, repository identity, clean control checkout, Codex installation, and fail-closed ChatGPT-account authentication checks;
+- explicit rejection of an active `OPENAI_API_KEY` path;
+- one-task GitHub Issue discovery, `codex/issue-<number>` branch planning, dedicated sibling worktree validation/creation, and non-mutating dry-run;
+- local `codex exec --sandbox workspace-write` execution with a worktree-scoped temporary directory;
+- repository-change detection and a blocking full pytest gate;
+- typed failure categories for prerequisite, controller/orchestration, Codex execution, and test failures.
+
+The replacement candidate intentionally stops after successful tests with changes left uncommitted. Commit, push, PR creation/update, GitHub state transitions, iteration handling, and the final review lifecycle remain Phase 4. The candidate is not the operational default until local smoke validation succeeds.
+
 ## Known Limitations
 
 - Current SSH host-key defaults are permissive and therefore do not provide MITM protection.
