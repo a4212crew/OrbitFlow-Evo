@@ -240,11 +240,11 @@ Scripts validated in the lab included:
 
 This lab model is the basis of the OrbitFlow-Evo implementation. GitHub Issues remain the control plane, while the Codex CLI runs locally on the operator workstation using ChatGPT authentication rather than an API key.
 
-The original lab used PowerShell helper scripts. OrbitFlow-Evo now implements the operational bootstrap and controller in cross-platform Python: `scripts/orchestration/bootstrap.py` and `scripts/orchestration/controller.py`. The same controller is intended to run on Windows and Linux.
+The original lab used PowerShell helper scripts. OrbitFlow-Evo uses the cross-platform Python controller at `scripts/orchestration_v2/controller.py`, with integrated preflight. The legacy implementation has been retired; there is no separate bootstrap script.
 
 OrbitFlow-Evo adds hardening around the lab model: local repository identity checks, clean-tree protection, one dedicated worktree/branch per issue, duplicate-execution protection, explicit failure states, a non-mutating dry-run, a blocking pytest gate before commit/push/PR progression, automatic PR creation by the controller, revision handling on the same branch, and the 15-iteration replan gate. See `docs/architecture/codex-orchestration.md`.
 
-The Python orchestration foundation has deterministic tests but remains pending end-to-end validation. The controlled Issue #7 smoke test exposed several workstation/controller hardening gaps and did not complete the full branch/push/PR/review lifecycle.
+Orchestration v2 passed full end-to-end validation, as confirmed in the approved Issue #18 task contract. The user approved removal of the legacy implementation.
 
 ---
 
@@ -259,7 +259,7 @@ Rules:
 - if included ChatGPT-plan Codex usage is unavailable or exhausted, stop and report it;
 - Git author identity, GitHub authentication, and Codex authentication are separate prerequisites.
 
-One-task execution with `python scripts/orchestration/controller.py` is the default. Use `--watch` only when unattended queue processing is explicitly desired and validated.
+One-task execution with `python scripts/orchestration_v2/controller.py` is the operational mode. Watch mode is not supported.
 
 ## 11. Orchestration Safety Requirements
 

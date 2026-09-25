@@ -151,28 +151,22 @@ codex --version
 codex login
 ```
 
-Bootstrap the labels once:
-
-```bash
-python scripts/orchestration/bootstrap.py
-```
+Configure Git author identity and ensure the orchestration labels listed in
+`docs/architecture/codex-orchestration.md` exist. The operational v2 controller
+runs preflight itself; the legacy bootstrap and controller have been retired.
 
 Process one queued task (default):
 
 ```bash
-python scripts/orchestration/controller.py
+python scripts/orchestration_v2/controller.py
 ```
 
-Run continuously only when unattended queue processing is explicitly desired and validated:
-
-```bash
-python scripts/orchestration/controller.py --watch
-```
+The controller processes one task and exits; watch mode is not supported.
 
 Preview the next queued task without mutating GitHub or Git state:
 
 ```bash
-python scripts/orchestration/controller.py --dry-run
+python scripts/orchestration_v2/controller.py --dry-run
 ```
 
 The normal development role split is: Atlas defines architecture/scope and reviews the PR; Codex is the default implementation engineer. The controller processes `codex-task` / `codex-revise`, creates one dedicated Git worktree/branch per issue, invokes the locally authenticated Codex CLI, runs the full deterministic pytest suite, and only commits/pushes/opens or updates the PR after tests pass. It then returns the issue to Atlas review.
@@ -181,4 +175,4 @@ The Python orchestration layer is intentionally cross-platform. Shared orchestra
 
 The intended worker path uses Codex CLI authenticated through the user's ChatGPT account. This orchestration does **not** require `OPENAI_API_KEY`, must not silently fall back to API billing, and must not automatically purchase/use additional paid credits. If included ChatGPT-plan Codex usage is unavailable or exhausted, stop rather than switching billing paths. Device/Teleport credentials must never be placed in task issues or Codex prompts.
 
-See `docs/architecture/codex-orchestration.md` for the complete state machine, test gate, 15-iteration replan gate, and first-validation procedure.
+See `docs/architecture/codex-orchestration.md` for the complete state machine, test gate, 15-iteration replan gate, and validation checkpoints.

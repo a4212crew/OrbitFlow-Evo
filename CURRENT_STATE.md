@@ -238,8 +238,8 @@ Current behavior and approved operating model:
 - GitHub Issues act as scoped task records and orchestration state;
 - Atlas owns architecture, task scope, orchestration coordination, and PR review; Codex is the default implementation engineer for normal feature work;
 - direct Atlas coding is reserved for narrowly scoped orchestration/bootstrap repair when the Codex path itself is broken or unavailable;
-- the operator workstation runs the cross-platform Python controller at `scripts/orchestration/controller.py`;
-- one-task execution (`python scripts/orchestration/controller.py`) is the default operator mode; `--watch` is optional for explicitly approved unattended processing;
+- the operator workstation runs the cross-platform Python controller at `scripts/orchestration_v2/controller.py`;
+- one-task execution (`python scripts/orchestration_v2/controller.py`) is the default operator mode; watch mode is not supported;
 - Codex executes locally through the Codex CLI authenticated with the user's ChatGPT account;
 - the intended path has no `OPENAI_API_KEY` dependency, no automatic API-billing fallback, and no automatic paid-credit use;
 - each task uses an isolated `codex/issue-<number>` Git branch and dedicated Git worktree;
@@ -254,17 +254,17 @@ Current behavior and approved operating model:
 - Codex receives no Teleport or network-device credentials, and live validation remains local/operator-controlled;
 - orchestration code and tests are required to remain portable across Windows and Linux.
 
-Setup requires authenticated GitHub CLI and Codex CLI plus a one-time run of `python scripts/orchestration/bootstrap.py`.
+Setup requires authenticated GitHub CLI and ChatGPT-authenticated Codex CLI, configured Git author identity, and the orchestration labels listed in `docs/architecture/codex-orchestration.md`. Preflight runs inside the v2 controller; there is no separate bootstrap script.
 
-Validation status: deterministic orchestration tests are implemented, but the controlled Issue #7 smoke test exposed multiple environment/orchestration problems and did not complete the full branch/push/PR/review lifecycle. End-to-end validation therefore remains incomplete. The role/authentication/default-run policy is now documented; any controller changes needed to enforce the remaining policy are follow-up implementation work.
+Validation status: orchestration v2 passed full end-to-end validation, as confirmed by the approved Issue #18 task contract. The user approved retirement of the legacy implementation, which has now been removed.
 
 Detailed model: `docs/architecture/codex-orchestration.md`.
 
-### Fresh orchestration replacement candidate
+### Operational orchestration v2
 
-A clean replacement candidate now exists under `scripts/orchestration_v2/` while the existing `scripts/orchestration/` implementation remains untouched.
+`scripts/orchestration_v2/` is the sole operational orchestration implementation and retains its existing directory name.
 
-Implemented replacement phases:
+Implemented phases:
 - complete controller-time preflight for Git, Git identity, GitHub CLI authentication, repository identity, clean control checkout, Codex installation, and fail-closed ChatGPT-account authentication checks;
 - explicit rejection of an active `OPENAI_API_KEY` path;
 - one-task GitHub Issue discovery, `codex/issue-<number>` branch planning, dedicated sibling worktree validation/creation, and non-mutating dry-run;
@@ -272,9 +272,9 @@ Implemented replacement phases:
 - repository-change detection and a blocking full pytest gate;
 - typed failure categories for prerequisite, controller/orchestration, Codex execution, and test failures.
 
-The replacement now implements controller-owned staging, commit with the preflighted identity, branch push, PR creation/update, the `codex-pr` transition after PR publication, and the `codex-review` transition after successful iteration comments, all after the full pytest gate. State transitions remove only currently attached orchestration labels. Revisions use the latest owner-authored marked review and the same branch/worktree/open PR. A request after 15 successful iterations moves to `codex-replan-required` without invoking Codex. Selected-task failures remove queue labels and retain their typed category; reporting failures surface explicitly. There is no watch mode or auto-merge.
+The controller implements controller-owned staging, commit with the preflighted identity, branch push, PR creation/update, the `codex-pr` transition after PR publication, and the `codex-review` transition after successful iteration comments, all after the full pytest gate. State transitions remove only currently attached orchestration labels. Revisions use the latest owner-authored marked review and the same branch/worktree/open PR. A request after 15 successful iterations moves to `codex-replan-required` without invoking Codex. Selected-task failures remove queue labels and retain their typed category; reporting failures surface explicitly. There is no watch mode or auto-merge.
 
-Codex and controller pytest temporary files use unique task/purpose-isolated `orbitflow-` directories under the OS temporary directory. Codex receives the external path through `TEMP`, `TMP`, and `TMPDIR`; controller pytest also receives an external `--basetemp`. Cleanup uses bounded retries without administrator privileges or ACL resets, refuses reparse points, and reports retained paths as stderr warnings without blocking Git operations or masking worker/test failures. The complete deterministic suite passes (224 tests). The Windows/OneDrive live test rejected the former worktree-local design; the replacement still requires a normal-user controller live validation. Issue #13 publishing/revision E2E remains outstanding. The candidate is not yet the operational default; old orchestration remains untouched.
+Codex and controller pytest temporary files use unique task/purpose-isolated `orbitflow-` directories under the OS temporary directory. Codex receives the external path through `TEMP`, `TMP`, and `TMPDIR`; controller pytest also receives an external `--basetemp`. Cleanup uses bounded retries without administrator privileges or ACL resets, refuses reparse points, and reports retained paths as stderr warnings without blocking Git operations or masking worker/test failures. Full end-to-end validation is complete. After retirement, the full deterministic pytest suite passes (206 tests). The legacy implementation and its implementation-specific tests were retired in Issue #18; v2 runtime behavior is unchanged.
 
 ## Known Limitations
 

@@ -5,7 +5,14 @@ This file exists only to validate the fresh GitHub Issue -> controller -> Codex
 It is a harmless documentation-only change, not evidence that the complete
 lifecycle has already passed.
 
-## Expected validation checkpoints
+## Validation status
+
+The approved Issue #18 task contract confirms full end-to-end validation passed
+and authorizes retirement of the legacy implementation. This status comes from
+the controller/Atlas validation outcome, not from creating this artifact or
+running local pytest alone.
+
+## Validation checkpoints
 
 1. The initial controller run uses branch `codex/issue-16` and its dedicated
    worktree, runs the complete deterministic pytest suite, publishes one PR,

@@ -239,7 +239,7 @@ User requirement
     -> explicit user merge approval
 ```
 
-One-task execution is the default operating mode. Run the controller without `--watch` unless unattended queue processing is explicitly wanted and already validated.
+One-task execution through `scripts/orchestration_v2/controller.py` is the operational mode. Watch mode is not supported.
 
 ### Cost and authentication boundary
 
