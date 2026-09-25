@@ -204,10 +204,70 @@ Read only:
 | Cisco IOS / IOS-XE / IOS-XR CLI behaviour | `.agents/skills/cisco-network-cli/SKILL.md` |
 | Huawei VRP CLI behaviour | `.agents/skills/huawei-network-cli/SKILL.md` |
 | Ubiquiti EdgeSwitch CLI behaviour | `.agents/skills/ubiquiti-network-cli/SKILL.md` |
+| ChatGPT/Atlas-to-Codex orchestration, task lifecycle, controller usage, review loop | `.agents/skills/codex-orchestration/SKILL.md` |
 
 ## 11. Codex Working Rules
 
 OrbitFlow-Evo's GitHub-Issue-driven local Codex CLI orchestration is documented in `docs/architecture/codex-orchestration.md`.
+
+For orchestration implementation or operation, also read:
+
+`.agents/skills/codex-orchestration/SKILL.md`
+
+### Role separation
+
+- The user is the final technical and merge authority.
+- ChatGPT / Atlas is the default solution architect, task planner, orchestration coordinator, and PR reviewer.
+- Codex is the default implementation engineer for normal feature development.
+- Atlas should not normally write feature implementation code directly.
+- Atlas may directly repair bootstrap/orchestration code when the Codex execution path itself is broken or unavailable. Such changes must remain scoped, reviewable, and clearly identified as orchestration repair work.
+
+### Default task flow
+
+Use this flow for normal OrbitFlow-Evo development:
+
+```text
+User requirement
+    -> Atlas architecture/scope review
+    -> scoped GitHub Issue
+    -> one-task local controller execution
+    -> Codex implementation in dedicated worktree/branch
+    -> deterministic tests
+    -> controller commit/push/PR
+    -> Atlas PR review
+    -> Codex revision when required
+    -> explicit user merge approval
+```
+
+One-task execution is the default operating mode. Run the controller without `--watch` unless unattended queue processing is explicitly wanted and already validated.
+
+### Cost and authentication boundary
+
+The intended Codex worker path is the local Codex CLI authenticated with the user's ChatGPT account.
+
+- Do not require or use `OPENAI_API_KEY` for this orchestration.
+- Do not silently fall back to OpenAI API billing.
+- Do not automatically buy or consume additional paid credits.
+- If included ChatGPT-plan Codex usage is unavailable or exhausted, stop the task and surface that state instead of switching billing paths.
+- Git author identity, GitHub authentication, and Codex authentication are separate prerequisites and must be validated before implementation begins.
+
+### Preflight before Codex execution
+
+Before invoking Codex, the controller/bootstrap path should verify at minimum:
+
+- Git is available;
+- Git `user.name` and `user.email` resolve;
+- GitHub CLI is authenticated;
+- Codex CLI is installed and authenticated through ChatGPT;
+- the local repository identity is correct;
+- the main/control checkout is clean;
+- no conflicting task branch/worktree would make the run unsafe.
+
+Failures in these checks should stop before Codex implementation work begins.
+
+### Task contract and implementation rules
+
+The GitHub Issue is the scoped implementation contract. Keep the issue concise and include purpose, scope, constraints, and acceptance criteria. Persistent architecture belongs in repository documentation, not repeated in every prompt.
 
 When modifying this repository:
 
@@ -234,6 +294,9 @@ When modifying this repository:
 21. A newly approved implementation plan starts a new iteration counter; do not continue patching indefinitely under the failed plan.
 22. Local Codex orchestration entry points must remain Python-based and portable across Windows and Linux. Shared orchestration logic/tests must use platform-aware paths and must not hard-code OS-specific separators.
 23. The orchestration dry-run path must be non-mutating, and failed deterministic tests must stop the controller before commit, push, or PR creation/update.
+24. Codex must not merge to `main`; the controller must not auto-merge; Atlas must not merge without explicit user approval.
+25. Each task should use a dedicated `codex/issue-<number>` branch and Git worktree.
+26. Failure reporting should distinguish prerequisite/controller failures, Codex execution failures, and deterministic test failures where practical.
 
 ## 12. Documentation Responsibilities
 
