@@ -12,8 +12,9 @@ OrbitFlow-Evo is a multi-vendor network automation platform for ISP operations. 
 6. Separate observation, analysis, planning, apply, verification, and recording where practical.
 7. Configuration-changing workflows must be explicitly requested and default to non-destructive behaviour.
 8. One failed device or input row should not terminate a safe batch unless continuing would create risk.
-9. Add or update deterministic tests when behaviour changes. A task is not complete until relevant acceptance criteria pass or an untested limitation is stated.
-10. Do not silently redesign architecture outside task scope.
+9. Runtime modules must use the shared OrbitFlow logging foundation rather than creating independent logging configuration. Keep operator console output concise, write detailed diagnostics to module-owned logs, and never log secrets or raw credential material.
+10. Add or update deterministic tests when behaviour changes. A task is not complete until relevant acceptance criteria pass or an untested limitation is stated.
+11. Do not silently redesign architecture outside task scope.
 
 ## 2. Project Architecture Boundaries
 
@@ -28,11 +29,12 @@ Keep these concerns separate:
 - analysis and policy logic;
 - workflows/orchestration;
 - reporting;
+- runtime logging/diagnostics;
 - configuration planning/apply/verification;
 - integration/API layers;
 - tests.
 
-Higher-level workflows must not recreate SSH/jumphost logic or vendor-specific parsing already provided by shared layers.
+Higher-level workflows must not recreate SSH/jumphost logic, vendor-specific parsing, or logging configuration already provided by shared layers.
 
 ## 3. Safety and Merge Boundaries
 
@@ -76,6 +78,8 @@ Read only the skill directly relevant to the task, plus any skill it explicitly 
 | Excel/list input and credential precedence | `.agents/skills/excel-inventory/SKILL.md` |
 | Interface collection/parsing/change tracking | `.agents/skills/interface-collector/SKILL.md` |
 | VLAN observation and VLAN state | `.agents/skills/vlan-observation/SKILL.md` |
+| Interface/VLAN Excel reporting and batch report composition | `.agents/skills/device-reporting/SKILL.md` |
+| Runtime/module logging, sanitization, file layout, and dependency-log routing | `.agents/skills/runtime-logging/SKILL.md` |
 | Access VLAN provisioning | `.agents/skills/access-vlan-provisioning/SKILL.md` |
 | Cisco IOS / IOS-XE / IOS-XR CLI behaviour | `.agents/skills/cisco-network-cli/SKILL.md` |
 | Huawei VRP CLI behaviour | `.agents/skills/huawei-network-cli/SKILL.md` |
