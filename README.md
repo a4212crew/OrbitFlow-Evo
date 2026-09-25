@@ -162,6 +162,48 @@ for sequential operation: its temporary configuration is process-wide. Writers
 must not share a log file across processes. Batch callers may set `log_root` for
 an alternative destination; nested transport logging uses that same root.
 
+## Batch Interface and VLAN report
+
+With `PYTHONPATH=src` set (PowerShell: `$env:PYTHONPATH = "src"`), run:
+
+```bash
+python scripts/device_interface_vlan_report.py devices.xlsx --proxy <proxy:443> --cluster <cluster> --bastion-host <bastion> --bastion-user <user>
+```
+
+Use the approved inventory-validation Excel format: `management_ip`, `username`,
+and `password` headers, case-insensitive. Extra columns are ignored. This shares
+the inventory validation loader; reporting records incomplete rows as input
+failures and continues. Missing headers or an empty workbook stop before device
+access. Keep credential-bearing input local and outside version control.
+Linux operators supply `--teleport-key-path` and `--teleport-cert-path` for their
+existing Teleport identity. No credentials are accepted on the command line.
+
+The read-only workflow connects once per target, resolves inventory, and passes
+the same session and observed context to InterfaceService and VlanService.
+Collection is sequential. A failed capability leaves its fields empty while
+successful observations and subsequent devices remain in the report.
+Programmatic callers can pass the same target dictionaries to
+`orbitflow.reporting.run_report(targets, transport_config)`.
+
+One workbook is written at the end under
+`reports/device_interface_vlan_report_<UTC timestamp>.xlsx`, with `Interfaces`,
+`VLAN_Database`, and `Run_Errors` sheets. Use `--reports-dir`, `--inventory-path`,
+and `--log-root` to override output locations. The inventory default remains
+`data/live_validation/inventory.json`. Reporting logs are written to
+`logs/reporting/YYYY-MM-DD/interface_vlan_report.log`; console output is a
+single completion summary including the failure count.
+
+Interface aliases join within each resolved device; subinterfaces remain
+separate. Multiple service observations use aligned lines in the detail columns
+(`-` means unavailable on that observation). An explicit empty allowed list is
+`none`; an unavailable list is blank. Attached VLANs is a sorted union of observed
+VLAN IDs, excluding excluded VLANs and service identifiers. Additional Control
+VLAN, Excluded VLANs, and VLAN Source columns retain normalized facts. Descriptions
+and status come from InterfaceService. Service objects retain their object type
+and identity separately from VLAN IDs. Text is stored literally, without Excel
+formula interpretation. Cells exceeding Excel's text limit fail explicitly
+instead of silently truncating observations.
+
 ## Tests
 
 The suite uses mocks and does not contact Teleport or network devices:
