@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from contextlib import closing
 import re
 
 from orbitflow.transport import DeviceSession
+from orbitflow.vendors.common import DeviceCLI
 from orbitflow.vendors.interface_types import InterfaceCollection, InterfaceObservation
 
-from .ios import CiscoIOSCLI, extract_ios_hostname
+from .ios import open_cisco_cli, CiscoIOSCLI, extract_ios_hostname
 
 _ROW = re.compile(
     r"^(?P<port>\S+)\s{2,}(?P<status>.+?)\s{2,}(?P<protocol>\S+)"
@@ -97,12 +97,13 @@ def parse_ios_xr_interfaces_description(output: str) -> list[InterfaceObservatio
 class CiscoInterfaceAdapter:
     """Collect interfaces for an explicitly selected Cisco platform."""
 
-    def __init__(self, session: DeviceSession, *, timeout: float = 10.0) -> None:
+    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None) -> None:
+        self._cli = cli
         self._session = session
         self._timeout = timeout
 
     def collect(self) -> InterfaceCollection:
-        with closing(self.cli_type(self._session, timeout=self._timeout)) as cli:
+        with open_cisco_cli(self._session, cli=self._cli, cli_type=self.cli_type, timeout=self._timeout) as cli:
             output = cli.run_command("show interfaces description", timeout=self._timeout)
             if _REJECTED.search(output):
                 raise ValueError(

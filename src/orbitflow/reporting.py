@@ -18,6 +18,7 @@ from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.logging import module_logger, sanitize_text
 from orbitflow.targets import REQUIRED_COLUMNS
 from orbitflow.transport import DeviceCredentials, connect_device
+from orbitflow.vendors.common import DeviceCLI
 from orbitflow.vendors.interface_names import canonical_interface_name
 
 INTERFACE_COLUMNS = (
@@ -176,18 +177,19 @@ def run_report(targets, transport_config, *, inventory_path="data/live_validatio
                 stage = "connect"
                 with connect_device(ip, DeviceCredentials(target["username"], target["password"]), transport_config) as session:
                     stage = "inventory"
-                    context = resolver.resolve(session, management_ip=ip)
-                    name = context.hostname
-                    for stage, service in (("interfaces", interface_service), ("vlans", vlan_service)):
-                        try:
-                            result = service.collect(session, context)
-                            if stage == "interfaces":
-                                interfaces = result
-                            else:
-                                vlans = result
-                        except Exception as exc:
-                            failure(ip, name, stage, exc)
-                    stage = "disconnect"
+                    with DeviceCLI(session) as cli:
+                        context = resolver.resolve(session, management_ip=ip, cli=cli)
+                        name = context.hostname
+                        for stage, service in (("interfaces", interface_service), ("vlans", vlan_service)):
+                            try:
+                                result = service.collect(session, context, cli=cli)
+                                if stage == "interfaces":
+                                    interfaces = result
+                                else:
+                                    vlans = result
+                            except Exception as exc:
+                                failure(ip, name, stage, exc)
+                        stage = "disconnect"
             except Exception as exc:
                 failure(ip, name, stage, exc)
             if context is not None:
