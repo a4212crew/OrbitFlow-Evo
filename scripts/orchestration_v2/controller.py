@@ -1,15 +1,16 @@
-"""One-task replacement-candidate Codex controller, complete lifecycle."""
+"""Serial Codex controller with optional safe queue watching."""
 
 from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 from codex_runner import build_prompt, ensure_repository_changes, run_codex, run_tests
 from git_ops import prepare_workspace, validate_workspace, commit_and_push, git
 from github_ops import get_next_task, review_context, transition, comment, find_pr, publish_pr
-from models import FailureCategory, OrchestrationError
+from models import MAX_ITERATIONS, FailureCategory, OrchestrationError
 from preflight import run_preflight
 from temp_cleanup import controller_temp
 
@@ -25,10 +26,10 @@ def process_one(repo: str, *, dry_run: bool = False) -> bool:
 
     try:
         count, review = review_context(repo, task, report.repo_root)
-        if count >= 15:
+        if count >= MAX_ITERATIONS:
             if not dry_run:
                 transition(repo, task, "codex-replan-required", report.repo_root)
-                comment(repo, task, "15 iterations exhausted. Atlas and user must approve a new plan.", report.repo_root)
+                comment(repo, task, f"{MAX_ITERATIONS} iterations exhausted. Atlas and user must approve a new plan.", report.repo_root)
             print("Replan required; Codex was not invoked.")
             return True
         workspace = validate_workspace(task.mode, task.number, report.repo_root)
@@ -69,14 +70,29 @@ def process_one(repo: str, *, dry_run: bool = False) -> bool:
         raise error from exc
 
 
+def poll_seconds(value: str) -> int:
+    seconds = int(value)
+    if seconds < 5:
+        raise argparse.ArgumentTypeError("--poll-seconds must be at least 5")
+    return seconds
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--watch", action="store_true")
+    parser.add_argument("--poll-seconds", type=poll_seconds, default=15)
     args = parser.parse_args()
 
     try:
-        process_one(args.repo, dry_run=args.dry_run)
+        while True:
+            process_one(args.repo, dry_run=args.dry_run)
+            if not args.watch:
+                break
+            time.sleep(args.poll_seconds)
+    except KeyboardInterrupt:
+        print("Controller stopped by operator.")
     except OrchestrationError as exc:
         print(f"{exc.category.value}: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

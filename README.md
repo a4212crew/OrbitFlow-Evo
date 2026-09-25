@@ -161,7 +161,7 @@ Process one queued task (default):
 python scripts/orchestration_v2/controller.py
 ```
 
-The controller processes one task and exits; watch mode is not supported.
+The controller processes one task and exits by default. Optional `--watch` polls every 15 seconds (`--poll-seconds`, minimum 5), prioritizes revisions, and continues after successful review or replan transitions. Failures stop watching without retry. Ctrl+C exits cleanly.
 
 Preview the next queued task without mutating GitHub or Git state:
 
@@ -175,4 +175,4 @@ The Python orchestration layer is intentionally cross-platform. Shared orchestra
 
 The intended worker path uses Codex CLI authenticated through the user's ChatGPT account. This orchestration does **not** require `OPENAI_API_KEY`, must not silently fall back to API billing, and must not automatically purchase/use additional paid credits. If included ChatGPT-plan Codex usage is unavailable or exhausted, stop rather than switching billing paths. Device/Teleport credentials must never be placed in task issues or Codex prompts.
 
-See `docs/architecture/codex-orchestration.md` for the complete state machine, test gate, 15-iteration replan gate, and validation checkpoints.
+See `docs/architecture/codex-orchestration.md` for the complete state machine, test gate, 10-iteration replan gate, and validation checkpoints.

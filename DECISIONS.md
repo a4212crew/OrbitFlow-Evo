@@ -119,17 +119,17 @@ OrbitFlow-Evo experiment
 **Reason:** OrbitFlow-Evo exists specifically to isolate experimentation from the stable codebase.
 
 
-## DEC-018 — Limit Codex implementation/review cycles to 15 iterations
+## DEC-018 — Limit Codex implementation/review cycles to 10 iterations
 
-**Decision:** A Codex task may undergo at most 15 implementation/revision and Atlas review iterations under the same approved implementation plan.
+**Decision:** A Codex task may undergo at most 10 implementation/revision and Atlas review iterations under the same approved implementation plan.
 
 One iteration is one Codex implementation or revision followed by one Atlas review.
 
-If the fifteenth review still requires changes, automated implementation stops and the task enters `codex-replan-required`. Atlas and the user must revisit and approve the architecture or implementation plan before another implementation cycle begins. A newly approved plan starts a fresh iteration counter.
+If the tenth review still requires changes, automated implementation stops and the task enters `codex-replan-required`. Atlas and the user must revisit and approve the architecture or implementation plan before another implementation cycle begins. A newly approved plan starts a fresh iteration counter.
 
 **Reason:** Repeated patching beyond this point is more likely to indicate a flawed or incomplete implementation plan than a simple implementation defect. Stopping and replanning limits design drift and unproductive automated retries.
 
-**Consequence:** Codex orchestration must track the current iteration deterministically and must not automatically schedule iteration 16 under the same plan.
+**Consequence:** Codex orchestration must track the current iteration deterministically and must not automatically schedule iteration 11 under the same plan.
 
 
 ## DEC-019 — Use local ChatGPT-authenticated Codex CLI orchestration in OrbitFlow-Evo
@@ -140,7 +140,7 @@ If the fifteenth review still requires changes, automated implementation stops a
 
 **Security boundary:** Codex may modify and test repository code but must not receive Teleport identities, device credentials, OTPs, or production network access. Live-device validation remains operator-controlled and local.
 
-**Consequence:** The local controller owns Git operations and GitHub state transitions. Codex itself must not commit, push, create PRs, or merge. No orchestration path may auto-merge to `main`. The 15-iteration replan gate from DEC-018 applies to revision cycles.
+**Consequence:** The local controller owns Git operations and GitHub state transitions. Codex itself must not commit, push, create PRs, or merge. No orchestration path may auto-merge to `main`. The 10-iteration replan gate from DEC-018 applies to revision cycles.
 
 ## DEC-020 — Use Python for local Codex orchestration
 
@@ -150,7 +150,7 @@ If the fifteenth review still requires changes, automated implementation stops a
 
 **Operational rules:** Shared orchestration code and tests must not hard-code operating-system path separators. Dry-run must be non-mutating. The deterministic pytest suite is a hard gate: failed tests must stop the controller before commit, push, or pull-request creation/update.
 
-**Consequence:** PowerShell orchestration entry points are retired. GitHub Issues, local ChatGPT-authenticated Codex CLI execution, dedicated task worktrees/branches, the 15-iteration replan gate, and explicit human merge approval remain unchanged.
+**Consequence:** PowerShell orchestration entry points are retired. GitHub Issues, local ChatGPT-authenticated Codex CLI execution, dedicated task worktrees/branches, the 10-iteration replan gate, and explicit human merge approval remain unchanged.
 
 ## DEC-021 — Codex is the default implementation engineer
 
@@ -164,7 +164,7 @@ If the fifteenth review still requires changes, automated implementation stops a
 
 ## DEC-022 — Prefer one-task controller execution
 
-**Decision:** Running `python scripts/orchestration/controller.py` for one queued task is the default operating mode. Continuous `--watch` operation is optional and should be used only when unattended queue processing is explicitly desired and validated.
+**Decision:** Running `python scripts/orchestration_v2/controller.py` for one queued task is the default operating mode. Continuous `--watch` operation is optional and should be used only when unattended queue processing is explicitly desired and validated.
 
 **Reason:** One-task execution is easier to observe, debug, control, and audit while the orchestration system is still being hardened.
 
