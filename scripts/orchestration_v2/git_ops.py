@@ -139,6 +139,9 @@ def prepare_workspace(task_mode: str, issue_number: int, repo_root: Path) -> Wor
                 cwd=repo_root,
             )
 
+    branch = git(["branch", "--show-current"], cwd=workspace.path).stdout.strip()
+    if branch != workspace.branch:
+        raise OrchestrationError(FailureCategory.PREREQUISITE, "Revision worktree is on the wrong branch.")
     dirty = git(["status", "--porcelain"], cwd=workspace.path).stdout.strip()
     if dirty:
         raise OrchestrationError(
@@ -146,4 +149,21 @@ def prepare_workspace(task_mode: str, issue_number: int, repo_root: Path) -> Wor
             "Revision worktree contains uncommitted changes. Resolve them before running another Codex revision.\n"
             f"Dirty paths:\n{dirty}",
         )
+    git(["merge", "--ff-only", f"origin/{workspace.branch}"], cwd=workspace.path)
+    local = git(["rev-parse", "HEAD"], cwd=workspace.path).stdout.strip()
+    remote = git(["rev-parse", f"origin/{workspace.branch}"], cwd=workspace.path).stdout.strip()
+    if local != remote:
+        raise OrchestrationError(FailureCategory.PREREQUISITE, "Revision branch has unpublished commits.")
     return workspace
+
+
+def commit_and_push(workspace: Workspace, report, task, iteration: int) -> None:
+    branch = git(['branch', '--show-current'], cwd=workspace.path).stdout.strip()
+    if branch != workspace.branch:
+        raise OrchestrationError(FailureCategory.PREREQUISITE, 'Task worktree branch changed.')
+    git(['add', '--all', '--', '.'], cwd=workspace.path)
+    if not git(['diff', '--cached', '--name-only'], cwd=workspace.path).stdout.strip():
+        raise OrchestrationError(FailureCategory.CODEX, 'No stageable repository changes.')
+    git(['-c', f'user.name={report.git_name}', '-c', f'user.email={report.git_email}',
+         'commit', '-m', f'Issue #{task.number}: iteration {iteration}'], cwd=workspace.path)
+    git(['push', '--set-upstream', 'origin', f'HEAD:refs/heads/{workspace.branch}'], cwd=workspace.path)

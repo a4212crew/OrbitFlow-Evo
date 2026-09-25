@@ -268,11 +268,13 @@ Implemented replacement phases:
 - complete controller-time preflight for Git, Git identity, GitHub CLI authentication, repository identity, clean control checkout, Codex installation, and fail-closed ChatGPT-account authentication checks;
 - explicit rejection of an active `OPENAI_API_KEY` path;
 - one-task GitHub Issue discovery, `codex/issue-<number>` branch planning, dedicated sibling worktree validation/creation, and non-mutating dry-run;
-- local `codex exec --sandbox workspace-write` execution with a worktree-scoped temporary directory;
+- local `codex exec --sandbox workspace-write` execution with controller-owned temporary storage outside Git worktrees;
 - repository-change detection and a blocking full pytest gate;
 - typed failure categories for prerequisite, controller/orchestration, Codex execution, and test failures.
 
-The replacement candidate intentionally stops after successful tests with changes left uncommitted. Commit, push, PR creation/update, GitHub state transitions, iteration handling, and the final review lifecycle remain Phase 4. The candidate is not the operational default until local smoke validation succeeds.
+The replacement now implements controller-owned staging, commit with the preflighted identity, branch push, PR creation/update, the `codex-pr` transition after PR publication, and the `codex-review` transition after successful iteration comments, all after the full pytest gate. State transitions remove only currently attached orchestration labels. Revisions use the latest owner-authored marked review and the same branch/worktree/open PR. A request after 15 successful iterations moves to `codex-replan-required` without invoking Codex. Selected-task failures remove queue labels and retain their typed category; reporting failures surface explicitly. There is no watch mode or auto-merge.
+
+Codex and controller pytest temporary files use unique task/purpose-isolated `orbitflow-` directories under the OS temporary directory. Codex receives the external path through `TEMP`, `TMP`, and `TMPDIR`; controller pytest also receives an external `--basetemp`. Cleanup uses bounded retries without administrator privileges or ACL resets, refuses reparse points, and reports retained paths as stderr warnings without blocking Git operations or masking worker/test failures. The complete deterministic suite passes (224 tests). The Windows/OneDrive live test rejected the former worktree-local design; the replacement still requires a normal-user controller live validation. Issue #13 publishing/revision E2E remains outstanding. The candidate is not yet the operational default; old orchestration remains untouched.
 
 ## Known Limitations
 

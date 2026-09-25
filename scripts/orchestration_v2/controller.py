@@ -1,17 +1,17 @@
-"""One-task replacement-candidate Codex controller, phases 1-3."""
+"""One-task replacement-candidate Codex controller, complete lifecycle."""
 
 from __future__ import annotations
 
 import argparse
 import sys
-import tempfile
 from pathlib import Path
 
 from codex_runner import build_prompt, ensure_repository_changes, run_codex, run_tests
-from git_ops import prepare_workspace, validate_workspace
-from github_ops import get_next_task
+from git_ops import prepare_workspace, validate_workspace, commit_and_push, git
+from github_ops import get_next_task, review_context, transition, comment, find_pr, publish_pr
 from models import FailureCategory, OrchestrationError
 from preflight import run_preflight
+from temp_cleanup import controller_temp
 
 DEFAULT_REPO = "a4212crew/OrbitFlow-Evo"
 
@@ -23,35 +23,50 @@ def process_one(repo: str, *, dry_run: bool = False) -> bool:
         print("No codex-task or codex-revise issue is waiting.")
         return False
 
-    workspace = validate_workspace(task.mode, task.number, report.repo_root)
-    print(f"Preflight passed for {repo}.")
-    print(f"Git author: {report.git_name} <{report.git_email}>")
-    print(f"Codex CLI: {report.codex_version}")
-    print(f"Task: issue #{task.number} ({task.mode}) - {task.title}")
-    print(f"Branch: {workspace.branch}")
-    print(f"Worktree: {workspace.path}")
-
-    if dry_run:
-        print("DRY RUN: no worktree, Codex process, labels, commits, pushes, or PRs were changed.")
-        return True
-
-    workspace = prepare_workspace(task.mode, task.number, report.repo_root)
-    preamble_path = workspace.path / "scripts" / "orchestration_v2" / "task-preamble.md"
-    prompt = build_prompt(preamble_path.read_text(encoding="utf-8"), task)
-    output_path = Path(tempfile.gettempdir()) / f"orbitflow-codex-v2-{task.number}.txt"
-    output_path.unlink(missing_ok=True)
     try:
-        run_codex(prompt, workspace.path, output_path)
+        count, review = review_context(repo, task, report.repo_root)
+        if count >= 15:
+            if not dry_run:
+                transition(repo, task, "codex-replan-required", report.repo_root)
+                comment(repo, task, "15 iterations exhausted. Atlas and user must approve a new plan.", report.repo_root)
+            print("Replan required; Codex was not invoked.")
+            return True
+        workspace = validate_workspace(task.mode, task.number, report.repo_root)
+        existing = find_pr(repo, workspace.branch, report.repo_root)
+        if task.mode == "revision" and not existing:
+            raise OrchestrationError(FailureCategory.PREREQUISITE, "Revision requires the existing open task PR.")
+        if dry_run:
+            print(f"DRY RUN: {workspace.branch}; no mutations or Codex execution.")
+            return True
+        transition(repo, task, "codex-running", report.repo_root)
+        workspace = prepare_workspace(task.mode, task.number, report.repo_root)
+        preamble_path = workspace.path / "scripts" / "orchestration_v2" / "task-preamble.md"
+        prompt = build_prompt(preamble_path.read_text(encoding="utf-8"), task, review if task.mode == "revision" else "")
+        starting_head = git(["rev-parse", "HEAD"], cwd=workspace.path).stdout.strip()
+        with controller_temp(workspace.path, "output") as directory:
+            run_codex(prompt, workspace.path, Path(directory) / "output.txt")
+        if git(["rev-parse", "HEAD"], cwd=workspace.path).stdout.strip() != starting_head:
+            raise OrchestrationError(FailureCategory.CODEX, "Worker changed HEAD; controller-only commit boundary violated.")
         ensure_repository_changes(workspace.path)
         run_tests(workspace.path)
-    finally:
-        output_path.unlink(missing_ok=True)
-
-    print()
-    print("Phase 3 complete: Codex produced changes and deterministic tests passed.")
-    print(f"Changes remain UNCOMMITTED in: {workspace.path}")
-    print("Commit/push/PR/GitHub state progression is intentionally deferred to Phase 4.")
-    return True
+        commit_and_push(workspace, report, task, count + 1)
+        pr = publish_pr(repo, task, workspace.branch, report.repo_root, existing)
+        transition(repo, task, "codex-pr", report.repo_root)
+        comment(repo, task, f"<!-- orbitflow-codex-iteration:{count + 1} -->\n"
+                f"Full deterministic pytest suite passed. Ready for Atlas review: {pr}", report.repo_root)
+        transition(repo, task, "codex-review", report.repo_root)
+        print(f"Iteration {count + 1} ready for review: {pr}")
+        return True
+    except Exception as exc:
+        error = exc if isinstance(exc, OrchestrationError) else OrchestrationError(FailureCategory.CONTROLLER, str(exc))
+        if not dry_run:
+            try:
+                transition(repo, task, "codex-failed", report.repo_root)
+                comment(repo, task, f"{error.category.value}: {error}", report.repo_root)
+            except Exception as reporting_error:
+                raise OrchestrationError(error.category, f"{error}; failure reporting also failed: {reporting_error}. "
+                                         "Stop queue processing and inspect the issue manually.") from exc
+        raise error from exc
 
 
 def main() -> None:
