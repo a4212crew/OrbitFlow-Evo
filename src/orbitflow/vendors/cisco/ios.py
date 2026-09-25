@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 import socket
 import time
-from typing import Any
+from contextlib import closing, contextmanager
+from typing import Any, Iterator
 
 from orbitflow.transport import DeviceSession
+from orbitflow.vendors.common import DeviceCLI, open_prompt_cli
 
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _PROMPT = re.compile(r"(?m)^([^\r\n]+[>#])[ \t]*$")
@@ -149,3 +151,20 @@ class CiscoIOSCLI:
         )
         self.prompt = prompt
         return clean_output(output, command, prompt)
+
+
+@contextmanager
+def open_cisco_cli(
+    session: DeviceSession, *, cli: DeviceCLI | None = None,
+    cli_type: type[CiscoIOSCLI] = CiscoIOSCLI, timeout: float = 10.0,
+) -> Iterator[CiscoIOSCLI | DeviceCLI]:
+    """Keep Cisco setup rules while borrowing a workflow-owned shell."""
+    if cli is None:
+        with closing(cli_type(session, timeout=timeout)) as temporary:
+            yield temporary
+    else:
+        with open_prompt_cli(session, cli=cli, paging_command="terminal length 0",
+                             prompt_pattern=_PROMPT.pattern,
+                             rejected=lambda output: bool(_REJECTED_COMMAND.search(output)),
+                             platform_name="Cisco", timeout=timeout) as shared:
+            yield shared

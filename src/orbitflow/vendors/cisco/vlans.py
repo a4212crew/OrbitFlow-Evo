@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from contextlib import closing
 import re
 from dataclasses import replace
 
 from orbitflow.models import InterfaceVlanObservation, VlanObject
 from orbitflow.transport import DeviceSession
+from orbitflow.vendors.common import DeviceCLI
 from orbitflow.vendors.vlan_types import VlanCollection, parse_vlan_list
 
 from .interfaces import CiscoXRCLI, extract_ios_xr_hostname
-from .ios import CiscoIOSCLI, extract_ios_hostname
+from .ios import open_cisco_cli, CiscoIOSCLI, extract_ios_hostname
 
 _REJECTED = re.compile(
     r"%\s*(?:Invalid input|Unknown command|Unrecognized command|Incomplete command)",
@@ -264,12 +264,13 @@ def parse_ios_xr_running_config(
 
 class CiscoVlanAdapter:
     def __init__(
-        self, session: DeviceSession, *, timeout: float = 10.0, evc: bool = False
+        self, session: DeviceSession, *, timeout: float = 10.0, evc: bool = False, cli: DeviceCLI | None = None
     ) -> None:
+        self._cli = cli
         self._session, self._timeout, self._evc = session, timeout, evc
 
     def collect(self) -> VlanCollection:
-        with closing(CiscoIOSCLI(self._session, timeout=self._timeout)) as cli:
+        with open_cisco_cli(self._session, cli=self._cli, cli_type=CiscoIOSCLI, timeout=self._timeout) as cli:
             output = cli.run_command("show running-config", timeout=self._timeout)
             if _REJECTED.search(output):
                 raise ValueError("Cisco rejected approved command 'show running-config'")
@@ -278,16 +279,17 @@ class CiscoVlanAdapter:
 
 
 class CiscoXEVlanAdapter(CiscoVlanAdapter):
-    def __init__(self, session: DeviceSession, *, timeout: float = 10.0) -> None:
-        super().__init__(session, timeout=timeout, evc=True)
+    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None) -> None:
+        super().__init__(session, timeout=timeout, evc=True, cli=cli)
 
 
 class CiscoXRVlanAdapter:
-    def __init__(self, session: DeviceSession, *, timeout: float = 10.0) -> None:
+    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None) -> None:
+        self._cli = cli
         self._session, self._timeout = session, timeout
 
     def collect(self) -> VlanCollection:
-        with closing(CiscoXRCLI(self._session, timeout=self._timeout)) as cli:
+        with open_cisco_cli(self._session, cli=self._cli, cli_type=CiscoXRCLI, timeout=self._timeout) as cli:
             output = cli.run_command("show running-config", timeout=self._timeout)
             if _REJECTED.search(output):
                 raise ValueError(

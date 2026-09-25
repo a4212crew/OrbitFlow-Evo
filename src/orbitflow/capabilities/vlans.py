@@ -5,6 +5,7 @@ from typing import Callable, Protocol
 
 from orbitflow.models import DeviceContext, VlanState
 from orbitflow.transport import DeviceSession
+from orbitflow.vendors.common import DeviceCLI
 from orbitflow.vendors.vlan_types import VlanCollection
 from orbitflow.vendors.cisco.vlans import (
     CiscoVlanAdapter,
@@ -20,7 +21,7 @@ class VlanCapabilityError(Exception):
 
 
 class _Adapter(Protocol):
-    def __init__(self, session: DeviceSession, *, timeout: float = 10.0) -> None: ...
+    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None) -> None: ...
     def collect(self) -> VlanCollection: ...
 
 
@@ -49,6 +50,7 @@ class VlanService:
         session: DeviceSession,
         context: DeviceContext | None = None,
         *,
+        cli: DeviceCLI | None = None,
         device_ip: str | None = None,
         platform: str | None = None,
         device_name: str | None = None,
@@ -56,6 +58,8 @@ class VlanService:
         """Collect with resolved context (preferred) or legacy identity keywords.
 
         No discovery is performed and the caller retains session ownership.
+        A supplied ``cli`` is borrowed without closing it. Without one, the
+        selected adapter owns a temporary shell for this operation.
         """
         # Context is authoritative; reject ambiguous mixed calling conventions.
         if context is not None:
@@ -77,7 +81,7 @@ class VlanService:
         if adapter is None:
             raise VlanCapabilityError(f"unsupported VLAN platform: {platform}")
         try:
-            result = adapter(session, timeout=self._timeout).collect()
+            result = adapter(session, timeout=self._timeout, cli=cli).collect()
         except Exception as exc:
             raise VlanCapabilityError(
                 f"VLAN collection failed for {device_name or device_ip} ({device_ip}, {platform}): {exc}"

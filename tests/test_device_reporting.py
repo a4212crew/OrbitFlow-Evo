@@ -16,6 +16,7 @@ from orbitflow.models import DeviceContext, InterfaceRecord, InterfaceVlanObserv
 from orbitflow.targets import load_targets
 from orbitflow.transport import DeviceSession, TransportConfig
 from orbitflow.vendors.interface_names import canonical_interface_name
+from test_cli_lifecycle import Channel
 
 NOW = datetime(2026, 9, 25, tzinfo=timezone.utc)
 CONFIG = TransportConfig('proxy', 'cluster', 'bastion', 'operator')
@@ -116,17 +117,22 @@ def install_fakes(monkeypatch, failing_stage=None, fail_ip='192.0.2.1'):
             closed.append(ip)
             if failing_stage == 'disconnect' and ip == fail_ip:
                 raise RuntimeError('synthetic-password')
-        session = DeviceSession(object(), close)
+        channel = Channel("router#", {"": "", "terminal length 0": ""})
+        session = DeviceSession(Mock(invoke_shell=Mock(return_value=channel)), close)
         session.ip = ip
         return session
-    def resolve(session, *, management_ip):
+    def resolve(session, *, management_ip, cli):
+        assert cli.session is session
+        session.cli = cli
         events.append(('inventory', session))
         if failing_stage == 'inventory' and management_ip == fail_ip:
             raise RuntimeError('synthetic-password')
         session.context = context(management_ip)
         return session.context
     def collect(stage):
-        def run(session, ctx):
+        def run(session, ctx, *, cli):
+            assert cli is session.cli
+            cli.require_session(session)
             assert session.context is ctx
             assert session.ip == ctx.management_ip
             events.append((stage, session))

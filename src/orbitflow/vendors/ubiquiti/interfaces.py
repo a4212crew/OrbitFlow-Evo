@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from contextlib import closing
 import re
 
 from orbitflow.transport import DeviceSession
-from orbitflow.vendors.common import PromptCLI
+from orbitflow.vendors.common import DeviceCLI, open_prompt_cli
 from orbitflow.vendors.interface_types import InterfaceCollection, InterfaceObservation
 
 _REJECTED = re.compile(
@@ -95,19 +94,20 @@ def parse_interfaces_status(output: str) -> list[InterfaceObservation]:
 
 
 class EdgeSwitchInterfaceAdapter:
-    def __init__(self, session: DeviceSession, *, timeout: float = 10.0) -> None:
+    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None) -> None:
+        self._cli = cli
         self._session = session
         self._timeout = timeout
 
     def collect(self) -> InterfaceCollection:
-        with closing(PromptCLI(
-            self._session,
+        with open_prompt_cli(
+            self._session, cli=self._cli,
             paging_command="terminal length 0",
             prompt_pattern=r"^([^\r\n]+[>#])[ \t]*$",
             rejected=lambda output: bool(_REJECTED.search(output)),
             platform_name="Ubiquiti EdgeSwitch",
             timeout=self._timeout,
-        )) as cli:
+        ) as cli:
             command = "show interfaces status all"
             output = cli.run_command(command, timeout=self._timeout)
             if _REJECTED.search(output):

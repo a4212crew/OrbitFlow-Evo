@@ -7,6 +7,7 @@ from typing import Callable, Protocol
 
 from orbitflow.models import DeviceContext, InterfaceRecord
 from orbitflow.transport import DeviceSession
+from orbitflow.vendors.common import DeviceCLI
 from orbitflow.vendors.interface_types import InterfaceCollection
 from orbitflow.vendors.cisco.interfaces import (
     CiscoInterfaceAdapter,
@@ -21,7 +22,7 @@ class InterfaceCapabilityError(Exception):
 
 
 class _InterfaceAdapter(Protocol):
-    def __init__(self, session: DeviceSession, *, timeout: float = 10.0) -> None: ...
+    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None) -> None: ...
 
     def collect(self) -> InterfaceCollection: ...
 
@@ -49,6 +50,7 @@ class InterfaceService:
         session: DeviceSession,
         context: DeviceContext | None = None,
         *,
+        cli: DeviceCLI | None = None,
         device_ip: str | None = None,
         platform: str | None = None,
         device_name: str | None = None,
@@ -56,6 +58,8 @@ class InterfaceService:
         """Collect using resolved context (preferred) or legacy identity keywords.
 
         The caller retains ownership of the already-established session.
+        A supplied ``cli`` is borrowed without closing it. Without one, the
+        selected adapter owns a temporary shell for this operation.
         """
         # Context is authoritative; reject ambiguous mixed calling conventions.
         if context is not None:
@@ -72,7 +76,7 @@ class InterfaceService:
                 f"unsupported interface platform: {platform}"
             )
         try:
-            collection = adapter_type(session, timeout=self._timeout).collect()
+            collection = adapter_type(session, timeout=self._timeout, cli=cli).collect()
         except Exception as exc:
             if isinstance(exc, InterfaceCapabilityError):
                 raise

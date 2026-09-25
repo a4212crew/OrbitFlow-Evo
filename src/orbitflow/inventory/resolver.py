@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, nullcontext
 from datetime import datetime, timezone
 from typing import Callable, Protocol
 
 from orbitflow.models import DeviceContext
 from orbitflow.transport import DeviceSession
-from orbitflow.vendors.common import PromptCLI
+from orbitflow.vendors.common import DeviceCLI
 from orbitflow.vendors.cisco.identification import parse_cisco_identity
 from orbitflow.vendors.huawei.identification import parse_huawei_identity
 from orbitflow.vendors.huawei.interfaces import extract_huawei_hostname
@@ -44,12 +44,15 @@ class DeviceInventoryResolver:
         self.last_events: tuple[str, ...] = ()
 
     def resolve(self, session: DeviceSession, *, management_ip: str,
-                platform_override: str | None = None) -> DeviceContext:
+                platform_override: str | None = None, cli: DeviceCLI | None = None) -> DeviceContext:
+        """Borrow ``cli`` when supplied; otherwise own a temporary probe shell."""
         attempted_at = self._clock()
         try:
             if platform_override and platform_override not in self._SUPPORTED:
                 raise DeviceInventoryError(f"unsupported platform override: {platform_override}")
-            with closing(self._runner_factory(session)) as runner:
+            if cli is not None:
+                cli.require_session(session)
+            with (nullcontext(cli) if cli is not None else closing(self._runner_factory(session))) as runner:
                 show_version = runner.run_command("show version", timeout=self._timeout)
                 display_version = ""
                 show_identified = sum(
@@ -107,9 +110,4 @@ class DeviceInventoryResolver:
         return candidates[0]
 
     def _new_runner(self, session: DeviceSession) -> _Runner:
-        # The generic probe deliberately does not reject the paging command: Huawei
-        # safely rejects it, after which its small version probe remains usable.
-        return PromptCLI(session, paging_command="terminal length 0",
-                         prompt_pattern=r"(?m)^(.+(?:#|>|\]))[ \t]*$",
-                         rejected=lambda _: False, platform_name="identification",
-                         timeout=self._timeout)
+        return DeviceCLI(session, timeout=self._timeout)
