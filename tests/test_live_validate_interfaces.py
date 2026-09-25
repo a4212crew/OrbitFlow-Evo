@@ -35,6 +35,18 @@ def test_live_validation_reuses_transport_and_interface_service(monkeypatch):
         )
     ]
     calls = []
+    from types import SimpleNamespace
+    context = SimpleNamespace(management_ip="192.0.2.10", platform="cisco_xe")
+
+    class FakeResolver:
+        def __init__(self, store):
+            pass
+
+        def resolve(self, supplied_session, **target):
+            calls.append(("resolve", supplied_session, target))
+            return context
+
+    monkeypatch.setattr(live_validate_interfaces, "DeviceInventoryResolver", FakeResolver)
 
     def fake_connect(host, supplied_credentials, supplied_config):
         calls.append(("connect", host, supplied_credentials, supplied_config))
@@ -62,15 +74,8 @@ def test_live_validation_reuses_transport_and_interface_service(monkeypatch):
     assert result is records
     assert calls == [
         ("connect", "192.0.2.10", credentials, config),
-        (
-            "collect",
-            session,
-            {
-                "device_name": None,
-                "device_ip": "192.0.2.10",
-                "platform": "cisco_xe",
-            },
-        ),
+        ("resolve", session, {"management_ip": "192.0.2.10", "platform_override": "cisco_xe"}),
+        ("collect", session, {"context": context}),
     ]
     assert output.getvalue() == (
         "edge-01 (192.0.2.10, cisco_xe): 1 interface(s)\n"

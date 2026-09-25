@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Callable, Protocol
 
-from orbitflow.models import InterfaceRecord
+from orbitflow.models import DeviceContext, InterfaceRecord
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.interface_types import InterfaceCollection
 from orbitflow.vendors.cisco.interfaces import (
@@ -47,12 +47,25 @@ class InterfaceService:
     def collect(
         self,
         session: DeviceSession,
+        context: DeviceContext | None = None,
         *,
-        device_ip: str,
-        platform: str,
+        device_ip: str | None = None,
+        platform: str | None = None,
         device_name: str | None = None,
     ) -> list[InterfaceRecord]:
-        """Return one common record type without taking ownership of *session*."""
+        """Collect using resolved context (preferred) or legacy identity keywords.
+
+        The caller retains ownership of the already-established session.
+        """
+        # Context is authoritative; reject ambiguous mixed calling conventions.
+        if context is not None:
+            if device_ip is not None or platform is not None or device_name is not None:
+                raise InterfaceCapabilityError("context cannot be combined with legacy identity arguments")
+            device_ip, platform, device_name = (
+                context.management_ip, context.platform, context.hostname
+            )
+        elif device_ip is None or platform is None:
+            raise InterfaceCapabilityError("provide context or device_ip and platform")
         adapter_type = _ADAPTERS.get(platform)
         if adapter_type is None:
             raise InterfaceCapabilityError(
