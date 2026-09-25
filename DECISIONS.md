@@ -151,3 +151,30 @@ If the fifteenth review still requires changes, automated implementation stops a
 **Operational rules:** Shared orchestration code and tests must not hard-code operating-system path separators. Dry-run must be non-mutating. The deterministic pytest suite is a hard gate: failed tests must stop the controller before commit, push, or pull-request creation/update.
 
 **Consequence:** PowerShell orchestration entry points are retired. GitHub Issues, local ChatGPT-authenticated Codex CLI execution, dedicated task worktrees/branches, the 15-iteration replan gate, and explicit human merge approval remain unchanged.
+
+## DEC-021 — Codex is the default implementation engineer
+
+**Decision:** For normal OrbitFlow-Evo feature development, ChatGPT / Atlas owns architecture, scope, task definition, orchestration coordination, and PR review. Codex is the default implementation engineer.
+
+**Reason:** Separating design/review from implementation reduces design drift, makes the GitHub Issue a clear implementation contract, and keeps Atlas focused on architecture and quality control.
+
+**Exception:** Atlas may directly repair the bootstrap/orchestration mechanism when the Codex execution path itself is broken or unavailable. These repairs must remain narrowly scoped and reviewable.
+
+**Consequence:** Normal feature work should flow through a scoped GitHub Issue, dedicated Codex worktree/branch, deterministic tests, PR, Atlas review, and explicit user merge approval.
+
+## DEC-022 — Prefer one-task controller execution
+
+**Decision:** Running `python scripts/orchestration/controller.py` for one queued task is the default operating mode. Continuous `--watch` operation is optional and should be used only when unattended queue processing is explicitly desired and validated.
+
+**Reason:** One-task execution is easier to observe, debug, control, and audit while the orchestration system is still being hardened.
+
+**Consequence:** Documentation and operator guidance should present one-task execution first; `--watch` remains an optional mode rather than the default.
+
+## DEC-023 — Keep Codex orchestration on the ChatGPT-authenticated path
+
+**Decision:** The intended Codex worker uses the local Codex CLI authenticated through the user's ChatGPT account. OrbitFlow-Evo orchestration must not depend on `OPENAI_API_KEY`, silently fall back to API billing, or automatically purchase/use additional paid credits.
+
+**Reason:** The user wants the development workflow to remain within included ChatGPT-plan Codex usage unless they explicitly choose otherwise.
+
+**Consequence:** If included Codex usage is unavailable or exhausted, orchestration should stop and report the condition rather than switching billing paths. Git author identity, GitHub authentication, and Codex authentication remain separate prerequisites.
+
