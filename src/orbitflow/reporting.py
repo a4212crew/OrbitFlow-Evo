@@ -164,6 +164,7 @@ def run_report(targets, transport_config, *, inventory_path="data/live_validatio
             category = type(exc).__name__
             errors.append([clean(ip), clean(name), stage, category, clock().isoformat()])
             logger.error(f"Report stage failed: {stage}",
+                         exc_info=exc,
                          extra={"management_ip": clean(ip), "error_category": category})
 
         for target in targets:
@@ -199,7 +200,8 @@ def run_report(targets, transport_config, *, inventory_path="data/live_validatio
         try:
             write_workbook(path, interface_rows, database_rows, errors, clean=clean)
         except Exception as exc:
-            logger.error("Report workbook write failed", extra={"error_category": type(exc).__name__})
+            logger.error("Report workbook write failed", exc_info=exc,
+                         extra={"error_category": type(exc).__name__})
             raise
         logger.info("Interface/VLAN batch completed")
     print(f"Devices: {len(targets)}; stage failures: {len(errors)}; report: {path}", file=output)

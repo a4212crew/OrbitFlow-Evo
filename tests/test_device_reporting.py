@@ -7,9 +7,11 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from openpyxl import Workbook, load_workbook
+from paramiko import ChannelException
 import pytest
 
 from orbitflow import reporting
+from orbitflow.capabilities.interfaces import InterfaceCapabilityError
 from orbitflow.models import DeviceContext, InterfaceRecord, InterfaceVlanObservation, VlanObject, VlanState
 from orbitflow.targets import load_targets
 from orbitflow.transport import DeviceSession, TransportConfig
@@ -171,6 +173,8 @@ def test_batch_isolation_session_context_and_secrets(tmp_path, monkeypatch, stag
     if stage:
         assert stage in failures[0]['message']
         assert failures[0]['management_ip'] == '192.0.2.1'
+        assert failures[0]['exception_chain'][0]['category'] == 'RuntimeError'
+        assert failures[0]['exception_chain'][0]['frames']
     for secret in ['synthetic-user', 'synthetic-password', 'never-output']:
         assert secret not in rendered + log + output.getvalue()
     sessions = [value for event, value in events if event == 'inventory']
@@ -178,6 +182,56 @@ def test_batch_isolation_session_context_and_secrets(tmp_path, monkeypatch, stag
         collected = [(event, value) for event, value in events if event in {'interfaces', 'vlans'} and value is session]
         assert [event for event, _ in collected] == ([] if stage == 'inventory' and session.ip == '192.0.2.1' else ['interfaces', 'vlans'])
     assert len(closed) == (1 if stage == 'connect' else 2)
+
+
+@pytest.mark.parametrize('stage', ['interfaces', 'workbook'])
+def test_reporting_failure_logs_safe_exception_chain(tmp_path, monkeypatch, stage):
+    install_fakes(monkeypatch)
+
+    def fail(*args, **kwargs):
+        local_secret = 'local-only-sensitive-value'
+        try:
+            raise ChannelException(4, 'raw-device-output synthetic-password')
+        except ChannelException as exc:
+            raise InterfaceCapabilityError('raw-wrapper-error token=never-output') from exc
+
+    if stage == 'interfaces':
+        monkeypatch.setattr(reporting, 'InterfaceService', Mock(return_value=Mock(collect=fail)))
+    else:
+        monkeypatch.setattr(reporting, 'write_workbook', fail)
+    targets = [{'management_ip': '192.0.2.1', 'username': 'synthetic-user', 'password': 'synthetic-password'}]
+    output = StringIO()
+
+    def run():
+        return reporting.run_report(targets, CONFIG, reports_dir=tmp_path,
+                                    log_root=tmp_path / 'logs', output=output, clock=lambda: NOW)
+
+    if stage == 'workbook':
+        with pytest.raises(InterfaceCapabilityError):
+            run()
+        rendered = ''
+    else:
+        workbook = load_workbook(run())
+        try:
+            rows = list(workbook['Run_Errors'].values)
+            assert rows == [reporting.ERROR_COLUMNS,
+                            ('192.0.2.1', 'router', 'interfaces', 'InterfaceCapabilityError', NOW.isoformat())]
+            rendered = str(rows)
+        finally:
+            workbook.close()
+    log = next((tmp_path / 'logs' / 'reporting').glob('*/interface_vlan_report.log')).read_text()
+    failures = [record for line in log.splitlines() if (record := json.loads(line))['level'] == 'ERROR']
+    assert len(failures) == 1
+    chain = failures[0]['exception_chain']
+    assert [item['category'] for item in chain] == ['InterfaceCapabilityError', 'ChannelException']
+    for item in chain:
+        assert set(item) == {'category', 'errno', 'frames'}
+        assert item['frames']
+        for frame in item['frames']:
+            assert set(frame) == {'file', 'line', 'function'}
+    for sensitive in ('raw-device-output', 'synthetic-password', 'raw-wrapper-error',
+                      'never-output', 'local-only-sensitive-value', 'raise ChannelException'):
+        assert sensitive not in log + rendered + output.getvalue()
 
 
 def test_shared_loader_preserves_legacy_validation_and_isolates_bad_row(tmp_path, monkeypatch):
