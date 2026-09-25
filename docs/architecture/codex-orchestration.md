@@ -2,7 +2,7 @@
 
 ## Purpose
 
-OrbitFlow-Evo uses ChatGPT / Atlas as the architecture, planning, and review layer and Codex as the implementation engineer.
+OrbitFlow-Evo uses ChatGPT / Atlas as the architecture, task-planning, orchestration-coordination, and review layer. Codex is the default implementation engineer for normal feature development. Atlas should not normally write feature code directly; direct Atlas implementation is reserved for narrowly scoped bootstrap/orchestration repair when the Codex execution path itself is broken or unavailable.
 
 GitHub Issues provide the persistent control plane. Codex execution happens locally on the operator workstation through the Codex CLI authenticated with the user's ChatGPT account.
 
@@ -30,18 +30,23 @@ User requirement
   -> explicit human merge
 ```
 
-Codex must never merge its own work.
+Codex must never merge its own work. The controller must not auto-merge, and Atlas must not merge without explicit user approval.
 
 ## Components
 
 ### bootstrap.py
 
-`scripts/orchestration/bootstrap.py` validates:
+`scripts/orchestration/bootstrap.py` is the prerequisite gate. The approved target checks are:
 
+- Git is installed;
+- Git `user.name` and `user.email` resolve;
 - GitHub CLI is installed and authenticated;
 - Codex CLI is installed;
+- Codex is authenticated through the user's ChatGPT account;
 - the expected GitHub repository is reachable;
 - orchestration labels exist.
+
+Current code already checks Git identity, GitHub CLI availability/authentication, Codex CLI availability, repository reachability, and labels. Explicit machine-verifiable detection of the Codex authentication/billing mode is a follow-up hardening item unless the CLI exposes a stable command for it.
 
 It does not configure or require `OPENAI_API_KEY`.
 
@@ -76,13 +81,15 @@ It:
 11. posts the iteration result to the GitHub issue;
 12. returns the issue to `codex-review`.
 
-Run once:
+Run once (default operating mode):
 
 ```bash
 python scripts/orchestration/controller.py
 ```
 
-Run continuously:
+One-task execution is the normal operator workflow: one queued task is processed, a result is produced, and the controller exits.
+
+Run continuously only when unattended queue processing is explicitly desired and validated:
 
 ```bash
 python scripts/orchestration/controller.py --watch
@@ -191,13 +198,28 @@ This prevents a known-failing implementation from advancing automatically to Atl
 
 ## Authentication and Billing Boundary
 
-The implementation worker uses the locally installed Codex CLI authenticated with the user's ChatGPT account.
+The intended implementation worker is the locally installed Codex CLI authenticated with the user's ChatGPT account.
 
-This orchestration does not use:
+The operating policy is:
 
-- `OPENAI_API_KEY`;
-- the OpenAI API as the implementation transport;
-- GitHub-hosted `openai/codex-action`.
+- no `OPENAI_API_KEY` dependency;
+- no OpenAI API fallback for implementation;
+- no automatic purchase or use of additional paid credits;
+- if included ChatGPT-plan Codex usage is unavailable or exhausted, stop and surface the condition rather than switching billing paths;
+- do not claim unlimited usage for any subscription tier.
+
+Git author identity, GitHub authentication, and Codex authentication are separate prerequisites:
+
+```text
+Git user.name / user.email
+    -> commit metadata
+
+gh authentication
+    -> GitHub push / issue / PR authority
+
+Codex ChatGPT authentication
+    -> local implementation-worker access
+```
 
 GitHub access uses the locally authenticated `gh` CLI.
 
@@ -231,11 +253,13 @@ codex login
 python scripts/orchestration/bootstrap.py
 ```
 
-Then start the controller:
+Then process one task:
 
 ```bash
-python scripts/orchestration/controller.py --watch
+python scripts/orchestration/controller.py
 ```
+
+Use `--watch` only for explicitly approved unattended queue processing.
 
 First end-to-end validation:
 
