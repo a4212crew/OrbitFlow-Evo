@@ -32,29 +32,33 @@ Acts as:
 Acts as:
 - Solution architect
 - Development manager
-- Technical reviewer
+- Orchestration coordinator
 - Codex task planner
-- Pull request reviewer
+- Technical / pull request reviewer
 
 Atlas should:
-- Understand requirements before implementation.
-- Keep Codex prompts concise and scoped.
+- Understand requirements and architecture before implementation.
+- Create concise scoped GitHub tasks.
+- Keep Codex prompts concise and grounded in repository documentation.
 - Review Codex changes before approval.
 - Preserve architecture consistency.
 - Avoid unnecessary rewrites.
 - Prefer incremental development.
+- Not normally write feature implementation code directly.
+- Directly patch only narrowly scoped bootstrap/orchestration failures when the Codex execution path itself is broken or unavailable.
 
 ### Codex
 Acts as:
-- Implementation engineer
+- Default implementation engineer
 
 Codex should:
-- Follow AGENTS.md.
+- Follow AGENTS.md and CURRENT_STATE.md.
+- Read only the relevant skill(s) for the task.
 - Implement scoped development tasks.
 - Add or update tests where appropriate.
 - Avoid modifying unrelated files.
 - Never make architectural decisions independently when requirements are unclear.
-- Avoid commit, push, or merge unless explicitly instructed by the orchestration workflow.
+- Never merge to main.
 
 ---
 
@@ -188,14 +192,16 @@ Credentials must not be stored directly in source code.
 Preferred workflow:
 
 Requirement
-→ Atlas reviews requirement
-→ Atlas creates scoped Codex task
+→ Atlas reviews architecture/scope
+→ Atlas creates scoped GitHub Issue
+→ operator runs one-task Python controller
+→ controller creates dedicated branch/worktree
 → Codex implements change
-→ Atlas reviews diff
-→ Feature branch
-→ Pull request
-→ Final review
-→ Merge
+→ controller runs deterministic tests
+→ controller commits/pushes and creates/updates PR
+→ Atlas reviews PR
+→ Codex revises on the same branch/PR when needed
+→ user explicitly approves merge
 
 Development should normally use feature branches and pull requests.
 
@@ -238,11 +244,24 @@ The original lab used PowerShell helper scripts. OrbitFlow-Evo now implements th
 
 OrbitFlow-Evo adds hardening around the lab model: local repository identity checks, clean-tree protection, one dedicated worktree/branch per issue, duplicate-execution protection, explicit failure states, a non-mutating dry-run, a blocking pytest gate before commit/push/PR progression, automatic PR creation by the controller, revision handling on the same branch, and the 15-iteration replan gate. See `docs/architecture/codex-orchestration.md`.
 
-The Python orchestration foundation has deterministic tests but remains pending end-to-end validation until bootstrap and the first controlled test task succeed.
+The Python orchestration foundation has deterministic tests but remains pending end-to-end validation. The controlled Issue #7 smoke test exposed several workstation/controller hardening gaps and did not complete the full branch/push/PR/review lifecycle.
 
 ---
 
-## 10. Orchestration Safety Requirements
+## 10. Codex Authentication and Cost Boundary
+
+The intended implementation worker is the local Codex CLI authenticated through the user's ChatGPT account.
+
+Rules:
+- no `OPENAI_API_KEY` dependency for orchestration;
+- no silent OpenAI API fallback;
+- no automatic purchase/use of additional paid credits;
+- if included ChatGPT-plan Codex usage is unavailable or exhausted, stop and report it;
+- Git author identity, GitHub authentication, and Codex authentication are separate prerequisites.
+
+One-task execution with `python scripts/orchestration/controller.py` is the default. Use `--watch` only when unattended queue processing is explicitly desired and validated.
+
+## 11. Orchestration Safety Requirements
 
 Before introducing automated Codex orchestration into OrbitFlow-Evo, consider:
 
@@ -269,7 +288,7 @@ Before introducing automated Codex orchestration into OrbitFlow-Evo, consider:
 
 ---
 
-## 11. Parallel Development Direction
+## 12. Parallel Development Direction
 
 Future orchestration may support multiple Codex tasks simultaneously.
 
@@ -287,7 +306,7 @@ Conflict detection and PR review should remain mandatory.
 
 ---
 
-## 12. Repository Knowledge Model
+## 13. Repository Knowledge Model
 
 The repository should remain the authoritative project knowledge source.
 
@@ -303,7 +322,7 @@ Future ChatGPT or Codex sessions should read these files before significant deve
 
 ---
 
-## 13. Working Style
+## 14. Working Style
 
 The user prefers:
 
@@ -319,7 +338,7 @@ Do not start major new implementation work until the current development step ha
 
 ---
 
-## 14. Promotion Model
+## 15. Promotion Model
 
 OrbitFlow-Evo is experimental.
 
@@ -344,7 +363,7 @@ depending on the nature of the change.
 
 ---
 
-## 15. Starting a New ChatGPT Project
+## 16. Starting a New ChatGPT Project
 
 When starting a new ChatGPT conversation for OrbitFlow-Evo, instruct ChatGPT to read:
 
