@@ -1,8 +1,7 @@
 """Minimal single-device live validation for the VLAN capability.
 
 This operator utility is intentionally limited to collecting and displaying the
-existing normalized VLAN state. It is not an inventory, policy, reporting, or
-provisioning workflow.
+existing normalized VLAN state. Inventory resolution precedes collection on the same session.
 """
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ from dataclasses import fields
 from pathlib import Path
 from typing import TextIO
 
+from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.capabilities import VlanService
 from orbitflow.models import InterfaceVlanObservation, VlanState
 from orbitflow.transport import (
@@ -75,21 +75,27 @@ def _format_observation(observation: InterfaceVlanObservation) -> str:
 
 def run_live_validation(
     device_host: str,
-    platform: str,
+    platform: str | None,
     credentials: DeviceCredentials,
     transport_config: TransportConfig,
     *,
     device_name: str | None = None,
+    inventory_path: str | Path = Path("data/live_validation/inventory.json"),
     output: TextIO = sys.stdout,
 ) -> VlanState:
-    """Collect and print normalized VLAN facts for one live device."""
+    """Resolve then collect; pass platform=None for automatic detection.
+
+    device_name is retained for call compatibility; observed identity is used.
+    """
+    resolver = DeviceInventoryResolver(JsonInventoryStore(inventory_path))
     session: DeviceSession
     with connect_device(device_host, credentials, transport_config) as session:
+        context = resolver.resolve(
+            session, management_ip=device_host, platform_override=platform
+        )
         state = VlanService().collect(
             session,
-            device_ip=device_host,
-            platform=platform,
-            device_name=device_name,
+            context=context,
         )
 
     print(f"Device: {state.device_name or device_host}", file=output)

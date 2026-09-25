@@ -160,8 +160,17 @@ Observation performs no consistency or compliance decisions.
 
 `scripts/live_validate_interfaces.py` provides a deliberately limited
 single-device integration entry point for live validation of this existing
-capability. It accepts caller-supplied credentials and `TransportConfig`, prints
-normalized records, and does not implement inventory or production collection.
+capability. It accepts caller-supplied credentials and `TransportConfig`, resolves
+inventory first, then prints normalized records using the same established session.
+
+Both services accept `collect(session, context)` with a resolved `DeviceContext`;
+legacy `device_ip`/`platform`/optional `device_name` keyword calls remain supported.
+Context supplies observed identity, and VLAN selection uses Cisco EVC profile,
+family, or flags without changing the OS/platform (including ME3600X on IOS).
+Both validation runners accept `platform=None` for automatic detection, or an
+explicit resolver override, and an optional `inventory_path` (default:
+`data/live_validation/inventory.json`). Inventory and capability collection reuse
+one connection. Vendor parsers, commands, and normalized output models are unchanged.
 
 `scripts/live_validate_vlans.py` provides the equivalent single-device,
 operator-prompted integration harness for `VlanService`. Its current target and

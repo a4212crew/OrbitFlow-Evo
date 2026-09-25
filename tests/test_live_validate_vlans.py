@@ -39,6 +39,17 @@ def test_live_validation_reuses_transport_and_vlan_service(monkeypatch):
         datetime(2026, 9, 21, tzinfo=timezone.utc),
     )
     calls = []
+    context = object()
+
+    class FakeResolver:
+        def __init__(self, store):
+            pass
+
+        def resolve(self, supplied_session, **target):
+            calls.append(("resolve", supplied_session, target))
+            return context
+
+    monkeypatch.setattr(live_validate_vlans, "DeviceInventoryResolver", FakeResolver)
 
     def fake_connect(host, supplied_credentials, supplied_config):
         calls.append(("connect", host, supplied_credentials, supplied_config))
@@ -60,15 +71,8 @@ def test_live_validation_reuses_transport_and_vlan_service(monkeypatch):
     assert result is state
     assert calls == [
         ("connect", "192.0.2.10", credentials, config),
-        (
-            "collect",
-            session,
-            {
-                "device_ip": "192.0.2.10",
-                "platform": "cisco_xe",
-                "device_name": None,
-            },
-        ),
+        ("resolve", session, {"management_ip": "192.0.2.10", "platform_override": "cisco_xe"}),
+        ("collect", session, {"context": context}),
     ]
     rendered = output.getvalue()
     assert "Device: edge-01" in rendered
