@@ -34,80 +34,33 @@ Codex must never merge its own work. The controller must not auto-merge, and Atl
 
 ## Components
 
-### bootstrap.py
+### Operational controller
 
-`scripts/orchestration/bootstrap.py` is the prerequisite gate. The approved target checks are:
+`scripts/orchestration_v2/controller.py` is the sole operational controller. The
+legacy `scripts/orchestration/` implementation was removed in Issue #18 after
+full end-to-end validation and explicit user approval. The v2 directory name is
+unchanged. Preflight is integrated in `scripts/orchestration_v2/preflight.py`;
+there is no separate bootstrap script.
 
-- Git is installed;
-- Git `user.name` and `user.email` resolve;
-- GitHub CLI is installed and authenticated;
-- Codex CLI is installed;
-- Codex is authenticated through the user's ChatGPT account;
-- the expected GitHub repository is reachable;
-- orchestration labels exist.
+The controller validates Git and author identity, GitHub authentication,
+repository identity, a clean control checkout, Codex installation, and
+ChatGPT-account authentication before selecting a task. An active
+`OPENAI_API_KEY` or unverifiable ChatGPT authentication fails closed.
 
-Current code already checks Git identity, GitHub CLI availability/authentication, Codex CLI availability, repository reachability, and labels. Explicit machine-verifiable detection of the Codex authentication/billing mode is a follow-up hardening item unless the CLI exposes a stable command for it.
-
-It does not configure or require `OPENAI_API_KEY`.
-
-Codex must be authenticated separately with the user's ChatGPT account. If needed:
+Process one queued task:
 
 ```bash
-codex login
+python scripts/orchestration_v2/controller.py
 ```
 
-Run on either Windows or Linux:
+Preview the next queued task without invoking Codex or mutating Git/GitHub state:
 
 ```bash
-python scripts/orchestration/bootstrap.py
+python scripts/orchestration_v2/controller.py --dry-run
 ```
 
-### controller.py
-
-`scripts/orchestration/controller.py` is the local worker/controller.
-
-It:
-
-1. checks for `codex-revise` tasks first, then `codex-task`;
-2. verifies that the local checkout is the expected GitHub repository;
-3. rejects a dirty main checkout;
-4. creates or reuses a dedicated task worktree;
-5. invokes local `codex exec` with an explicit `workspace-write` sandbox scoped to the task worktree;
-6. provides Codex a disposable temporary directory inside the task worktree so tools such as pytest can create temporary files on Windows/Linux, then removes it before repository change detection;
-7. runs the deterministic pytest suite with `PYTHONPATH=src`;
-8. stops if tests fail, without committing, pushing, or creating/updating a PR;
-9. commits and pushes only after tests pass;
-10. creates the initial PR or updates the existing PR branch;
-11. posts the iteration result to the GitHub issue;
-12. returns the issue to `codex-review`.
-
-Run once (default operating mode):
-
-```bash
-python scripts/orchestration/controller.py
-```
-
-One-task execution is the normal operator workflow: one queued task is processed, a result is produced, and the controller exits.
-
-Run continuously only when unattended queue processing is explicitly desired and validated:
-
-```bash
-python scripts/orchestration/controller.py --watch
-```
-
-Dry-run the next queued task without invoking Codex or mutating branches, worktrees, labels, comments, commits, pushes, or PRs:
-
-```bash
-python scripts/orchestration/controller.py --dry-run
-```
-
-Optional polling interval:
-
-```bash
-python scripts/orchestration/controller.py --watch --poll-seconds 20
-```
-
-The minimum polling interval is 5 seconds.
+The controller processes one task and exits. Watch mode is not supported.
+See the implementation phases below for workspace, execution, and publication details.
 
 ## Cross-Platform Requirement
 
@@ -147,7 +100,7 @@ The current controller processes one task at a time per controller process. Mult
 - `codex-failed` — local orchestration failed and needs inspection.
 - `codex-replan-required` — iteration 15 was exhausted under the current plan.
 
-The bootstrap script creates or updates these labels.
+These labels must exist in the repository before task processing. Repository setup is operator-owned; v2 does not create labels.
 
 ## Atlas Review Contract
 
@@ -236,13 +189,13 @@ GitHub access uses the locally authenticated `gh` CLI.
 
 ## Failure Handling
 
-If the local controller fails, it removes the queue labels (`codex-task` / `codex-revise`), applies `codex-failed`, and posts the failure reason to the issue where possible. This prevents `--watch` from retrying the same failed task indefinitely. Repository-cleanliness failures also include the dirty paths so the operator can correct them explicitly.
+If the local controller fails, it removes the queue labels (`codex-task` / `codex-revise`), applies `codex-failed`, and posts the failure reason to the issue where possible. This prevents subsequent one-task runs from selecting the same failed task automatically. Repository-cleanliness failures also include the dirty paths so the operator can correct them explicitly.
 
 A failed run does not count as a completed implementation/review iteration unless an iteration marker was successfully posted for Atlas review.
 
 Before retrying, inspect the task worktree and GitHub issue state. The controller intentionally refuses duplicate initial branches/worktrees rather than silently overwriting unreviewed local changes.
 
-## Bootstrap and First Validation
+## Operator Setup and Validation
 
 From an up-to-date, clean OrbitFlow-Evo checkout:
 
@@ -250,18 +203,17 @@ From an up-to-date, clean OrbitFlow-Evo checkout:
 gh auth status
 codex --version
 codex login
-python scripts/orchestration/bootstrap.py
 ```
 
 Then process one task:
 
 ```bash
-python scripts/orchestration/controller.py
+python scripts/orchestration_v2/controller.py
 ```
 
-Use `--watch` only for explicitly approved unattended queue processing.
+Configure Git author identity and ensure the labels above exist before processing tasks. The controller runs its prerequisite checks on every invocation.
 
-First end-to-end validation:
+End-to-end validation checkpoints:
 
 1. Atlas creates a trivial non-network GitHub issue.
 2. Atlas/user approves the implementation plan.
@@ -273,16 +225,16 @@ First end-to-end validation:
 8. Confirm the controller reuses the same branch/PR and returns the issue to `codex-review`.
 9. Merge only after explicit user approval.
 
-The orchestration foundation is not considered end-to-end validated until this controlled test succeeds on at least one workstation. Cross-platform portability is covered deterministically, while full live orchestration should be exercised on both Windows and Linux when both environments are available.
+The approved Issue #18 contract confirms that orchestration v2 passed full end-to-end validation and authorizes legacy retirement. This task does not add a new live validation run or claim additional platform coverage. Cross-platform portability remains covered by deterministic tests.
 
 
 The controller preflights a resolved Git author identity (`user.name` and `user.email`) before any Codex execution so commit failures are caught before implementation work begins.
 
-## Replacement Candidate Under Validation
+## Operational Implementation Phases
 
-A fresh controller candidate is being built alongside the existing orchestration under `scripts/orchestration_v2/`. The existing `scripts/orchestration/` implementation remains in place until the replacement passes the required end-to-end validation and the user explicitly approves cleanup.
+The operational implementation remains under `scripts/orchestration_v2/`. Legacy retirement does not change its runtime behavior or controller/Codex ownership boundaries.
 
-The replacement implements these phases:
+The controller implements these phases:
 
 1. **Preflight** — validates Git, Git author identity, GitHub CLI authentication, repository identity, a clean control checkout, Codex installation, and ChatGPT-account authentication. An active `OPENAI_API_KEY` or an authentication state that cannot be verified as ChatGPT-based fails closed before Codex runs.
 2. **Task/workspace preparation** — discovers one `codex-revise` or `codex-task` Issue, plans/validates `codex/issue-<number>`, uses a dedicated sibling worktree, and supports a read-only dry-run.
@@ -296,4 +248,4 @@ Selected-task failures transition to `codex-failed`, removing queue/running labe
 
 Temporary storage uses `tempfile.mkdtemp` under the OS temporary directory, with an `orbitflow-` prefix, task-worktree name, purpose, and unique suffix. Codex receives its external directory through `TEMP`, `TMP`, and `TMPDIR`; controller pytest receives those variables and an external `--basetemp`. Output capture also uses an owned external directory. An OS-temp override resolving inside a Git checkout is rejected before creating directories. No worktree-local temporary directory or Git cleanup prerequisite is used.
 
-Each execution attempts bounded cleanup in `finally`, including failed launches and failed tests. Cleanup refuses symlinks/reparse points and never invokes ACL reset tools or requests administrator privileges. An unrecoverable permission/locking failure prints a warning with the retained external path to stderr; it neither masks execution/test failures nor blocks staging or worktree removal. External artifacts may remain for later cleanup by their owner. Test failures still block publication. Issue #13 end-to-end publishing/revision validation and a normal-user Windows/OneDrive run of this external-temp design remain operator validation requirements.
+Each execution attempts bounded cleanup in `finally`, including failed launches and failed tests. Cleanup refuses symlinks/reparse points and never invokes ACL reset tools or requests administrator privileges. An unrecoverable permission/locking failure prints a warning with the retained external path to stderr; it neither masks execution/test failures nor blocks staging or worktree removal. External artifacts may remain for later cleanup by their owner. Test failures still block publication.
