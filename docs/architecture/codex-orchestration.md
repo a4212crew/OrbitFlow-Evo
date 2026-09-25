@@ -277,3 +277,15 @@ The orchestration foundation is not considered end-to-end validated until this c
 
 
 The controller preflights a resolved Git author identity (`user.name` and `user.email`) before any Codex execution so commit failures are caught before implementation work begins.
+
+## Replacement Candidate Under Validation
+
+A fresh controller candidate is being built alongside the existing orchestration under `scripts/orchestration_v2/`. The existing `scripts/orchestration/` implementation remains in place until the replacement passes the required end-to-end validation and the user explicitly approves cleanup.
+
+The first replacement milestone implements phases 1-3 only:
+
+1. **Preflight** — validates Git, Git author identity, GitHub CLI authentication, repository identity, a clean control checkout, Codex installation, and ChatGPT-account authentication. An active `OPENAI_API_KEY` or an authentication state that cannot be verified as ChatGPT-based fails closed before Codex runs.
+2. **Task/workspace preparation** — discovers one `codex-revise` or `codex-task` Issue, plans/validates `codex/issue-<number>`, uses a dedicated sibling worktree, and supports a read-only dry-run.
+3. **Codex + test gate** — invokes local Codex with `workspace-write`, keeps temporary files inside the task worktree, requires repository changes, and runs the full deterministic pytest suite as a hard gate.
+
+This milestone deliberately leaves successful Codex changes uncommitted. Controller-owned commit/push/PR creation, GitHub state transitions, iteration tracking, Atlas review/revision integration, and the final human merge gate are Phase 4. No `--watch` mode is part of the replacement candidate at this stage.
