@@ -82,13 +82,23 @@ class CiscoIOSCLI:
         if timeout <= 0:
             raise ValueError("timeout must be greater than zero")
         self._channel: Any = session.invoke_shell()
-        self._channel.sendall(b"\n")
-        _, self.prompt = self._read_until_prompt(timeout)
-        setup_output = self.run_command("terminal length 0", timeout=timeout)
-        if _REJECTED_COMMAND.search(setup_output):
-            raise CiscoIOSCLIError(
-                "IOS/IOS-XE rejected required session setup command 'terminal length 0'"
-            )
+        try:
+            self._channel.sendall(b"\n")
+            _, self.prompt = self._read_until_prompt(timeout)
+            setup_output = self.run_command("terminal length 0", timeout=timeout)
+            if _REJECTED_COMMAND.search(setup_output):
+                raise CiscoIOSCLIError(
+                    "IOS/IOS-XE rejected required session setup command 'terminal length 0'"
+                )
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        """Release the owned shell once; the caller still owns the session."""
+        channel, self._channel = self._channel, None
+        if channel is not None:
+            channel.close()
 
     def _read_until_prompt(
         self,

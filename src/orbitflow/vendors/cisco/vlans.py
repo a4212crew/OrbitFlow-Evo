@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import re
 from dataclasses import replace
 
@@ -268,12 +269,12 @@ class CiscoVlanAdapter:
         self._session, self._timeout, self._evc = session, timeout, evc
 
     def collect(self) -> VlanCollection:
-        cli = CiscoIOSCLI(self._session, timeout=self._timeout)
-        output = cli.run_command("show running-config", timeout=self._timeout)
-        if _REJECTED.search(output):
-            raise ValueError("Cisco rejected approved command 'show running-config'")
-        interfaces, objects = parse_ios_running_config(output, evc=self._evc)
-        return VlanCollection(extract_ios_hostname(cli.prompt), interfaces, objects)
+        with closing(CiscoIOSCLI(self._session, timeout=self._timeout)) as cli:
+            output = cli.run_command("show running-config", timeout=self._timeout)
+            if _REJECTED.search(output):
+                raise ValueError("Cisco rejected approved command 'show running-config'")
+            interfaces, objects = parse_ios_running_config(output, evc=self._evc)
+            return VlanCollection(extract_ios_hostname(cli.prompt), interfaces, objects)
 
 
 class CiscoXEVlanAdapter(CiscoVlanAdapter):
@@ -286,11 +287,11 @@ class CiscoXRVlanAdapter:
         self._session, self._timeout = session, timeout
 
     def collect(self) -> VlanCollection:
-        cli = CiscoXRCLI(self._session, timeout=self._timeout)
-        output = cli.run_command("show running-config", timeout=self._timeout)
-        if _REJECTED.search(output):
-            raise ValueError(
-                "Cisco IOS-XR rejected approved command 'show running-config'"
-            )
-        interfaces, objects = parse_ios_xr_running_config(output)
-        return VlanCollection(extract_ios_xr_hostname(cli.prompt), interfaces, objects)
+        with closing(CiscoXRCLI(self._session, timeout=self._timeout)) as cli:
+            output = cli.run_command("show running-config", timeout=self._timeout)
+            if _REJECTED.search(output):
+                raise ValueError(
+                    "Cisco IOS-XR rejected approved command 'show running-config'"
+                )
+            interfaces, objects = parse_ios_xr_running_config(output)
+            return VlanCollection(extract_ios_xr_hostname(cli.prompt), interfaces, objects)

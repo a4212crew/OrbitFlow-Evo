@@ -15,6 +15,9 @@ from orbitflow.vendors.vlan_types import parse_vlan_list
 
 
 class FakeChannel:
+    def close(self):
+        self.closed = True
+
     def __init__(self, responses):
         self.responses, self.sent = iter(responses), []
 

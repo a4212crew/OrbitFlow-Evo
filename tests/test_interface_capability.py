@@ -22,6 +22,9 @@ from orbitflow.vendors.ubiquiti.interfaces import (
 
 
 class FakeChannel:
+    def close(self):
+        self.closed = True
+
     def __init__(self, responses):
         self.responses = iter(responses)
         self.sent = []

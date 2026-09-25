@@ -43,13 +43,23 @@ class PromptCLI:
         self._rejected = rejected
         self._platform_name = platform_name
         self._channel: Any = session.invoke_shell()
-        self._channel.sendall(b"\n")
-        _, self.prompt = self._read_until_prompt(timeout)
-        output = self.run_command(paging_command, timeout=timeout)
-        if rejected(output):
-            raise InteractiveCLIError(
-                f"{platform_name} rejected required session setup command {paging_command!r}"
-            )
+        try:
+            self._channel.sendall(b"\n")
+            _, self.prompt = self._read_until_prompt(timeout)
+            output = self.run_command(paging_command, timeout=timeout)
+            if rejected(output):
+                raise InteractiveCLIError(
+                    f"{platform_name} rejected required session setup command {paging_command!r}"
+                )
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        """Release the owned shell once; the caller still owns the session."""
+        channel, self._channel = self._channel, None
+        if channel is not None:
+            channel.close()
 
     def _detect_prompt(self, output: str) -> str | None:
         normalized = normalize_output(output)

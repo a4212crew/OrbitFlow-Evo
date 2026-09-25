@@ -1,5 +1,6 @@
 """Ubiquiti EdgeSwitch running-configuration VLAN observation."""
 
+from contextlib import closing
 import re
 
 from orbitflow.models import InterfaceVlanObservation, VlanObject
@@ -108,20 +109,20 @@ class EdgeSwitchVlanAdapter:
         self._session, self._timeout = session, timeout
 
     def collect(self) -> VlanCollection:
-        cli = PromptCLI(
+        with closing(PromptCLI(
             self._session,
             paging_command="terminal length 0",
             prompt_pattern=r"^([^\r\n]+[>#])[ \t]*$",
             rejected=lambda x: bool(_REJECTED.search(x)),
             platform_name="Ubiquiti EdgeSwitch",
             timeout=self._timeout,
-        )
-        output = cli.run_command("show running-config", timeout=self._timeout)
-        if _REJECTED.search(output):
-            raise ValueError(
-                "EdgeSwitch rejected approved command 'show running-config'"
+        )) as cli:
+            output = cli.run_command("show running-config", timeout=self._timeout)
+            if _REJECTED.search(output):
+                raise ValueError(
+                    "EdgeSwitch rejected approved command 'show running-config'"
+                )
+            interfaces, objects = parse_edgeswitch_config(output)
+            return VlanCollection(
+                extract_edgeswitch_hostname(cli.prompt), interfaces, objects
             )
-        interfaces, objects = parse_edgeswitch_config(output)
-        return VlanCollection(
-            extract_edgeswitch_hostname(cli.prompt), interfaces, objects
-        )

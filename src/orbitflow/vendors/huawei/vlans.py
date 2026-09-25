@@ -1,5 +1,6 @@
 """Huawei VRP current-configuration VLAN observation."""
 
+from contextlib import closing
 import re
 
 from orbitflow.models import InterfaceVlanObservation, VlanObject
@@ -132,18 +133,18 @@ class HuaweiVlanAdapter:
         self._session, self._timeout = session, timeout
 
     def collect(self) -> VlanCollection:
-        cli = PromptCLI(
+        with closing(PromptCLI(
             self._session,
             paging_command="screen-length 0 temporary",
             prompt_pattern=r"^([^\r\n]*(?:<[^<>\r\n]+>|\[[^\[\]\r\n]+\]))[ \t]*$",
             rejected=lambda x: bool(_REJECTED.search(x)),
             platform_name="Huawei VRP",
             timeout=self._timeout,
-        )
-        output = cli.run_command("display current-configuration", timeout=self._timeout)
-        if _REJECTED.search(output):
-            raise ValueError(
-                "Huawei VRP rejected approved command 'display current-configuration'"
-            )
-        interfaces, objects = parse_huawei_config(output)
-        return VlanCollection(extract_huawei_hostname(cli.prompt), interfaces, objects)
+        )) as cli:
+            output = cli.run_command("display current-configuration", timeout=self._timeout)
+            if _REJECTED.search(output):
+                raise ValueError(
+                    "Huawei VRP rejected approved command 'display current-configuration'"
+                )
+            interfaces, objects = parse_huawei_config(output)
+            return VlanCollection(extract_huawei_hostname(cli.prompt), interfaces, objects)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import re
 
 from orbitflow.transport import DeviceSession
@@ -205,32 +206,32 @@ class HuaweiInterfaceAdapter:
         self._timeout = timeout
 
     def collect(self) -> InterfaceCollection:
-        cli = PromptCLI(
+        with closing(PromptCLI(
             self._session,
             paging_command="screen-length 0 temporary",
             prompt_pattern=r"^([^\r\n]*(?:<[^<>\r\n]+>|\[[^\[\]\r\n]+\]))[ \t]*$",
             rejected=lambda output: bool(_REJECTED.search(output)),
             platform_name="Huawei VRP",
             timeout=self._timeout,
-        )
-        output = cli.run_command("display interface description", timeout=self._timeout)
-        if _REJECTED.search(output):
-            raise ValueError(
-                "Huawei VRP rejected approved command 'display interface description'"
-            )
-        observations = parse_interface_description(output)
-        if observations and not observations[0].admin_status:
-            brief_output = cli.run_command(
-                "display interface brief", timeout=self._timeout
-            )
-            if _REJECTED.search(brief_output):
+        )) as cli:
+            output = cli.run_command("display interface description", timeout=self._timeout)
+            if _REJECTED.search(output):
                 raise ValueError(
-                    "Huawei VRP rejected approved command 'display interface brief'"
+                    "Huawei VRP rejected approved command 'display interface description'"
                 )
-            observations = _join_description_status(
-                observations, parse_interface_brief(brief_output)
+            observations = parse_interface_description(output)
+            if observations and not observations[0].admin_status:
+                brief_output = cli.run_command(
+                    "display interface brief", timeout=self._timeout
+                )
+                if _REJECTED.search(brief_output):
+                    raise ValueError(
+                        "Huawei VRP rejected approved command 'display interface brief'"
+                    )
+                observations = _join_description_status(
+                    observations, parse_interface_brief(brief_output)
+                )
+            return InterfaceCollection(
+                device_name=extract_huawei_hostname(cli.prompt),
+                observations=observations,
             )
-        return InterfaceCollection(
-            device_name=extract_huawei_hostname(cli.prompt),
-            observations=observations,
-        )
