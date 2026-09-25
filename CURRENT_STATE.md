@@ -1,14 +1,13 @@
-# CURRENT_STATE.md — OrbitFlow Current State
+# CURRENT_STATE.md — OrbitFlow-Evo Current State
 
 Use this file as the concise source of truth for what is implemented and validated today.
 
-> **OrbitFlow-Evo note:** This repository was cloned from OrbitFlow as an experimental evolution sandbox. Existing capability status below reflects the inherited OrbitFlow baseline unless a later OrbitFlow-Evo entry explicitly supersedes it.
 
 Keep this document short. Historical implementation detail belongs in `docs/devlog/YYYY-MM.md`.
 
 ## Project
 
-OrbitFlow is a multi-vendor ISP network automation platform designed to scale toward approximately 1,500 network devices.
+OrbitFlow-Evo is a multi-vendor ISP network automation platform designed to scale toward approximately 1,500 network devices.
 
 Core rules and skill routing are defined in `AGENTS.md`.
 

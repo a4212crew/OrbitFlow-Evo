@@ -6,7 +6,7 @@ description: Implement and operate the OrbitFlow-Evo local Codex controller, tas
 
 Use this skill for OrbitFlow-Evo development tasks involving ChatGPT / Atlas, GitHub Issues, the local Python controller, Codex CLI, Codex task/revision lifecycle, PR review, or orchestration troubleshooting.
 
-Read `AGENTS.md` and `CURRENT_STATE.md` before this skill. For durable architecture and state-machine detail, also read `docs/architecture/codex-orchestration.md`.
+Read `AGENTS.md` first. Read `CURRENT_STATE.md` only when the task depends on current implementation status, architecture baseline, supported behaviour, known limitations, or active development state. Read `docs/architecture/codex-orchestration.md` only when lifecycle architecture or controller behaviour is directly relevant.
 
 ## Roles
 
@@ -95,6 +95,18 @@ Keep it concise and include:
 
 Do not duplicate large persistent rules from `AGENTS.md`, `CURRENT_STATE.md`, or architecture docs into every issue.
 
+## Context Efficiency
+
+Use the minimum repository context needed to complete the scoped task safely.
+
+- Start with targeted search and targeted file reads.
+- Do not load `CURRENT_STATE.md`, architecture documents, or devlogs by default.
+- Load them only when the task materially depends on their content.
+- Treat `docs/devlog/` as historical/reference material, not normal task context.
+- Avoid broad repository-document ingestion for simple docs, tests, typo fixes, or narrowly scoped changes.
+- Avoid repeatedly emitting full diffs or large command output; prefer targeted inspection and one final diff.
+- Run targeted tests while developing when useful, then the required deterministic suite once at the final gate.
+
 ## Repository Isolation
 
 Each normal task uses:
@@ -102,8 +114,6 @@ Each normal task uses:
 - dedicated sibling Git worktree.
 
 Parallel tasks must not share one mutable working directory.
-
-Stable OrbitFlow is outside the Evo orchestration boundary unless the user explicitly approves promotion.
 
 ## Preflight Requirements
 
