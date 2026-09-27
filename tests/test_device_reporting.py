@@ -190,6 +190,14 @@ def test_batch_isolation_session_context_and_secrets(tmp_path, monkeypatch, stag
     path = reporting.run_report(targets, CONFIG, inventory_path=tmp_path / 'inventory.json',
                                 reports_dir=tmp_path, log_root=tmp_path / 'logs', output=output, clock=lambda: NOW)
     assert writer.call_count == 1
+    console = output.getvalue()
+    assert 'Interface/VLAN batch started: 2 devices' in console
+    assert '[2/2] 192.0.2.2: completed' in console
+    assert 'Interface/VLAN batch: workbook generation' in console
+    assert f'Devices: 2; stage failures: {int(bool(stage))}; report: {path}' in console
+    if stage:
+        assert f'[1/2] 192.0.2.1: {stage} failed (RuntimeError)' in console
+        assert '[1/2] 192.0.2.1: completed with 1 stage failure(s)' in console
     workbook = load_workbook(path)
     try:
         assert workbook['Run_Errors'].max_row == (2 if stage else 1)
@@ -246,6 +254,8 @@ def test_reporting_failure_logs_safe_exception_chain(tmp_path, monkeypatch, stag
     if stage == 'workbook':
         with pytest.raises(InterfaceCapabilityError):
             run()
+        assert 'workbook generation failed (InterfaceCapabilityError)' in output.getvalue()
+        assert '; report:' not in output.getvalue()
         rendered = ''
     else:
         workbook = load_workbook(run())
@@ -406,3 +416,57 @@ interface Gi0/2
         assert {str(row[5]) for row in workbook['VLAN_Database'].iter_rows(min_row=2, values_only=True)} == {'10', '13', '746'}
     finally:
         workbook.close()
+
+
+def test_progress_is_flushed_before_each_stage(tmp_path, monkeypatch):
+    install_fakes(monkeypatch)
+
+    class FlushedOutput(StringIO):
+        flushed = ''
+
+        def flush(self):
+            self.flushed = self.getvalue()
+
+    output = FlushedOutput()
+
+    def check(owner, attribute, stage):
+        original = getattr(owner, attribute)
+
+        def checked(*args, **kwargs):
+            assert output.flushed.splitlines()[-1] == stage
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(owner, attribute, checked)
+
+    label = '[1/1] 192.0.2.1'
+    check(reporting, 'connect_device', f'{label}: connect')
+    check(reporting.DeviceInventoryResolver.return_value, 'resolve', f'{label}: inventory')
+    check(reporting.InterfaceService.return_value, 'collect', f'{label}: interfaces')
+    check(reporting.VlanService.return_value, 'collect', f'{label}: vlans')
+    check(reporting, 'build_rows', f'{label}: normalize')
+    check(reporting, 'write_workbook', 'Interface/VLAN batch: workbook generation')
+    reporting.run_report(
+        [{'management_ip': '192.0.2.1', 'username': 'synthetic-user', 'password': 'synthetic-password'}],
+        CONFIG, reports_dir=tmp_path, log_root=tmp_path / 'logs', output=output, clock=lambda: NOW)
+    assert output.flushed == output.getvalue()
+
+
+def test_progress_input_normalization_failures_and_empty_batch(tmp_path, monkeypatch):
+    install_fakes(monkeypatch)
+    monkeypatch.setattr(reporting, 'build_rows', Mock(side_effect=ValueError('raw secret output')))
+    output = StringIO()
+    reporting.run_report(
+        [{'management_ip': 'synthetic-password\nforged', 'password': 'synthetic-password'},
+         {'management_ip': '192.0.2.1', 'username': 'synthetic-user', 'password': 'synthetic-password'}],
+        CONFIG, reports_dir=tmp_path, log_root=tmp_path / 'logs', output=output, clock=lambda: NOW)
+    console = output.getvalue()
+    assert '[1/2] [REDACTED]\\nforged: input failed (ValueError)' in console
+    assert '[2/2] 192.0.2.1: normalize failed (ValueError)' in console
+    assert 'synthetic-password' not in console
+    assert 'raw secret output' not in console
+    assert 'stage failures: 2; report:' in console
+    output = StringIO()
+    reporting.run_report([], CONFIG, reports_dir=tmp_path, log_root=tmp_path / 'logs', output=output)
+    assert 'batch started: 0 devices' in output.getvalue()
+    assert 'workbook generation' in output.getvalue()
+    assert 'Devices: 0; stage failures: 0; report:' in output.getvalue()

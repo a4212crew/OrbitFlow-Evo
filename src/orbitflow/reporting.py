@@ -118,6 +118,10 @@ def run_report(targets, transport_config, *, inventory_path="data/live_validatio
         text = sanitize_text(value)
         return pattern.sub("[REDACTED]", text) if pattern else text
 
+    def status(message):
+        # Flush before blocking work, including when stdout is redirected.
+        print(message, file=output, flush=True)
+
     started = clock()
     path = Path(reports_dir) / f"device_interface_vlan_report_{started.strftime('%Y%m%dT%H%M%S_%fZ')}.xlsx"
     interface_rows, database_rows, errors = [], [], []
@@ -125,27 +129,37 @@ def run_report(targets, transport_config, *, inventory_path="data/live_validatio
     interface_service, vlan_service = InterfaceService(), VlanService()
     with module_logger("reporting", "interface_vlan_report", log_root=log_root) as (logger, _):
         logger.info("Interface/VLAN batch started")
+        status(f"Interface/VLAN batch started: {len(targets)} devices")
 
         def failure(ip, name, stage, exc):
             category = type(exc).__name__
+            status(f"{label}: {stage} failed ({clean(category)})")
             errors.append([clean(ip), clean(name), stage, category, clock().isoformat()])
             logger.error(f"Report stage failed: {stage}",
                          exc_info=exc,
                          extra={"management_ip": clean(ip), "error_category": category})
 
-        for target in targets:
+        for position, target in enumerate(targets, 1):
             ip, name, stage = target.get("management_ip", ""), "", "input"
+            # Escape control characters so a target cannot inject console lines.
+            identity = clean(ip).encode("unicode_escape").decode("ascii")
+            label = f"[{position}/{len(targets)}] {identity or '(missing target)'}"
+            failures_before = len(errors)
             context, interfaces, vlans = None, [], None
+            status(f"{label}: input")
             try:
                 if not all(isinstance(target.get(field), str) and target[field].strip() for field in REQUIRED_COLUMNS):
                     raise ValueError("Missing required target field")
                 stage = "connect"
+                status(f"{label}: {stage}")
                 with connect_device(ip, DeviceCredentials(target["username"], target["password"]), transport_config) as session:
                     stage = "inventory"
+                    status(f"{label}: {stage}")
                     with DeviceCLI(session) as cli:
                         context = resolver.resolve(session, management_ip=ip, cli=cli)
                         name = context.hostname
                         for stage, service in (("interfaces", interface_service), ("vlans", vlan_service)):
+                            status(f"{label}: {stage}")
                             try:
                                 result = service.collect(session, context, cli=cli)
                                 if stage == "interfaces":
@@ -155,21 +169,27 @@ def run_report(targets, transport_config, *, inventory_path="data/live_validatio
                             except Exception as exc:
                                 failure(ip, name, stage, exc)
                         stage = "disconnect"
+                        status(f"{label}: {stage}")
             except Exception as exc:
                 failure(ip, name, stage, exc)
             if context is not None:
+                status(f"{label}: normalize")
                 try:
                     rows, objects = build_rows(context, interfaces, vlans)
                     interface_rows.extend(rows)
                     database_rows.extend(objects)
                 except Exception as exc:
                     failure(ip, name, "normalize", exc)
+            count = len(errors) - failures_before
+            status(f"{label}: completed" + (f" with {count} stage failure(s)" if count else ""))
+        status("Interface/VLAN batch: workbook generation")
         try:
             write_workbook(path, interface_rows, database_rows, errors, clean=clean)
         except Exception as exc:
+            status(f"Interface/VLAN batch: workbook generation failed ({clean(type(exc).__name__)})")
             logger.error("Report workbook write failed", exc_info=exc,
                          extra={"error_category": type(exc).__name__})
             raise
         logger.info("Interface/VLAN batch completed")
-    print(f"Devices: {len(targets)}; stage failures: {len(errors)}; report: {path}", file=output)
+    status(f"Devices: {len(targets)}; stage failures: {len(errors)}; report: {clean(str(path))}")
     return path
