@@ -51,6 +51,13 @@ def forwarding(
             mappings.append("ALL -> ALL")
         elif isinstance(tagged, tuple):
             mappings.extend(f"{v} -> {v}" for v in tagged)
+    # VLAN 1 is intentionally omitted from the normalized reporting contract.
+    # Keep supporting vendor facts intact, and preserve ALL/NONE/blank states.
+    untagged = "" if str(untagged) == "1" else untagged
+    if isinstance(tagged, tuple):
+        tagged = tuple(v for v in tagged if v != 1)
+    domains = tuple(v for v in domains if v != "1")
+    mappings = [m for m in mappings if "1" not in m.split(" -> ")]
     return replace(observation, port_type=port_type, untagged_vlan=str(untagged),
                    tagged_vlans=tagged, bridge_domains=domains,
                    service_mappings=tuple(mappings))
@@ -87,3 +94,8 @@ def aggregate_profiles(observations) -> tuple[InterfaceVlanObservation, ...]:
             service_details=tuple(items),
         ))
     return tuple(result)
+
+
+def visible_objects(objects) -> tuple[VlanObject, ...]:
+    """Omit domain 1 without mistaking names containing 1 for VLAN 1."""
+    return tuple(obj for obj in objects if obj.domain_id != "1")

@@ -357,3 +357,44 @@ def test_database_report_preserves_named_domains_and_object_types(tmp_path):
         }
     finally:
         workbook.close()
+
+
+def test_workbook_omits_vlan_one_and_preserves_global_evc_mapping(tmp_path):
+    ports, objects = parse_ios_running_config('''vlan 1,10
+!
+bridge-domain 1
+!
+bridge-domain 13
+ member Gi0/1 service-instance 13
+!
+interface Gi0/1
+ switchport mode trunk
+ service instance 13 ethernet
+  encapsulation untagged
+ service instance 10 ethernet
+  encapsulation dot1q 10
+  bridge-domain 10
+!
+interface Gi0/2
+ switchport mode trunk
+ switchport trunk allowed vlan 1,10
+!''', evc=True)
+    rows, database = reporting.build_rows(
+        context(), [interface(), interface('Gi0/2')], state(*ports, objects=objects))
+    path = tmp_path / 'normalized.xlsx'
+    reporting.write_workbook(path, rows, database, [])
+    workbook = load_workbook(path)
+    try:
+        records = list(workbook['Interfaces'].values)
+        headers = records[0]
+        records = [dict(zip(headers, row)) for row in records[1:]]
+        assert len(records) == 2
+        assert str(records[0]['Untagged VLAN']) == '13'
+        assert 'untagged -> 13' in records[0]['Service Mappings']
+        assert records[1]['Untagged VLAN'] is None
+        assert str(records[1]['Tagged VLANs']) == '10'
+        assert str(records[1]['Bridge Domains']) == '10'
+        assert records[1]['Service Mappings'] == '10 -> 10'
+        assert {str(row[5]) for row in workbook['VLAN_Database'].iter_rows(min_row=2, values_only=True)} == {'10', '13'}
+    finally:
+        workbook.close()

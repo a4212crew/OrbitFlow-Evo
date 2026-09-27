@@ -5,7 +5,7 @@ import re
 from orbitflow.models import InterfaceVlanObservation, VlanObject
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.common import DeviceCLI, open_prompt_cli
-from orbitflow.vendors.vlan_types import VlanCollection, parse_vlan_list, forwarding
+from orbitflow.vendors.vlan_types import VlanCollection, parse_vlan_list, forwarding, visible_objects
 from .interfaces import extract_edgeswitch_hostname
 
 _REJECTED = re.compile(
@@ -105,7 +105,7 @@ def parse_edgeswitch_config(
         VlanObject("vlan", str(v), vlan_names.get(v, ""), (v,))
         for v in sorted(database)
     )
-    return tuple(interfaces), objects
+    return tuple(interfaces), visible_objects(objects)
 
 
 class EdgeSwitchVlanAdapter:

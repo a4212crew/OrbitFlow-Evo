@@ -314,7 +314,7 @@ exit""")
     assert interfaces[0].referenced_vlans == (445, 1101)
     assert interfaces[1].description == "Trunk to POP"
     assert interfaces[1].mode == "trunk"
-    assert interfaces[1].tagged_vlans == (1, 445, 545, 1101)
+    assert interfaces[1].tagged_vlans == (445, 545, 1101)
 
 
 CASES = {
@@ -367,9 +367,9 @@ def test_normalized_cisco_trunk_defaults_and_tag_states(command, tags):
         'interface Gi0/1\n switchport mode trunk\n' + command + '!')
     port = interfaces[0]
     assert port.port_type == 'trunk'
-    assert port.untagged_vlan == '1'
+    assert port.untagged_vlan == ''
     assert port.tagged_vlans == tags
-    assert 'untagged -> 1' in port.service_mappings
+    assert 'untagged -> 1' not in port.service_mappings
     assert objects == ()
 
 
@@ -540,3 +540,96 @@ def test_huawei_pvid_with_tagged_membership(prefix):
     assert ports[0].untagged_vlan == '10'
     assert ports[0].tagged_vlans == (20, 30)
     assert ports[0].service_mappings == ('untagged -> 10', '20 -> 20', '30 -> 30')
+
+@pytest.mark.parametrize('global_first', [True, False])
+@pytest.mark.parametrize('vlan_database', [True, False])
+def test_global_evc_membership_overrides_switchport_defaults(global_first, vlan_database):
+    global_config = '''bridge-domain 13
+ member Gi0/13 service-instance 13
+!
+bridge-domain 746
+ member GigabitEthernet0/13 service-instance 746
+ member GigabitEthernet0/99 service-instance 999
+!
+'''
+    local_config = '''interface GigabitEthernet0/13
+ switchport mode trunk
+ switchport trunk allowed vlan 1,100
+ service instance 13 ethernet
+  encapsulation untagged
+ service instance 746 ethernet
+  encapsulation dot1q 746
+!
+'''
+    ports, objects = parse_ios_running_config(
+        global_config + local_config if global_first else local_config + global_config,
+        evc=True, vlan_database=vlan_database)
+    assert len(ports) == 1
+    port = ports[0]
+    assert port.interface_name == 'GigabitEthernet0/13'
+    assert port.port_type == 'evc'
+    assert port.untagged_vlan == '13'
+    assert port.tagged_vlans == (746,)
+    assert port.bridge_domains == ('13', '746')
+    assert port.service_mappings == ('untagged -> 13', '746 -> 746')
+    assert {(o.object_type, o.domain_id) for o in objects} == {
+        ('bridge_domain', '13'), ('bridge_domain', '746')}
+
+
+@pytest.mark.parametrize('parser,config,options', [
+    (parse_ios_running_config, '''vlan 1,10
+!
+interface Gi0/1
+ switchport mode trunk
+ switchport trunk native vlan 1
+ switchport trunk allowed vlan 1,10
+!''', {}),
+    (parse_ios_running_config, '''bridge-domain 1
+ member Gi0/1 service-instance 1
+!
+interface Gi0/1
+ service instance 1 ethernet
+  encapsulation untagged
+ service instance 10 ethernet
+  encapsulation dot1q 10
+  bridge-domain 10
+!''', {'evc': True}),
+    (parse_ios_xr_running_config, '''l2vpn
+ bridge group BG
+  bridge-domain 1
+   interface Gi0/1.1
+  bridge-domain 10
+   interface Gi0/1.10
+!
+interface Gi0/1.1 l2transport
+ encapsulation dot1q 1
+!
+interface Gi0/1.10 l2transport
+ encapsulation dot1q 10
+!''', {}),
+    (parse_huawei_config, '''vlan batch 1 10
+#
+interface GE0/1
+ port trunk pvid vlan 1
+ port trunk allow-pass vlan 1 10
+#''', {}),
+    (parse_edgeswitch_config, '''vlan database
+ vlan 1,10
+exit
+interface 0/1
+ vlan pvid 1
+ vlan participation include 1,10
+ vlan tagging 10
+exit''', {}),
+])
+def test_vlan_one_suppression_across_normalized_vendors(parser, config, options):
+    ports, objects = parser(config, **options)
+    assert ports
+    for port in ports:
+        assert port.untagged_vlan == ''
+        assert 1 not in port.tagged_vlans
+        assert '1' not in port.bridge_domains
+        assert all('1' not in mapping.split(' -> ') for mapping in port.service_mappings)
+    assert any(10 in p.tagged_vlans for p in ports)
+    assert any('10 -> 10' in p.service_mappings for p in ports)
+    assert {o.domain_id for o in objects} == {'10'}

@@ -5,7 +5,7 @@ import re
 from orbitflow.models import InterfaceVlanObservation, VlanObject
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.common import DeviceCLI, open_prompt_cli
-from orbitflow.vendors.vlan_types import VlanCollection, parse_vlan_list, forwarding
+from orbitflow.vendors.vlan_types import VlanCollection, parse_vlan_list, forwarding, visible_objects
 from .interfaces import extract_huawei_hostname
 
 _REJECTED = re.compile(
@@ -157,7 +157,7 @@ def parse_huawei_config(
     objects = tuple(
         VlanObject("vlan", str(vlan), vlan_names.get(vlan, ""), vlan_ids=(vlan,)) for vlan in sorted(database)
     ) + tuple(service_objects[name] for name in sorted(service_objects))
-    return tuple(interfaces), objects
+    return tuple(interfaces), visible_objects(objects)
 
 
 class HuaweiVlanAdapter:
