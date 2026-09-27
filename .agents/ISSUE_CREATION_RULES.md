@@ -125,10 +125,25 @@ If Atlas reviews a PR and changes are required:
 
 - keep the same Issue;
 - keep the same branch/worktree/PR;
-- provide a concise owner-authored Issue comment containing the revision contract;
-- use the established Atlas review marker when required by the controller;
+- post the revision contract as an owner-authored comment on the GitHub Issue itself, not only on the PR;
+- include the exact `<!-- atlas-review -->` marker in that Issue comment;
+- include the actual revision findings/instructions in the same comment;
+- create the marked Issue comment successfully before applying `codex-revise`;
+- PR comments may be used for human-readable review notes, but they do not replace the Issue-level revision contract consumed by the controller;
 - transition only to the workflow label/state expected for revision;
 - do not create a replacement Issue unless scope has genuinely changed into a different task.
+
+Revision sequence:
+
+```text
+Atlas finds changes required
+    -> post owner-authored Issue comment with <!-- atlas-review -->
+    -> include concrete revision findings
+    -> set Issue label to codex-revise
+    -> operator runs controller
+    -> controller reads revision context from Issue comments
+    -> same worktree/branch/PR is reused
+```
 
 Maximum implementation/review iterations follow the orchestration rules in `AGENTS.md` and the Codex orchestration skill.
 
