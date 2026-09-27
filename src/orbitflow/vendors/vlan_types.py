@@ -1,6 +1,6 @@
 """Internal result type and VLAN-list parsing shared by vendor adapters."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 
 from orbitflow.models import InterfaceVlanObservation, VlanObject
@@ -32,3 +32,58 @@ def parse_vlan_list(value: str, *, range_word: str = "-") -> tuple[int, ...]:
             raise ValueError(f"invalid VLAN range: {token!r}")
         result.update(range(first, last + 1))
     return tuple(sorted(result))
+
+
+def forwarding(
+    observation: InterfaceVlanObservation,
+    port_type: str,
+    *,
+    untagged: str | int = "",
+    tagged: tuple[int, ...] | str = (),
+    domains=(),
+    mappings=None,
+) -> InterfaceVlanObservation:
+    """Build normalized forwarding fields after vendor interpretation."""
+    domains = tuple(dict.fromkeys(str(value) for value in domains))
+    if mappings is None:
+        mappings = [f"untagged -> {untagged}"] if untagged else []
+        if tagged == "ALL":
+            mappings.append("ALL -> ALL")
+        elif isinstance(tagged, tuple):
+            mappings.extend(f"{v} -> {v}" for v in tagged)
+    return replace(observation, port_type=port_type, untagged_vlan=str(untagged),
+                   tagged_vlans=tagged, bridge_domains=domains,
+                   service_mappings=tuple(mappings))
+
+
+def aggregate_profiles(observations) -> tuple[InterfaceVlanObservation, ...]:
+    """Aggregate already normalized services without discarding their relationships."""
+    groups = {}
+    for item in observations:
+        groups.setdefault(item.interface_name, []).append(item)
+    result = []
+    for items in groups.values():
+        if len(items) == 1:
+            result.append(items[0])
+            continue
+        tags = {
+            v for item in items if isinstance(item.tagged_vlans, tuple)
+            for v in item.tagged_vlans
+        }
+        if any(i.tagged_vlans == "ALL" for i in items):
+            tagged = "ALL"
+        elif tags:
+            tagged = tuple(sorted(tags))
+        elif any(i.tagged_vlans == "NONE" for i in items):
+            tagged = "NONE"
+        else:
+            tagged = ()
+        result.append(replace(
+            items[0], port_type="evc" if any(i.port_type == "evc" for i in items) else items[0].port_type,
+            untagged_vlan=", ".join(dict.fromkeys(i.untagged_vlan for i in items if i.untagged_vlan)),
+            tagged_vlans=tagged,
+            bridge_domains=tuple(dict.fromkeys(v for i in items for v in i.bridge_domains)),
+            service_mappings=tuple(dict.fromkeys(v for i in items for v in i.service_mappings)),
+            service_details=tuple(items),
+        ))
+    return tuple(result)

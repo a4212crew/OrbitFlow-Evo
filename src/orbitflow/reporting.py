@@ -1,6 +1,5 @@
 """Read-only batch Interface/VLAN reporting over shared device capabilities."""
 
-from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 import re
@@ -23,74 +22,40 @@ from orbitflow.vendors.interface_names import canonical_interface_name
 
 INTERFACE_COLUMNS = (
     "Device Name", "Device IP", "Platform", "Device Family", "Interface",
-    "Description", "Admin Status", "Oper Status", "Mode", "Attached VLANs",
-    "Access VLAN", "Native VLAN", "PVID", "Allowed VLANs", "Tagged VLANs",
-    "Untagged VLANs", "Service VLAN", "Outer VLAN", "Inner VLAN",
-    "Service Binding Type", "Service Binding Name", "Collection Time",
-    "Control VLAN", "Excluded VLANs", "VLAN Source",
+    "Description", "Admin Status", "Oper Status", "Port Type", "Untagged VLAN",
+    "Tagged VLANs", "Bridge Domains", "Service Mappings", "Collection Time",
 )
 DATABASE_COLUMNS = (
     "Device Name", "Device IP", "Platform", "Object Type", "Object ID",
-    "VLAN ID(s)", "Name", "Collection Time",
+    "Domain ID", "Name", "Collection Time",
 )
 ERROR_COLUMNS = ("Device IP", "Device Name", "Stage", "Error Category", "Time")
-_VLAN_FIELDS = (
-    "access_vlan", "native_vlan", "pvid", "allowed_vlans", "tagged_vlans",
-    "untagged_vlans", "service_vlan", "outer_vlan", "inner_vlan", "control_vlan",
-    "referenced_vlans",
-)
-
-
-def _ids(values):
-    return ", ".join(str(value) for value in sorted(set(values)))
-
-
-def _detail(observations, field):
-    values = []
-    for observation in observations:
-        value = getattr(observation, field)
-        if isinstance(value, tuple):
-            value = _ids(value) if value else ("none" if field == "allowed_vlans" else "")
-        values.append("" if value is None else str(value))
-    # One line per observation, including placeholders, preserves associations.
-    return "\n".join(value or "-" for value in values) if len(values) > 1 else "".join(values)
 
 
 def build_rows(context, interfaces, vlans):
-    """Join within one resolved device; preserve unmatched and logical interfaces."""
+    """Present normalized capability facts for actual InterfaceService identities."""
     key = lambda name: canonical_interface_name(context.platform, name)
     records = {key(record.port_name): record for record in interfaces}
-    observations = defaultdict(list)
-    if vlans is not None:
-        for observation in vlans.interfaces:
-            observations[key(observation.interface_name)].append(observation)
+    observations = {} if vlans is None else {
+        key(item.interface_name): item for item in vlans.interfaces
+    }
     rows = []
     identity = [context.hostname, context.management_ip, context.platform]
-    for name in sorted(records.keys() | observations.keys()):
-        record = records.get(name)
-        items = sorted(observations[name], key=repr)
-        attached = set()
-        for item in items:
-            for field in _VLAN_FIELDS:
-                value = getattr(item, field)
-                attached.update(value if isinstance(value, tuple) else (() if value is None else (value,)))
-        collected = record.collection_time if record else vlans.collection_time
-        rows.append(identity + [
-            context.device_family, record.port_name if record else items[0].interface_name,
-            record.port_description if record else "",
-            record.admin_status if record else "", record.oper_status if record else "",
-            _detail(items, "mode"), _ids(attached),
-            *[_detail(items, field) for field in (
-                "access_vlan", "native_vlan", "pvid", "allowed_vlans", "tagged_vlans",
-                "untagged_vlans", "service_vlan", "outer_vlan", "inner_vlan",
-                "service_binding_type", "service_binding_name",
-            )], collected.isoformat(),
-            *[_detail(items, field) for field in ("control_vlan", "excluded_vlans", "vlan_source")],
-        ])
+    for name, record in sorted(records.items()):
+        item = observations.get(name)
+        fields = []
+        for field in ("port_type", "untagged_vlan", "tagged_vlans", "bridge_domains", "service_mappings"):
+            value = getattr(item, field) if item else ""
+            if isinstance(value, tuple):
+                value = ("; " if field == "service_mappings" else ", ").join(map(str, value))
+            fields.append(value)
+        rows.append(identity + [context.device_family, record.port_name,
+            record.port_description, record.admin_status, record.oper_status,
+            *fields, record.collection_time.isoformat()])
     database = [] if vlans is None else [
-        identity + [obj.object_type, obj.object_id, _ids(obj.vlan_ids), obj.name,
+        identity + [obj.object_type, obj.object_id, obj.domain_id, obj.name,
                     vlans.collection_time.isoformat()]
-        for obj in sorted(vlans.objects, key=lambda obj: (obj.object_type, obj.object_id, obj.name, obj.vlan_ids))
+        for obj in sorted(vlans.objects, key=lambda obj: (obj.object_type, obj.object_id))
     ]
     return rows, database
 
@@ -108,7 +73,7 @@ def write_workbook(path, interfaces, database, errors, *, clean=sanitize_text):
         sheet.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{len(rows) + 1}"
         for index, column in enumerate(columns, 1):
             sheet.column_dimensions[get_column_letter(index)].width = (
-                42 if column in {"Description", "Attached VLANs", "Allowed VLANs"}
+                42 if column in {"Description", "Service Mappings", "Tagged VLANs", "Bridge Domains"}
                 else 28 if column in {"Collection Time", "Time", "Device Name", "Service Binding Name"}
                 else max(18, len(column) + 2)
             )

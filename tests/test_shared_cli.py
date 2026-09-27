@@ -12,7 +12,7 @@ from orbitflow.capabilities import (
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore, DeviceInventoryError
 from orbitflow.transport import DeviceSession, TransportConfig
 from orbitflow.vendors.common import DeviceCLI, InteractiveCLIError
-from test_capability_context import DEVICES
+from test_capability_context import DEVICES, EVC
 from test_interface_capability import CASES as INTERFACES
 from test_vlan_capability import CASES as VLANS
 
@@ -80,6 +80,8 @@ def device_session(device):
     version, platform = device[:2]
     case = INTERFACES[platform]
     _, _, vlan_command, vlan_output = VLANS[platform]
+    if device[2] == "ASR920":
+        vlan_output = EVC
     outputs = {
         "": "", "terminal length 0": "", "screen-length 0 temporary": "",
         "show version": version if platform != "huawei_vrp" else "% Invalid input",

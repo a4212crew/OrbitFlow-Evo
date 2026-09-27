@@ -5,7 +5,7 @@ import re
 from orbitflow.models import InterfaceVlanObservation, VlanObject
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.common import DeviceCLI, open_prompt_cli
-from orbitflow.vendors.vlan_types import VlanCollection, parse_vlan_list
+from orbitflow.vendors.vlan_types import VlanCollection, parse_vlan_list, forwarding
 from .interfaces import extract_edgeswitch_hostname
 
 _REJECTED = re.compile(
@@ -75,6 +75,9 @@ def parse_edgeswitch_config(
             refs = tuple(
                 sorted(set(included) | set(tagged) | ({pvid} if pvid else set()))
             )
+            active = (set(included) | ({pvid} if pvid else set())) - set(excluded)
+            tagged = tuple(sorted(set(tagged) & active))
+            untagged = pvid if pvid in active and pvid not in tagged else ""
             if refs or excluded:
                 mode = (
                     "trunk"
@@ -94,6 +97,10 @@ def parse_edgeswitch_config(
                         vlan_source="participation",
                     )
                 )
+                interfaces[-1] = forwarding(interfaces[-1], "hybrid" if untagged and tagged else "trunk" if tagged else "access",
+                    untagged=untagged, tagged=tagged, domains=tuple(sorted(active)))
+            else:
+                interfaces.append(forwarding(InterfaceVlanObservation(name, description), "routed"))
             continue
         index += 1
     objects = tuple(

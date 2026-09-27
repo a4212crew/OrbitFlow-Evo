@@ -35,41 +35,37 @@ def state(*observations, objects=()):
     return VlanState('router', '192.0.2.1', 'cisco_xe', observations, objects, NOW)
 
 
-def test_join_service_details_and_vlan_identity():
+def test_join_normalized_service_details_and_actual_identity():
     vlans = state(
-        InterfaceVlanObservation('GigabitEthernet0/1', mode='service', outer_vlan=200, inner_vlan=201,
-                                 service_binding_type='bridge_domain', service_binding_name='999'),
-        InterfaceVlanObservation('GigabitEthernet0/1', mode='service', outer_vlan=100, inner_vlan=101,
-                                 service_binding_type='bridge_domain', service_binding_name='888'),
-        InterfaceVlanObservation('GigabitEthernet0/1.42', mode='l2', service_binding_name='777'),
-        objects=(VlanObject('bridge_domain', '999'), VlanObject('vlan', '100', 'users', (100,))),
+        InterfaceVlanObservation('GigabitEthernet0/1', port_type='evc',
+            tagged_vlans=(100, 200), bridge_domains=('888', '999'),
+            service_mappings=('100 -> 888', '200 -> 999')),
+        InterfaceVlanObservation('GigabitEthernet0/1.42', port_type='service'),
+        objects=(VlanObject('bridge_domain', '999'), VlanObject('vlan', '100', 'users')),
     )
     rows, objects = reporting.build_rows(context(), [interface(), interface('Gi0/2')], vlans)
-    data = [dict(zip(reporting.INTERFACE_COLUMNS, row)) for row in rows]
-    summary = next(row for row in data if row['Interface'] == 'Gi0/1')
-    assert summary['Attached VLANs'] == '100, 101, 200, 201'
+    summary = dict(zip(reporting.INTERFACE_COLUMNS, rows[0]))
+    assert summary['Tagged VLANs'] == '100, 200'
+    assert summary['Bridge Domains'] == '888, 999'
+    assert summary['Service Mappings'] == '100 -> 888; 200 -> 999'
     assert summary['Description'] == 'uplink'
     assert (summary['Admin Status'], summary['Oper Status']) == ('up', 'down')
-    assert list(zip(summary['Outer VLAN'].splitlines(), summary['Inner VLAN'].splitlines(),
-                    summary['Service Binding Name'].splitlines())) == [('100', '101', '888'), ('200', '201', '999')]
-    assert len(rows) == 3
-    assert next(row for row in data if row['Interface'].endswith('.42'))['Attached VLANs'] == ''
-    assert next(row for row in data if row['Interface'] == 'Gi0/2')['Mode'] == ''
-    assert objects[0][3:7] == ['bridge_domain', '999', '', '']
+    assert len(rows) == 2
+    assert objects[0][3:7] == ['bridge_domain', '999', '999', '999']
     assert objects[1][3:7] == ['vlan', '100', '100', 'users']
+    assert reporting.build_rows(context(), [], vlans)[0] == []
     assert reporting.build_rows(context(), [interface('Gi0/2'), interface()], replace(vlans, interfaces=tuple(reversed(vlans.interfaces)))) == (rows, objects)
 
 
-def test_union_only_observed_ids_and_explicit_none():
-    vlans = state(InterfaceVlanObservation('Gi0/1', access_vlan=10, native_vlan=11, pvid=12,
-                  allowed_vlans=(), tagged_vlans=(13,), untagged_vlans=(14,), service_vlan=15,
-                  control_vlan=16, outer_vlan=17, inner_vlan=18, referenced_vlans=(19,), excluded_vlans=(999,)))
+@pytest.mark.parametrize('tags,expected', [('ALL', 'ALL'), ('NONE', 'NONE'), ((), ''), ((10, 20), '10, 20')])
+def test_report_preserves_normalized_fields_without_reinterpreting(tags, expected):
+    vlans = state(InterfaceVlanObservation('Gi0/1', access_vlan=999, inner_vlan=888,
+                  tagged_vlans=tags, port_type='trunk', untagged_vlan='10'))
     rows, _ = reporting.build_rows(context(), [interface()], vlans)
     row = dict(zip(reporting.INTERFACE_COLUMNS, rows[0]))
-    assert row['Attached VLANs'] == ', '.join(map(str, range(10, 20)))
-    assert row['Allowed VLANs'] == 'none'
-    assert row['Excluded VLANs'] == '999'
-    assert row['Control VLAN'] == '16'
+    assert row['Tagged VLANs'] == expected
+    assert row['Untagged VLAN'] == '10'
+    assert row['Bridge Domains'] == ''
     assert reporting.build_rows(context(), [], None) == ([], [])
 
 
@@ -167,7 +163,7 @@ def test_batch_isolation_session_context_and_secrets(tmp_path, monkeypatch, stag
             assert workbook['Run_Errors']['D2'].value == 'RuntimeError'
         assert any(row[1] == '192.0.2.2' for row in workbook['Interfaces'].iter_rows(min_row=2, values_only=True))
         if stage == 'interfaces':
-            assert workbook['Interfaces']['F2'].value is None
+            assert all(row[1] != '192.0.2.1' for row in workbook['Interfaces'].iter_rows(min_row=2, values_only=True))
         if stage == 'vlans':
             assert workbook['Interfaces']['J2'].value is None
         rendered = str([[row for row in sheet.values] for sheet in workbook])
@@ -296,9 +292,33 @@ def test_command_uses_shared_loader_and_supplied_routing(tmp_path, monkeypatch):
 
 def test_full_vlan_range_is_not_truncated_by_log_sanitizer(tmp_path):
     rows, _ = reporting.build_rows(context(), [interface()], state(
-        InterfaceVlanObservation('Gi0/1', allowed_vlans=tuple(range(1, 4095)))))
+        InterfaceVlanObservation('Gi0/1', tagged_vlans=tuple(range(1, 4095)))))
     path = tmp_path / 'full-range.xlsx'
     reporting.write_workbook(path, rows, [], [])
     workbook = load_workbook(path)
-    assert workbook['Interfaces']['J2'].value == ', '.join(map(str, range(1, 4095)))
+    assert workbook['Interfaces']['K2'].value == ', '.join(map(str, range(1, 4095)))
     workbook.close()
+
+
+def test_database_report_preserves_named_domains_and_object_types(tmp_path):
+    objects = (
+        VlanObject('vlan', '100'),
+        VlanObject('bridge_domain', '100'),
+        VlanObject('bridge_domain', 'BG/DOMAIN', 'DOMAIN', domain_id='DOMAIN'),
+        VlanObject('vsi', 'CUSTOMER'),
+    )
+    rows, database = reporting.build_rows(context(), [], state(objects=objects))
+    assert rows == []
+    path = tmp_path / 'domains.xlsx'
+    reporting.write_workbook(path, rows, database, [])
+    workbook = load_workbook(path)
+    try:
+        actual = {tuple(row[3:7]) for row in workbook['VLAN_Database'].iter_rows(min_row=2, values_only=True)}
+        assert actual == {
+            ('vlan', '100', '100', '100'),
+            ('bridge_domain', '100', '100', '100'),
+            ('bridge_domain', 'BG/DOMAIN', 'DOMAIN', 'DOMAIN'),
+            ('vsi', 'CUSTOMER', 'CUSTOMER', 'CUSTOMER'),
+        }
+    finally:
+        workbook.close()

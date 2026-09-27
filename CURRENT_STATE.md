@@ -295,6 +295,15 @@ observations are retained. Canonical interface joins preserve logical interfaces
 and aligned service detail without deriving VLAN IDs from service identities.
 Reporting uses the shared logging foundation and sanitized literal Excel text.
 Deterministic tests cover these contracts and a simulated 1,500-device batch.
+VLAN capability profiles now expose normalized port type, untagged VLAN, outer
+tagged VLANs (`ALL`/`NONE`/explicit/blank), forwarding domains, and exact service
+mappings. EVC services aggregate per interface with supporting service details.
+Reports use only InterfaceService identities; unmatched IOS-XR L2VPN references
+cannot create normal interface rows. No validation-findings subsystem is added.
+`VLAN_Database` preserves VLAN/bridge-domain/VSI object type, object ID, domain
+ID, and configured name or ID fallback. Huawei VSI objects require declarations;
+ASR920 context selects the EVC bridge-domain database model. Legacy detail fields
+remain available to capability consumers, but reporting uses normalized fields.
 No live reporting validation has been performed.
 
 ## Known Limitations

@@ -5,7 +5,7 @@ import re
 from orbitflow.models import InterfaceVlanObservation, VlanObject
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.common import DeviceCLI, open_prompt_cli
-from orbitflow.vendors.vlan_types import VlanCollection, parse_vlan_list
+from orbitflow.vendors.vlan_types import VlanCollection, parse_vlan_list, forwarding
 from .interfaces import extract_huawei_hostname
 
 _REJECTED = re.compile(
@@ -19,6 +19,7 @@ def parse_huawei_config(
     database: set[int] = set()
     interfaces: list[InterfaceVlanObservation] = []
     service_objects: dict[str, VlanObject] = {}
+    vlan_names = {}
     sections = re.split(r"^#\s*$", output, flags=re.M)
     for section in sections:
         lines = [x.strip() for x in section.splitlines() if x.strip()]
@@ -27,15 +28,27 @@ def parse_huawei_config(
         for line in lines:
             if line.startswith("vlan batch "):
                 database.update(parse_vlan_list(line[11:], range_word="to"))
+        declaration = re.fullmatch(r"vsi (\S+)(?: static)?", lines[0])
+        if declaration:
+            vsi_name = declaration.group(1)
+            service_objects[vsi_name] = VlanObject("vsi", vsi_name)
+        declaration = re.fullmatch(r"vlan (\d+)", lines[0])
+        if declaration:
+            vid = int(declaration.group(1))
+            database.add(vid)
+            vlan_names[vid] = next((x[12:] for x in lines if x.startswith("description ")), "")
         match = re.fullmatch(r"interface (.+)", lines[0])
         if not match:
             continue
         name = match.group(1)
         description = next((x[12:] for x in lines if x.startswith("description ")), "")
-        access = next((x for x in lines if x.startswith("port default vlan ")), "")
+        access = next((x for x in lines if x.startswith((
+            "port default vlan ", "port trunk pvid vlan ", "port hybrid pvid vlan "
+        ))), "")
         trunk = next(
-            (x for x in lines if x.startswith("port trunk allow-pass vlan ")), ""
+            (x for x in lines if x.startswith(("port trunk allow-pass vlan ", "port hybrid tagged vlan "))), ""
         )
+        tagged_value = trunk.split("vlan ", 1)[1] if trunk else ""
         dot1q = next((x for x in lines if x.startswith("vlan-type dot1q ")), "")
         termination = next(
             (x for x in lines if x.startswith("dot1q termination vid ")), ""
@@ -71,7 +84,7 @@ def parse_huawei_config(
                 )
             )
         elif trunk:
-            vlans = parse_vlan_list(trunk[27:], range_word="to")
+            vlans = parse_vlan_list(tagged_value, range_word="to") if tagged_value != "all" else ()
             interfaces.append(
                 InterfaceVlanObservation(
                     name,
@@ -96,15 +109,13 @@ def parse_huawei_config(
                 )
             )
             vsi_name = vsi[15:] if vsi else ""
-            if vsi_name:
-                service_objects[vsi_name] = VlanObject("vsi", vsi_name, vsi_name)
             interfaces.append(
                 InterfaceVlanObservation(
                     name,
                     description,
                     (
                         "service"
-                        if (termination or control or vsi)
+                        if vsi
                         else "routed_subinterface"
                     ),
                     service_vlan=service_vlan,
@@ -121,8 +132,26 @@ def parse_huawei_config(
                     service_binding_name=vsi_name,
                 )
             )
+        else:
+            interfaces.append(InterfaceVlanObservation(name, description, "routed"))
+        item = interfaces[-1]
+        if item.mode == "svi":
+            item = forwarding(item, "routed", domains=(item.access_vlan,), mappings=[])
+        elif item.mode in {"access", "trunk"}:
+            tags = parse_vlan_list(tagged_value, range_word="to") if tagged_value and tagged_value != "all" else "ALL" if trunk else ()
+            untagged = item.access_vlan or ""
+            domains = ((str(untagged),) if untagged else ()) + (("ALL",) if tags == "ALL" else tuple(map(str, tags)))
+            item = forwarding(item, "hybrid" if untagged and tags else item.mode,
+                              untagged=untagged, tagged=tags, domains=domains)
+        else:
+            target = item.service_binding_name or "routed"
+            item = forwarding(item, "service" if item.service_binding_name else "routed",
+                              tagged=(item.outer_vlan,) if item.outer_vlan else (),
+                              domains=(item.service_binding_name,) if item.service_binding_name else (),
+                              mappings=[f"{item.outer_vlan} -> {target}"] if item.outer_vlan else [])
+        interfaces[-1] = item
     objects = tuple(
-        VlanObject("vlan", str(vlan), vlan_ids=(vlan,)) for vlan in sorted(database)
+        VlanObject("vlan", str(vlan), vlan_names.get(vlan, ""), vlan_ids=(vlan,)) for vlan in sorted(database)
     ) + tuple(service_objects[name] for name in sorted(service_objects))
     return tuple(interfaces), objects
 

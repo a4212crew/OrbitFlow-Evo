@@ -112,3 +112,16 @@ def test_validation_resolution_failure_closes_session_without_collecting(monkeyp
                                    TransportConfig("proxy", "cluster", "host", "user"),
                                    inventory_path=tmp_path / "inventory.json", output=StringIO())
     assert closed == [True]
+
+@pytest.mark.parametrize('family,profile,expected_types', [
+    ('ASR920', 'asr920_evc', {'bridge_domain'}),
+    ('ME3600X', 'me3600x_evc', {'vlan', 'bridge_domain'}),
+])
+def test_context_selects_forwarding_database_model(tmp_path, family, profile, expected_types):
+    config = 'vlan 100\n!\n' + EVC
+    session, _ = session_for('sw#', 'terminal length 0', 'show running-config', config)
+    context = replace(resolve(tmp_path, session, DEVICES[1]),
+                      device_family=family, capability_profile=profile)
+    state = VlanService().collect(session, context)
+    assert {o.object_type for o in state.objects} == expected_types
+    assert state.interfaces[0].service_mappings == ('445 -> 900',)

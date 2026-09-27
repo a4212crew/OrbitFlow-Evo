@@ -8,7 +8,9 @@ from dataclasses import replace
 from orbitflow.models import InterfaceVlanObservation, VlanObject
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.common import DeviceCLI
-from orbitflow.vendors.vlan_types import VlanCollection, parse_vlan_list
+from orbitflow.vendors.vlan_types import VlanCollection, parse_vlan_list, forwarding, aggregate_profiles
+
+from orbitflow.vendors.interface_names import canonical_interface_name
 
 from .interfaces import CiscoXRCLI, extract_ios_xr_hostname
 from .ios import open_cisco_cli, CiscoIOSCLI, extract_ios_hostname
@@ -48,13 +50,15 @@ def _description(lines: list[str]) -> str:
 
 
 def parse_ios_running_config(
-    output: str, *, evc: bool = False
+    output: str, *, evc: bool = False, vlan_database: bool = True
 ) -> tuple[tuple[InterfaceVlanObservation, ...], tuple[VlanObject, ...]]:
     interfaces: list[InterfaceVlanObservation] = []
     objects: list[VlanObject] = []
     for heading, lines in _blocks(output):
         vlan = _IOS_VLAN_DECLARATION.fullmatch(heading)
         if vlan:
+            if not vlan_database:
+                continue
             vlan_ids = parse_vlan_list(vlan.group("vlans"))
             name = next((x[5:] for x in lines if x.startswith("name ")), "")
             objects.extend(
@@ -66,6 +70,12 @@ def parse_ios_running_config(
                 )
                 for vid in vlan_ids
             )
+            continue
+        bridge = re.fullmatch(r"bridge-domain (\S+)", heading)
+        if evc and bridge:
+            obj = VlanObject("bridge_domain", bridge.group(1))
+            if obj not in objects:
+                objects.append(obj)
             continue
         match = re.fullmatch(r"interface (.+)", heading)
         if not match:
@@ -86,6 +96,8 @@ def parse_ios_running_config(
             allowed_value = allowed.split("vlan ", 1)[1] if allowed else None
             if allowed_value == "none":
                 allowed_ids = ()
+            elif allowed_value == "all":
+                allowed_ids = None
             elif allowed_value is not None:
                 allowed_ids = parse_vlan_list(allowed_value)
             else:
@@ -108,6 +120,17 @@ def parse_ios_running_config(
                     vlan_source="switchport",
                 )
             )
+        if not (mode_line or access or native or allowed):
+            svi = re.fullmatch(r"Vlan(\d+)", name, re.I)
+            encap = next((x for x in lines if x.startswith("encapsulation dot1Q ") or x.startswith("encapsulation dot1q ")), "")
+            outer = int(encap.split()[2]) if encap and encap.split()[2].isdigit() else None
+            if not any(x.startswith("service instance ") for x in lines):
+                interfaces.append(forwarding(
+                    InterfaceVlanObservation(name, description), "routed",
+                    tagged=(outer,) if outer else (),
+                    domains=(svi.group(1),) if svi else (),
+                    mappings=[f"{outer} -> routed"] if outer else [],
+                ))
         if evc:
             current: list[str] | None = None
             sid = ""
@@ -124,7 +147,19 @@ def parse_ios_running_config(
                     sid, current = sm.group(1), []
                 elif current is not None:
                     current.append(line)
-    return tuple(interfaces), tuple(objects)
+    normalized = []
+    for item in interfaces:
+        if item.port_type:
+            normalized.append(item)
+        elif item.vlan_source == "switchport":
+            trunk = item.mode == "trunk" or item.native_vlan is not None or item.allowed_vlans is not None
+            untagged = (item.native_vlan or 1) if trunk else (item.access_vlan or 1)
+            tagged = ("ALL" if item.allowed_vlans is None else item.allowed_vlans or "NONE") if trunk else ()
+            domains = (str(untagged),) + (("ALL",) if tagged == "ALL" else () if isinstance(tagged, str) else tuple(map(str, tagged)))
+            normalized.append(forwarding(item, "trunk" if trunk else "access", untagged=untagged, tagged=tagged, domains=domains))
+        else:
+            normalized.append(item)
+    return aggregate_profiles(normalized), tuple(objects)
 
 
 def _evc(
@@ -134,20 +169,28 @@ def _evc(
     bridge = next((x for x in lines if x.startswith("bridge-domain ")), "")
     vlan = int(encap.split()[2]) if encap and encap.split()[2].isdigit() else None
     bridge_name = bridge.split()[1] if bridge else ""
+    observation = InterfaceVlanObservation(
+        name,
+        description,
+        "service",
+        service_vlan=vlan,
+        outer_vlan=vlan,
+        referenced_vlans=(vlan,) if vlan else (),
+        vlan_source="service-instance",
+        vlan_database_applicable=False,
+        service_binding_type="bridge-domain" if bridge else "service-instance",
+        service_binding_name=bridge_name or sid,
+    )
+    untagged = "encapsulation untagged" in lines
+    inner = re.search(r"second-dot1q (\d+)", encap)
+    observation = replace(observation, inner_vlan=int(inner.group(1)) if inner else None)
+    target = bridge_name
+    ingress = "untagged" if untagged else str(vlan) if vlan else ""
     return (
-        InterfaceVlanObservation(
-            name,
-            description,
-            "service",
-            service_vlan=vlan,
-            outer_vlan=vlan,
-            referenced_vlans=(vlan,) if vlan else (),
-            vlan_source="service-instance",
-            vlan_database_applicable=False,
-            service_binding_type="bridge-domain" if bridge else "service-instance",
-            service_binding_name=bridge_name or sid,
-        ),
-        VlanObject("bridge-domain", bridge_name, bridge_name) if bridge_name else None,
+        forwarding(observation, "evc", untagged=(target if target.isdigit() else "UNTAGGED") if untagged else "",
+                   tagged=(vlan,) if vlan else (), domains=(target,) if target else (),
+                   mappings=[f"{ingress} -> {target}"] if ingress and target else []),
+        VlanObject("bridge_domain", bridge_name) if bridge_name else None,
     )
 
 
@@ -157,7 +200,6 @@ def parse_ios_xr_running_config(
     interfaces: list[InterfaceVlanObservation] = []
     objects: list[VlanObject] = []
     bindings: dict[str, tuple[str, str]] = {}
-    interface_descriptions: dict[str, str] = {}
     for heading, lines in _blocks(output, preserve_body_indentation=True):
         if heading.startswith("l2vpn"):
             bridge_group: tuple[int, str] | None = None
@@ -178,22 +220,21 @@ def parse_ios_xr_running_config(
                     bridge_domain = (indent, line[14:])
                     identity = f"{bridge_group[1]}/{bridge_domain[1]}"
                     objects.append(
-                        VlanObject("bridge-domain", identity, bridge_domain[1])
+                        VlanObject("bridge_domain", identity, bridge_domain[1], domain_id=bridge_domain[1])
                     )
                 elif bridge_domain is not None and indent > bridge_domain[0]:
                     assert bridge_group is not None
                     identity = f"{bridge_group[1]}/{bridge_domain[1]}"
                     if line.startswith("interface "):
-                        bindings[line[10:].split()[0]] = ("bridge-domain", identity)
+                        bindings[canonical_interface_name("cisco_xr", line[10:].split()[0])] = ("bridge-domain", identity)
                     elif line.startswith("routed interface "):
-                        bindings[line[17:].strip()] = ("bridge-domain", identity)
+                        bindings[canonical_interface_name("cisco_xr", line[17:].strip())] = ("bridge-domain", identity)
             continue
         match = re.fullmatch(r"interface (.+?)(?: (l2transport))?", heading)
         if not match:
             continue
         name, l2 = match.group(1), bool(match.group(2))
         stripped_lines = [line.strip() for line in lines]
-        interface_descriptions[name] = _description(stripped_lines)
         encap = next(
             (
                 x
@@ -202,8 +243,6 @@ def parse_ios_xr_running_config(
             ),
             "",
         )
-        if not encap:
-            continue
         vlan = inner_vlan = None
         if encap.startswith("encapsulation dot1q "):
             tokens = encap.split()
@@ -212,7 +251,7 @@ def parse_ios_xr_running_config(
             if "second-dot1q" in tokens:
                 inner_token = tokens[tokens.index("second-dot1q") + 1]
                 inner_vlan = int(inner_token) if inner_token.isdigit() else None
-        binding = bindings.get(name, ("", ""))
+        binding = bindings.get(canonical_interface_name("cisco_xr", name), ("", ""))
         interfaces.append(
             InterfaceVlanObservation(
                 name,
@@ -221,45 +260,30 @@ def parse_ios_xr_running_config(
                 service_vlan=vlan,
                 outer_vlan=vlan,
                 inner_vlan=inner_vlan,
-                untagged_vlans=() if vlan else (() if not encap else ()),
                 referenced_vlans=tuple(
                     item for item in (vlan, inner_vlan) if item is not None
                 ),
-                vlan_source="dot1q" if vlan else "untagged",
+                vlan_source="dot1q" if vlan else "untagged" if encap else "",
                 vlan_database_applicable=False,
                 service_binding_type=binding[0],
                 service_binding_name=binding[1],
             )
         )
-    observed_names = {observation.interface_name for observation in interfaces}
-    interfaces = [
-        (
-            replace(
-                observation,
-                service_binding_type=bindings[observation.interface_name][0],
-                service_binding_name=bindings[observation.interface_name][1],
-            )
-            if observation.interface_name in bindings
-            else observation
-        )
-        for observation in interfaces
-    ]
-    for interface_name, binding in bindings.items():
-        if interface_name not in observed_names:
-            interfaces.append(
-                InterfaceVlanObservation(
-                    interface_name,
-                    description=interface_descriptions.get(interface_name, ""),
-                    mode=(
-                        "svi" if interface_name.upper().startswith("BVI") else "service"
-                    ),
-                    vlan_source="l2vpn-binding",
-                    vlan_database_applicable=False,
-                    service_binding_type=binding[0],
-                    service_binding_name=binding[1],
-                )
-            )
-    return tuple(interfaces), tuple(objects)
+    normalized = []
+    for item in interfaces:
+        binding = bindings.get(canonical_interface_name("cisco_xr", item.interface_name))
+        domain = binding[1].split("/", 1)[1] if binding else ""
+        if binding:
+            item = replace(item, service_binding_type=binding[0], service_binding_name=binding[1])
+        routed = item.mode != "service"
+        ingress = str(item.outer_vlan) if item.outer_vlan else "untagged" if item.vlan_source == "untagged" else ""
+        target = "routed" if routed else domain
+        normalized.append(forwarding(item, "routed" if routed else "service",
+            untagged=(domain if domain.isdigit() else "UNTAGGED") if ingress == "untagged" else "",
+            tagged=(item.outer_vlan,) if item.outer_vlan else (),
+            domains=(domain,) if domain else (),
+            mappings=[f"{ingress} -> {target}"] if ingress and target else []))
+    return tuple(normalized), tuple(objects)
 
 
 class CiscoVlanAdapter:
@@ -269,18 +293,26 @@ class CiscoVlanAdapter:
         self._cli = cli
         self._session, self._timeout, self._evc = session, timeout, evc
 
+    vlan_database = True
+
     def collect(self) -> VlanCollection:
         with open_cisco_cli(self._session, cli=self._cli, cli_type=CiscoIOSCLI, timeout=self._timeout) as cli:
             output = cli.run_command("show running-config", timeout=self._timeout)
             if _REJECTED.search(output):
                 raise ValueError("Cisco rejected approved command 'show running-config'")
-            interfaces, objects = parse_ios_running_config(output, evc=self._evc)
+            interfaces, objects = parse_ios_running_config(output, evc=self._evc, vlan_database=self.vlan_database)
             return VlanCollection(extract_ios_hostname(cli.prompt), interfaces, objects)
 
 
 class CiscoXEVlanAdapter(CiscoVlanAdapter):
     def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None) -> None:
         super().__init__(session, timeout=timeout, evc=True, cli=cli)
+
+
+class CiscoASRVlanAdapter(CiscoXEVlanAdapter):
+    """Supported ASR920 forwarding objects are EVC bridge domains."""
+
+    vlan_database = False
 
 
 class CiscoXRVlanAdapter:
