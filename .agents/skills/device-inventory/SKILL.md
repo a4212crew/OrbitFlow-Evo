@@ -18,13 +18,15 @@ Use for:
 
 Do not use this skill for interface/VLAN/routing/service/log observation logic, compliance decisions, provisioning commands, or Teleport transport implementation.
 
-## Related Skills
+## Adjacent Capability Boundaries — Do Not Load by Default
 
-- `../jumphost-connectivity/SKILL.md` — approved device transport.
-- `../excel-inventory/SKILL.md` — batch/list target input and optional compatibility fields.
+These references identify owners of adjacent behaviour. Load one only when the task modifies that boundary or targeted source inspection shows the change must cross it.
+
+- `../jumphost-connectivity/SKILL.md` — transport/session behaviour.
+- `../excel-inventory/SKILL.md` — batch/list input and credential precedence.
 - `../interface-collector/SKILL.md` — live interface observation.
 - `../vlan-observation/SKILL.md` — live VLAN/service observation.
-- vendor CLI skills — platform-specific identification commands and fingerprints.
+- vendor CLI skills — platform-specific identification commands/fingerprints.
 
 ## Principle
 
