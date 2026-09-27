@@ -124,7 +124,10 @@ def parse_ios_running_config(
             svi = re.fullmatch(r"Vlan(\d+)", name, re.I)
             encap = next((x for x in lines if x.startswith("encapsulation dot1Q ") or x.startswith("encapsulation dot1q ")), "")
             outer = int(encap.split()[2]) if encap and encap.split()[2].isdigit() else None
-            if not any(x.startswith("service instance ") for x in lines):
+            routed = svi or outer or "no switchport" in lines or any(
+                x.startswith(("ip address ", "ipv6 address ")) for x in lines
+            )
+            if routed and not any(x.startswith("service instance ") for x in lines):
                 interfaces.append(forwarding(
                     InterfaceVlanObservation(name, description), "routed",
                     tagged=(outer,) if outer else (),

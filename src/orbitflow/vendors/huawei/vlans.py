@@ -132,8 +132,12 @@ def parse_huawei_config(
                     service_binding_name=vsi_name,
                 )
             )
-        else:
+        elif "undo portswitch" in lines or any(
+            x.startswith(("ip address ", "ipv6 address ")) for x in lines
+        ):
             interfaces.append(InterfaceVlanObservation(name, description, "routed"))
+        else:
+            continue
         item = interfaces[-1]
         if item.mode == "svi":
             item = forwarding(item, "routed", domains=(item.access_vlan,), mappings=[])

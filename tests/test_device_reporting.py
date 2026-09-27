@@ -16,6 +16,9 @@ from orbitflow.models import DeviceContext, InterfaceRecord, InterfaceVlanObserv
 from orbitflow.targets import load_targets
 from orbitflow.transport import DeviceSession, TransportConfig
 from orbitflow.vendors.interface_names import canonical_interface_name
+from orbitflow.vendors.cisco.vlans import parse_ios_running_config
+from orbitflow.vendors.huawei.vlans import parse_huawei_config
+from orbitflow.vendors.ubiquiti.vlans import parse_edgeswitch_config
 from test_cli_lifecycle import Channel
 
 NOW = datetime(2026, 9, 25, tzinfo=timezone.utc)
@@ -33,6 +36,32 @@ def interface(name='Gi0/1', description='uplink'):
 
 def state(*observations, objects=()):
     return VlanState('router', '192.0.2.1', 'cisco_xe', observations, objects, NOW)
+
+
+@pytest.mark.parametrize('platform,parser,name,terminator,options', [
+    ('cisco_ios', parse_ios_running_config, 'Gi0/1', '!', {}),
+    ('cisco_xe', parse_ios_running_config, 'Gi0/1', '!', {'evc': True}),
+    ('huawei_vrp', parse_huawei_config, 'GE0/1', '#', {}),
+    ('ubiquiti_edgeswitch', parse_edgeswitch_config, '0/1', 'exit', {}),
+])
+@pytest.mark.parametrize('body', ['', ' description spare\n shutdown\n'])
+def test_unclassified_configuration_keeps_real_report_row_blank(
+    platform, parser, name, terminator, options, body
+):
+    observations, objects = parser(f'interface {name}\n{body}{terminator}\n', **options)
+    assert observations == ()
+    assert objects == ()
+    actual = replace(interface(name), platform=platform)
+    vlans = replace(state(*observations, objects=objects), platform=platform)
+    rows, database = reporting.build_rows(context(platform=platform), [actual], vlans)
+    assert len(rows) == 1
+    row = dict(zip(reporting.INTERFACE_COLUMNS, rows[0]))
+    assert row['Interface'] == name
+    assert row['Description'] == actual.port_description
+    assert (row['Admin Status'], row['Oper Status']) == ('up', 'down')
+    for field in ('Port Type', 'Untagged VLAN', 'Tagged VLANs', 'Bridge Domains', 'Service Mappings'):
+        assert row[field] == ''
+    assert database == []
 
 
 def test_join_normalized_service_details_and_actual_identity():

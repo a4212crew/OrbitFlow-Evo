@@ -307,7 +307,7 @@ exit""")
         ("2401", "2401"),
         ("2402", "2402"),
     ]
-    assert len(interfaces) == 3
+    assert [item.interface_name for item in interfaces] == ["0/7", "0/8"]
     assert interfaces[0].description == "Customer port"
     assert interfaces[0].mode == "hybrid"
     assert interfaces[0].excluded_vlans == (545,)
@@ -397,6 +397,27 @@ interface Gi0/1
     assert port.service_details[0].inner_vlan == 900
     assert {(o.object_type, o.object_id) for o in objects} == {
         ('vlan', '500'), ('bridge_domain', '500'), ('bridge_domain', '600'), ('bridge_domain', '700')}
+
+
+@pytest.mark.parametrize('parser,terminator,evidence', [
+    (parse_ios_running_config, '!', 'no switchport'),
+    (parse_ios_running_config, '!', 'ip address 192.0.2.1 255.255.255.0'),
+    (parse_ios_running_config, '!', 'ipv6 address 2001:db8::1/64'),
+    (parse_huawei_config, '#', 'undo portswitch'),
+    (parse_huawei_config, '#', 'ip address 192.0.2.1 255.255.255.0'),
+    (parse_huawei_config, '#', 'ipv6 address 2001:db8::1/64'),
+])
+def test_physical_routed_interface_requires_positive_evidence(parser, terminator, evidence):
+    interfaces, objects = parser(
+        f'interface GigabitEthernet0/1\n {evidence}\n{terminator}\n'
+        f'interface GigabitEthernet0/2\n description spare\n{terminator}\n'
+    )
+    assert len(interfaces) == 1
+    assert interfaces[0].interface_name == 'GigabitEthernet0/1'
+    assert interfaces[0].port_type == 'routed'
+    assert interfaces[0].tagged_vlans == ()
+    assert interfaces[0].bridge_domains == ()
+    assert objects == ()
 
 
 def test_ios_routed_physical_subinterface_and_svi():

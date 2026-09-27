@@ -99,8 +99,6 @@ def parse_edgeswitch_config(
                 )
                 interfaces[-1] = forwarding(interfaces[-1], "hybrid" if untagged and tagged else "trunk" if tagged else "access",
                     untagged=untagged, tagged=tagged, domains=tuple(sorted(active)))
-            else:
-                interfaces.append(forwarding(InterfaceVlanObservation(name, description), "routed"))
             continue
         index += 1
     objects = tuple(
