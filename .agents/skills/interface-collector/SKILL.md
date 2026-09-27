@@ -11,6 +11,8 @@ Use for collecting interface descriptions/status, collector commands, parsing, n
 
 Do not implement transport here.
 
+InterfaceService is the authoritative source for actual observed/configured interface identities, descriptions, admin state, and oper state. References to interface names found only in VLAN, L2VPN, VSI, bridge-domain, or other service configuration must not be promoted into InterfaceRecord objects unless the interface is independently observed/configured as a real interface.
+
 ## Related Skills
 
 - `../jumphost-connectivity/SKILL.md` — device sessions.
