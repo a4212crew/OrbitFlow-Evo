@@ -18,6 +18,8 @@ Rules:
 - Implement only the scoped GitHub Issue.
 - Do not use production network credentials or perform live-device testing unless explicitly requested and operator-controlled.
 - Add/update deterministic tests when behaviour changes.
+- For every meaningful completed feature, behavioural change, bug fix, or orchestration change, append a concise entry to the current monthly `docs/devlog/YYYY-MM.md`.
+- Update `CURRENT_STATE.md` when the completed work changes the current implemented or validated capability baseline.
 - Do not commit, push, create or update pull requests, change GitHub task state, or merge; those are controller responsibilities.
 - Keep changes small and reviewable.
 - If the task conflicts with repository architecture, stop and explain the conflict rather than redesigning silently.
