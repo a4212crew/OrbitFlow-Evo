@@ -4,7 +4,9 @@ description: Implement and operate the OrbitFlow-Evo local Codex controller, tas
 ---
 # Codex Orchestration Skill
 
-Use this skill for OrbitFlow-Evo development tasks involving ChatGPT / Atlas, GitHub Issues, the local Python controller, Codex CLI, Codex task/revision lifecycle, PR review, or orchestration troubleshooting.
+Use this skill only when changing or troubleshooting OrbitFlow-Evo orchestration: the local controller, Codex invocation, GitHub task/revision lifecycle, worktrees, PR/review state, or orchestration tests.
+
+Normal feature implementation does not load this skill merely because Codex is the worker.
 
 Read `AGENTS.md` first. Read `CURRENT_STATE.md` only when the task depends on current implementation status, architecture baseline, supported behaviour, known limitations, or active development state. Read `docs/architecture/codex-orchestration.md` only when lifecycle architecture or controller behaviour is directly relevant.
 
@@ -84,28 +86,33 @@ Optional `--watch` mode is supported for serial queue polling. It defaults to 15
 
 ## Task Contract
 
-The GitHub Issue is the scoped implementation contract.
+The GitHub Issue is the scoped implementation contract. Keep it concise and include purpose, scope, constraints, acceptance criteria, and only task-relevant architecture references.
 
-Keep it concise and include:
-- purpose;
-- scope;
-- constraints;
-- acceptance criteria;
-- architecture references only when needed.
+For new implementation issues, include an explicit context manifest:
 
-Do not duplicate large persistent rules from `AGENTS.md`, `CURRENT_STATE.md`, or architecture docs into every issue.
+```markdown
+## Required repository context
+- `.agents/skills/<directly-relevant-skill>/SKILL.md`
+```
+
+Rules:
+- `AGENTS.md` is always loaded by the controller and does not need to be repeated in the manifest.
+- List only skills required before source inspection.
+- Mentioning an adjacent skill elsewhere in the issue does not make it required when an explicit manifest exists.
+- Do not list `codex-orchestration/SKILL.md` for normal feature tasks; include it only for controller/orchestration work.
+- Do not duplicate persistent rules from `AGENTS.md`, `CURRENT_STATE.md`, or architecture docs into each issue.
 
 ## Context Efficiency
 
-Use the minimum repository context needed to complete the scoped task safely.
+The controller converts the issue's explicit manifest into the Codex prompt. For older issues without a manifest, declared skill paths remain a backward-compatible fallback.
 
-- Start with targeted search and targeted file reads.
-- Do not load `CURRENT_STATE.md`, architecture documents, or devlogs by default.
-- Load them only when the task materially depends on their content.
-- Treat `docs/devlog/` as historical/reference material, not normal task context.
-- Avoid broad repository-document ingestion for simple docs, tests, typo fixes, or narrowly scoped changes.
-- Avoid repeatedly emitting full diffs or large command output; prefer targeted inspection and one final diff.
-- Run targeted tests while developing when useful, then the required deterministic suite once at the final gate.
+- Start with `AGENTS.md` plus only the manifest skills.
+- A skill reference is an architecture pointer, not an automatic context dependency.
+- Load an additional skill only when the task explicitly requires it or targeted source inspection proves that capability must change.
+- Using an existing capability through its public interface does not require loading its skill.
+- Do not load `CURRENT_STATE.md`, architecture docs, or historical devlogs by default.
+- Prefer targeted source/test reads and one final diff over broad repository ingestion.
+- Run targeted tests while developing when useful, then the required deterministic suite at the final gate.
 
 ## Repository Isolation
 
