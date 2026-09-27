@@ -44,10 +44,17 @@ def required_context(task: Task) -> list[str]:
             in_context = True
             found_header = True
             continue
-        if in_context and line.lstrip().startswith("#"):
+        if not in_context:
+            continue
+
+        stripped = line.strip()
+        if not stripped:
+            if explicit_lines:
+                break
+            continue
+        if not stripped.startswith("-") or not _SKILL_PATH.search(stripped):
             break
-        if in_context:
-            explicit_lines.append(line)
+        explicit_lines.append(stripped)
 
     declared = _unique_skill_paths("\n".join(explicit_lines)) if found_header else _unique_skill_paths(task.body)
     return ["AGENTS.md", *declared]
