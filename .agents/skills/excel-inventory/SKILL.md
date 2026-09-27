@@ -11,12 +11,14 @@ Use for Excel/list target loading, required/optional fields, row validation, opt
 
 Do not use this skill for Teleport transport implementation, interface parsing, or access VLAN command generation.
 
-## Related Skills
+## Adjacent Capability Boundaries — Do Not Load by Default
 
-- `../device-inventory/SKILL.md` for device identification, platform detection, identity reconciliation, and observed snapshots.
-- `../jumphost-connectivity/SKILL.md` for device connection transport.
-- `../interface-collector/SKILL.md` for collection.
-- `../access-vlan-provisioning/SKILL.md` for provisioning input.
+Load an adjacent skill only when the task modifies that layer or targeted source inspection shows the input change crosses into it.
+
+- `../device-inventory/SKILL.md` — identification/platform/identity reconciliation.
+- `../jumphost-connectivity/SKILL.md` — connection transport.
+- `../interface-collector/SKILL.md` — collection behaviour.
+- `../access-vlan-provisioning/SKILL.md` — provisioning-specific input semantics.
 
 ## Principle
 
