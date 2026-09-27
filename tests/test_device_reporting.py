@@ -470,3 +470,53 @@ def test_progress_input_normalization_failures_and_empty_batch(tmp_path, monkeyp
     assert 'batch started: 0 devices' in output.getvalue()
     assert 'workbook generation' in output.getvalue()
     assert 'Devices: 0; stage failures: 0; report:' in output.getvalue()
+
+
+@pytest.mark.parametrize("system", ["windows", "linux"])
+@pytest.mark.parametrize("propagate", [True, False])
+def test_connection_traceback_is_file_only(tmp_path, monkeypatch, capsys, system, propagate):
+    import logging
+    from orbitflow import transport
+    from orbitflow.transport import linux, windows
+
+    install_fakes(monkeypatch)
+    real_connect = transport.connect_device
+    monkeypatch.setattr(reporting, "connect_device",
+                        lambda *args: real_connect(*args, system=system))
+    secret = "synthetic-private-diagnostic"
+    error = transport.DeviceConnectionError(secret)
+
+    def fail(*args):
+        try:
+            raise TimeoutError(secret)
+        except TimeoutError as cause:
+            logging.getLogger("paramiko.transport").exception("Traceback: " + secret)
+            raise error from cause
+
+    monkeypatch.setattr(windows if system == "windows" else linux, "connect_" + system, fail)
+    dependency = logging.getLogger("paramiko.transport")
+    handler = logging.StreamHandler()
+    monkeypatch.setattr(dependency, "handlers", [handler])
+    monkeypatch.setattr(dependency, "propagate", propagate)
+    previous_level = dependency.level
+    output = StringIO()
+    try:
+        path = reporting.run_report(
+            [{"management_ip": "192.0.2.1", "username": "user", "password": secret}],
+            CONFIG, reports_dir=tmp_path, log_root=tmp_path / "logs", output=output)
+        assert dependency.handlers == [handler]
+        assert dependency.propagate is propagate
+        assert dependency.level == previous_level
+        assert capsys.readouterr() == ("", "")
+        assert "[1/1] 192.0.2.1: connect failed (DeviceConnectionError)" in output.getvalue()
+        assert f"stage failures: 1; report: {path}" in output.getvalue()
+        logs = "".join(p.read_text() for p in (tmp_path / "logs").rglob("*.log"))
+        assert secret not in logs + output.getvalue()
+        transport_log = next((tmp_path / "logs" / "transport").glob("*/transport.log"))
+        records = [json.loads(line) for line in transport_log.read_text().splitlines()]
+        assert records[0]["error_category"] == "SSHDiagnostic"
+        assert [item["category"] for item in records[-1]["exception_chain"]] == [
+            "DeviceConnectionError", "TimeoutError"]
+        assert records[-1]["exception_chain"][0]["frames"]
+    finally:
+        handler.close()

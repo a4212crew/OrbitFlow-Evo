@@ -296,7 +296,9 @@ and aligned service detail without deriving VLAN IDs from service identities.
 Reporting uses the shared logging foundation and sanitized literal Excel text.
 Console progress is flushed before each device stage and workbook generation,
 with device position/total, sanitized target identity, caught failure categories,
-per-device completion status, and the final report path.
+per-device completion status, and the final report path. Scoped transport logging
+also routes existing Paramiko child handlers to safe file diagnostics, preserving
+concise connection failure categories and restoring logger configuration afterward.
 Deterministic tests cover these contracts and a simulated 1,500-device batch.
 VLAN capability profiles now expose normalized port type, untagged VLAN, outer
 tagged VLANs (`ALL`/`NONE`/explicit/blank), forwarding domains, and exact service
