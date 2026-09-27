@@ -252,6 +252,7 @@ Current behavior and approved operating model:
 - the intended path has no `OPENAI_API_KEY` dependency, no automatic API-billing fallback, and no automatic paid-credit use;
 - each task uses an isolated `codex/issue-<number>` Git branch and dedicated Git worktree;
 - `--dry-run` is non-mutating and does not create branches/worktrees or change GitHub state;
+- Codex startup context is manifest-driven: `AGENTS.md` is always loaded, Atlas-authored `Required repository context` skill paths are loaded explicitly, adjacent skill references are non-transitive, and older issues fall back to declared skill paths;
 - the controller runs the deterministic pytest suite as a hard gate;
 - failed tests stop the workflow before commit, push, or PR creation/update;
 - after tests pass, the controller commits/pushes the task branch, opens or updates the PR, and returns the issue to `codex-review`;
