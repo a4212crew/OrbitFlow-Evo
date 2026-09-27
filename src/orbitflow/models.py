@@ -29,11 +29,24 @@ class VlanObject:
     object_id: str
     name: str = ""
     vlan_ids: tuple[int, ...] = ()
+    domain_id: str = ""
+
+    def __post_init__(self):
+        object.__setattr__(self, "object_type", self.object_type.replace("-", "_"))
+        domain = self.domain_id or self.object_id
+        object.__setattr__(self, "domain_id", domain)
+        object.__setattr__(self, "name", self.name or domain)
 
 
 @dataclass(frozen=True)
 class InterfaceVlanObservation:
-    """Configured VLAN facts for one interface or one service on it."""
+    """One normalized interface forwarding profile, with supporting vendor facts.
+
+    ``tagged_vlans`` is an explicit outer VLAN tuple, ``ALL``, ``NONE``, or
+    an empty tuple (not applicable). Domain IDs are strings because forwarding
+    domains may be named. ``service_details`` retains individual EVC observations
+    including inner-tag facts; consumers use the top-level normalized fields.
+    """
 
     interface_name: str
     description: str = ""
@@ -42,7 +55,7 @@ class InterfaceVlanObservation:
     native_vlan: Optional[int] = None
     pvid: Optional[int] = None
     allowed_vlans: Optional[tuple[int, ...]] = None
-    tagged_vlans: tuple[int, ...] = ()
+    tagged_vlans: tuple[int, ...] | str = ()
     untagged_vlans: tuple[int, ...] = ()
     excluded_vlans: tuple[int, ...] = ()
     service_vlan: Optional[int] = None
@@ -54,6 +67,11 @@ class InterfaceVlanObservation:
     vlan_database_applicable: bool = True
     service_binding_type: str = ""
     service_binding_name: str = ""
+    port_type: str = ""
+    untagged_vlan: str = ""
+    bridge_domains: tuple[str, ...] = ()
+    service_mappings: tuple[str, ...] = ()
+    service_details: tuple[InterfaceVlanObservation, ...] = ()
 
 
 @dataclass(frozen=True)

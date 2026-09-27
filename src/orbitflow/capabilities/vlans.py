@@ -9,6 +9,7 @@ from orbitflow.vendors.common import DeviceCLI
 from orbitflow.vendors.vlan_types import VlanCollection
 from orbitflow.vendors.cisco.vlans import (
     CiscoVlanAdapter,
+    CiscoASRVlanAdapter,
     CiscoXEVlanAdapter,
     CiscoXRVlanAdapter,
 )
@@ -78,6 +79,8 @@ class VlanService:
                     or context.capability_profile in {"me3600x_evc", "asr920_evc"}
                     or context.device_family in {"ME3600X", "ASR920"}):
                 adapter = CiscoXEVlanAdapter
+            if context.device_family == "ASR920" or context.capability_profile == "asr920_evc":
+                adapter = CiscoASRVlanAdapter
         if adapter is None:
             raise VlanCapabilityError(f"unsupported VLAN platform: {platform}")
         try:
