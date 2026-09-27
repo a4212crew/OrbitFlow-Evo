@@ -543,12 +543,13 @@ def test_huawei_pvid_with_tagged_membership(prefix):
 
 @pytest.mark.parametrize('global_first', [True, False])
 @pytest.mark.parametrize('vlan_database', [True, False])
-def test_global_evc_membership_overrides_switchport_defaults(global_first, vlan_database):
-    global_config = '''bridge-domain 13
+@pytest.mark.parametrize('member_suffix', ['', ' split-horizon group 0'])
+def test_global_evc_membership_overrides_switchport_defaults(global_first, vlan_database, member_suffix):
+    global_config = f'''bridge-domain 13
  member Gi0/13 service-instance 13
 !
 bridge-domain 746
- member GigabitEthernet0/13 service-instance 746
+ member GigabitEthernet0/13 service-instance 746{member_suffix}
  member GigabitEthernet0/99 service-instance 999
 !
 '''

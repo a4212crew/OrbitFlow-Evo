@@ -367,6 +367,9 @@ bridge-domain 1
 bridge-domain 13
  member Gi0/1 service-instance 13
 !
+bridge-domain 746
+ member Gi0/1 service-instance 746 split-horizon group 0
+!
 interface Gi0/1
  switchport mode trunk
  service instance 13 ethernet
@@ -374,6 +377,8 @@ interface Gi0/1
  service instance 10 ethernet
   encapsulation dot1q 10
   bridge-domain 10
+ service instance 746 ethernet
+  encapsulation dot1q 746
 !
 interface Gi0/2
  switchport mode trunk
@@ -391,10 +396,13 @@ interface Gi0/2
         assert len(records) == 2
         assert str(records[0]['Untagged VLAN']) == '13'
         assert 'untagged -> 13' in records[0]['Service Mappings']
+        assert records[0]['Tagged VLANs'] == '10, 746'
+        assert records[0]['Bridge Domains'] == '13, 10, 746'
+        assert '746 -> 746' in records[0]['Service Mappings']
         assert records[1]['Untagged VLAN'] is None
         assert str(records[1]['Tagged VLANs']) == '10'
         assert str(records[1]['Bridge Domains']) == '10'
         assert records[1]['Service Mappings'] == '10 -> 10'
-        assert {str(row[5]) for row in workbook['VLAN_Database'].iter_rows(min_row=2, values_only=True)} == {'10', '13'}
+        assert {str(row[5]) for row in workbook['VLAN_Database'].iter_rows(min_row=2, values_only=True)} == {'10', '13', '746'}
     finally:
         workbook.close()

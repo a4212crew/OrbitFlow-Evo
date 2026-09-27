@@ -61,7 +61,7 @@ def parse_ios_running_config(
             bridge = re.fullmatch(r"bridge-domain (\S+)", heading)
             if bridge:
                 for line in lines:
-                    member = re.fullmatch(r"member (\S+) service-instance (\S+)", line)
+                    member = re.fullmatch(r"member (\S+) service-instance (\S+)(?:\s+.*)?", line)
                     if member:
                         key = (canonical_interface_name("cisco_ios", member.group(1)), member.group(2))
                         memberships[key] = bridge.group(1)
