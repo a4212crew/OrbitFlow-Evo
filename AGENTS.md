@@ -88,7 +88,11 @@ Read only the skill directly relevant to the task, plus any skill it explicitly 
 | Ubiquiti EdgeSwitch CLI behaviour | `.agents/skills/ubiquiti-network-cli/SKILL.md` |
 | Atlas/Codex orchestration and review lifecycle | `.agents/skills/codex-orchestration/SKILL.md` |
 
-## 7. Orchestration Rules
+## 7. Issue Creation Contract
+
+Before Atlas creates or materially rewrites a GitHub Issue for Codex/controller execution, it must read `.agents/ISSUE_CREATION_RULES.md` and follow that contract. Keep Issue prompts concise and rely on `AGENTS.md` plus task-relevant skill files for detailed architecture context.
+
+## 8. Orchestration Rules
 
 Operational controller:
 
@@ -115,7 +119,7 @@ Permanent orchestration boundaries:
 
 For detailed lifecycle behaviour, load `.agents/skills/codex-orchestration/SKILL.md`.
 
-## 8. Documentation Responsibilities
+## 9. Documentation Responsibilities
 
 - `AGENTS.md` — permanent global rules, skill routing, and context-loading policy.
 - `CURRENT_STATE.md` — concise implemented/validated state; read only when relevant.
