@@ -134,3 +134,61 @@ def test_codex_launch_failure_cleans_external_temp(monkeypatch, tmp_path):
     with pytest.raises(OSError, match='launch failed'):
         codex_runner.run_codex('prompt', tmp_path, tmp_path / 'output.txt')
     assert not captured[0].exists()
+
+
+def test_prompt_includes_explicit_required_context_manifest():
+    task = Task(
+        "initial",
+        43,
+        "Reporting change",
+        "Follow AGENTS.md, `.agents/skills/device-reporting/SKILL.md`, and "
+        "`.agents/skills/runtime-logging/SKILL.md`.\n"
+        "Do not load `.agents/skills/codex-orchestration/SKILL.md` for this feature task.",
+        "https://example.test/43",
+    )
+
+    prompt = codex_runner.build_prompt("PREAMBLE", task)
+
+    manifest = prompt.split("# GitHub Task", 1)[0]
+    assert "# Required repository context" in manifest
+    assert "- `AGENTS.md`" in manifest
+    assert "- `.agents/skills/device-reporting/SKILL.md`" in manifest
+    assert "- `.agents/skills/runtime-logging/SKILL.md`" in manifest
+    # All explicitly declared skill paths are deterministic inputs, even when the
+    # issue text itself says not to load one. Atlas should only name required paths.
+    assert "- `.agents/skills/codex-orchestration/SKILL.md`" in manifest
+
+
+def test_required_context_deduplicates_paths_and_has_safe_fallback():
+    declared = Task(
+        "initial",
+        44,
+        "Inventory",
+        "Use `.agents/skills/device-inventory/SKILL.md` and again "
+        "`.agents/skills/device-inventory/SKILL.md`.",
+        "",
+    )
+    assert codex_runner.required_context(declared) == [
+        "AGENTS.md",
+        ".agents/skills/device-inventory/SKILL.md",
+    ]
+
+    fallback = Task("initial", 45, "Docs", "Change one documentation line.", "")
+    prompt = codex_runner.build_prompt("PREAMBLE", fallback)
+    assert codex_runner.required_context(fallback) == ["AGENTS.md"]
+    assert "use the AGENTS.md routing table to select only the directly relevant skill(s)" in prompt
+
+
+def test_revision_prompt_keeps_context_manifest_before_task_and_review():
+    task = Task(
+        "revision",
+        46,
+        "Logging",
+        "Follow `.agents/skills/runtime-logging/SKILL.md`.",
+        "",
+    )
+    prompt = codex_runner.build_prompt("PREAMBLE", task, "Fix only the requested logger behavior.")
+
+    assert prompt.index("# Required repository context") < prompt.index("# GitHub Task")
+    assert prompt.index("# GitHub Task") < prompt.index("# Requested revision only")
+    assert "Fix only the requested logger behavior." in prompt
