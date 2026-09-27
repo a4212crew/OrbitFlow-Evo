@@ -15,7 +15,7 @@ from models import FailureCategory, OrchestrationError, Task
 
 _SKILL_PATH = re.compile(r"\.agents/skills/[A-Za-z0-9_.-]+/SKILL\.md")
 _CONTEXT_HEADER = re.compile(
-    r"^#{0,6}\\s*Required(?: repository)? context\\s*:?\\s*$",
+    r"^#{0,6}\s*Required(?: repository)? context\s*:?\s*$",
     re.IGNORECASE,
 )
 
