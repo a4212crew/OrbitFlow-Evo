@@ -15,6 +15,8 @@ OrbitFlow-Evo is a multi-vendor network automation platform for ISP operations. 
 9. Runtime modules must use the shared OrbitFlow logging foundation rather than creating independent logging configuration. Keep operator console output concise, write detailed diagnostics to module-owned logs, and never log secrets or raw credential material.
 10. Add or update deterministic tests when behaviour changes. A task is not complete until relevant acceptance criteria pass or an untested limitation is stated.
 11. Do not silently redesign architecture outside task scope.
+12. Normalized capability models are authoritative for cross-vendor semantics. Higher-level reporting and workflows must consume normalized capability output and must not reinterpret raw vendor configuration or recreate vendor-specific mapping logic.
+13. Observed interface existence and references from other configuration sections are distinct concepts. Do not create synthetic interface identities solely from VLAN, L2VPN, VSI, bridge-domain, or other service references.
 
 ## 2. Project Architecture Boundaries
 
