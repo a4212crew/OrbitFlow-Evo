@@ -17,6 +17,7 @@ OrbitFlow-Evo is a multi-vendor network automation platform for ISP operations. 
 11. Do not silently redesign architecture outside task scope.
 12. Normalized capability models are authoritative for cross-vendor semantics. Higher-level reporting and workflows must consume normalized capability output and must not reinterpret raw vendor configuration or recreate vendor-specific mapping logic.
 13. Observed interface existence and references from other configuration sections are distinct concepts. Do not create synthetic interface identities solely from VLAN, L2VPN, VSI, bridge-domain, or other service references.
+14. Every meaningful completed feature, behavioural change, bug fix, or orchestration change must append a concise entry to the current monthly `docs/devlog/YYYY-MM.md`. Update `CURRENT_STATE.md` when the change alters the currently implemented or validated capability baseline. Historical devlogs do not need to be read unless relevant to the task.
 
 ## 2. Project Architecture Boundaries
 
@@ -118,10 +119,10 @@ For detailed lifecycle behaviour, load `.agents/skills/codex-orchestration/SKILL
 ## 8. Documentation Responsibilities
 
 - `AGENTS.md` — permanent global rules, skill routing, and context-loading policy.
-- `CURRENT_STATE.md` — concise implemented/validated state; read only when relevant.
+- `CURRENT_STATE.md` — concise implemented/validated state; update when meaningful work changes the current implemented or validated baseline; read only when relevant.
 - `.agents/skills/*/SKILL.md` — task-specific implementation knowledge.
 - `docs/architecture/` — durable architectural models and cross-feature design decisions.
-- `docs/devlog/YYYY-MM.md` — historical completed work and troubleshooting record; not default task context.
+- `docs/devlog/YYYY-MM.md` — historical completed work and troubleshooting record; append a concise entry for every meaningful completed development, but do not read it by default.
 - `DEVLOG.md` — short index only.
 - `ROADMAP.md` — future work.
 - `README.md` — operator/developer setup and usage.

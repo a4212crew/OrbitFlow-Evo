@@ -226,10 +226,12 @@ A failed task must not remain continuously queued for automatic retry unless ret
 
 ## Documentation
 
-After meaningful orchestration changes:
-- update `docs/architecture/codex-orchestration.md` for durable architecture;
-- update `CURRENT_STATE.md` only for current implemented/validated state;
-- update `DECISIONS.md` for durable decisions;
-- append detailed work to the current monthly devlog;
+After meaningful completed development work, including features, behavioural changes, bug fixes, and orchestration changes:
+- append a concise record of the completed work, validation, and important limitations to the current monthly `docs/devlog/YYYY-MM.md`;
+- update `CURRENT_STATE.md` when the change alters the currently implemented or validated capability baseline;
+- update durable architecture documentation only when the architecture changes;
+- update `DECISIONS.md` when a durable decision changes;
 - keep `AGENTS.md` focused on permanent rules.
+
+Reading historical devlogs remains optional. Do not load them merely because the task must append a new entry.
 
