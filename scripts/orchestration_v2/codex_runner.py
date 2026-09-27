@@ -14,15 +14,43 @@ from models import FailureCategory, OrchestrationError, Task
 
 
 _SKILL_PATH = re.compile(r"\.agents/skills/[A-Za-z0-9_.-]+/SKILL\.md")
+_CONTEXT_HEADER = re.compile(
+    r"^#{0,6}\\s*Required(?: repository)? context\\s*:?\\s*$",
+    re.IGNORECASE,
+)
 
 
-def required_context(task: Task) -> list[str]:
-    """Return the minimal repository context explicitly declared by the task."""
-    paths = ["AGENTS.md"]
-    for path in _SKILL_PATH.findall(task.body):
+def _unique_skill_paths(text: str) -> list[str]:
+    paths: list[str] = []
+    for path in _SKILL_PATH.findall(text):
         if path not in paths:
             paths.append(path)
     return paths
+
+
+def required_context(task: Task) -> list[str]:
+    """Return the minimal repository context declared by the task.
+
+    New tasks should use a dedicated Required repository context section.
+    For older issues without that section, skill paths mentioned in the task body
+    remain a backward-compatible fallback.
+    """
+    lines = task.body.splitlines()
+    explicit_lines: list[str] = []
+    in_context = False
+    found_header = False
+    for line in lines:
+        if _CONTEXT_HEADER.match(line):
+            in_context = True
+            found_header = True
+            continue
+        if in_context and line.lstrip().startswith("#"):
+            break
+        if in_context:
+            explicit_lines.append(line)
+
+    declared = _unique_skill_paths("\n".join(explicit_lines)) if found_header else _unique_skill_paths(task.body)
+    return ["AGENTS.md", *declared]
 
 
 def build_prompt(preamble: str, task: Task, review: str = "") -> str:
