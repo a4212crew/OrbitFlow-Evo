@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import subprocess
 from pathlib import Path
@@ -12,22 +13,57 @@ from temp_cleanup import controller_temp
 from models import FailureCategory, OrchestrationError, Task
 
 
+_SKILL_PATH = re.compile(r"\.agents/skills/[A-Za-z0-9_.-]+/SKILL\.md")
+
+
+def required_context(task: Task) -> list[str]:
+    """Return the minimal repository context explicitly declared by the task."""
+    paths = ["AGENTS.md"]
+    for path in _SKILL_PATH.findall(task.body):
+        if path not in paths:
+            paths.append(path)
+    return paths
+
+
 def build_prompt(preamble: str, task: Task, review: str = "") -> str:
-    return "\n".join(
+    context = required_context(task)
+    manifest = [
+        "# Required repository context",
+        *[f"- `{path}`" for path in context],
+    ]
+    if len(context) == 1:
+        manifest.append(
+            "- No skill path was explicitly declared; use the AGENTS.md routing table "
+            "to select only the directly relevant skill(s)."
+        )
+    manifest.extend(
         [
-            preamble.rstrip(),
             "",
-            "# GitHub Task",
-            f"Issue #{task.number}: {task.title}",
+            "Read this manifest before source inspection. Do not load additional skills/docs "
+            "unless the task explicitly requires them or targeted source inspection proves "
+            "a concrete dependency must be changed.",
+        ]
+    )
+    sections = [
+        preamble.rstrip(),
+        "",
+        *manifest,
+        "",
+        "# GitHub Task",
+        f"Issue #{task.number}: {task.title}",
+        "",
+        task.body,
+    ]
+    if review:
+        sections.extend(["", "# Requested revision only", review])
+    sections.extend(
+        [
             "",
-            task.body,
-            "",
-            "# Requested revision only" if review else "",
-            review,
             "# Controller boundary",
             "Implement and test only. Do not commit, push, create/update PRs, change GitHub labels, or merge.",
         ]
     )
+    return "\n".join(sections)
 
 
 def run_codex(prompt: str, worktree: Path, output_path: Path) -> None:
