@@ -1,22 +1,22 @@
 ---
 name: device-reporting
-description: Use for OrbitFlow read-only batch reports that combine DeviceContext, InterfaceService, VlanService, and Excel output.
+description: Use for OrbitFlow read-only batch reports that combine DeviceContext, InterfaceService, VlanService, normalized forwarding-domain state, and Excel output.
 ---
 
 # Device Reporting
 
 ## Use This Skill When
 
-Use for read-only reports that combine device identity, interface state/description, VLAN attachment facts, VLAN database/service objects, and batch Excel output.
+Use for read-only reports that combine device identity, actual interface state/description, normalized VLAN/forwarding behaviour, forwarding-domain database objects, and batch Excel output.
 
-Do not add new vendor commands or parsers here. Reporting composes existing capabilities.
+Do not add vendor commands or parsers here. Reporting composes existing capabilities and must not reinterpret raw vendor configuration.
 
 ## Related Skills
 
 - `../excel-inventory/SKILL.md` — target-list and credential input.
 - `../device-inventory/SKILL.md` — DeviceContext resolution and identity.
-- `../interface-collector/SKILL.md` — interface description/admin/oper state.
-- `../vlan-observation/SKILL.md` — interface VLAN facts and VLAN/service objects.
+- `../interface-collector/SKILL.md` — actual interface description/admin/oper state.
+- `../vlan-observation/SKILL.md` — normalized per-interface forwarding facts and forwarding-domain objects.
 - `../runtime-logging/SKILL.md` — report-run logging and sanitized errors.
 - `../jumphost-connectivity/SKILL.md` — shared DeviceSession transport.
 
@@ -29,29 +29,48 @@ input target
     -> connect_device(...)
     -> DeviceInventoryResolver.resolve(...)
     -> DeviceContext
-    -> same DeviceSession
+    -> same DeviceSession / shared CLI
        -> InterfaceService.collect(..., context)
        -> VlanService.collect(..., context)
     -> normalized report rows
 ```
 
-Connect once per device where practical. Do not rediscover the platform in reporting code and do not recreate transport or parser logic.
+Connect once per device where practical. Do not rediscover platform, recreate transport, or duplicate vendor parsing in reporting code.
 
 One failed device must not terminate an otherwise safe batch.
 
 ## Interface/VLAN Join
 
-Join interface state and VLAN observations using normalized device identity plus canonical interface name.
+InterfaceService is authoritative for actual interface identity plus description/admin/oper state.
 
-Do not guess unsupported values. Preserve InterfaceService as the source for description/admin/oper state and VlanService as the source for VLAN/service facts.
+VlanService is authoritative for normalized forwarding semantics:
 
-Where one physical interface has multiple VLAN/service observations, reporting may aggregate VLAN IDs for the summary interface row while preserving vendor-neutral detail in dedicated columns. Do not collapse bridge-domain, VSI, service-instance, or other service identities into VLAN IDs.
+```text
+port_type
+untagged_vlan
+tagged_vlans
+bridge_domains
+service_mappings
+```
+
+Join using resolved device identity plus canonical interface name.
+
+Rules:
+
+- one report row per actual interface;
+- reporting must not create an interface solely because VLAN/L2VPN/VSI/bridge-domain/service configuration references a name;
+- reporting must not infer access/trunk/hybrid/EVC/service/routed semantics from raw vendor fields;
+- reporting must not reconstruct bridge-domain/VSI relationships;
+- multiple EVC/service observations may aggregate into one physical-interface row only when exact `service_mappings` remain preserved;
+- preserve `ALL`, `NONE`, explicit tagged VLAN lists, and blank distinctly;
+- unmatched service references belong to validation/analysis output, not the normal Interfaces row set.
 
 ## Default Workbook
 
 ### `Interfaces`
 
-Recommended fields:
+Recommended normalized fields:
+
 - Device Name
 - Device IP
 - Platform
@@ -60,40 +79,40 @@ Recommended fields:
 - Description
 - Admin Status
 - Oper Status
-- Mode
-- Attached VLANs
-- Access VLAN
-- Native VLAN
-- PVID
-- Allowed VLANs
+- Port Type
+- Untagged VLAN
 - Tagged VLANs
-- Untagged VLANs
-- Service VLAN
-- Outer VLAN
-- Inner VLAN
-- Service Binding Type
-- Service Binding Name
+- Bridge Domains
+- Service Mappings
 - Collection Time
 
-`Attached VLANs` is a convenience union of VLAN IDs already observed in normalized VLAN fields. It must not invent VLAN identity from bridge-domain/service identifiers.
+The report should display normalized capability output, not derive forwarding meaning itself.
 
 ### `VLAN_Database`
 
 Recommended fields:
+
 - Device Name
 - Device IP
 - Platform
 - Object Type
 - Object ID
-- VLAN ID(s)
+- Domain ID
 - Name
 - Collection Time
 
-Preserve `object_type` so traditional VLANs and service objects remain distinct.
+Preserve `object_type` so `vlan`, `bridge_domain`, and `vsi` remain distinct.
+
+The `Domain ID` may be numeric or named. For example, IOS-XR may use a bridge-domain name and Huawei may use a VSI name.
+
+If an object has no configured name, use its object/domain ID as the display name.
+
+Do not create database objects from interface references in the reporting layer.
 
 ### `Run_Errors`
 
 Recommended fields:
+
 - Device IP
 - Device Name when known
 - Stage
@@ -101,6 +120,8 @@ Recommended fields:
 - Time
 
 Do not include passwords, credential material, raw device output, or unsanitized exception text.
+
+Validation/compliance findings are a separate future output unless explicitly requested.
 
 ## Excel Behaviour
 
@@ -124,11 +145,16 @@ Keep console output concise and record per-device/stage failures in both the run
 ## Tests
 
 Cover:
-- interface/VLAN join logic;
-- multiple VLAN observations on one interface;
-- traditional VLAN vs service-object preservation;
+
+- one row per actual interface;
+- canonical interface join;
+- normalized port-type and forwarding-field presentation;
+- multiple EVC mappings aggregated without losing exact service mappings;
+- `ALL`/`NONE`/blank preservation;
+- unmatched service references not creating interface rows;
+- VLAN/bridge-domain/VSI object preservation;
 - workbook sheet/column generation;
 - failed-device isolation;
 - no-secret output;
-- reuse of DeviceContext and one established session where practical;
+- reuse of DeviceContext and one established session/shared CLI where practical;
 - deterministic operation without live devices.
