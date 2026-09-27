@@ -44,7 +44,13 @@ def state(*observations, objects=()):
     ('huawei_vrp', parse_huawei_config, 'GE0/1', '#', {}),
     ('ubiquiti_edgeswitch', parse_edgeswitch_config, '0/1', 'exit', {}),
 ])
-@pytest.mark.parametrize('body', ['', ' description spare\n shutdown\n'])
+@pytest.mark.parametrize('body', [
+    '',
+    ' description spare\n shutdown\n',
+    ' description spare\n no shutdown\n',
+    ' description spare\n mtu 1500\n',
+    ' description ip address is not forwarding evidence\n',
+])
 def test_unclassified_configuration_keeps_real_report_row_blank(
     platform, parser, name, terminator, options, body
 ):
