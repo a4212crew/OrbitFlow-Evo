@@ -9,15 +9,15 @@ description: Use for OrbitFlow access VLAN provisioning, provisioning Excel inpu
 
 Use for access VLAN provisioning, provisioning workbook schema, dry-run/apply/verify behaviour, pre/post checks, VLAN validation, deterministic candidate orchestration, audit/rollback evidence, and provisioning tests.
 
-For vendor-specific commands, also load the relevant vendor skill.
+Vendor command changes cross into the relevant vendor CLI capability; load that vendor skill only when commands/parsers/verification behaviour are being changed.
 
-## Related Skills
+## Adjacent Capability Boundaries — Do Not Load by Default
 
-- `../jumphost-connectivity/SKILL.md`
-- `../excel-inventory/SKILL.md`
-- `../cisco-network-cli/SKILL.md`
-- `../huawei-network-cli/SKILL.md`
-- `../ubiquiti-network-cli/SKILL.md`
+References below describe ownership boundaries, not automatic context dependencies.
+
+- `../jumphost-connectivity/SKILL.md` — load only for transport/session changes or transport defects.
+- `../excel-inventory/SKILL.md` — load only when target/input schema or credential precedence changes.
+- vendor CLI skills — load only for vendor command, parser, or verification changes.
 
 ## Safety Model
 
