@@ -120,10 +120,20 @@ def transport_logging(management_ip):
     """
     with module_logger("transport") as (logger, _):
         dependency = logging.getLogger("paramiko")
-        previous = dependency.handlers[:], dependency.propagate, dependency.level
-        dependency.handlers = [_DependencyHandler(logger, management_ip)]
-        dependency.propagate = False
-        dependency.setLevel(logging.WARNING)
+        # Child handlers run before parent handlers, and non-propagating children
+        # bypass the parent entirely. Route existing children as well; children
+        # created during this scope inherit the routed parent by default.
+        dependencies = [dependency] + [
+            child for name, child in list(logging.Logger.manager.loggerDict.items())
+            if name.startswith("paramiko.") and isinstance(child, logging.Logger)
+        ]
+        previous = [(child, child.handlers[:], child.propagate, child.level)
+                    for child in dependencies]
+        handler = _DependencyHandler(logger, management_ip)
+        for child in dependencies:
+            child.handlers = [handler]
+            child.propagate = False
+            child.setLevel(logging.WARNING)
         try:
             yield
         except Exception as exc:
@@ -132,4 +142,8 @@ def transport_logging(management_ip):
                                 "error_category": type(exc).__name__})
             raise
         finally:
-            dependency.handlers, dependency.propagate, dependency.level = previous
+            for child, handlers, propagate, level in previous:
+                child.handlers = handlers
+                child.propagate = propagate
+                child.setLevel(level)
+            handler.close()
