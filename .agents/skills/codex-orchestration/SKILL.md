@@ -4,7 +4,9 @@ description: Implement and operate the OrbitFlow-Evo local Codex controller, tas
 ---
 # Codex Orchestration Skill
 
-Use this skill for OrbitFlow-Evo development tasks involving ChatGPT / Atlas, GitHub Issues, the local Python controller, Codex CLI, Codex task/revision lifecycle, PR review, or orchestration troubleshooting.
+Use this skill only when changing or troubleshooting OrbitFlow-Evo orchestration: the local controller, Codex invocation, GitHub task/revision lifecycle, worktrees, PR/review state, or orchestration tests.
+
+Normal feature implementation does not load this skill merely because Codex is the worker.
 
 Read `AGENTS.md` first. Read `CURRENT_STATE.md` only when the task depends on current implementation status, architecture baseline, supported behaviour, known limitations, or active development state. Read `docs/architecture/codex-orchestration.md` only when lifecycle architecture or controller behaviour is directly relevant.
 
@@ -99,12 +101,13 @@ Do not duplicate large persistent rules from `AGENTS.md`, `CURRENT_STATE.md`, or
 
 Use the minimum repository context needed to complete the scoped task safely.
 
-- Start with targeted search and targeted file reads.
-- Do not load `CURRENT_STATE.md`, architecture documents, or devlogs by default.
-- Load them only when the task materially depends on their content.
-- Treat `docs/devlog/` as historical/reference material, not normal task context.
-- Avoid broad repository-document ingestion for simple docs, tests, typo fixes, or narrowly scoped changes.
-- Avoid repeatedly emitting full diffs or large command output; prefer targeted inspection and one final diff.
+- Read `AGENTS.md` first and let its Skill Routing table determine the directly relevant skill(s).
+- Do not load a skill merely because another skill mentions or links to it.
+- Treat adjacent-skill references as capability ownership guidance, not automatic context dependencies.
+- Load an additional skill only when the task modifies that capability or targeted source inspection shows the implementation must cross that boundary.
+- Using an existing capability through its current public interface does not require loading that capability's skill.
+- Do not load `CURRENT_STATE.md`, architecture documents, or devlogs by default; load them only when the task materially depends on them.
+- Prefer targeted search/file reads and one final diff over broad repository-document ingestion.
 - Run targeted tests while developing when useful, then the required deterministic suite once at the final gate.
 
 ## Repository Isolation

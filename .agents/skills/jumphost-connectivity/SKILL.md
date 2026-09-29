@@ -20,12 +20,14 @@ Use this skill for:
 
 Do not use this skill for interface parsing only, Excel-only changes, or vendor configuration generation with no transport impact.
 
-## Related Skills
+## Adjacent Capability Boundaries — Do Not Load by Default
 
-- `../excel-inventory/SKILL.md` for device input.
-- `../interface-collector/SKILL.md` for interface collection.
-- `../access-vlan-provisioning/SKILL.md` for change workflows.
-- Vendor skills for paging/configuration/verification behaviour.
+Load another skill only when the task modifies that layer or targeted source inspection shows the transport change crosses into it.
+
+- `../excel-inventory/SKILL.md` — device-input semantics.
+- `../interface-collector/SKILL.md` — interface collection behaviour.
+- `../access-vlan-provisioning/SKILL.md` — provisioning workflow behaviour.
+- vendor CLI skills — paging/configuration/verification semantics.
 
 ## Architecture Rule
 

@@ -11,14 +11,16 @@ Use for read-only reports that combine device identity, actual interface state/d
 
 Do not add vendor commands or parsers here. Reporting composes existing capabilities and must not reinterpret raw vendor configuration.
 
-## Related Skills
+## Adjacent Capability Boundaries — Do Not Load by Default
 
-- `../excel-inventory/SKILL.md` — target-list and credential input.
-- `../device-inventory/SKILL.md` — DeviceContext resolution and identity.
-- `../interface-collector/SKILL.md` — actual interface description/admin/oper state.
-- `../vlan-observation/SKILL.md` — normalized per-interface forwarding facts and forwarding-domain objects.
-- `../runtime-logging/SKILL.md` — report-run logging and sanitized errors.
-- `../jumphost-connectivity/SKILL.md` — shared DeviceSession transport.
+Reporting consumes these capabilities through their existing interfaces. Using them does not require loading their skills. Load an adjacent skill only when the task changes that capability or targeted source inspection proves the change crosses the boundary.
+
+- `../excel-inventory/SKILL.md` — target-list/credential input.
+- `../device-inventory/SKILL.md` — DeviceContext identity/resolution.
+- `../interface-collector/SKILL.md` — interface collection/normalization.
+- `../vlan-observation/SKILL.md` — VLAN/forwarding semantics.
+- `../runtime-logging/SKILL.md` — logging/sanitization behaviour.
+- `../jumphost-connectivity/SKILL.md` — DeviceSession transport.
 
 ## Architecture
 

@@ -13,14 +13,14 @@ Do not implement transport here.
 
 InterfaceService is the authoritative source for actual observed/configured interface identities, descriptions, admin state, and oper state. References to interface names found only in VLAN, L2VPN, VSI, bridge-domain, or other service configuration must not be promoted into InterfaceRecord objects unless the interface is independently observed/configured as a real interface.
 
-## Related Skills
+## Adjacent Capability Boundaries — Do Not Load by Default
 
-- `../jumphost-connectivity/SKILL.md` — device sessions.
-- `../device-inventory/SKILL.md` — resolved device identity/platform context.
-- `../excel-inventory/SKILL.md` — optional Excel/list target input.
-- `../cisco-network-cli/SKILL.md` — Cisco CLI details.
-- `../huawei-network-cli/SKILL.md` — Huawei CLI details.
-- `../ubiquiti-network-cli/SKILL.md` — EdgeSwitch CLI details.
+The collector reuses adjacent capabilities through existing contracts. Load another skill only when the task modifies that boundary or targeted source inspection shows it must.
+
+- `../jumphost-connectivity/SKILL.md` — device-session transport.
+- `../device-inventory/SKILL.md` — identity/platform resolution.
+- `../excel-inventory/SKILL.md` — target-input semantics.
+- vendor CLI skills — load only for vendor command/parser behaviour being changed.
 
 ## Collection Workflow
 
