@@ -43,6 +43,27 @@ Detailed model: `docs/architecture/device-capability-oss-model.md`.
 
 ## Current Architecture
 
+### Shared Device Execution
+
+`orbitflow.execution.execute_devices` provides bounded per-device workers,
+dynamic refill, isolated safe outcomes, copied logging context, synchronized
+progress, and input-ordered aggregation. `orbitflow.toml` configures
+`execution.max_concurrent_devices` (default 10); limit 1 runs sequentially.
+Inventory refresh/export and Interface/VLAN reporting both use this layer.
+Workers own their resolver/context/session/CLI and per-device capabilities;
+Interface and VLAN collection remain sequential within one device. Workbook
+writers run on the caller after device cleanup.
+
+Inventory store instances share a resolved-path transaction lock, preventing
+lost reconciliations and failure updates within one process. Inventory facts
+follow transaction order; exported attempts and run-status aggregation retain
+input order. Paramiko routing is reference-counted across overlapping connection
+scopes and restored after the last exits; rotating writers are shared by log
+path. Raw dependency diagnostics remain omitted and unattributed; caught errors
+retain device metadata. Cross-process inventory/log writers and shared export
+destinations remain unsupported. Deterministic tests cover concurrency and both
+workflows; no live concurrency validation has been performed.
+
 ### Device Inventory / Identification
 
 The device inventory/identification MVP is implemented. `DeviceInventoryResolver`
@@ -292,8 +313,8 @@ Codex and controller pytest temporary files use unique task/purpose-isolated `or
 ## Batch Interface/VLAN Reporting
 
 `scripts/device_interface_vlan_report.py` composes the shared Excel target loader,
-inventory resolver, InterfaceService, and VlanService in a sequential read-only
-batch. Inventory and both capabilities reuse one established session per target.
+inventory resolver, InterfaceService, and VlanService in a bounded concurrent
+read-only batch. Inventory and both capabilities reuse one established session per target.
 The workbook is written once at the end with Interfaces, VLAN_Database, and
 Run_Errors sheets; failures are isolated by device/stage, and successful partial
 observations are retained. Canonical interface joins preserve logical interfaces

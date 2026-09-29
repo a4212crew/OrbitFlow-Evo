@@ -12,10 +12,19 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import re
+from threading import RLock
 
 _root = ContextVar("orbitflow_log_root", default=Path("logs"))
 MAX_BYTES = 2 * 1024 * 1024
 BACKUP_COUNT = 3
+_writers_lock = RLock()
+_writers = {}
+_dependency_lock = RLock()
+_dependency_users = 0
+_dependency_previous = {}
+_dependency_handler = None
+_dependency_sinks = ()
+_active_dependency_loggers = []
 
 
 def sanitize_text(value):
@@ -82,9 +91,15 @@ def module_logger(module, filename=None, *, log_root=None):
     root = Path(log_root) if log_root is not None else _root.get()
     path = root / module / datetime.now(timezone.utc).date().isoformat() / (filename + ".log")
     path.parent.mkdir(parents=True, exist_ok=True)
-    handler = RotatingFileHandler(path, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT,
-                                  encoding="utf-8")
-    handler.setFormatter(SafeFormatter())
+    writer_key = path.resolve()
+    with _writers_lock:
+        if writer_key not in _writers:
+            handler = RotatingFileHandler(path, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT,
+                                          encoding="utf-8")
+            handler.setFormatter(SafeFormatter())
+            _writers[writer_key] = [handler, 0]
+        handler, users = _writers[writer_key]
+        _writers[writer_key][1] = users + 1
     logger = logging.Logger(f"orbitflow.{module}", logging.DEBUG)
     logger.propagate = False
     logger.addHandler(handler)
@@ -93,47 +108,52 @@ def module_logger(module, filename=None, *, log_root=None):
         yield logger, path
     finally:
         _root.reset(token)
-        handler.close()
         logger.removeHandler(handler)
+        with _writers_lock:
+            _writers[writer_key][1] -= 1
+            if _writers[writer_key][1] == 0:
+                del _writers[writer_key]
+                handler.close()
 
 
 class _DependencyHandler(logging.Handler):
-    def __init__(self, logger, management_ip):
-        super().__init__(logging.WARNING)
-        self.logger = logger
-        self.management_ip = management_ip
-
     def emit(self, record):
-        # Paramiko emits traceback lines as plain strings. Never forward those
-        # strings: they can contain arbitrary authentication data or source code.
-        self.logger.log(record.levelno, "SSH dependency diagnostic (raw text omitted)",
-                        extra={"management_ip": self.management_ip,
-                               "error_category": "SSHDiagnostic"})
+        # Paramiko's own threads have no caller context. Emit once per active
+        # destination, without guessing which device produced an internal line.
+        with _dependency_lock:
+            for logger in _dependency_sinks:
+                logger.log(record.levelno, "SSH dependency diagnostic (raw text omitted)",
+                           extra={"management_ip": "-", "error_category": "SSHDiagnostic"})
 
 
 @contextmanager
 def transport_logging(management_ip):
-    """Capture connection diagnostics without changing SSH or exception semantics.
+    """Route global dependency diagnostics until the last overlapping scope exits.
 
-    Paramiko routing is process-wide for this scope; intended for sequential runs.
-    Restore the application's logging configuration even on connection failure.
+    Only logging setup/teardown is locked; connections remain concurrent. Existing
+    child configuration is restored exactly. New ordinary children inherit the
+    protected parent. Raw dependency text is never forwarded.
     """
+    global _dependency_users, _dependency_handler, _dependency_sinks
     with module_logger("transport") as (logger, _):
-        dependency = logging.getLogger("paramiko")
-        # Child handlers run before parent handlers, and non-propagating children
-        # bypass the parent entirely. Route existing children as well; children
-        # created during this scope inherit the routed parent by default.
-        dependencies = [dependency] + [
-            child for name, child in list(logging.Logger.manager.loggerDict.items())
-            if name.startswith("paramiko.") and isinstance(child, logging.Logger)
-        ]
-        previous = [(child, child.handlers[:], child.propagate, child.level)
-                    for child in dependencies]
-        handler = _DependencyHandler(logger, management_ip)
-        for child in dependencies:
-            child.handlers = [handler]
-            child.propagate = False
-            child.setLevel(logging.WARNING)
+        with _dependency_lock:
+            if _dependency_users == 0:
+                _dependency_handler = _DependencyHandler(logging.WARNING)
+            dependencies = [logging.getLogger("paramiko")] + [
+                child for name, child in list(logging.Logger.manager.loggerDict.items())
+                if name.startswith("paramiko.") and isinstance(child, logging.Logger)
+            ]
+            for child in dependencies:
+                if child not in _dependency_previous:
+                    _dependency_previous[child] = (child.handlers[:], child.propagate, child.level)
+                    child.handlers = [_dependency_handler]
+                    child.propagate = False
+                    child.setLevel(logging.WARNING)
+            _dependency_users += 1
+            # Keep one logger per file, with scoped owners tracked separately.
+            _active_dependency_loggers.append(logger)
+            _dependency_sinks = tuple({id(item.handlers[0]): item
+                                       for item in _active_dependency_loggers}.values())
         try:
             yield
         except Exception as exc:
@@ -142,8 +162,16 @@ def transport_logging(management_ip):
                                 "error_category": type(exc).__name__})
             raise
         finally:
-            for child, handlers, propagate, level in previous:
-                child.handlers = handlers
-                child.propagate = propagate
-                child.setLevel(level)
-            handler.close()
+            with _dependency_lock:
+                _active_dependency_loggers.remove(logger)
+                _dependency_sinks = tuple({id(item.handlers[0]): item
+                                           for item in _active_dependency_loggers}.values())
+                _dependency_users -= 1
+                if _dependency_users == 0:
+                    for child, (handlers, propagate, level) in _dependency_previous.items():
+                        child.handlers = handlers
+                        child.propagate = propagate
+                        child.setLevel(level)
+                    _dependency_previous.clear()
+                    _dependency_handler.close()
+                    _dependency_handler = None

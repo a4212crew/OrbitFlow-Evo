@@ -3,6 +3,7 @@
 import argparse
 from pathlib import Path
 
+from orbitflow.config import load_execution_config
 from orbitflow.reporting import run_report
 from orbitflow.targets import load_targets
 from orbitflow.transport import TransportConfig
@@ -18,6 +19,7 @@ def main(argv=None):
     parser.add_argument("--inventory-path", type=Path, default=Path("data/live_validation/inventory.json"))
     parser.add_argument("--reports-dir", type=Path, default=Path("reports"))
     parser.add_argument("--log-root", type=Path, default=Path("logs"))
+    parser.add_argument("--config", type=Path, default=Path("orbitflow.toml"))
     args = parser.parse_args(argv)
     config = TransportConfig(
         proxy=args.proxy, cluster=args.cluster,
@@ -26,6 +28,7 @@ def main(argv=None):
     )
     return run_report(
         load_targets(args.excel_path, isolate_invalid=True), config,
+        execution_config=load_execution_config(args.config),
         inventory_path=args.inventory_path, reports_dir=args.reports_dir, log_root=args.log_root,
     )
 

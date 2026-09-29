@@ -180,6 +180,47 @@ def install_fakes(monkeypatch, failing_stage=None, fail_ip='192.0.2.1'):
     return events, closed
 
 
+def test_concurrent_report_owns_device_resources_and_aggregates_on_caller(tmp_path, monkeypatch):
+    from threading import Barrier, get_ident
+    from orbitflow.config import ExecutionConfig
+    events, closed = install_fakes(monkeypatch, 'interfaces')
+    barrier = Barrier(2)
+    caller = get_ident()
+    connect = reporting.connect_device
+    def overlapping_connect(*args):
+        assert get_ident() != caller
+        session = connect(*args)
+        barrier.wait(timeout=10)
+        return session
+    monkeypatch.setattr(reporting, 'connect_device', overlapping_connect)
+    writer = reporting.write_workbook
+    def write(*args, **kwargs):
+        assert get_ident() == caller
+        assert len(closed) == 2
+        return writer(*args, **kwargs)
+    monkeypatch.setattr(reporting, 'write_workbook', write)
+    targets = [{'management_ip': f'192.0.2.{i}', 'username': 'synthetic-user',
+                'password': 'synthetic-password'} for i in (1, 2)]
+    path = reporting.run_report(targets, CONFIG, inventory_path=tmp_path / 'inventory.json',
+                                reports_dir=tmp_path, log_root=tmp_path / 'logs',
+                                output=StringIO(), execution_config=ExecutionConfig(2))
+    sessions = [value for event, value in events if event == 'inventory']
+    assert len({id(session) for session in sessions}) == 2
+    assert len({id(session.cli) for session in sessions}) == 2
+    assert len({id(session.context) for session in sessions}) == 2
+    for session in sessions:
+        assert [event for event, value in events if value is session] == ['inventory', 'interfaces', 'vlans']
+    assert reporting.DeviceInventoryResolver.call_count == 2
+    assert reporting.InterfaceService.call_count == reporting.VlanService.call_count == 2
+    workbook = load_workbook(path)
+    try:
+        assert workbook['Interfaces']['B2'].value == '192.0.2.2'
+        assert [row[1] for row in list(workbook['VLAN_Database'].values)[1:]] == ['192.0.2.1', '192.0.2.2']
+        assert workbook['Run_Errors']['C2'].value == 'interfaces'
+    finally:
+        workbook.close()
+
+
 @pytest.mark.parametrize('stage', ['connect', 'inventory', 'interfaces', 'vlans', 'disconnect', None])
 def test_batch_isolation_session_context_and_secrets(tmp_path, monkeypatch, stage):
     events, closed = install_fakes(monkeypatch, stage)

@@ -157,10 +157,13 @@ omitting arbitrary exception text, source lines, and locals.
 
 During `connect_device`, Paramiko warnings/errors are routed to the transport
 file as diagnostic markers; caught exceptions provide the structured details.
-Paramiko logging configuration is restored afterward. This routing is intended
-for sequential operation: its temporary configuration is process-wide. Writers
-must not share a log file across processes. Batch callers may set `log_root` for
-an alternative destination; nested transport logging uses that same root.
+Overlapping connections share protected routing; Paramiko logging configuration
+is restored after the last connection scope exits. Dependency markers omit raw
+text and use no device attribution because Paramiko emits on its own threads;
+caught connection errors retain their device metadata. Same-process log writers
+share a synchronized rotating handler. Writers must not share a log file across
+processes. Batch callers may set `log_root` for an alternative destination;
+worker and nested transport logging inherit that root.
 
 ## Batch Interface and VLAN report
 
@@ -180,7 +183,8 @@ existing Teleport identity. No credentials are accepted on the command line.
 
 The read-only workflow connects once per target, resolves inventory, and passes
 the same session and observed context to InterfaceService and VlanService.
-Collection is sequential. A failed capability leaves its fields empty while
+Devices run through the shared bounded execution layer; capabilities within each
+device remain sequential. A failed capability leaves its fields empty while
 successful observations and subsequent devices remain in the report.
 Programmatic callers can pass the same target dictionaries to
 `orbitflow.reporting.run_report(targets, transport_config)`.
@@ -288,8 +292,47 @@ following successful persistence is reported there while the identity remains
 refreshed. Excel values are sanitized literal text; raw exceptions and credentials
 are excluded. The workbook is replaced only after it is successfully written.
 
-Do not run concurrent writers against the same inventory/export paths. The function
-returns the workbook path; file-level input/export errors propagate to the
+Inventory transactions are synchronized across store instances within one process.
+Separate processes must not write the same inventory file, and each export path
+must have one writer. The function returns the workbook path; file-level input/export errors propagate to the
 caller. There is no interface/VLAN collection, historical retention, scheduling,
 or implicit live execution. Deterministic fake-session tests validate this workflow;
 live validation remains operator-controlled.
+
+
+## Read-only device concurrency
+
+Inventory refresh/export and Interface/VLAN reporting use
+`orbitflow.execution.execute_devices`. Configure the application in
+`orbitflow.toml` in the working directory:
+
+```toml
+[execution]
+max_concurrent_devices = 10
+```
+
+The default is 10 when the file is absent. The setting must be a positive integer;
+use 1 for sequential execution on the caller thread. Reporting accepts
+`--config <path>` for an alternative TOML file. Programmatic callers of either
+workflow may pass `execution_config=ExecutionConfig(3)` or
+`execution_config=load_execution_config("settings.toml")` from `orbitflow.config`.
+No feature-specific worker limit is needed. This read-only default does not
+authorize concurrent provisioning or live validation.
+
+A worker owns the complete device workflow, resolver, context, connection and CLI
+resources. A free slot immediately accepts another target, even while earlier
+devices are slow. Device failures are isolated and cleanup precedes slot reuse.
+Console progress lines are synchronized but may interleave across devices.
+Workbook generation runs once on the caller after all workers finish; report
+rows, errors and inventory attempts retain input order (inventory identities
+remain sorted by address/ID). For repeated/alias targets, exported run membership
+and status use the last affecting input position, as before. Persisted inventory
+facts and failure metadata follow serialized transaction order, which may differ
+from input order during concurrent observation. Use limit 1 when ordered alias or
+replacement observations are required. Inventory transactions protect the whole
+read/reconcile/write operation, including failure retention, across store instances
+for the same resolved path within this process. Cross-process inventory and log
+writers, and concurrent writers to one export destination, remain unsupported.
+
+All concurrency validation is deterministic and uses fake devices; no live-device
+concurrency validation has been performed.

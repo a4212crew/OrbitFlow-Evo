@@ -1,0 +1,2 @@
+[execution]
+max_concurrent_devices = 10
