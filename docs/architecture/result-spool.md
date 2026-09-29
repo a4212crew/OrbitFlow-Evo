@@ -64,6 +64,16 @@ are released by process exit, so retained runs can be recovered without stale PI
 heuristics. A completed collection whose consumer was interrupted can be retried.
 
 Successful consumers remove their run by default; `cleanup=False` retains it.
+Permission denials during removal receive four attempts with 0.1, 0.2 and 0.4
+second delays. Exhaustion returns a deferred cleanup status (`remove()` returns
+`False`) and logs a fixed, sanitized warning; successful consumer output is still
+returned. Cleanup records `cleanup_started` before deleting data and retains (or
+restores after final directory denial) the manifest, with its original lifecycle
+status and age. Such a directory may contain only cleanup residue, not replayable
+outcomes: it permits cleanup retries, not another output consumption. Retry with
+`ResultSpool(run_directory).remove()` for consumed runs, or the explicit stale
+cleanup cutoff below. Failed output generation never starts cleanup and remains
+fully replayable. No access-control changes or recursive removal are used.
 Failed device outcomes do not prevent successful workbook consumption/cleanup:
 they remain represented in the final workbook. A partial collection is never
 silently treated as complete. `allow_partial=True` explicitly exports available

@@ -170,3 +170,77 @@ def test_retry_cleans_abandoned_reader_index(tmp_path, monkeypatch):
     reopened = ResultSpool(spool.path.name)
     assert reopened.consume(lambda run: len(list(run.records()))) == 1
     assert not spool.path.exists()
+
+
+@pytest.mark.parametrize('entry,operation', [('results.jsonl', 'unlink'), ('.lock', 'unlink'), ('manifest.json', 'unlink'), ('run', 'rmdir')])
+@pytest.mark.parametrize('denials', [2, 4])
+def test_completed_cleanup_permission_retry_and_retention(tmp_path, monkeypatch, caplog, entry, operation, denials):
+    from pathlib import Path
+    import orbitflow.result_spool as module
+
+    spool = ResultSpool.create(tmp_path, 'synthetic', 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1, {'value': 'safe'}))
+    target = spool.path if entry == 'run' else spool.path / entry
+    original = getattr(Path, operation)
+    attempts = []
+    sleeps = []
+
+    def deny(path, *args, **kwargs):
+        if path == target:
+            attempts.append(path)
+            if len(attempts) <= denials:
+                raise PermissionError('secret-bearing filesystem exception')
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, operation, deny)
+    monkeypatch.setattr(module, 'sleep', sleeps.append)
+    output = tmp_path / 'output.txt'
+    calls = []
+
+    def consumer(run):
+        calls.append(1)
+        output.write_text(next(run.records())['payload']['value'])
+        return output
+
+    assert spool.consume(consumer) == output
+    assert output.read_text() == 'safe'
+    assert calls == [1]
+    assert len(attempts) == (3 if denials == 2 else 4)
+    assert sleeps == ([0.1, 0.2] if denials == 2 else [0.1, 0.2, 0.4])
+    assert 'secret-bearing' not in caplog.text
+    if denials == 2:
+        assert not spool.path.exists()
+        assert 'cleanup deferred' not in caplog.text
+    else:
+        assert 'Successful output remains valid' in caplog.text
+        reopened = ResultSpool(spool.path)
+        assert reopened.manifest['status'] == 'consumed'
+        assert reopened.manifest['cleanup_started'] is True
+        with pytest.raises(ValueError, match='cleanup only'):
+            reopened.consume(consumer)
+        assert calls == [1]
+        assert cleanup_stale_runs(tmp_path, before=datetime.now(timezone.utc) + timedelta(days=1)) == [spool.path]
+        assert not spool.path.exists()
+        assert output.read_text() == 'safe'
+
+
+def test_cleanup_permission_retention_preserves_unknown_contents_checks(tmp_path, monkeypatch):
+    from pathlib import Path
+    import orbitflow.result_spool as module
+
+    spool = ResultSpool.create(tmp_path, 'synthetic', 0)
+    with spool.collection():
+        pass
+    original = Path.rmdir
+    def deny(path):
+        if path == spool.path:
+            raise PermissionError('denied')
+        return original(path)
+    monkeypatch.setattr(Path, 'rmdir', deny)
+    monkeypatch.setattr(module, 'sleep', lambda delay: None)
+    assert spool.consume(lambda run: 'success') == 'success'
+    (spool.path / 'keep').write_text('unrelated')
+    with pytest.raises(ValueError, match='unexpected spool contents'):
+        ResultSpool(spool.path).remove()
+    assert (spool.path / 'keep').read_text() == 'unrelated'

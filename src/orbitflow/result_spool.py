@@ -6,14 +6,31 @@ The supplied sanitizer is applied recursively before anything is persisted.
 from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 from threading import get_ident
+from time import sleep
 from uuid import uuid4
 
 from orbitflow.logging import sanitize_text
+
+
+logger = logging.getLogger(__name__)
+
+
+def _remove_with_retry(operation):
+    """Allow a bounded handle-release delay without changing access controls."""
+    for delay in (0.1, 0.2, 0.4, None):
+        try:
+            operation()
+            return
+        except PermissionError:
+            if delay is None:
+                raise
+            sleep(delay)
 
 
 def _now():
@@ -183,6 +200,8 @@ class ResultSpool:
         with _lease(self.path):
             # Reload under the lease to prevent stale objects replaying lifecycle state.
             self.manifest = json.loads((self.path / 'manifest.json').read_text(encoding='utf-8'))
+            if self.manifest.get('cleanup_started'):
+                raise ValueError('Output already consumed; retained run permits cleanup only')
             complete = self.manifest['collection_complete']
             if not allow_partial and (not complete or self.manifest['status'] in {'created', 'collecting', 'interrupted'}):
                 raise ValueError('Incomplete collection; explicitly request partial consumption')
@@ -199,6 +218,17 @@ class ResultSpool:
 
     def remove(self, *, before=None):
         """Delete only recognized run files, never links or unknown subdirectories."""
+        try:
+            return self._remove(before=before)
+        except PermissionError:
+            # Do not expose exception text (which may contain sensitive paths).
+            logger.warning('Spool cleanup deferred after bounded permission retries; '
+                           'retained run requires later cleanup. Successful output remains valid.')
+            return False
+
+    def _remove(self, *, before=None):
+        if self.path.is_symlink() or self.path.resolve() != self.path:
+            raise ValueError('Spool path must not traverse links')
         allowed = {'manifest.json', 'manifest.tmp', 'results.jsonl', 'snapshot.jsonl', 'snapshot.tmp', '.lock'}
         with _lease(self.path):
             manifest = json.loads((self.path / 'manifest.json').read_text(encoding='utf-8'))
@@ -222,15 +252,28 @@ class ResultSpool:
                 else:
                     raise ValueError('Refusing cleanup of unexpected spool contents')
             # Validate everything before deleting anything. No recursive deletion.
+            self.manifest = manifest
+            self.manifest['cleanup_started'] = True
+            _remove_with_retry(lambda: (self.path / 'manifest.json').write_text(
+                json.dumps(self.manifest), encoding='utf-8'))
             for directory, children in scratch:
                 for child in children:
-                    child.unlink()
-                directory.rmdir()
+                    _remove_with_retry(child.unlink)
+                _remove_with_retry(directory.rmdir)
             for path in files:
-                if path.name != '.lock':
-                    path.unlink()
-        (self.path / '.lock').unlink()
-        self.path.rmdir()
+                if path.name not in {'.lock', 'manifest.json'}:
+                    _remove_with_retry(path.unlink)
+        _remove_with_retry((self.path / '.lock').unlink)
+        # Keep the manifest until all other removals succeed. If the final
+        # directory removal is denied, restore this small cleanup-only marker.
+        manifest_path = self.path / 'manifest.json'
+        _remove_with_retry(manifest_path.unlink)
+        try:
+            _remove_with_retry(self.path.rmdir)
+        except PermissionError:
+            _remove_with_retry(lambda: manifest_path.write_text(
+                json.dumps(self.manifest), encoding='utf-8'))
+            raise
         return True
 
 

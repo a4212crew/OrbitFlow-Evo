@@ -63,6 +63,9 @@ Public report/inventory spool consumers retry output without device connections.
 Successful consumption removes temporary runs; failed/interrupted runs remain,
 with exclusive OS leases and explicit age-cutoff stale cleanup. Partial recovery
 is opt-in and remains retained. See `docs/architecture/result-spool.md`.
+Completed-spool removal retries transient permission denials with bounded delays;
+exhaustion warns without failing successful output and retains a cleanup-only
+manifest for subsequent removal.
 Deterministic scale coverage includes 1,500 targets at concurrency 5; live network
 scale validation remains operator-controlled.
 
