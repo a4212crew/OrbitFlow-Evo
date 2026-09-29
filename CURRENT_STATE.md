@@ -54,6 +54,19 @@ Workers own their resolver/context/session/CLI and per-device capabilities;
 Interface and VLAN collection remain sequential within one device. Workbook
 writers run on the caller after device cleanup.
 
+`orbitflow.result_spool.ResultSpool` persists sanitized per-target envelopes and
+normalized task payloads in unique run directories. Both output workflows use
+caller-owned completion sinks, disk-backed input ordering, and write-only Excel
+consumption; complete report/attempt row sets are no longer retained in memory.
+Inventory exports capture a run snapshot without replacing canonical inventory.
+Public report/inventory spool consumers retry output without device connections.
+Successful consumption removes temporary runs; failed/interrupted runs remain,
+with exclusive OS leases and explicit age-cutoff stale cleanup. Partial recovery
+is opt-in and remains retained. See `docs/architecture/result-spool.md`.
+Deterministic scale coverage includes 1,500 targets at concurrency 5; live network
+scale validation remains operator-controlled.
+
+
 Inventory store instances share a resolved-path transaction lock, preventing
 lost reconciliations and failure updates within one process. Inventory facts
 follow transaction order; exported attempts and run-status aggregation retain

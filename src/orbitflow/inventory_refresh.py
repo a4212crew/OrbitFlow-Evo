@@ -6,11 +6,13 @@ from pathlib import Path
 import re
 
 from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from orbitflow.execution import execute_devices
+from orbitflow.result_spool import ResultSpool
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.logging import module_logger, sanitize_text
 from orbitflow.models import DeviceContext
@@ -39,6 +41,7 @@ def refresh_inventory_from_excel(
     log_root: str | Path = "logs",
     clock=None,
     execution_config=None,
+    spool_root=None,
 ) -> Path:
     """Refresh only input targets, then export all latest-known stable facts.
 
@@ -70,8 +73,8 @@ def refresh_inventory_from_excel(
     store = JsonInventoryStore(inventory)
     # Fail before connecting if the existing snapshot cannot be read.
     store.contexts()
-    statuses: dict[str, str] = {}
-    attempts = []
+    spool = ResultSpool.create(spool_root or destination.parent / "runs",
+                               "inventory_refresh", len(targets), clean=clean)
     with module_logger("inventory", "inventory_refresh", log_root=log_root) as (logger, _):
         logger.info("Inventory refresh started")
         def collect(item):
@@ -116,34 +119,41 @@ def refresh_inventory_from_excel(
                              "failed" if category else REFRESHED, stage, clean(category),
                              attempted_at, events)
 
-        outcomes = execute_devices(enumerate(targets, 1), collect, config=execution_config)
-        for outcome in outcomes:
+        def persist(outcome):
+            target = targets[outcome.position - 1]
             if outcome.error_category:
                 logger.error("Inventory worker failed",
                              extra={"error_category": clean(outcome.error_category)})
-                target = targets[outcome.position - 1]
-                attempts.append((outcome.position, clean(target["management_ip"]), (),
-                                 "failed", "inventory", clean(outcome.error_category), clock(), ()))
+                payload = ({}, (outcome.position, target["management_ip"], (),
+                                "failed", "inventory", outcome.error_category, clock(), ()))
             else:
-                device_statuses, attempt = outcome.value
-                statuses.update(device_statuses)
-                attempts.append(attempt)
+                payload = outcome.value
+            spool.append(outcome, payload=payload, target=target["management_ip"],
+                         failed=payload[1][3] == "failed")
 
-        rows = []
-        for context in sorted(store.contexts(), key=lambda item: (item.management_ip, item.device_id)):
-            state = statuses.get(context.device_id, NOT_REQUESTED)
-            facts = asdict(context)
-            rows.append((context.device_id in statuses, state,
-                         *(facts[field] for field in DeviceContext.__dataclass_fields__)))
-        _write_export(destination, rows, attempts, clean=clean)
+        logger.info(f"Inventory run spool: {clean(str(spool.path))}")
+        with spool.collection():
+            execute_devices(enumerate(targets, 1), collect, config=execution_config, on_outcome=persist)
+            # Only per-identity membership is retained; attempt/report rows stay on disk.
+            statuses = {}
+            for record in spool.records():
+                statuses.update(record['payload'][0])
+            def inventory_rows():
+                for context in sorted(store.contexts(), key=lambda item: (item.management_ip, item.device_id)):
+                    state = statuses.get(context.device_id, NOT_REQUESTED)
+                    facts = asdict(context)
+                    yield (context.device_id in statuses, state,
+                           *(facts[field] for field in DeviceContext.__dataclass_fields__))
+            # Capture the run's export view for retry even if canonical inventory later changes.
+            spool.snapshot(inventory_rows())
+        export_inventory_spool(spool.path, destination)
         logger.info("Inventory refresh and export completed")
     return destination
 
 
 def _write_export(path, inventory_rows, attempts, *, clean):
     """Write literal, sanitized cells and replace the destination only on success."""
-    workbook = Workbook()
-    workbook.remove(workbook.active)
+    workbook = Workbook(write_only=True)
     temporary = path.with_name(path.name + ".tmp")
     try:
         for title, columns, rows in (
@@ -151,28 +161,56 @@ def _write_export(path, inventory_rows, attempts, *, clean):
             ("Run_Attempts", ATTEMPT_COLUMNS, attempts),
         ):
             sheet = workbook.create_sheet(title)
-            sheet.append(columns)
+            sheet.freeze_panes = "A2"
+            for index, column in enumerate(columns, 1):
+                sheet.column_dimensions[get_column_letter(index)].width = max(22, len(column) + 2)
+            headers = []
+            for column in columns:
+                cell = WriteOnlyCell(sheet, value=column)
+                cell.font = Font(bold=True)
+                headers.append(cell)
+            sheet.append(headers)
+            row_number = 1
             for row_number, row in enumerate(rows, 2):
-                for column, value in enumerate(row, 1):
+                cells = []
+                for value in row:
                     if isinstance(value, datetime):
                         value = value.isoformat()
-                    elif isinstance(value, tuple):
+                    elif isinstance(value, (tuple, list)):
                         value = "; ".join(value)
                     text = ILLEGAL_CHARACTERS_RE.sub("", clean(value))
                     if len(text) > 32767:
                         raise ValueError("Inventory export cell exceeds Excel text limit")
-                    cell = sheet.cell(row_number, column, text)
+                    cell = WriteOnlyCell(sheet, value=text)
                     cell.data_type = "s"
                     cell.alignment = Alignment(vertical="top", wrap_text=True)
-            sheet.freeze_panes = "A2"
-            sheet.auto_filter.ref = sheet.dimensions
-            for cell in sheet[1]:
-                cell.font = Font(bold=True)
-                sheet.column_dimensions[get_column_letter(cell.column)].width = max(22, len(cell.value) + 2)
+                    cells.append(cell)
+                sheet.append(cells)
+            sheet.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{row_number}"
         path.parent.mkdir(parents=True, exist_ok=True)
         workbook.save(temporary)
         temporary.replace(path)
     finally:
+        for sheet in workbook:
+            if not sheet.closed:
+                sheet.close()
+            if sheet._writer and Path(sheet._writer.out).exists():
+                sheet._writer.cleanup()
         workbook.close()
         if temporary.exists():
             temporary.unlink()
+
+
+def export_inventory_spool(spool_path, path, *, cleanup=True, allow_partial=False):
+    """Retry the captured run export; never reads or mutates canonical inventory."""
+    spool = ResultSpool(spool_path)
+    if spool.manifest['task'] != 'inventory_refresh':
+        raise ValueError('Not an inventory refresh spool')
+    def consume(run):
+        attempts = (record['payload'][1] for record in run.records())
+        rows = run.snapshot_rows() if (run.path / "snapshot.jsonl").exists() else ()
+        if not (run.path / "snapshot.jsonl").exists() and not allow_partial:
+            raise ValueError("Inventory export snapshot is missing")
+        _write_export(Path(path), rows, attempts, clean=sanitize_text)
+        return Path(path)
+    return spool.consume(consume, cleanup=cleanup, allow_partial=allow_partial)

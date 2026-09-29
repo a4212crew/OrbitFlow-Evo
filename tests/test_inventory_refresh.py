@@ -346,3 +346,51 @@ def test_refresh_workers_overlap_and_export_after_cleanup(tmp_path, monkeypatch)
     assert len(connected) == len(data["Inventory"]) == 2
     assert [row["management_ip"] for row in data["Run_Attempts"]] == ["192.0.2.1", "192.0.2.2"]
     assert all(row["status"] == refresh.REFRESHED for row in data["Run_Attempts"])
+
+
+def test_inventory_spool_retry_uses_original_export_view(tmp_path, monkeypatch):
+    setup_network(monkeypatch, {'192.0.2.1': ('SERIAL1', 'original')})
+    writer = refresh._write_export
+    def fail(*args, **kwargs):
+        raise OSError('runtime-password')
+    monkeypatch.setattr(refresh, '_write_export', fail)
+    with pytest.raises(OSError):
+        run(tmp_path, [target('192.0.2.1')])
+    spool = next((tmp_path / 'runs').iterdir())
+    for file in spool.glob('*.json*'):
+        assert 'runtime-password' not in file.read_text()
+    store = JsonInventoryStore(tmp_path / 'inventory.json')
+    seed(store, '192.0.2.1', 'SERIAL1', 'changed-after-run')
+    canonical = store.path.read_bytes()
+    monkeypatch.setattr(refresh, '_write_export', writer)
+    def forbidden(*args, **kwargs):
+        raise AssertionError('must not reconnect')
+    monkeypatch.setattr(refresh, 'connect_device', forbidden)
+    path = refresh.export_inventory_spool(spool, tmp_path / 'retry.xlsx')
+    data = sheets(path)
+    assert data['Inventory'][0]['hostname'] == 'original'
+    assert data['Run_Attempts'][0]['status'] == refresh.REFRESHED
+    assert canonical == store.path.read_bytes()
+    assert not spool.exists()
+
+
+def test_1500_inventory_attempts_stream_at_concurrency_five(tmp_path, monkeypatch):
+    # Repeated targets also require one outcome per input position. Real resolver
+    # and canonical reconciliation must retain one physical device.
+    connected, closed, _ = setup_network(monkeypatch, {'192.0.2.1': ('SERIAL1', 'router')})
+    writer = refresh._write_export
+    def streaming_writer(path, rows, attempts, **kwargs):
+        assert iter(rows) is rows
+        assert iter(attempts) is attempts
+        return writer(path, rows, attempts, **kwargs)
+    monkeypatch.setattr(refresh, '_write_export', streaming_writer)
+    path = refresh.refresh_inventory_from_excel(
+        input_file(tmp_path, [target('192.0.2.1') for _ in range(1500)]), CONFIG,
+        inventory_path=tmp_path / 'inventory.json', export_path=tmp_path / 'inventory.xlsx',
+        log_root=tmp_path / 'logs', clock=lambda: NOW, execution_config=ExecutionConfig(5))
+    data = sheets(path)
+    assert len(data['Inventory']) == 1
+    assert [int(row['input_position']) for row in data['Run_Attempts']] == list(range(1, 1501))
+    assert len(connected) == len(closed) == 1500
+    assert len(JsonInventoryStore(tmp_path / 'inventory.json').contexts()) == 1
+    assert list((tmp_path / 'runs').iterdir()) == []
