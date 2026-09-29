@@ -16,7 +16,8 @@ Vendor command changes cross into the relevant vendor CLI capability; load that 
 References below describe ownership boundaries, not automatic context dependencies.
 
 - `../jumphost-connectivity/SKILL.md` — load only for transport/session changes or transport defects.
-- `../excel-inventory/SKILL.md` — load only when target/input schema or credential precedence changes.
+- `../excel-inventory/SKILL.md`
+- `../device-execution/SKILL.md` — load when changing multi-device execution/concurrency behaviour — load only when target/input schema or credential precedence changes.
 - vendor CLI skills — load only for vendor command, parser, or verification changes.
 
 ## Safety Model
@@ -48,6 +49,8 @@ Read row
 ```
 
 Do not implement independent SSH in provisioning code.
+
+Provisioning may reuse the shared device-execution layer, but configuration-changing workflows must not automatically inherit the read-only concurrency setting. The approved concurrency limit for change workflows must be explicit and preserve all pre-check/apply/verify/audit safeguards.
 
 ## Provisioning Input
 
