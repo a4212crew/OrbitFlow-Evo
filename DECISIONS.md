@@ -178,3 +178,16 @@ If the tenth review still requires changes, automated implementation stops and t
 
 **Consequence:** If included Codex usage is unavailable or exhausted, orchestration should stop and report the condition rather than switching billing paths. Git author identity, GitHub authentication, and Codex authentication remain separate prerequisites.
 
+## DEC-024 — Centralize multi-device execution at the device boundary
+
+**Decision:** Multi-device OrbitFlow workflows use one shared bounded device-execution layer. The concurrency unit is one target device. Reusable capabilities remain single-device components and feature modules must not create independent worker pools.
+
+**Initial operating model:** Read-only multi-device execution starts with a configuration-driven maximum of 10 active devices. The value is not hard-coded in feature modules and may be changed later through the application configuration. A worker owns one target's DeviceContext, DeviceSession/transport resources, CLI lifecycle, per-device workflow, and intermediate result.
+
+**Reason:** Centralizing concurrency avoids duplicated scheduling, timeout/failure handling, logging/resource ownership, and inconsistent behaviour across inventory, reporting, troubleshooting, compliance, and future features.
+
+**Shared-state consequence:** Inventory persistence, report/output generation, and process-wide logging state remain owned by their shared layers and must be synchronized or aggregated safely. Device workers must not perform unsafe concurrent mutations of those resources.
+
+**Change-workflow consequence:** Provisioning/remediation may reuse the same execution layer, but configuration-changing workflows require an explicitly approved concurrency limit and do not implicitly inherit the read-only limit.
+
+**Context consequence:** `AGENTS.md` carries only the permanent rule and skill routing. Detailed implementation guidance lives in `.agents/skills/device-execution/SKILL.md` so normal Codex tasks continue loading only directly relevant context.
