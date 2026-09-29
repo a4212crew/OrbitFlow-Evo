@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import sys
 import subprocess
 from pathlib import Path
@@ -13,92 +12,22 @@ from temp_cleanup import controller_temp
 from models import FailureCategory, OrchestrationError, Task
 
 
-_SKILL_PATH = re.compile(r"\.agents/skills/[A-Za-z0-9_.-]+/SKILL\.md")
-_CONTEXT_HEADER = re.compile(
-    r"^#{0,6}\s*Required(?: repository)? context\s*:?\s*$",
-    re.IGNORECASE,
-)
-
-
-def _unique_skill_paths(text: str) -> list[str]:
-    paths: list[str] = []
-    for path in _SKILL_PATH.findall(text):
-        if path not in paths:
-            paths.append(path)
-    return paths
-
-
-def required_context(task: Task) -> list[str]:
-    """Return the minimal repository context declared by the task.
-
-    New tasks should use a dedicated Required repository context section.
-    For older issues without that section, skill paths mentioned in the task body
-    remain a backward-compatible fallback.
-    """
-    lines = task.body.splitlines()
-    explicit_lines: list[str] = []
-    in_context = False
-    found_header = False
-    for line in lines:
-        if _CONTEXT_HEADER.match(line):
-            in_context = True
-            found_header = True
-            continue
-        if not in_context:
-            continue
-
-        stripped = line.strip()
-        if not stripped:
-            if explicit_lines:
-                break
-            continue
-        if not stripped.startswith("-") or not _SKILL_PATH.search(stripped):
-            break
-        explicit_lines.append(stripped)
-
-    declared = _unique_skill_paths("\n".join(explicit_lines)) if found_header else _unique_skill_paths(task.body)
-    return ["AGENTS.md", *declared]
-
-
 def build_prompt(preamble: str, task: Task, review: str = "") -> str:
-    context = required_context(task)
-    manifest = [
-        "# Required repository context",
-        *[f"- `{path}`" for path in context],
-    ]
-    if len(context) == 1:
-        manifest.append(
-            "- No skill path was explicitly declared; use the AGENTS.md routing table "
-            "to select only the directly relevant skill(s)."
-        )
-    manifest.extend(
+    return "\n".join(
         [
+            preamble.rstrip(),
             "",
-            "Read this manifest before source inspection. Do not load additional skills/docs "
-            "unless the task explicitly requires them or targeted source inspection proves "
-            "a concrete dependency must be changed.",
-        ]
-    )
-    sections = [
-        preamble.rstrip(),
-        "",
-        *manifest,
-        "",
-        "# GitHub Task",
-        f"Issue #{task.number}: {task.title}",
-        "",
-        task.body,
-    ]
-    if review:
-        sections.extend(["", "# Requested revision only", review])
-    sections.extend(
-        [
+            "# GitHub Task",
+            f"Issue #{task.number}: {task.title}",
             "",
+            task.body,
+            "",
+            "# Requested revision only" if review else "",
+            review,
             "# Controller boundary",
             "Implement and test only. Do not commit, push, create/update PRs, change GitHub labels, or merge.",
         ]
     )
-    return "\n".join(sections)
 
 
 def run_codex(prompt: str, worktree: Path, output_path: Path) -> None:
