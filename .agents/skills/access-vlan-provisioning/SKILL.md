@@ -16,8 +16,8 @@ Vendor command changes cross into the relevant vendor CLI capability; load that 
 References below describe ownership boundaries, not automatic context dependencies.
 
 - `../jumphost-connectivity/SKILL.md` — load only for transport/session changes or transport defects.
-- `../excel-inventory/SKILL.md`
-- `../device-execution/SKILL.md` — load when changing multi-device execution/concurrency behaviour — load only when target/input schema or credential precedence changes.
+- `../excel-inventory/SKILL.md` — load only when target/input schema or credential precedence changes.
+- `../device-execution/SKILL.md` — load only when changing multi-device execution/concurrency behaviour.
 - vendor CLI skills — load only for vendor command, parser, or verification changes.
 
 ## Safety Model
