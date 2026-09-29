@@ -102,21 +102,6 @@ The current controller processes one task at a time per controller process. Mult
 
 These labels must exist in the repository before task processing. Repository setup is operator-owned; v2 does not create labels.
 
-## Required Context Manifest
-
-New Atlas-authored implementation issues should declare only the repository skills required before source inspection:
-
-```markdown
-## Required repository context
-- `.agents/skills/<directly-relevant-skill>/SKILL.md`
-```
-
-The controller always includes `AGENTS.md`, extracts the explicit manifest, and places it before the GitHub task in the Codex prompt. When an older issue has no manifest, skill paths mentioned in its body are used as a backward-compatible fallback.
-
-Skill references are capability-boundary pointers, not transitive dependencies. Codex must not load an adjacent skill merely because another skill mentions it or because the workflow consumes that capability through an existing public interface. Additional skills are loaded only when the task explicitly requires them or targeted source inspection shows that capability must change.
-
-`codex-orchestration/SKILL.md` is reserved for controller/orchestration work and is not normal feature-task context.
-
 ## Atlas Review Contract
 
 When Atlas requires corrections, Atlas posts an issue comment containing:
