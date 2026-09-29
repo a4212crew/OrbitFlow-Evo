@@ -203,6 +203,8 @@ session = connect_device(device)
 
 The exact return type may evolve, but collector/provisioning code should not know Teleport implementation details.
 
+For concurrent multi-device execution, each worker independently owns its target transport resources. Do not share an active `DeviceSession`, Paramiko client, shell channel, `direct-tcpip` channel, or Windows `tsh` forwarding process between device workers.
+
 ## Safety and Change Rules
 
 - Do not bypass Teleport.
