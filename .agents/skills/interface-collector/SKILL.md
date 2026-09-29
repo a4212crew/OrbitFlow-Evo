@@ -1,13 +1,13 @@
 ---
 name: interface-collector
-description: Use for OrbitFlow interface description/status collection, vendor-aware collection commands, parsing, normalized interface records, change detection, Excel tracking output, collection concurrency, collector logging, or collector tests.
+description: Use for OrbitFlow interface description/status collection, vendor-aware collection commands, parsing, normalized interface records, change detection, Excel tracking output, collector logging, or collector tests.
 ---
 
 # Interface Collector
 
 ## Use This Skill When
 
-Use for collecting interface descriptions/status, collector commands, parsing, normalized records, change comparison, tracking workbook output, concurrency/error handling, and collector tests.
+Use for collecting interface descriptions/status, collector commands, parsing, normalized records, change comparison, tracking workbook output, error handling, and collector tests.
 
 Do not implement transport here.
 
@@ -20,6 +20,7 @@ The collector reuses adjacent capabilities through existing contracts. Load anot
 - `../jumphost-connectivity/SKILL.md` — device-session transport.
 - `../device-inventory/SKILL.md` — identity/platform resolution.
 - `../excel-inventory/SKILL.md` — target-input semantics.
+- `../device-execution/SKILL.md` — multi-device scheduling; load only when execution/concurrency behaviour itself changes.
 - vendor CLI skills — load only for vendor command/parser behaviour being changed.
 
 ## Collection Workflow
@@ -126,7 +127,7 @@ Before overwriting an existing persistent tracking workbook, create a timestampe
 
 Do not write the final workbook once per device during large runs. Aggregate results and write in controlled batches/end-of-run.
 
-Design for approximately 1,500 devices with configurable bounded concurrency.
+Design for approximately 1,500 devices. InterfaceService remains single-device; multi-device execution must use the shared device-execution layer rather than collector-specific concurrency.
 
 ## Error Handling
 
