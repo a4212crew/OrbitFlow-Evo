@@ -250,3 +250,46 @@ The Python orchestration layer is intentionally cross-platform. Shared orchestra
 The intended worker path uses Codex CLI authenticated through the user's ChatGPT account. This orchestration does **not** require `OPENAI_API_KEY`, must not silently fall back to API billing, and must not automatically purchase/use additional paid credits. If included ChatGPT-plan Codex usage is unavailable or exhausted, stop rather than switching billing paths. Device/Teleport credentials must never be placed in task issues or Codex prompts.
 
 See `docs/architecture/codex-orchestration.md` for the complete state machine, test gate, 10-iteration replan gate, and validation checkpoints.
+
+## Inventory refresh and full Excel export
+
+Call the reusable read-only workflow with an operator-provided `TransportConfig`:
+
+```python
+from orbitflow.inventory_refresh import refresh_inventory_from_excel
+
+report_path = refresh_inventory_from_excel(
+    "devices.xlsx",
+    transport_config,
+    inventory_path="data/inventory.json",
+    export_path="reports/inventory.xlsx",
+)
+```
+
+The existing Excel loader requires `management_ip`, `username`, and `password`
+columns. Credentials are used only at runtime. Only supplied rows are contacted;
+invalid rows and connection/identification failures are isolated. The `Inventory`
+sheet exports every stored device and every `DeviceContext` fact, including last
+successful/attempt timestamps, plus `supplied_in_current_input` and
+`refresh_status` (`refreshed`, `failed-with-previous-data-retained`, or
+`not-requested-this-run`). Previous inventory-only identities remain unchanged.
+
+Membership follows resolved physical device IDs on success, including serial-based
+IP moves. An old identity replaced at the same address remains in the export but
+is not marked refreshed/supplied unless another attempt affected it. Failures use
+the store's existing observed-IP matching rule and retain the latest good facts.
+For multiple attempts/aliases affecting one identity, the last attempt determines
+its run status. Stored collection status is shown separately from this run status.
+
+`Run_Attempts` lists all input positions, matched device IDs, stages, safe error
+categories, and reconciliation events. Unknown devices that fail identification
+appear there without creating empty inventory identities. A disconnect error
+following successful persistence is reported there while the identity remains
+refreshed. Excel values are sanitized literal text; raw exceptions and credentials
+are excluded. The workbook is replaced only after it is successfully written.
+
+Do not run concurrent writers against the same inventory/export paths. The function
+returns the workbook path; file-level input/export errors propagate to the
+caller. There is no interface/VLAN collection, historical retention, scheduling,
+or implicit live execution. Deterministic fake-session tests validate this workflow;
+live validation remains operator-controlled.
