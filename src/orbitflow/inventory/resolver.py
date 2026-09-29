@@ -36,11 +36,13 @@ class DeviceInventoryResolver:
     _SUPPORTED = {"cisco_ios", "cisco_xe", "cisco_xr", "huawei_vrp", "ubiquiti_edgeswitch"}
 
     def __init__(self, store: JsonInventoryStore, *, clock: Callable[[], datetime] | None = None,
-                 timeout: float = 10.0, runner_factory: Callable[[DeviceSession], _Runner] | None = None) -> None:
+                 timeout: float = 10.0, runner_factory: Callable[[DeviceSession], _Runner] | None = None,
+                 sanitize_fact: Callable[[str], str] | None = None) -> None:
         self.store = store
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._timeout = timeout
         self._runner_factory = runner_factory or self._new_runner
+        self._sanitize_fact = sanitize_fact
         self.last_events: tuple[str, ...] = ()
 
     def resolve(self, session: DeviceSession, *, management_ip: str,
@@ -78,6 +80,20 @@ class DeviceInventoryResolver:
                     facts["platform"] = platform_override
                 if not facts.get("hostname"):
                     raise DeviceInventoryError("identification output did not contain a hostname")
+                # Batch callers can remove known runtime credentials echoed into
+                # otherwise valid facts before those facts reach persistence.
+                if self._sanitize_fact is not None:
+                    sanitized = {}
+                    for key, value in facts.items():
+                        if isinstance(value, str):
+                            value = self._sanitize_fact(value)
+                        elif isinstance(value, tuple):
+                            value = tuple(self._sanitize_fact(item) for item in value)
+                        sanitized[key] = value
+                    if any(sanitized.get(key) != facts.get(key) for key in ("vendor", "serial_number")):
+                        # Redacted serials must never become a shared identity key.
+                        raise DeviceInventoryError("identity facts contain sensitive values")
+                    facts = sanitized
                 context = DeviceContext(device_id="", management_ip=management_ip,
                                         observed_management_ips=(management_ip,),
                                         last_successful_collection=attempted_at,

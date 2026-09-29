@@ -60,7 +60,12 @@ Current behaviour:
 - explicit controlled platform override support;
 - returned context is suitable for capability and workflow consumers without duplicating detection logic.
 
-Historical snapshots, approved-input batch orchestration, and production collection orchestration remain future work.
+`orbitflow.inventory_refresh.refresh_inventory_from_excel` refreshes only the
+current Excel targets through the shared loader/resolver/store and exports all
+latest inventory identities. Workbook rows distinguish refreshed, failed with
+previous facts retained, and not requested identities; a separate attempts sheet
+includes unresolved failures. Connection/input failures preserve existing facts.
+Historical snapshots and production scheduling remain future work.
 
 Documentation baseline:
 - `.agents/skills/device-inventory/SKILL.md`
@@ -314,11 +319,11 @@ No live reporting validation has been performed.
 ## Known Limitations
 
 - Current SSH host-key defaults are permissive and therefore do not provide MITM protection.
-- Inventory batch/input orchestration and historical snapshot retention are not yet implemented; the MVP stores latest state only.
+- Inventory refresh/export has deterministic coverage only; no live refresh/export validation was performed. Historical snapshot retention remains unimplemented; inventory stores latest state only.
 - Live-device testing is integration validation and does not replace deterministic unit tests.
 
 ## Current Development Focus
 
-The identification MVP is available as the observed-context layer. Future work can integrate approved input sources and production batch orchestration without moving live interface/VLAN state into inventory.
+The observed-context layer supports approved Excel refresh and full inventory export. Future production scheduling can reuse it without moving live interface/VLAN state into inventory.
 
 Relevant skill: `.agents/skills/device-inventory/SKILL.md`.
