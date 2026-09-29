@@ -191,3 +191,22 @@ If the tenth review still requires changes, automated implementation stops and t
 **Change-workflow consequence:** Provisioning/remediation may reuse the same execution layer, but configuration-changing workflows require an explicitly approved concurrency limit and do not implicitly inherit the read-only limit.
 
 **Context consequence:** `AGENTS.md` carries only the permanent rule and skill routing. Detailed implementation guidance lives in `.agents/skills/device-execution/SKILL.md` so normal Codex tasks continue loading only directly relevant context.
+
+
+## DEC-025 — Persist large-run execution outcomes through a reusable result spool
+
+**Decision:** Large multi-device OrbitFlow workflows use a shared execution-result spool between device execution and output consumers. The spool is output-neutral infrastructure and is not owned by Excel reporting, API integration, database integration, or an individual capability.
+
+**Format/lifecycle:** Each execution receives a unique run ID and run directory containing a run manifest plus an append-oriented JSONL outcome stream. One central spool owner writes sanitized per-device execution envelopes. Device workers do not write the shared spool directly.
+
+**Result contract:** The common envelope contains safe execution metadata and a task-specific payload. Capability/output-specific fields remain inside the payload so the shared execution layer does not acquire knowledge of interfaces, VLANs, BGP, troubleshooting, or future feature schemas.
+
+**Consumer boundary:** Excel, REST/API, database, JSON export, and future integrations consume the same persisted outcomes. Consumers may stream records rather than requiring the complete run result in memory.
+
+**Recovery/cleanup:** A completed output may remove its successfully consumed temporary spool according to policy. Failed or interrupted output generation retains the spool so the consumer can retry without reconnecting to devices. Retained abandoned runs require deterministic cleanup and unique run paths prevent cross-run overwrite/mixing.
+
+**Scale target:** The initial hardening target is approximately 1,500 device inputs with five active device workflows, proving one outcome per target, bounded aggregation memory, no duplicate/missing results, and output regeneration from retained spool data.
+
+**Reason:** OrbitFlow workflows repeatedly follow the same pattern—execute a task concurrently across many devices, then send normalized results to a destination. Separating execution persistence from output destinations gives the platform one reusable scale/recovery mechanism and prevents every feature from rebuilding its own large-run aggregation.
+
+**Current-state consequence:** This decision records the approved architecture only. `CURRENT_STATE.md` must not claim result-spool capability until implementation and validation are complete.
