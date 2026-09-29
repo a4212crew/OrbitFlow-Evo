@@ -41,6 +41,8 @@ Connect once per device where practical. Do not rediscover platform, recreate tr
 
 One failed device must not terminate an otherwise safe batch.
 
+Reporting does not own concurrency. For multi-device runs, execute the per-device reporting workflow through the shared device-execution layer. Workers return per-device normalized results; workbook generation remains an aggregated controlled step.
+
 ## Interface/VLAN Join
 
 InterfaceService is authoritative for actual interface identity plus description/admin/oper state.
