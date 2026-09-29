@@ -10,6 +10,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
+from orbitflow.execution import execute_devices
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.logging import module_logger, sanitize_text
 from orbitflow.models import DeviceContext
@@ -37,6 +38,7 @@ def refresh_inventory_from_excel(
     export_path: str | Path,
     log_root: str | Path = "logs",
     clock=None,
+    execution_config=None,
 ) -> Path:
     """Refresh only input targets, then export all latest-known stable facts.
 
@@ -47,8 +49,8 @@ def refresh_inventory_from_excel(
     Run_Attempts retains every outcome, including unresolved failures and cleanup
     errors after a successful refresh. Run status is not persisted as history.
 
-    Callers must serialize access to a given inventory/export path, as with the
-    existing JSON store. No live interface or VLAN capabilities are invoked.
+    Inventory transactions are thread-safe within this process. Export paths
+    must have one writer. No live interface or VLAN capabilities are invoked.
     """
     source, inventory, destination = map(Path, (excel_path, inventory_path, export_path))
     # Reject accidental input/inventory destruction before performing any refresh.
@@ -68,12 +70,14 @@ def refresh_inventory_from_excel(
     store = JsonInventoryStore(inventory)
     # Fail before connecting if the existing snapshot cannot be read.
     store.contexts()
-    resolver = DeviceInventoryResolver(store, clock=clock, sanitize_fact=clean)
     statuses: dict[str, str] = {}
     attempts = []
     with module_logger("inventory", "inventory_refresh", log_root=log_root) as (logger, _):
         logger.info("Inventory refresh started")
-        for position, target in enumerate(targets, 1):
+        def collect(item):
+            position, target = item
+            resolver = DeviceInventoryResolver(store, clock=clock, sanitize_fact=clean)
+            statuses = {}
             ip = target["management_ip"]
             attempted_at = clock()
             stage, context, events = "input", None, ()
@@ -108,9 +112,22 @@ def refresh_inventory_from_excel(
                                      if ip and ip in item.observed_management_ips)
                     for device_id in affected:
                         statuses[device_id] = FAILED
-            attempts.append((position, clean(ip), affected,
+            return statuses, (position, clean(ip), affected,
                              "failed" if category else REFRESHED, stage, clean(category),
-                             attempted_at, events))
+                             attempted_at, events)
+
+        outcomes = execute_devices(enumerate(targets, 1), collect, config=execution_config)
+        for outcome in outcomes:
+            if outcome.error_category:
+                logger.error("Inventory worker failed",
+                             extra={"error_category": clean(outcome.error_category)})
+                target = targets[outcome.position - 1]
+                attempts.append((outcome.position, clean(target["management_ip"]), (),
+                                 "failed", "inventory", clean(outcome.error_category), clock(), ()))
+            else:
+                device_statuses, attempt = outcome.value
+                statuses.update(device_statuses)
+                attempts.append(attempt)
 
         rows = []
         for context in sorted(store.contexts(), key=lambda item: (item.management_ip, item.device_id)):

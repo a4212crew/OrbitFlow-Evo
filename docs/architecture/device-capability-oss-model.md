@@ -32,6 +32,24 @@ For multi-device requests, OrbitFlow schedules complete per-device workflows thr
 
 The execution layer provides bounded scheduling, dynamic worker refill, failure isolation, per-device outcomes, and coordinated progress/result aggregation. Shared mutable state such as inventory persistence, report generation, and process-wide logging must remain protected by its owning layer rather than written unsafely by workers.
 
+Implemented by `orbitflow.execution.execute_devices`, with configuration in
+`orbitflow.config` and the application's `orbitflow.toml` execution table.
+Submissions are bounded as well as active workers; completion frees a slot
+without an input-order wait. Outcomes are returned in input order, contain no raw
+exception objects/messages, and preserve caller context variables separately per
+worker. Limit 1 executes on the caller thread. Progress output is serialized by
+the execution layer; report/export generation is caller-owned after cleanup.
+
+The inventory store owns process-local resolved-path transaction locks covering
+read/modify/replace, shared across store instances. Concurrent observations of
+one identity persist in transaction order; input-ordered export attempts and run
+status remain stable. Sequential mode is available for ordered alias observations.
+The logging layer owns path-shared rotating handlers and reference-counted global
+Paramiko routing. Routing is restored only after the final connection exits;
+raw dependency text is discarded, and dependency-thread markers are unattributed
+rather than assigned to an arbitrary device. Separate processes must not share
+inventory/log files or an export destination.
+
 ### Device Identification / Inventory Resolution
 
 OrbitFlow separates target input from observed device identity.

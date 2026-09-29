@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+from functools import wraps
+from threading import RLock
+from weakref import WeakValueDictionary
 from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
@@ -13,13 +16,29 @@ from uuid import uuid4
 from orbitflow.models import DeviceContext
 
 
+_registry_lock = RLock()
+_path_locks = WeakValueDictionary()
+
+
+def _synchronized(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapped
+
+
 class JsonInventoryStore:
     """Keep only latest stable facts, plus the latest collection outcome."""
 
     def __init__(self, path: str | Path, *, id_factory: Callable[[], str] | None = None) -> None:
-        self.path = Path(path)
+        self.path = Path(path).resolve()
+        with _registry_lock:
+            key = os.path.normcase(str(self.path))
+            self._lock = _path_locks.setdefault(key, RLock())
         self._id_factory = id_factory or (lambda: str(uuid4()))
 
+    @_synchronized
     def reconcile(self, observed: DeviceContext) -> tuple[DeviceContext, tuple[str, ...]]:
         data = self._read()
         devices: dict[str, dict[str, object]] = data["devices"]
@@ -69,6 +88,7 @@ class JsonInventoryStore:
         self._write(data)
         return context, tuple(events)
 
+    @_synchronized
     def record_failure(self, management_ip: str, attempted_at: datetime, error: str) -> None:
         data = self._read()
         matched = False
@@ -83,6 +103,7 @@ class JsonInventoryStore:
         data["last_events"] = ["collection_failed"] if matched else ["unresolved_collection_failed"]
         self._write(data)
 
+    @_synchronized
     def contexts(self) -> tuple[DeviceContext, ...]:
         return tuple(_deserialize(raw) for raw in self._read()["devices"].values())
 

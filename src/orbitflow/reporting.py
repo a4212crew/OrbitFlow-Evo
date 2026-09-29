@@ -13,6 +13,7 @@ from openpyxl.utils import get_column_letter
 
 from orbitflow.capabilities.interfaces import InterfaceService
 from orbitflow.capabilities.vlans import VlanService
+from orbitflow.execution import execute_devices, Progress
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.logging import module_logger, sanitize_text
 from orbitflow.targets import REQUIRED_COLUMNS
@@ -103,7 +104,8 @@ def _with_header(columns, rows):
 
 
 def run_report(targets, transport_config, *, inventory_path="data/live_validation/inventory.json",
-               reports_dir="reports", log_root="logs", output=None, clock=None):
+               reports_dir="reports", log_root="logs", output=None, clock=None,
+               execution_config=None):
     """Accept the approved list of target dictionaries; isolate failures by stage."""
     output = output if output is not None else sys.stdout
     clock = clock or (lambda: datetime.now(timezone.utc))
@@ -118,28 +120,29 @@ def run_report(targets, transport_config, *, inventory_path="data/live_validatio
         text = sanitize_text(value)
         return pattern.sub("[REDACTED]", text) if pattern else text
 
-    def status(message):
-        # Flush before blocking work, including when stdout is redirected.
-        print(message, file=output, flush=True)
+    status = Progress(output)
 
     started = clock()
     path = Path(reports_dir) / f"device_interface_vlan_report_{started.strftime('%Y%m%dT%H%M%S_%fZ')}.xlsx"
     interface_rows, database_rows, errors = [], [], []
-    resolver = DeviceInventoryResolver(JsonInventoryStore(inventory_path))
-    interface_service, vlan_service = InterfaceService(), VlanService()
+    store = JsonInventoryStore(inventory_path)
     with module_logger("reporting", "interface_vlan_report", log_root=log_root) as (logger, _):
         logger.info("Interface/VLAN batch started")
         status(f"Interface/VLAN batch started: {len(targets)} devices")
 
-        def failure(ip, name, stage, exc):
-            category = type(exc).__name__
-            status(f"{label}: {stage} failed ({clean(category)})")
-            errors.append([clean(ip), clean(name), stage, category, clock().isoformat()])
-            logger.error(f"Report stage failed: {stage}",
-                         exc_info=exc,
-                         extra={"management_ip": clean(ip), "error_category": category})
+        def collect(item):
+            position, target = item
+            resolver = DeviceInventoryResolver(store)
+            interface_service, vlan_service = InterfaceService(), VlanService()
+            interface_rows, database_rows, errors = [], [], []
+            def failure(ip, name, stage, exc):
+                category = type(exc).__name__
+                status(f"{label}: {stage} failed ({clean(category)})")
+                errors.append([clean(ip), clean(name), stage, category, clock().isoformat()])
+                logger.error(f"Report stage failed: {stage}",
+                             exc_info=exc,
+                             extra={"management_ip": clean(ip), "error_category": category})
 
-        for position, target in enumerate(targets, 1):
             ip, name, stage = target.get("management_ip", ""), "", "input"
             # Escape control characters so a target cannot inject console lines.
             identity = clean(ip).encode("unicode_escape").decode("ascii")
@@ -182,6 +185,20 @@ def run_report(targets, transport_config, *, inventory_path="data/live_validatio
                     failure(ip, name, "normalize", exc)
             count = len(errors) - failures_before
             status(f"{label}: completed" + (f" with {count} stage failure(s)" if count else ""))
+            return interface_rows, database_rows, errors
+
+        for outcome in execute_devices(enumerate(targets, 1), collect, config=execution_config):
+            if outcome.error_category:
+                target = targets[outcome.position - 1]
+                category = clean(outcome.error_category)
+                logger.error("Report worker failed", extra={"error_category": category})
+                errors.append([clean(target.get("management_ip", "")), "", "worker", category, clock().isoformat()])
+                status(f"[{outcome.position}/{len(targets)}]: worker failed ({category})")
+            else:
+                rows, objects, failures = outcome.value
+                interface_rows.extend(rows)
+                database_rows.extend(objects)
+                errors.extend(failures)
         status("Interface/VLAN batch: workbook generation")
         try:
             write_workbook(path, interface_rows, database_rows, errors, clean=clean)

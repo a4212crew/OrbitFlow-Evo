@@ -9,6 +9,7 @@ from openpyxl import Workbook, load_workbook
 import pytest
 
 from orbitflow import inventory_refresh as refresh
+from orbitflow.config import ExecutionConfig
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.models import DeviceContext
 from orbitflow.transport import TransportConfig
@@ -86,7 +87,7 @@ def setup_network(monkeypatch, outcomes):
 def run(tmp_path, rows):
     return refresh.refresh_inventory_from_excel(
         input_file(tmp_path, rows), CONFIG, inventory_path=tmp_path / "inventory.json",
-        export_path=tmp_path / "inventory.xlsx", log_root=tmp_path / "logs", clock=lambda: NOW,
+        export_path=tmp_path / "inventory.xlsx", log_root=tmp_path / "logs", clock=lambda: NOW, execution_config=ExecutionConfig(1),
     )
 
 
@@ -286,3 +287,62 @@ def test_export_write_failure_preserves_prior_workbook(tmp_path, monkeypatch):
                                              export_path=path, log_root=tmp_path / "logs")
     assert path.read_bytes() == previous
     assert not path.with_name(path.name + ".tmp").exists()
+
+
+def test_concurrent_store_instances_reconcile_aliases_and_failures(tmp_path):
+    from threading import Barrier
+    from orbitflow.execution import execute_devices
+    path = tmp_path / "inventory.json"
+    store = JsonInventoryStore(path)
+    old = seed(store, "old", "OLD")
+    barrier = Barrier(8)
+    def worker(index):
+        # Separate instances and path spellings must share the transaction lock.
+        local = JsonInventoryStore(path.parent / "." / path.name)
+        barrier.wait(timeout=10)
+        if index == 0:
+            local.record_failure("old", NOW, "safe failure")
+        else:
+            seed(local, f"address-{index}", "SHARED" if index < 4 else f"SERIAL-{index}")
+    outcomes = execute_devices(range(8), worker, config=ExecutionConfig(8))
+    assert all(not item.error_category for item in outcomes)
+    contexts = store.contexts()
+    assert len(contexts) == 6
+    shared = next(item for item in contexts if item.serial_number == "SHARED")
+    assert set(shared.observed_management_ips) == {"address-1", "address-2", "address-3"}
+    retained = next(item for item in contexts if item.device_id == old.device_id)
+    assert retained.hostname == old.hostname
+    assert retained.collection_status == "failed"
+    assert retained.last_collection_attempt == NOW
+
+
+def test_refresh_workers_overlap_and_export_after_cleanup(tmp_path, monkeypatch):
+    from threading import Barrier, get_ident
+    barrier = Barrier(2)
+    caller = get_ident()
+    connected, closed, _ = setup_network(monkeypatch, {
+        "192.0.2.1": ("SERIAL1", "one"), "192.0.2.2": ("SERIAL2", "two"),
+    })
+    original_connect = refresh.connect_device
+    @contextmanager
+    def connect(*args):
+        assert get_ident() != caller
+        with original_connect(*args) as session:
+            barrier.wait(timeout=10)
+            yield session
+    monkeypatch.setattr(refresh, "connect_device", connect)
+    writer = refresh._write_export
+    def write(*args, **kwargs):
+        assert get_ident() == caller
+        assert len(closed) == 2
+        return writer(*args, **kwargs)
+    monkeypatch.setattr(refresh, "_write_export", write)
+    path = refresh.refresh_inventory_from_excel(
+        input_file(tmp_path, [target("192.0.2.1"), target("192.0.2.2")]), CONFIG,
+        inventory_path=tmp_path / "inventory.json", export_path=tmp_path / "out.xlsx",
+        log_root=tmp_path / "logs", execution_config=ExecutionConfig(2),
+    )
+    data = sheets(path)
+    assert len(connected) == len(data["Inventory"]) == 2
+    assert [row["management_ip"] for row in data["Run_Attempts"]] == ["192.0.2.1", "192.0.2.2"]
+    assert all(row["status"] == refresh.REFRESHED for row in data["Run_Attempts"])
