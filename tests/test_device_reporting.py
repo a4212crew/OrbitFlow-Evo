@@ -11,6 +11,7 @@ from paramiko import ChannelException
 import pytest
 
 from orbitflow import reporting
+from orbitflow.config import ExecutionConfig
 from orbitflow.capabilities.interfaces import InterfaceCapabilityError
 from orbitflow.models import DeviceContext, InterfaceRecord, InterfaceVlanObservation, VlanObject, VlanState
 from orbitflow.targets import load_targets
@@ -344,14 +345,25 @@ def test_shared_loader_preserves_legacy_validation_and_isolates_bad_row(tmp_path
 def test_1500_device_batch_writes_once(tmp_path, monkeypatch):
     install_fakes(monkeypatch)
     targets = [{'management_ip': f'device-{i}', 'username': 'synthetic-user', 'password': 'synthetic-password'} for i in range(1500)]
-    writer = Mock(wraps=reporting.write_workbook)
+    original = reporting.write_workbook
+    def streaming_writer(path, interfaces, database, errors, **kwargs):
+        import json
+        assert all(iter(rows) is rows for rows in (interfaces, database, errors))
+        spool = next((tmp_path / 'runs').iterdir())
+        with (spool / 'results.jsonl').open() as source:
+            positions = [json.loads(line)['input_position'] for line in source]
+        assert sorted(positions) == list(range(1, 1501))
+        return original(path, interfaces, database, errors, **kwargs)
+    writer = Mock(side_effect=streaming_writer)
     monkeypatch.setattr(reporting, 'write_workbook', writer)
-    path = reporting.run_report(targets, CONFIG, reports_dir=tmp_path, log_root=tmp_path / 'logs', output=StringIO(), clock=lambda: NOW)
+    path = reporting.run_report(targets, CONFIG, reports_dir=tmp_path, log_root=tmp_path / 'logs',
+                                output=StringIO(), clock=lambda: NOW, execution_config=ExecutionConfig(5))
     assert writer.call_count == 1
     workbook = load_workbook(path, read_only=True)
     assert sum(1 for _ in workbook['Interfaces'].values) == 1501
     assert sum(1 for _ in workbook['VLAN_Database'].values) == 1501
     workbook.close()
+    assert list((tmp_path / 'runs').iterdir()) == []
 
 
 def test_command_uses_shared_loader_and_supplied_routing(tmp_path, monkeypatch):
@@ -561,3 +573,23 @@ def test_connection_traceback_is_file_only(tmp_path, monkeypatch, capsys, system
         assert records[-1]["exception_chain"][0]["frames"]
     finally:
         handler.close()
+
+
+def test_report_spool_retry_without_connections(tmp_path, monkeypatch):
+    events, closed = install_fakes(monkeypatch)
+    original = reporting.write_workbook
+    monkeypatch.setattr(reporting, 'write_workbook', Mock(side_effect=OSError('synthetic-password')))
+    with pytest.raises(OSError):
+        reporting.run_report(
+            [{'management_ip': '192.0.2.1', 'username': 'synthetic-user', 'password': 'synthetic-password'}],
+            CONFIG, reports_dir=tmp_path, log_root=tmp_path / 'logs', output=StringIO())
+    spool = next((tmp_path / 'runs').iterdir())
+    for file in spool.glob('*.json*'):
+        assert 'synthetic-password' not in file.read_text()
+    monkeypatch.setattr(reporting, 'connect_device', Mock(side_effect=AssertionError('must not reconnect')))
+    monkeypatch.setattr(reporting, 'write_workbook', original)
+    path = reporting.export_report_spool(spool, tmp_path / 'retry.xlsx')
+    book = load_workbook(path, read_only=True)
+    assert sum(1 for _ in book['Interfaces'].values) == 2
+    book.close()
+    assert not spool.exists()

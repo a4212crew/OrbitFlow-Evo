@@ -25,8 +25,11 @@ class Progress:
             print(message, file=self.output, flush=True)
 
 
-def execute_devices(targets, worker, *, config=None):
+def execute_devices(targets, worker, *, config=None, on_outcome=None):
     """Return input-ordered outcomes with bounded submissions and dynamic refill.
+
+    With on_outcome, deliver completions on the caller and return an empty list;
+    only bounded in-flight results are retained. Sink failures abort scheduling.
 
     Exception objects/text and targets (which may contain credentials) are never
     retained in failure outcomes. Context variables, including the log root,
@@ -39,10 +42,18 @@ def execute_devices(targets, worker, *, config=None):
         except Exception as exc:
             return DeviceOutcome(position, error_category=type(exc).__name__)
 
+    outcomes = []
+    def deliver(outcome):
+        if on_outcome is None:
+            outcomes.append(outcome)
+        else:
+            on_outcome(outcome)
+
     indexed = iter(enumerate(targets, 1))
     if config.max_concurrent_devices == 1:
-        return [copy_context().run(invoke, position, target) for position, target in indexed]
-    outcomes = []
+        for position, target in indexed:
+            deliver(copy_context().run(invoke, position, target))
+        return outcomes
     with ThreadPoolExecutor(max_workers=config.max_concurrent_devices,
                             thread_name_prefix="orbitflow-device") as executor:
         pending = set()
@@ -56,6 +67,9 @@ def execute_devices(targets, worker, *, config=None):
         refill()
         while pending:
             completed, pending = wait(pending, return_when=FIRST_COMPLETED)
-            outcomes.extend(future.result() for future in completed)
+            for future in completed:
+                deliver(future.result())
+            completed.clear()
+            del future
             refill()
     return sorted(outcomes, key=lambda outcome: outcome.position)
