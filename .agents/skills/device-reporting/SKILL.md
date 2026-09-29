@@ -41,7 +41,7 @@ Connect once per device where practical. Do not rediscover platform, recreate tr
 
 One failed device must not terminate an otherwise safe batch.
 
-Reporting does not own concurrency. For multi-device runs, execute the per-device reporting workflow through the shared device-execution layer. Workers return per-device normalized results; workbook generation remains an aggregated controlled step.
+Reporting does not own concurrency. For multi-device runs, execute the per-device reporting workflow through the shared device-execution layer. At large scale, normalized per-device outcomes are persisted through the shared execution-result spool and reporting consumes that spool; workbook generation remains a centralized controlled step.
 
 ## Interface/VLAN Join
 
@@ -129,8 +129,11 @@ Validation/compliance findings are a separate future output unless explicitly re
 
 ## Excel Behaviour
 
-- Aggregate results in memory and write the workbook in a controlled batch/end-of-run step.
+- Do not require the complete multi-device report row set to remain in memory for large runs.
+- Consume the shared execution-result spool incrementally and use streaming/write-only workbook generation where practical.
+- Workers must not write the workbook or shared spool directly; shared execution owns spooling and reporting owns output consumption.
 - Prefer one report file per execution rather than writing once per device.
+- If workbook generation fails after device collection, retain the run spool so the workbook can be regenerated without recollecting devices.
 - Apply practical operator formatting: frozen headers, filters, readable column widths, and stable tab names.
 - Keep Excel output deterministic and covered by tests.
 - Design for approximately 1,500 devices.
@@ -161,4 +164,6 @@ Cover:
 - failed-device isolation;
 - no-secret output;
 - reuse of DeviceContext and one established session/shared CLI where practical;
-- deterministic operation without live devices.
+- deterministic operation without live devices;
+- large synthetic runs (target approximately 1,500 devices) preserve one outcome per target without duplicate/missing report content;
+- workbook generation can be retried from a retained spool without rerunning device collection.
