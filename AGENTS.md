@@ -41,9 +41,10 @@ Higher-level workflows must not recreate SSH/jumphost logic, vendor parsing, nor
 Keep default context small.
 
 - Always read this `AGENTS.md` first.
-- When the task/prompt provides a **Required repository context** manifest, read exactly those listed skill files before source inspection.
+- Use the Skill Routing table below to choose the skill(s) directly relevant to the task.
 - A skill mentioning, linking, or depending on another skill does **not** mean the referenced skill must be loaded.
-- Load an additional skill only when the task explicitly requires it, the change modifies that capability, or targeted source inspection proves the task crosses that capability boundary.
+- Treat adjacent-skill references as capability ownership guidance, not automatic context dependencies.
+- After targeted source inspection, load an additional skill only when the task actually modifies that capability or the implementation must cross that capability boundary.
 - Using another capability through its existing public interface is not, by itself, a reason to load that capability's skill.
 - Read `CURRENT_STATE.md` only when the task depends on current implementation/validation status, known limitations, or active state.
 - Read architecture documents only when the task changes or depends on that architecture.
@@ -52,7 +53,7 @@ Keep default context small.
 
 ## 5. Skill Routing
 
-Use this table when the task does not already provide an explicit context manifest. Load only the directly relevant skill(s).
+Use this table to choose the skill(s) directly relevant to the task. Start there; expand to an adjacent skill only when task/source evidence shows that capability must also change.
 
 | Task | Skill |
 |---|---|
