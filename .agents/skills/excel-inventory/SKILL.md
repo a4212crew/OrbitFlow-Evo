@@ -26,6 +26,8 @@ Excel is an approved **target input source**, not the authoritative physical-dev
 
 Do not hardcode production device lists into task workflows. Load target rows, validate them, then let the device-inventory layer resolve observed hostname/vendor/platform/model/serial where required.
 
+Excel/list loading produces validated targets only. It does not own worker scheduling or concurrency; callers pass validated targets to the shared device-execution layer.
+
 ## Core Device Inventory Fields
 
 | Column | Purpose | Requirement |

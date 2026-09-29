@@ -20,9 +20,17 @@ Responsibilities:
 - target input sources;
 - device identification/inventory resolution;
 - credential integration;
-- common logging and execution plumbing.
+- common logging;
+- bounded multi-device execution and execution configuration;
+- progress/result aggregation and shared-resource coordination.
 
-Higher layers must not recreate OS-specific transport.
+Higher layers must not recreate OS-specific transport or feature-specific multi-device executors.
+
+### Shared Device Execution
+
+For multi-device requests, OrbitFlow schedules complete per-device workflows through one shared execution layer. One worker owns one target and its DeviceContext/session/CLI lifecycle; reusable capabilities themselves remain single-device. The initial approved read-only setting is 10 active devices and is configuration-driven so it can change without editing feature modules.
+
+The execution layer provides bounded scheduling, dynamic worker refill, failure isolation, per-device outcomes, and coordinated progress/result aggregation. Shared mutable state such as inventory persistence, report generation, and process-wide logging must remain protected by its owning layer rather than written unsafely by workers.
 
 ### Device Identification / Inventory Resolution
 
@@ -187,6 +195,9 @@ The intended request path is:
 
 ```text
 Excel / CSV / CLI / API input
+        -> validated targets
+        -> shared device-execution layer
+        -> per-device workflow
         -> Device Inventory / Resolver
         -> DeviceContext
         -> reusable device capabilities
@@ -263,9 +274,10 @@ When adding a new feature:
 2. Implement vendor-specific command/parsing logic in the vendor layer.
 3. Normalize output into structured models.
 4. Keep analysis/decision logic independent from raw CLI syntax.
-5. Build the workflow by composing capabilities.
-6. Keep configuration planning/apply/verify separate from observation.
-7. Make the same capability/service callable by future REST/API consumers without duplicating device logic.
-8. Add deterministic tests at each reusable layer.
+5. Build the per-device workflow by composing capabilities.
+6. For multi-device execution, reuse the shared device-execution layer; do not introduce feature-specific concurrency.
+7. Keep configuration planning/apply/verify separate from observation.
+8. Make the same capability/service callable by future REST/API consumers without duplicating device logic.
+9. Add deterministic tests at each reusable layer.
 
 This architecture should be applied incrementally as OrbitFlow grows.

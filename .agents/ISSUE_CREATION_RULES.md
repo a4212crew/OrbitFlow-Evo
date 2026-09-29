@@ -89,6 +89,7 @@ Every Issue must preserve these rules where applicable:
 - no LLM-generated device configuration at runtime;
 - vendor-specific logic remains isolated;
 - higher-level workflows reuse shared transport, inventory, capability, logging, and application interfaces;
+- multi-device features reuse the shared device-execution layer rather than introducing feature-specific concurrency;
 - no silent architecture redesign outside the approved task;
 - configuration-changing behaviour requires explicit user intent;
 - one failed safe batch item should not terminate the entire batch unless continuing creates risk.

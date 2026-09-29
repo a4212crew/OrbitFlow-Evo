@@ -18,10 +18,14 @@ OrbitFlow-Evo is a multi-vendor network automation platform for ISP operations.
 12. Normalized capability models are authoritative for cross-vendor semantics; higher layers must not reinterpret raw vendor configuration.
 13. Do not create synthetic interface identities solely from VLAN, L2VPN, VSI, bridge-domain, or other service references.
 14. Append meaningful completed features, behavioural changes, bug fixes, and orchestration changes to the current monthly `docs/devlog/YYYY-MM.md`. Update `CURRENT_STATE.md` only when the implemented/validated capability baseline changes.
+15. Multi-device execution must use the shared OrbitFlow device-execution layer; feature modules must not create independent thread pools, worker pools, or equivalent concurrency mechanisms.
+16. The concurrency boundary is one target device. One execution worker owns that device's DeviceContext, DeviceSession/transport resources, CLI resources, per-device workflow, and intermediate results.
+17. Reusable capabilities remain single-device components and must not depend on whether other devices are executing concurrently.
+18. Shared mutable resources such as inventory persistence, report/output generation, and process-wide logging state must be synchronized or aggregated by their owning shared layer rather than mutated unsafely by device workers.
 
 ## 2. Architecture Boundaries
 
-Keep transport, target input/device identity, reusable capabilities, vendor CLI/parsers, normalized models, analysis/policy, workflows, reporting, logging, configuration apply/verification, integrations, and tests separated.
+Keep transport, target input/device identity, shared device execution, reusable capabilities, vendor CLI/parsers, normalized models, analysis/policy, workflows, reporting, logging, configuration apply/verification, integrations, and tests separated.
 
 Higher-level workflows must not recreate SSH/jumphost logic, vendor parsing, normalized semantics, or logging configuration already owned by shared layers.
 
@@ -59,6 +63,7 @@ Use this table to choose the skill(s) directly relevant to the task. Start there
 |---|---|
 | Teleport, jumphost, SSH/Paramiko transport | `.agents/skills/jumphost-connectivity/SKILL.md` |
 | Device identification, platform detection, identity reconciliation | `.agents/skills/device-inventory/SKILL.md` |
+| Multi-device execution, concurrency limits, worker/resource isolation, execution results | `.agents/skills/device-execution/SKILL.md` |
 | Excel/list input and credential precedence | `.agents/skills/excel-inventory/SKILL.md` |
 | Interface collection/parsing/change tracking | `.agents/skills/interface-collector/SKILL.md` |
 | VLAN observation and VLAN state | `.agents/skills/vlan-observation/SKILL.md` |

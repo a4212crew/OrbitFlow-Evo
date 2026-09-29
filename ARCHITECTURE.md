@@ -18,6 +18,7 @@ It is a stable reference for ChatGPT / Atlas, Codex, developers, and future proj
 8. Changes should remain small, reviewable, and testable.
 9. OrbitFlow and OrbitFlow-Evo remain operationally isolated.
 10. Repository documentation is the authoritative development context.
+11. Multi-device execution is device-scoped and uses one shared bounded execution layer; feature modules do not own independent concurrency.
 
 ## 3. High-Level Dependency Model
 
@@ -25,6 +26,7 @@ It is a stable reference for ChatGPT / Atlas, Codex, developers, and future proj
 External OSS/BSS / REST API / GUI / schedulers
         -> Integration layer
         -> Application / workflow layer
+        -> Shared device-execution layer
         -> Reusable device capability layer
         -> Vendor-specific implementation
         -> DeviceSession / transport
@@ -33,7 +35,19 @@ External OSS/BSS / REST API / GUI / schedulers
 
 Capabilities must not implement independent SSH or jumphost transport.
 
-## 4. Shared Transport
+For multi-device operations, capabilities remain single-device units. The shared device-execution layer schedules complete per-device workflows, enforces the configured active-device limit, isolates failures, and coordinates per-device results. One worker owns one target's DeviceContext, transport/session/CLI resources, and intermediate state. Shared mutable resources such as inventory persistence, report output, and process-wide logging state remain owned by their shared layers and must be concurrency-safe.
+
+## 4. Shared Device Execution
+
+OrbitFlow uses one shared bounded execution layer for multi-device operations. The concurrency boundary is one target device, not one capability call.
+
+The initial approved read-only setting is configuration-driven at 10 concurrent devices. A freed worker may immediately take the next pending target; fixed batch barriers are not required. Feature modules must not create independent executors.
+
+Configuration-changing workflows may reuse the execution layer but require an explicitly approved concurrency limit rather than implicitly inheriting the read-only setting.
+
+Detailed implementation guidance belongs in `.agents/skills/device-execution/SKILL.md`.
+
+## 5. Shared Transport
 
 All network-device access uses the shared OrbitFlow `DeviceSession` abstraction and `connect_device(...)`.
 
@@ -57,7 +71,7 @@ Direct Paramiko ProxyCommand behaviour was previously unreliable on Windows, so 
 
 The validated model uses `tsh proxy ssh`, Teleport identity material, Paramiko, and a `direct-tcpip` channel through the bastion.
 
-## 5. Device Identity and Inventory
+## 6. Device Identity and Inventory
 
 OrbitFlow separates target input from observed device identity.
 
@@ -79,7 +93,7 @@ Current supported platform identifiers include:
 
 Inventory is intended to become the source of device targets and reusable `DeviceContext` for higher-level capabilities.
 
-## 6. Device Capability Model
+## 7. Device Capability Model
 
 Reusable device capabilities are the primary building blocks for higher-level OrbitFlow features.
 
@@ -100,7 +114,7 @@ Rules:
 - normalized models are preferred over vendor-specific text;
 - observe, analyze, plan, apply, verify, and record remain separable.
 
-## 7. Interface Observation
+## 8. Interface Observation
 
 The interface capability is read-only and has been live validated across:
 - Cisco IOS
@@ -111,7 +125,7 @@ The interface capability is read-only and has been live validated across:
 
 Vendor adapters normalize platform-specific output into common records.
 
-## 8. VLAN Observation
+## 9. VLAN Observation
 
 The VLAN capability is read-only and reports configured facts.
 
@@ -121,13 +135,13 @@ It is not a configuration consistency checker. Compliance/policy logic belongs i
 
 The capability is live validated across all five currently supported platform identifiers.
 
-## 9. Vendor Isolation
+## 10. Vendor Isolation
 
 Vendor-specific commands and parsers remain isolated from shared capability logic.
 
 Platform/OS family and device family/capability profile are separate concepts. A platform identifier alone must not be assumed to determine every supported feature or parser path.
 
-## 10. Testing and Validation
+## 11. Testing and Validation
 
 Deterministic logic should be unit-tested without requiring live devices.
 
@@ -140,7 +154,7 @@ Documentation should distinguish clearly between:
 - integration tested;
 - live validated.
 
-## 11. Repository Knowledge Model
+## 12. Repository Knowledge Model
 
 Canonical continuity files are:
 - `AGENTS.md`
@@ -153,7 +167,7 @@ Task/vendor implementation knowledge remains under `.agents/skills/`.
 
 Historical implementation detail remains under `docs/devlog/`.
 
-## 12. Development Model
+## 13. Development Model
 
 The preferred workflow is:
 
@@ -184,7 +198,7 @@ Codex implementation or revision
 
 If the fifteenth review still requires changes, automated implementation must stop and the task moves to `codex-replan-required`. Atlas and the user then reassess the architecture or implementation plan. A newly approved plan begins a new implementation cycle with its own 15-iteration limit.
 
-## 13. OrbitFlow-Evo Boundary
+## 14. OrbitFlow-Evo Boundary
 
 OrbitFlow-Evo is the experimentation environment.
 
@@ -192,7 +206,7 @@ Changes made here must not automatically modify the stable OrbitFlow repository.
 
 Promotion to OrbitFlow requires explicit review and approval and may use reimplementation, cherry-pick, or a dedicated migration PR depending on the change.
 
-## 14. Codex Orchestration
+## 15. Codex Orchestration
 
 OrbitFlow-Evo uses a local Codex CLI worker controlled through GitHub Issues.
 
@@ -223,7 +237,7 @@ Detailed model and setup: `docs/architecture/codex-orchestration.md`.
 
 The local orchestration foundation is implemented but must be considered not end-to-end validated until bootstrap and a controlled test issue complete successfully.
 
-## 15. Parallel Development Direction
+## 16. Parallel Development Direction
 
 Future parallel Codex work should prefer one Git branch and one Git worktree per task.
 

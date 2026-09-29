@@ -83,9 +83,9 @@ Where a dependency such as Paramiko emits noisy internal tracebacks for failures
 
 ## Concurrency
 
-Be careful with process-wide dependency logger configuration. The current transport-routing mechanism is intended for sequential/scoped operation unless explicitly redesigned for concurrency.
+Process-wide dependency logger configuration is shared runtime state. Multi-device execution must not concurrently enter a mechanism that temporarily rewrites global Paramiko logger handlers/levels unless that mechanism has been redesigned and tested for concurrency.
 
-Do not share one file handler unsafely across processes.
+Concurrency work must make dependency-log routing safe at the shared logging/transport boundary rather than adding workflow-specific logging locks. Do not share one file handler unsafely across processes.
 
 ## Tests
 

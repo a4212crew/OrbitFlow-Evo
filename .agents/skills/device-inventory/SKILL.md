@@ -162,6 +162,8 @@ Input source
 
 Interface/VLAN/etc. capabilities must not reimplement platform discovery.
 
+`DeviceContext` is per-device execution state and must not be shared between workers representing different targets. Inventory persistence is shared state; concurrency safety belongs in the inventory-store contract rather than workflow-specific locks.
+
 ## Testing
 
 Deterministic tests should cover:
