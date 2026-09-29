@@ -19,6 +19,7 @@ It is a stable reference for ChatGPT / Atlas, Codex, developers, and future proj
 9. OrbitFlow and OrbitFlow-Evo remain operationally isolated.
 10. Repository documentation is the authoritative development context.
 11. Multi-device execution is device-scoped and uses one shared bounded execution layer; feature modules do not own independent concurrency.
+12. Large multi-device results use a reusable execution-result spool and output-consumer boundary so device execution is independent of Excel, API, database, or other destinations.
 
 ## 3. High-Level Dependency Model
 
@@ -44,6 +45,30 @@ OrbitFlow uses one shared bounded execution layer for multi-device operations. T
 The initial approved read-only setting is configuration-driven at 10 concurrent devices. A freed worker may immediately take the next pending target; fixed batch barriers are not required. Feature modules must not create independent executors.
 
 Configuration-changing workflows may reuse the execution layer but require an explicitly approved concurrency limit rather than implicitly inheriting the read-only setting.
+
+### Approved Large-Run Result Spool
+
+For large multi-device workflows, OrbitFlow will persist generic per-device execution outcomes through one shared result-spool layer rather than retaining the complete run result in feature memory.
+
+```text
+Shared device-execution layer
+        -> per-device DeviceOutcome
+        -> central ResultSpool
+        -> unique per-run JSONL + manifest
+        -> output consumer
+           -> Excel
+           -> REST/API
+           -> database
+           -> other integrations
+```
+
+The spool is output-neutral infrastructure. Workers do not write Excel, API destinations, databases, or a shared spool file directly. One owning spool writer serializes sanitized outcomes. Task-specific data belongs inside an opaque payload while the common execution envelope carries safe execution metadata.
+
+Each run has a unique directory and run ID. Failed/interrupted output generation retains the spool for retry without repeating network collection; successfully consumed spools may be removed according to cleanup policy. Abandoned retained runs require deterministic cleanup.
+
+The initial scale-hardening acceptance target is approximately 1,500 targets at a configured active-device limit of 5. This is an implementation/validation target, not a new hard-coded global concurrency rule.
+
+This spool architecture is approved but not yet implemented; current implementation state remains documented separately in `CURRENT_STATE.md`.
 
 Detailed implementation guidance belongs in `.agents/skills/device-execution/SKILL.md`.
 

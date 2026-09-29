@@ -22,10 +22,11 @@ OrbitFlow-Evo is a multi-vendor network automation platform for ISP operations.
 16. The concurrency boundary is one target device. One execution worker owns that device's DeviceContext, DeviceSession/transport resources, CLI resources, per-device workflow, and intermediate results.
 17. Reusable capabilities remain single-device components and must not depend on whether other devices are executing concurrently.
 18. Shared mutable resources such as inventory persistence, report/output generation, and process-wide logging state must be synchronized or aggregated by their owning shared layer rather than mutated unsafely by device workers.
+19. Large multi-device workflows must not require retaining an unbounded full-run result set in memory; reusable execution-result persistence and output consumption belong to shared infrastructure rather than feature-specific workers.
 
 ## 2. Architecture Boundaries
 
-Keep transport, target input/device identity, shared device execution, reusable capabilities, vendor CLI/parsers, normalized models, analysis/policy, workflows, reporting, logging, configuration apply/verification, integrations, and tests separated.
+Keep transport, target input/device identity, shared device execution, execution-result spooling/consumption, reusable capabilities, vendor CLI/parsers, normalized models, analysis/policy, workflows, reporting, logging, configuration apply/verification, integrations, and tests separated.
 
 Higher-level workflows must not recreate SSH/jumphost logic, vendor parsing, normalized semantics, or logging configuration already owned by shared layers.
 

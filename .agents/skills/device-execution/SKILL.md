@@ -82,6 +82,52 @@ Examples:
 
 Do not add ad-hoc workflow-level locks when the shared owning layer should provide the safety contract.
 
+## Execution Result Spooling
+
+For large multi-device workflows, worker outcomes should flow through a reusable central result spool instead of requiring the caller to retain the complete run in memory.
+
+Approved architecture:
+
+```text
+device workers
+    -> generic DeviceOutcome
+    -> one central ResultSpool writer
+    -> per-run JSONL spool
+    -> output consumer
+       -> Excel
+       -> API
+       -> database
+       -> JSON/export
+```
+
+The spool is execution infrastructure, not a reporting-specific file. Device workers do not write shared spool files directly.
+
+Each execution uses a unique run directory, for example:
+
+```text
+data/runs/<timestamp>_<run-id>/
+    manifest.json
+    results.jsonl
+```
+
+Use a timestamp plus a collision-resistant run identifier so concurrent or repeated runs never reuse the same spool path.
+
+`results.jsonl` stores one sanitized execution envelope per completed target. The common envelope owns execution metadata such as run ID, input position, safe target/device identity, status, timestamps, error category, and a task-specific `payload`. The execution layer must not know capability-specific fields inside the payload.
+
+`manifest.json` records run-level state such as task identity, target/completed/failed counts and lifecycle status. Incomplete or failed output consumption must be distinguishable from a successfully completed run.
+
+Lifecycle policy:
+
+- create a unique spool when collection starts;
+- append outcomes through one owning writer as workers complete;
+- consumers read/stream the spool after or during controlled aggregation;
+- if final output succeeds, the completed spool may be removed according to cleanup policy;
+- if output generation fails or the run is interrupted, retain the spool so output can be retried without reconnecting to devices;
+- provide deterministic cleanup for abandoned retained runs;
+- never persist credentials, raw secret-bearing output, or unsanitized exception text.
+
+The initial scale-hardening validation target is approximately 1,500 devices with a configured active-device limit of 5. This validates bounded execution and bounded-memory aggregation without changing the generic configuration contract or hard-coding 5 into feature modules.
+
 ## Configuration-Changing Workflows
 
 Provisioning/remediation may reuse the same device-execution layer, but must not automatically inherit a read-only concurrency limit unless that limit is explicitly approved for the change workflow.
@@ -99,6 +145,10 @@ When execution behaviour changes, cover as applicable:
 - shared inventory/state updates cannot lose another worker's update;
 - concurrent logging remains safe and sanitized;
 - result aggregation is deterministic;
+- a 1,500-target synthetic run can spool exactly one outcome per target without duplicate/missing records;
+- output consumption can be retried from a retained spool without rerunning device workers;
+- successful cleanup removes only the intended completed run while failed/incomplete runs remain recoverable;
+- large-run aggregation does not require retaining the complete report row set in memory;
 - a configured worker limit of 1 preserves sequential execution semantics;
 - tests do not require live devices.
 

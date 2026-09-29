@@ -22,7 +22,8 @@ Responsibilities:
 - credential integration;
 - common logging;
 - bounded multi-device execution and execution configuration;
-- progress/result aggregation and shared-resource coordination.
+- progress/result aggregation and shared-resource coordination;
+- reusable execution-result spooling and output-consumer handoff.
 
 Higher layers must not recreate OS-specific transport or feature-specific multi-device executors.
 
@@ -49,6 +50,32 @@ Paramiko routing. Routing is restored only after the final connection exits;
 raw dependency text is discarded, and dependency-thread markers are unattributed
 rather than assigned to an arbitrary device. Separate processes must not share
 inventory/log files or an export destination.
+
+### Large-Run Result Spool
+
+The approved scale architecture separates device execution from output destinations:
+
+```text
+validated targets
+    -> shared bounded device execution
+    -> generic per-device outcomes
+    -> central ResultSpool
+       -> manifest.json
+       -> results.jsonl
+    -> consumer
+       -> Excel
+       -> REST/API
+       -> database
+       -> JSON/other integration
+```
+
+The result spool is reusable infrastructure. Device workers return normalized task results but do not write shared output files or external destinations directly. One spool owner serializes sanitized outcomes so large runs do not require every result row to remain in memory.
+
+Every run uses a unique run ID/path. The manifest records task/run state and counts; JSONL records one execution envelope per target completion. The envelope owns generic metadata while feature-specific content remains in its payload.
+
+Output failure must not force network recollection: incomplete/failed consumption retains the spool for retry. Successfully consumed temporary spools may be removed by cleanup policy, and stale retained runs require deterministic cleanup.
+
+The first hardening target is approximately 1,500 devices at five active device workflows. The design remains independent of that value; worker limits stay configuration-driven.
 
 ### Device Identification / Inventory Resolution
 
