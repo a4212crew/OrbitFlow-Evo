@@ -86,33 +86,29 @@ Optional `--watch` mode is supported for serial queue polling. It defaults to 15
 
 ## Task Contract
 
-The GitHub Issue is the scoped implementation contract. Keep it concise and include purpose, scope, constraints, acceptance criteria, and only task-relevant architecture references.
+The GitHub Issue is the scoped implementation contract.
 
-For new implementation issues, include an explicit context manifest:
+Keep it concise and include:
+- purpose;
+- scope;
+- constraints;
+- acceptance criteria;
+- architecture references only when needed.
 
-```markdown
-## Required repository context
-- `.agents/skills/<directly-relevant-skill>/SKILL.md`
-```
-
-Rules:
-- `AGENTS.md` is always loaded by the controller and does not need to be repeated in the manifest.
-- List only skills required before source inspection.
-- Mentioning an adjacent skill elsewhere in the issue does not make it required when an explicit manifest exists.
-- Do not list `codex-orchestration/SKILL.md` for normal feature tasks; include it only for controller/orchestration work.
-- Do not duplicate persistent rules from `AGENTS.md`, `CURRENT_STATE.md`, or architecture docs into each issue.
+Do not duplicate large persistent rules from `AGENTS.md`, `CURRENT_STATE.md`, or architecture docs into every issue.
 
 ## Context Efficiency
 
-The controller converts the issue's explicit manifest into the Codex prompt. For older issues without a manifest, declared skill paths remain a backward-compatible fallback.
+Use the minimum repository context needed to complete the scoped task safely.
 
-- Start with `AGENTS.md` plus only the manifest skills.
-- A skill reference is an architecture pointer, not an automatic context dependency.
-- Load an additional skill only when the task explicitly requires it or targeted source inspection proves that capability must change.
-- Using an existing capability through its public interface does not require loading its skill.
-- Do not load `CURRENT_STATE.md`, architecture docs, or historical devlogs by default.
-- Prefer targeted source/test reads and one final diff over broad repository ingestion.
-- Run targeted tests while developing when useful, then the required deterministic suite at the final gate.
+- Read `AGENTS.md` first and let its Skill Routing table determine the directly relevant skill(s).
+- Do not load a skill merely because another skill mentions or links to it.
+- Treat adjacent-skill references as capability ownership guidance, not automatic context dependencies.
+- Load an additional skill only when the task modifies that capability or targeted source inspection shows the implementation must cross that boundary.
+- Using an existing capability through its current public interface does not require loading that capability's skill.
+- Do not load `CURRENT_STATE.md`, architecture documents, or devlogs by default; load them only when the task materially depends on them.
+- Prefer targeted search/file reads and one final diff over broad repository-document ingestion.
+- Run targeted tests while developing when useful, then the required deterministic suite once at the final gate.
 
 ## Repository Isolation
 
