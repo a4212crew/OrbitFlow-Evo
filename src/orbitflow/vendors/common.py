@@ -70,20 +70,24 @@ class PromptCLI:
         return matches[-1].group(1).strip()
 
     def _read_until_prompt(
-        self, timeout: float, *, command: str | None = None, prompt: str = ""
+        self, timeout: float, *, command: str | None = None, prompt: str = "",
+        exact_prompt: bool = False,
     ) -> tuple[str, str]:
         deadline = time.monotonic() + timeout
         received = bytearray()
+        candidate: tuple[str, str] | None = None
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise InteractiveCLITimeout(
                     f"timed out waiting for a {self._platform_name} prompt"
                 )
-            self._channel.settimeout(remaining)
+            self._channel.settimeout(min(remaining, 1.0) if candidate else remaining)
             try:
                 chunk = self._channel.recv(65535)
             except (socket.timeout, TimeoutError) as exc:
+                if candidate is not None:
+                    return candidate
                 raise InteractiveCLITimeout(
                     f"timed out waiting for a {self._platform_name} prompt"
                 ) from exc
@@ -92,14 +96,21 @@ class PromptCLI:
                     f"channel closed before a {self._platform_name} prompt was received"
                 )
             received.extend(chunk)
+            candidate = None
             text = received.decode("utf-8", errors="replace")
             found = self._detect_prompt(text)
             echo = command is None or any(
                 line.strip() in (command, f"{prompt}{command}")
                 for line in normalize_output(text).split("\n")
             )
-            if found is not None and echo:
-                return text, found
+            if found is not None and echo and (not exact_prompt or found == prompt):
+                if not exact_prompt:
+                    return text, found
+                # A configuration line ending in a newline is body text, even
+                # when identical to the exec prompt. For an unterminated match,
+                # wait for receive quiescence: SSH can split within that line.
+                if normalize_output(text).split("\n")[-1].strip() == prompt:
+                    candidate = (text, found)
 
     def run_command(self, command: str, timeout: float = 10.0) -> str:
         if not command or "\n" in command or "\r" in command:
@@ -178,6 +189,36 @@ class DeviceCLI(PromptCLI):
             raise ValueError("command must be one non-empty line")
         try:
             return super().run_command(command, timeout=timeout)
+        except BaseException:
+            self._synchronized = False
+            raise
+
+    def read_configuration(self, command: str, timeout: float = 60.0) -> str:
+        """Read sensitive text without logging, retaining whitespace/content.
+
+        Configuration reads cannot change the exec prompt. Match that learned
+        prompt exactly and allow one second of receive quiescence before
+        accepting an unterminated final prompt. Newline-terminated prompt lines
+        remain configuration content, including across receive boundaries.
+        Only the synchronized echo and final prompt framing are removed.
+        """
+        self.require_session(self.session)
+        if timeout <= 0 or not command or "\n" in command or "\r" in command:
+            raise ValueError("invalid configuration command or timeout")
+        try:
+            prompt = self.prompt
+            self._channel.sendall((command + "\n").encode())
+            raw, _ = self._read_until_prompt(timeout, command=command,
+                                             prompt=prompt, exact_prompt=True)
+            lines = normalize_output(raw).split("\n")
+            for index, line in enumerate(lines):
+                if line.strip() in (command, f"{prompt}{command}"):
+                    lines = lines[index + 1:]
+                    break
+            while lines and not lines[-1].strip():
+                lines.pop()
+            lines.pop()  # exact final prompt
+            return "\n".join(lines)
         except BaseException:
             self._synchronized = False
             raise

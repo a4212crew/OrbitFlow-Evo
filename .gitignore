@@ -11,3 +11,6 @@ data/live_validation/
 logs/
 devices.xlsx
 reports/
+
+# Sensitive device configuration captures
+backups/

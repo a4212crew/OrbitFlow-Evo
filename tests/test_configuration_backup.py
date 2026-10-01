@@ -1,0 +1,339 @@
+"""Synthetic configuration capture tests; no live devices or production secrets."""
+from datetime import datetime, timezone
+from io import StringIO
+from pathlib import Path
+import socket
+from types import SimpleNamespace
+
+import pytest
+
+from orbitflow import configuration_backup as backup
+from orbitflow.capabilities.configuration import ConfigurationService, ConfigurationCaptureError
+from orbitflow.config import ExecutionConfig
+from orbitflow.vendors.common import DeviceCLI, InteractiveCLITimeout
+from orbitflow.vendors.configuration import PROFILES
+from test_capability_context import DEVICES
+from test_shared_cli import device_session as shared_device_session
+
+
+def device_session(device):
+    session, client, channel = shared_device_session(device)
+    receive = channel.recv
+    # An idle, open SSH channel blocks until its configured socket timeout.
+    def recv(size):
+        if not channel.pending:
+            raise socket.timeout()
+        return receive(size)
+    channel.recv = recv
+    return session, client, channel
+
+CONFIG = 'banner motd ^\nUnrecognized command is banner text #\n^\n username synthetic secret fixture-only\n\nend\n'
+
+
+@pytest.mark.parametrize('device', DEVICES, ids=[d[2] for d in DEVICES])
+def test_commands_preservation_and_borrowed_lifecycle(device):
+    session, client, channel = device_session(device)
+    profile = PROFILES[device[1]]
+    channel.outputs[profile.command] = CONFIG
+    with session:
+        with DeviceCLI(session) as cli:
+            result = ConfigurationService().collect(session, SimpleNamespace(platform=device[1]), cli=cli)
+            assert result == CONFIG
+            assert channel.sent[-2:] == [profile.paging, profile.command]
+            assert not channel.close_calls
+    assert client.opens == client.closes == channel.close_calls == 1
+
+
+@pytest.mark.parametrize('response', ['', '% Invalid input detected', '% Authorization failed'])
+def test_rejected_and_empty_capture(response):
+    session, client, channel = device_session(DEVICES[0])
+    channel.outputs['show running-config'] = response
+    with session, DeviceCLI(session) as cli:
+        expected = backup.EmptyConfigurationCapture if not response else backup.ConfigurationCommandRejected
+        with pytest.raises(expected):
+            ConfigurationService().collect(session, SimpleNamespace(platform='cisco_ios'), cli=cli)
+    assert channel.close_calls == client.closes == 1
+
+
+def test_split_banner_is_not_a_prompt_and_whitespace_is_preserved():
+    session, client, channel = device_session(DEVICES[0])
+    channel.outputs['show running-config'] = CONFIG
+    with session, DeviceCLI(session) as cli:
+        original = channel.sendall
+        def split(data):
+            original(data)
+            if data == b'show running-config\n':
+                channel.pending = [b'sw#show running-config\r\n\r\nbanner motd ^\r\ntext #',
+                                   b'\r\n^\r\n  trailing spaces  \r\n\r\nend\r\nsw#']
+        channel.sendall = split
+        assert cli.read_configuration('show running-config') == '\nbanner motd ^\ntext #\n^\n  trailing spaces  \n\nend'
+
+
+def test_timeout_invalidates_cli_and_cleans_up():
+    session, client, channel = device_session(DEVICES[0])
+    channel.outputs['show running-config'] = socket.timeout('fixture-only secret')
+    with pytest.raises(InteractiveCLITimeout):
+        with session, DeviceCLI(session) as cli:
+            cli.read_configuration('show running-config')
+    assert client.closes == channel.close_calls == 1
+
+
+@pytest.mark.parametrize('device', DEVICES, ids=[d[2] for d in DEVICES])
+@pytest.mark.parametrize('boundary', ['', '\r', '\r\n'])
+def test_embedded_exact_prompt_at_receive_boundary(device, boundary):
+    session, client, channel = device_session(device)
+    command = PROFILES[device[1]].command
+    channel.outputs[command] = CONFIG
+    with session, DeviceCLI(session) as cli:
+        prompt = cli.prompt
+        original = channel.sendall
+        def split(data):
+            original(data)
+            if data == (command + '\n').encode():
+                channel.pending = [
+                    f'{prompt}{command}\r\nbanner motd ^\r\n{prompt}{boundary}'.encode(),
+                    (('' if boundary else '\r\n') + '^\r\ninterface fixture\r\nend\r\n' + prompt).encode(),
+                ]
+        channel.sendall = split
+        assert cli.read_configuration(command) == (
+            f'banner motd ^\n{prompt}\n^\ninterface fixture\nend')
+        assert not channel.pending
+        assert cli.run_command('terminal length 0') == channel.outputs['terminal length 0']
+    assert client.closes == channel.close_calls == 1
+
+
+def test_filename_collision_dates_and_ignore(tmp_path):
+    now = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    first, second = (backup.BackupWriter(tmp_path, now) for _ in range(2))
+    assert first.path != second.path
+    assert first.path.name.startswith('20261001T')
+    paths = [first.write(name, 'cisco_ios', CONFIG) for name in ['A:/?*', 'a:/?*', 'A:/?*']]
+    assert len({p.name.casefold() for p in paths}) == 3
+    assert all(p.parent == first.path and p.read_text() == CONFIG for p in paths)
+    assert first.write('CON', 'cisco_ios', CONFIG).name == '_CON-cisco_ios.txt'
+    assert backup.filename_component('...') == 'unknown'
+    assert len(backup.filename_component('a' * 300)) <= 90
+    assert (first.path / '.gitignore').read_text() == '*\n'
+    existing = first.path / 'existing-cisco_ios.txt'
+    existing.write_text('original')
+    assert first.write('existing', 'cisco_ios', CONFIG).name == 'existing-cisco_ios-2.txt'
+    assert existing.read_text() == 'original'
+
+
+@pytest.mark.parametrize('limit', [1, 3])
+def test_batch_failure_isolation_safe_outcomes_and_logs(tmp_path, monkeypatch, limit):
+    sessions = [device_session(device) for device in DEVICES]
+    for device, (_, _, channel) in zip(DEVICES, sessions):
+        channel.outputs[PROFILES[device[1]].command] = CONFIG
+    sessions[1][2].outputs['show running-config'] = socket.timeout(CONFIG)
+    targets = [dict(management_ip=f'192.0.2.{i+1}', username='fixture-user', password='fixture-password') for i in range(len(sessions))]
+    targets += [dict(management_ip='invalid', username='', password='')]
+    def connect(ip, credentials, config):
+        return sessions[int(ip.rsplit('.', 1)[1]) - 1][0]
+    monkeypatch.setattr(backup, 'connect_device', connect)
+    real_execute = backup.execute_devices
+    outcomes = []
+    def execute(*args, on_outcome, **kwargs):
+        def record(outcome):
+            outcomes.append(outcome)
+            on_outcome(outcome)
+        return real_execute(*args, on_outcome=record, **kwargs)
+    monkeypatch.setattr(backup, 'execute_devices', execute)
+    output = StringIO()
+    folder = backup.run_backup(targets, object(), backups_dir=tmp_path/'backups',
+        inventory_path=tmp_path/'inventory.json', log_root=tmp_path/'logs',
+        output=output, execution_config=ExecutionConfig(max_concurrent_devices=limit))
+    captures = list(folder.glob('*.txt'))
+    assert len(captures) == len(sessions) - 1
+    assert all(p.read_text() == CONFIG for p in captures)
+    assert all(client.closes == channel.close_calls == 1 for _, client, channel in sessions)
+    assert 'failed: 2' in output.getvalue()
+    from openpyxl import load_workbook
+    workbook = load_workbook(folder / 'failed_devices.xlsx')
+    rows = list(workbook.active.values)
+    assert rows[0] == backup.FAILURE_COLUMNS
+    assert len(rows) == 3
+    assert {row[4] for row in rows[1:]} == {'input', 'capture'}
+    assert {row[1] for row in rows[1:]} == {'invalid', '192.0.2.2'}
+    workbook.close()
+    safe = output.getvalue() + repr(outcomes) + ''.join(p.read_text() for p in (tmp_path/'logs').rglob('*.log'))
+    safe += repr(rows)
+    for secret in ['fixture-only', 'fixture-password', 'fixture-user', 'banner motd']:
+        assert secret not in safe
+    assert not list(tmp_path.rglob('results.jsonl'))
+    assert all(p.stem.endswith(tuple(PROFILES)) for p in captures)
+
+
+def test_partial_write_removed(tmp_path, monkeypatch):
+    writer = backup.BackupWriter(tmp_path, datetime.now(timezone.utc))
+    real_open = Path.open
+    class FailingStream:
+        def __init__(self, stream): self.stream = stream
+        def __enter__(self): return self
+        def __exit__(self, *args): self.stream.close()
+        def write(self, text):
+            self.stream.write(text[:10])
+            raise OSError('fixture-only secret')
+    def failing_open(path, *args, **kwargs):
+        stream = real_open(path, *args, **kwargs)
+        return FailingStream(stream) if path.suffix == '.txt' else stream
+    monkeypatch.setattr(Path, 'open', failing_open)
+    with pytest.raises(OSError): writer.write('sw', 'cisco_ios', CONFIG)
+    assert not list(writer.path.glob('*.txt'))
+
+
+@pytest.mark.parametrize('device', DEVICES, ids=[d[2] for d in DEVICES])
+@pytest.mark.parametrize('stage', ['setup', 'capture'])
+def test_all_platform_rejections(device, stage):
+    session, client, channel = device_session(device)
+    profile = PROFILES[device[1]]
+    with session, DeviceCLI(session) as cli:
+        channel.outputs[profile.paging if stage == 'setup' else profile.command] = (
+            'Error: Unrecognized command' if device[1] == 'huawei_vrp' else '% Invalid input')
+        from orbitflow.vendors.common import InteractiveCLIError
+        with pytest.raises((ConfigurationCaptureError, InteractiveCLIError)):
+            ConfigurationService().collect(session, SimpleNamespace(platform=device[1]), cli=cli)
+    assert client.closes == channel.close_calls == 1
+
+
+def test_unsupported_and_wrong_session():
+    session, _, _ = device_session(DEVICES[0])
+    with session, DeviceCLI(session) as cli:
+        with pytest.raises(backup.UnsupportedConfigurationPlatform):
+            ConfigurationService().collect(session, SimpleNamespace(platform='unknown'), cli=cli)
+        with pytest.raises(ValueError):
+            ConfigurationService().collect(object(), SimpleNamespace(platform='cisco_ios'), cli=cli)
+
+
+def test_entry_point_uses_shared_excel_loader(tmp_path, monkeypatch):
+    from scripts import device_configuration_backup as script
+    from openpyxl import Workbook
+    path = tmp_path / 'targets.xlsx'
+    workbook = Workbook()
+    workbook.active.append(['management_ip', 'username', 'password'])
+    workbook.active.append(['192.0.2.1', 'fixture-user', 'fixture-password'])
+    workbook.active.append(['192.0.2.2', '', ''])
+    workbook.save(path)
+    captured = {}
+    def run(targets, config, **kwargs):
+        captured.update(targets=targets, config=config, **kwargs)
+        return 'done'
+    monkeypatch.setattr(script, 'run_backup', run)
+    assert script.main([str(path), '--proxy', 'proxy', '--cluster', 'cluster',
+                        '--bastion-host', 'host', '--bastion-user', 'user']) == 'done'
+    assert len(captured['targets']) == 2
+    assert captured['backups_dir'] == Path('backups')
+    assert captured['timeout'] == 60
+
+@pytest.mark.parametrize('error_type', [RuntimeError, backup.AuthenticationException, TimeoutError, ConnectionError])
+@pytest.mark.parametrize('stage', ['input', 'connect', 'inventory', 'capture', 'disconnect', 'write'])
+@pytest.mark.parametrize('model', ['ASR-920', ''])
+def test_failed_workbook_identity_and_secrets(tmp_path, monkeypatch, stage, model, error_type):
+    from contextlib import contextmanager
+    from openpyxl import load_workbook
+    secret = 'fixture-password'
+    context = SimpleNamespace(hostname='=fixture-password-switch', management_ip='192.0.2.1',
+                              hardware_model=model, device_family='ASR920', platform='cisco_xe')
+    def fail():
+        if error_type is RuntimeError:
+            raise RuntimeError(CONFIG + secret)
+        raise backup.DeviceConnectionError(CONFIG + secret) from error_type(CONFIG + secret)
+    @contextmanager
+    def connect(*args):
+        if stage == 'connect': fail()
+        yield object()
+        if stage == 'disconnect': fail()
+    @contextmanager
+    def cli(*args):
+        yield object()
+    def resolve(*args, **kwargs):
+        if stage == 'inventory': fail()
+        return context
+    def collect(*args, **kwargs):
+        if stage == 'capture': fail()
+        return CONFIG
+    monkeypatch.setattr(backup, 'connect_device', connect)
+    monkeypatch.setattr(backup, 'DeviceCLI', cli)
+    monkeypatch.setattr(backup.DeviceInventoryResolver, 'resolve', resolve)
+    monkeypatch.setattr(backup.ConfigurationService, 'collect', collect)
+    if stage == 'write':
+        monkeypatch.setattr(backup.BackupWriter, 'write', lambda *args: fail())
+    target = dict(management_ip='192.0.2.1', username='fixture-user',
+                  password='' if stage == 'input' else secret)
+    output = StringIO()
+    folder = backup.run_backup([target, target], object(), backups_dir=tmp_path/'backups',
+        inventory_path=tmp_path/'inventory.json', log_root=tmp_path/'logs', output=output)
+    workbook = load_workbook(folder/'failed_devices.xlsx')
+    rows = list(workbook.active.values)
+    assert rows[0] == backup.FAILURE_COLUMNS
+    assert len(rows) == 3
+    expected_identity = (None, '192.0.2.1', None, None) if stage in {'input', 'connect', 'inventory'} else (
+        '=[REDACTED]-switch', '192.0.2.1', model or 'ASR920', 'cisco_xe')
+    for row in rows[1:]:
+        reason = backup.FAILURE_REASONS['input'] if stage == 'input' else {
+            RuntimeError: backup.FAILURE_REASONS[stage],
+            backup.AuthenticationException: 'Authentication failed.',
+            TimeoutError: 'Operation timed out.',
+            ConnectionError: 'Device connection failed.',
+        }[error_type]
+        assert row == expected_identity + (stage, reason)
+    assert all(cell.data_type != 'f' for row in workbook.active for cell in row)
+    safe = repr(rows) + output.getvalue() + ''.join(p.read_text() for p in (tmp_path/'logs').rglob('*.log'))
+    assert secret not in safe
+    assert 'banner motd' not in safe
+    workbook.close()
+
+
+def test_empty_run_has_header_only_workbook(tmp_path):
+    from openpyxl import load_workbook
+    folder = backup.run_backup([], object(), backups_dir=tmp_path/'backups',
+        inventory_path=tmp_path/'inventory.json', log_root=tmp_path/'logs', output=StringIO())
+    workbook = load_workbook(folder/'failed_devices.xlsx')
+    assert list(workbook.active.values) == [backup.FAILURE_COLUMNS]
+    workbook.close()
+
+
+@pytest.mark.parametrize('error, stage, expected', [
+    (backup.AuthenticationException(CONFIG), 'connect', 'Authentication failed.'),
+    (TimeoutError(CONFIG), 'capture', 'Operation timed out.'),
+    (ConnectionRefusedError(CONFIG), 'connect', 'Network connection failed.'),
+    (backup.TunnelError(CONFIG), 'connect', 'Transport tunnel could not be established.'),
+    (backup.TeleportError(CONFIG), 'connect', 'Teleport transport could not be established.'),
+    (backup.SSHException(CONFIG), 'connect', 'SSH transport failed.'),
+    (backup.UnsupportedConfigurationPlatform(CONFIG), 'capture', 'Configuration capture is unsupported for the resolved platform.'),
+    (backup.EmptyConfigurationCapture(CONFIG), 'capture', 'Configuration command returned empty output.'),
+    (backup.ConfigurationCommandRejected(CONFIG), 'capture', 'Configuration command was rejected by the device.'),
+    (PermissionError(CONFIG), 'write', 'Permission denied while writing the configuration file.'),
+    (OSError(CONFIG), 'write', 'Filesystem error while writing the configuration file.'),
+    (type('secret-class-name', (Exception,), {})(CONFIG), 'capture', backup.FAILURE_REASONS['capture']),
+])
+def test_safe_failure_categories(error, stage, expected):
+    assert backup.failure_reason(stage, error) == expected
+
+
+def test_failure_reason_cyclic_causes_and_implicit_context():
+    error = RuntimeError(CONFIG)
+    error.__cause__ = error
+    error.__context__ = backup.AuthenticationException(CONFIG)
+    assert backup.failure_reason('connect', error) == backup.FAILURE_REASONS['connect']
+
+
+def test_standard_discovery_excludes_runtime_backups(tmp_path):
+    import os
+    import subprocess
+    import sys
+    root = Path(__file__).resolve().parents[1]
+    (tmp_path / 'pytest.ini').write_text((root / 'pytest.ini').read_text())
+    (tmp_path / 'tests').mkdir()
+    (tmp_path / 'tests' / 'test_safe.py').write_text('def test_safe(): pass')
+    runtime = tmp_path / 'backups' / 'dated-run'
+    runtime.mkdir(parents=True)
+    sentinel = runtime / 'test_sensitive.py'
+    content = "raise AssertionError('Runtime backups must never be imported')"
+    sentinel.write_text(content)
+    env = dict(os.environ, PYTEST_DISABLE_PLUGIN_AUTOLOAD='1')
+    result = subprocess.run([sys.executable, '-m', 'pytest', '-q'], cwd=tmp_path,
+                            env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert '1 passed' in result.stdout
+    assert sentinel.read_text() == content
