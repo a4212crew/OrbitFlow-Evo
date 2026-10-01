@@ -25,7 +25,7 @@ _FOOTER = "Flow Control:Disabled"
 def extract_edgeswitch_hostname(prompt: str) -> str:
     """Extract the hostname from an EdgeSwitch exec prompt."""
     match = re.fullmatch(
-        r"(?:\((?P<parenthesized>[^()\r\n]+)\)\s*#|" r"(?P<simple>[^:#>\s()]+)[#>])",
+        r"(?:\((?P<parenthesized>[^()\r\n]+)\)\s*[#>]|" r"(?P<simple>[^:#>\s()]+)[#>])",
         prompt.strip(),
     )
     if match is None:

@@ -99,14 +99,19 @@ def test_captured_huawei_ne05e_output(tmp_path, esn_output, expected_serial):
     assert context.hostname == "VIC-RICH-REGEN-RTR1"
 
 
-def test_captured_edgeswitch_output(tmp_path):
+@pytest.mark.parametrize(
+    "prompt,hostname",
+    [("(access-sw) #", "access-sw"),
+     ("(VIC-MARIB-GORDON-BAS1) >", "VIC-MARIB-GORDON-BAS1")],
+)
+def test_captured_edgeswitch_output(tmp_path, prompt, hostname):
     outputs = {"show version": "Ubiquiti EdgeSwitch\nMachine Model...................... EdgeSwitch 48\nSerial Number...................... ES123\nSoftware Version................... 1.10.3\nSystem Up Time..................... 12 days"}
-    runner = Runner(outputs, prompt="(access-sw) #")
+    runner = Runner(outputs, prompt=prompt)
     store = JsonInventoryStore(tmp_path / "inventory.json", id_factory=lambda: "edge-id")
     service = DeviceInventoryResolver(store, clock=lambda: NOW, runner_factory=lambda _: runner)
     context = service.resolve(object(), management_ip="192.0.2.3")
     assert (context.platform, context.device_family, context.hardware_model) == ("ubiquiti_edgeswitch", "EdgeSwitch", "EdgeSwitch 48")
-    assert context.hostname == "access-sw"
+    assert context.hostname == hostname
     assert runner.commands == ["show version"]
 
 
