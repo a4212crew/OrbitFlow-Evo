@@ -21,7 +21,7 @@ _REJECTED = re.compile(
 _IOS_XR_TIMESTAMP = re.compile(
     r"^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) "
     r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) "
-    r"\d{1,2} \d{2}:\d{2}:\d{2}\.\d{3} [A-Z][A-Z0-9+-]*$"
+    r"(?:\d{1,2}| \d) \d{2}:\d{2}:\d{2}\.\d{3} [A-Z][A-Z0-9+-]*$"
 )
 
 
