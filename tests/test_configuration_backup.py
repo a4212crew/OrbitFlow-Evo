@@ -49,7 +49,8 @@ def test_rejected_and_empty_capture(response):
     session, client, channel = device_session(DEVICES[0])
     channel.outputs['show running-config'] = response
     with session, DeviceCLI(session) as cli:
-        with pytest.raises(ConfigurationCaptureError):
+        expected = backup.EmptyConfigurationCapture if not response else backup.ConfigurationCommandRejected
+        with pytest.raises(expected):
             ConfigurationService().collect(session, SimpleNamespace(platform='cisco_ios'), cli=cli)
     assert channel.close_calls == client.closes == 1
 
@@ -198,7 +199,7 @@ def test_all_platform_rejections(device, stage):
 def test_unsupported_and_wrong_session():
     session, _, _ = device_session(DEVICES[0])
     with session, DeviceCLI(session) as cli:
-        with pytest.raises(ConfigurationCaptureError):
+        with pytest.raises(backup.UnsupportedConfigurationPlatform):
             ConfigurationService().collect(session, SimpleNamespace(platform='unknown'), cli=cli)
         with pytest.raises(ValueError):
             ConfigurationService().collect(object(), SimpleNamespace(platform='cisco_ios'), cli=cli)
@@ -224,16 +225,19 @@ def test_entry_point_uses_shared_excel_loader(tmp_path, monkeypatch):
     assert captured['backups_dir'] == Path('backups')
     assert captured['timeout'] == 60
 
+@pytest.mark.parametrize('error_type', [RuntimeError, backup.AuthenticationException, TimeoutError, ConnectionError])
 @pytest.mark.parametrize('stage', ['input', 'connect', 'inventory', 'capture', 'disconnect', 'write'])
 @pytest.mark.parametrize('model', ['ASR-920', ''])
-def test_failed_workbook_identity_and_secrets(tmp_path, monkeypatch, stage, model):
+def test_failed_workbook_identity_and_secrets(tmp_path, monkeypatch, stage, model, error_type):
     from contextlib import contextmanager
     from openpyxl import load_workbook
     secret = 'fixture-password'
     context = SimpleNamespace(hostname='=fixture-password-switch', management_ip='192.0.2.1',
                               hardware_model=model, device_family='ASR920', platform='cisco_xe')
     def fail():
-        raise RuntimeError(CONFIG + secret)
+        if error_type is RuntimeError:
+            raise RuntimeError(CONFIG + secret)
+        raise backup.DeviceConnectionError(CONFIG + secret) from error_type(CONFIG + secret)
     @contextmanager
     def connect(*args):
         if stage == 'connect': fail()
@@ -266,7 +270,13 @@ def test_failed_workbook_identity_and_secrets(tmp_path, monkeypatch, stage, mode
     expected_identity = (None, '192.0.2.1', None, None) if stage in {'input', 'connect', 'inventory'} else (
         '=[REDACTED]-switch', '192.0.2.1', model or 'ASR920', 'cisco_xe')
     for row in rows[1:]:
-        assert row == expected_identity + (stage, backup.FAILURE_REASONS[stage])
+        reason = backup.FAILURE_REASONS['input'] if stage == 'input' else {
+            RuntimeError: backup.FAILURE_REASONS[stage],
+            backup.AuthenticationException: 'Authentication failed.',
+            TimeoutError: 'Operation timed out.',
+            ConnectionError: 'Device connection failed.',
+        }[error_type]
+        assert row == expected_identity + (stage, reason)
     assert all(cell.data_type != 'f' for row in workbook.active for cell in row)
     safe = repr(rows) + output.getvalue() + ''.join(p.read_text() for p in (tmp_path/'logs').rglob('*.log'))
     assert secret not in safe
@@ -281,3 +291,49 @@ def test_empty_run_has_header_only_workbook(tmp_path):
     workbook = load_workbook(folder/'failed_devices.xlsx')
     assert list(workbook.active.values) == [backup.FAILURE_COLUMNS]
     workbook.close()
+
+
+@pytest.mark.parametrize('error, stage, expected', [
+    (backup.AuthenticationException(CONFIG), 'connect', 'Authentication failed.'),
+    (TimeoutError(CONFIG), 'capture', 'Operation timed out.'),
+    (ConnectionRefusedError(CONFIG), 'connect', 'Network connection failed.'),
+    (backup.TunnelError(CONFIG), 'connect', 'Transport tunnel could not be established.'),
+    (backup.TeleportError(CONFIG), 'connect', 'Teleport transport could not be established.'),
+    (backup.SSHException(CONFIG), 'connect', 'SSH transport failed.'),
+    (backup.UnsupportedConfigurationPlatform(CONFIG), 'capture', 'Configuration capture is unsupported for the resolved platform.'),
+    (backup.EmptyConfigurationCapture(CONFIG), 'capture', 'Configuration command returned empty output.'),
+    (backup.ConfigurationCommandRejected(CONFIG), 'capture', 'Configuration command was rejected by the device.'),
+    (PermissionError(CONFIG), 'write', 'Permission denied while writing the configuration file.'),
+    (OSError(CONFIG), 'write', 'Filesystem error while writing the configuration file.'),
+    (type('secret-class-name', (Exception,), {})(CONFIG), 'capture', backup.FAILURE_REASONS['capture']),
+])
+def test_safe_failure_categories(error, stage, expected):
+    assert backup.failure_reason(stage, error) == expected
+
+
+def test_failure_reason_cyclic_causes_and_implicit_context():
+    error = RuntimeError(CONFIG)
+    error.__cause__ = error
+    error.__context__ = backup.AuthenticationException(CONFIG)
+    assert backup.failure_reason('connect', error) == backup.FAILURE_REASONS['connect']
+
+
+def test_standard_discovery_excludes_runtime_backups(tmp_path):
+    import os
+    import subprocess
+    import sys
+    root = Path(__file__).resolve().parents[1]
+    (tmp_path / 'pytest.ini').write_text((root / 'pytest.ini').read_text())
+    (tmp_path / 'tests').mkdir()
+    (tmp_path / 'tests' / 'test_safe.py').write_text('def test_safe(): pass')
+    runtime = tmp_path / 'backups' / 'dated-run'
+    runtime.mkdir(parents=True)
+    sentinel = runtime / 'test_sensitive.py'
+    content = "raise AssertionError('Runtime backups must never be imported')"
+    sentinel.write_text(content)
+    env = dict(os.environ, PYTEST_DISABLE_PLUGIN_AUTOLOAD='1')
+    result = subprocess.run([sys.executable, '-m', 'pytest', '-q'], cwd=tmp_path,
+                            env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert '1 passed' in result.stdout
+    assert sentinel.read_text() == content

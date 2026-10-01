@@ -7,17 +7,25 @@ import sys
 from threading import Lock
 from uuid import uuid4
 
+from paramiko import AuthenticationException, SSHException
+
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
-from orbitflow.capabilities.configuration import ConfigurationService
+from orbitflow.capabilities.configuration import (
+    ConfigurationService, UnsupportedConfigurationPlatform,
+    EmptyConfigurationCapture, ConfigurationCommandRejected,
+)
 from orbitflow.execution import execute_devices, Progress
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.logging import module_logger, sanitize_text
 from orbitflow.targets import REQUIRED_COLUMNS
-from orbitflow.transport import DeviceCredentials, connect_device
-from orbitflow.vendors.common import DeviceCLI
+from orbitflow.transport import (
+    DeviceCredentials, connect_device, TransportError, TunnelError, TeleportError,
+    TransportConfigurationError, UnsupportedPlatformError, DeviceConnectionError,
+)
+from orbitflow.vendors.common import DeviceCLI, InteractiveCLIError
 
 
 FAILURE_COLUMNS = ('Hostname', 'IP Address', 'Equipment Type', 'Platform',
@@ -31,6 +39,43 @@ FAILURE_REASONS = {
     'write': 'Configuration file could not be written.',
     'worker': 'Device worker could not complete.',
 }
+
+
+def failure_reason(stage, error=None):
+    """Classify only approved types, never exception messages or class names.
+
+    Explicit causes preserve authentication/timeouts wrapped by shared transport.
+    Ignore implicit context, which can describe an unrelated earlier failure.
+    """
+    chain = []
+    while error is not None and all(error is not item for item in chain):
+        chain.append(error)
+        error = error.__cause__
+    mappings = (
+        (AuthenticationException, 'Authentication failed.'),
+        (TimeoutError, 'Operation timed out.'),
+        (UnsupportedConfigurationPlatform, 'Configuration capture is unsupported for the resolved platform.'),
+        (EmptyConfigurationCapture, 'Configuration command returned empty output.'),
+        (ConfigurationCommandRejected, 'Configuration command was rejected by the device.'),
+        (TransportConfigurationError, 'Transport settings are invalid or incomplete.'),
+        (UnsupportedPlatformError, 'Transport is unsupported on this operating system.'),
+        (TunnelError, 'Transport tunnel could not be established.'),
+        (TeleportError, 'Teleport transport could not be established.'),
+        (DeviceConnectionError, 'Device connection failed.'),
+        (ConnectionError, 'Network connection failed.'),
+        (SSHException, 'SSH transport failed.'),
+        (TransportError, 'Device transport failed.'),
+        (InteractiveCLIError, 'CLI setup or command exchange failed.'),
+    )
+    for exception_type, reason in mappings:
+        if any(isinstance(item, exception_type) for item in chain):
+            return reason
+    if stage == 'write':
+        if isinstance(chain[0] if chain else None, PermissionError):
+            return 'Permission denied while writing the configuration file.'
+        if isinstance(chain[0] if chain else None, OSError):
+            return 'Filesystem error while writing the configuration file.'
+    return FAILURE_REASONS[stage]
 
 
 def filename_component(value):
@@ -105,11 +150,11 @@ def run_backup(targets, transport_config, *, inventory_path='data/live_validatio
     sheet = workbook.create_sheet('Failed Devices')
     sheet.append(FAILURE_COLUMNS)
 
-    def failure_row(target, context, stage):
+    def failure_row(target, context, stage, error=None):
         values = (context.hostname if context else '',
                   context.management_ip if context else target.get('management_ip', ''),
                   (context.hardware_model or context.device_family) if context else '',
-                  context.platform if context else '', stage, FAILURE_REASONS[stage])
+                  context.platform if context else '', stage, failure_reason(stage, error))
         return tuple(ILLEGAL_CHARACTERS_RE.sub('', clean(value or '')) for value in values)
 
     with module_logger('backup', 'configuration_backup', log_root=log_root) as (logger, _):
@@ -134,10 +179,8 @@ def run_backup(targets, transport_config, *, inventory_path='data/live_validatio
                 stage = 'write'
                 writer.write(clean(context.hostname), context.platform, content)
                 return None
-            except Exception:
-                # Fixed stage categories cannot echo exception text or dynamically
-                # constructed exception class names containing sensitive content.
-                return failure_row(target, context, stage)
+            except Exception as exc:
+                return failure_row(target, context, stage, exc)
 
         def record(outcome):
             nonlocal completed, failed
