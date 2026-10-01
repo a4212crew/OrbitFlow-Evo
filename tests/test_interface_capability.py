@@ -188,31 +188,59 @@ def test_ios_xr_hostname_extraction():
     assert extract_ios_xr_hostname("RP/0/RSP0/CPU0:core-xr-01#") == "core-xr-01"
 
 
-def test_ios_xr_parser_ignores_device_timestamp_before_interface_table():
-    records = parse_ios_xr_interfaces_description(
-        "Sun Sep 20 20:15:28.579 AEST\n"
-        "Interface          Status      Protocol    Description\n"
-        "Gi0/0/0/0          up          up          Core link north"
-    )
+@pytest.mark.parametrize("timestamp", [
+    "Sun Sep 20 20:15:28.579 AEST",
+    "Thu Oct  1 17:49:18.794 AEST",
+    "Thu Oct  9 17:49:18.794 AEST",
+    "Thu Oct 10 17:49:18.794 AEST",
+    "Thu Oct 1 17:49:18.794 AEST",
+])
+def test_ios_xr_parser_ignores_device_timestamp_before_interface_table(timestamp):
+    output = timestamp + "\n" + CASES["cisco_xr"]["output"]
+    records = parse_ios_xr_interfaces_description(output)
 
+    assert len(records) == 1
     assert records[0].port_name == "Gi0/0/0/0"
     assert records[0].port_description == "Core link north"
+    baseline, _, _ = run_collection("cisco_xr")
+    collected, _, _ = run_collection("cisco_xr", output=output)
+    assert collected == baseline
 
 
-def test_ios_parser_remains_strict_about_ios_xr_timestamp():
+@pytest.mark.parametrize("timestamp", [
+    "Thu Oct   1 17:49:18.794 AEST",
+    "Thu Oct  10 17:49:18.794 AEST",
+    "Thu Oct  1 17:49:18 AEST",
+    "Thu Oct  1 17:49:18.794",
+    "Thu Oct  1 17:49:18.794 AEST trailing",
+    "Thu Bad  1 17:49:18.794 AEST",
+    "unexpected non-table output",
+])
+def test_ios_xr_parser_rejects_malformed_timestamp_and_preserves_service_error(timestamp):
+    output = timestamp + "\n" + CASES["cisco_xr"]["output"]
+    with pytest.raises(ValueError, match="unrecognized Cisco interface row"):
+        parse_ios_xr_interfaces_description(output)
+    with pytest.raises(InterfaceCapabilityError, match="interface collection failed") as error:
+        run_collection("cisco_xr", output=output)
+    assert isinstance(error.value.__cause__, ValueError)
+
+
+@pytest.mark.parametrize("day", [" 1", " 9", "10"])
+def test_ios_parser_remains_strict_about_ios_xr_timestamp(day):
     with pytest.raises(ValueError, match="unrecognized Cisco interface row"):
         parse_interfaces_description(
-            "Sun Sep 20 20:15:28.579 AEST\n"
+            f"Thu Oct {day} 17:49:18.794 AEST\n"
             "Interface          Status      Protocol    Description\n"
             "Gi0/0/0/0          up          up          Core link north"
         )
 
 
-def test_ios_xr_parser_remains_strict_after_interface_table_starts():
+@pytest.mark.parametrize("day", [" 1", " 9", "10"])
+def test_ios_xr_parser_remains_strict_after_interface_table_starts(day):
     with pytest.raises(ValueError, match="unrecognized Cisco interface row"):
         parse_ios_xr_interfaces_description(
             "Interface          Status      Protocol    Description\n"
-            "Sun Sep 20 20:15:28.579 AEST"
+            f"Thu Oct {day} 17:49:18.794 AEST"
         )
 
 
