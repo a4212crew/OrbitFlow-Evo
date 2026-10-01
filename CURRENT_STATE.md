@@ -365,3 +365,8 @@ No live reporting validation has been performed.
 The observed-context layer supports approved Excel refresh and full inventory export. Future production scheduling can reuse it without moving live interface/VLAN state into inventory.
 
 Relevant skill: `.agents/skills/device-inventory/SKILL.md`.
+
+
+## Device Configuration Backup
+
+`scripts/device_configuration_backup.py` captures current configuration for the existing Excel/list targets on Cisco IOS, IOS-XE, IOS-XR, Huawei VRP, and Ubiquiti EdgeSwitch. It reuses shared target loading, inventory identity, bounded execution, transport, and one DeviceCLI per device. Captures go directly to a unique UTC-dated folder with sanitized `<hostname>-<platform>.txt` names and collision suffixes. Sensitive text never enters logs or result spools; custom run folders carry Git-ignore protection. Failures are isolated by target and resources close on all paths. Deterministic coverage includes command selection, content preservation, cleanup, filename collisions, secret exclusion, and batch failure isolation. Live backup validation remains operator-controlled and has not been performed.

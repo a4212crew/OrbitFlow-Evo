@@ -336,3 +336,12 @@ writers, and concurrent writers to one export destination, remain unsupported.
 
 All concurrency validation is deterministic and uses fake devices; no live-device
 concurrency validation has been performed.
+
+
+### Device configuration backup
+
+Run `python scripts/device_configuration_backup.py devices.xlsx --proxy <proxy> --cluster <cluster> --bastion-host <host> --bastion-user <user>` after operator-controlled Teleport login. Input uses the existing `management_ip`, `username`, and `password` Excel columns. Optional `--config`, `--inventory-path`, `--log-root`, `--teleport-key-path`, and `--teleport-cert-path` follow the other batch scripts; `--timeout` defaults to 60 seconds per configuration command.
+
+The read-only workflow uses shared bounded device execution and one session/CLI per device. Cisco IOS/IOS-XE/IOS-XR and EdgeSwitch use `show running-config`; Huawei VRP uses `display current-configuration`, with existing platform paging setup. Each run creates one unique UTC-dated folder under `backups/` (override with `--backups-dir`). Successful captures are directly inside it as `<hostname>-<platform>.txt`, using resolved platform identifiers such as `cisco_xe`. Windows-invalid characters are replaced, and collisions receive numeric suffixes, including names differing only by case. Failed targets report their input position and failure stage while peers continue.
+
+Backups contain sensitive, unredacted configuration. Default output is Git-ignored; each run also includes a local ignore file for custom output roots. Store these files with operator-managed access controls and retention; never force-add them to Git. Logs and execution outcomes contain only status metadata, and configuration is never placed in result spools. Transport echo/final prompts are removed and terminal line endings normalized; configuration text, indentation, and blank lines are retained. No live backup validation has been performed.

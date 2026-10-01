@@ -70,7 +70,8 @@ class PromptCLI:
         return matches[-1].group(1).strip()
 
     def _read_until_prompt(
-        self, timeout: float, *, command: str | None = None, prompt: str = ""
+        self, timeout: float, *, command: str | None = None, prompt: str = "",
+        exact_prompt: bool = False,
     ) -> tuple[str, str]:
         deadline = time.monotonic() + timeout
         received = bytearray()
@@ -98,7 +99,7 @@ class PromptCLI:
                 line.strip() in (command, f"{prompt}{command}")
                 for line in normalize_output(text).split("\n")
             )
-            if found is not None and echo:
+            if found is not None and echo and (not exact_prompt or found == prompt):
                 return text, found
 
     def run_command(self, command: str, timeout: float = 10.0) -> str:
@@ -178,6 +179,34 @@ class DeviceCLI(PromptCLI):
             raise ValueError("command must be one non-empty line")
         try:
             return super().run_command(command, timeout=timeout)
+        except BaseException:
+            self._synchronized = False
+            raise
+
+    def read_configuration(self, command: str, timeout: float = 60.0) -> str:
+        """Read sensitive text without logging, retaining whitespace/content.
+
+        Configuration reads cannot change the exec prompt. Match that learned
+        prompt exactly so banner text ending in # or > cannot finish the read.
+        Only the synchronized echo and final prompt framing are removed.
+        """
+        self.require_session(self.session)
+        if timeout <= 0 or not command or "\n" in command or "\r" in command:
+            raise ValueError("invalid configuration command or timeout")
+        try:
+            prompt = self.prompt
+            self._channel.sendall((command + "\n").encode())
+            raw, _ = self._read_until_prompt(timeout, command=command,
+                                             prompt=prompt, exact_prompt=True)
+            lines = normalize_output(raw).split("\n")
+            for index, line in enumerate(lines):
+                if line.strip() in (command, f"{prompt}{command}"):
+                    lines = lines[index + 1:]
+                    break
+            while lines and not lines[-1].strip():
+                lines.pop()
+            lines.pop()  # exact final prompt
+            return "\n".join(lines)
         except BaseException:
             self._synchronized = False
             raise
