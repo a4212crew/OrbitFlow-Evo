@@ -13,7 +13,19 @@ from orbitflow.config import ExecutionConfig
 from orbitflow.vendors.common import DeviceCLI, InteractiveCLITimeout
 from orbitflow.vendors.configuration import PROFILES
 from test_capability_context import DEVICES
-from test_shared_cli import device_session
+from test_shared_cli import device_session as shared_device_session
+
+
+def device_session(device):
+    session, client, channel = shared_device_session(device)
+    receive = channel.recv
+    # An idle, open SSH channel blocks until its configured socket timeout.
+    def recv(size):
+        if not channel.pending:
+            raise socket.timeout()
+        return receive(size)
+    channel.recv = recv
+    return session, client, channel
 
 CONFIG = 'banner motd ^\nUnrecognized command is banner text #\n^\n username synthetic secret fixture-only\n\nend\n'
 
@@ -62,6 +74,30 @@ def test_timeout_invalidates_cli_and_cleans_up():
     with pytest.raises(InteractiveCLITimeout):
         with session, DeviceCLI(session) as cli:
             cli.read_configuration('show running-config')
+    assert client.closes == channel.close_calls == 1
+
+
+@pytest.mark.parametrize('device', DEVICES, ids=[d[2] for d in DEVICES])
+@pytest.mark.parametrize('boundary', ['', '\r', '\r\n'])
+def test_embedded_exact_prompt_at_receive_boundary(device, boundary):
+    session, client, channel = device_session(device)
+    command = PROFILES[device[1]].command
+    channel.outputs[command] = CONFIG
+    with session, DeviceCLI(session) as cli:
+        prompt = cli.prompt
+        original = channel.sendall
+        def split(data):
+            original(data)
+            if data == (command + '\n').encode():
+                channel.pending = [
+                    f'{prompt}{command}\r\nbanner motd ^\r\n{prompt}{boundary}'.encode(),
+                    (('' if boundary else '\r\n') + '^\r\ninterface fixture\r\nend\r\n' + prompt).encode(),
+                ]
+        channel.sendall = split
+        assert cli.read_configuration(command) == (
+            f'banner motd ^\n{prompt}\n^\ninterface fixture\nend')
+        assert not channel.pending
+        assert cli.run_command('terminal length 0') == channel.outputs['terminal length 0']
     assert client.closes == channel.close_calls == 1
 
 

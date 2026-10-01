@@ -75,16 +75,19 @@ class PromptCLI:
     ) -> tuple[str, str]:
         deadline = time.monotonic() + timeout
         received = bytearray()
+        candidate: tuple[str, str] | None = None
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise InteractiveCLITimeout(
                     f"timed out waiting for a {self._platform_name} prompt"
                 )
-            self._channel.settimeout(remaining)
+            self._channel.settimeout(min(remaining, 1.0) if candidate else remaining)
             try:
                 chunk = self._channel.recv(65535)
             except (socket.timeout, TimeoutError) as exc:
+                if candidate is not None:
+                    return candidate
                 raise InteractiveCLITimeout(
                     f"timed out waiting for a {self._platform_name} prompt"
                 ) from exc
@@ -93,6 +96,7 @@ class PromptCLI:
                     f"channel closed before a {self._platform_name} prompt was received"
                 )
             received.extend(chunk)
+            candidate = None
             text = received.decode("utf-8", errors="replace")
             found = self._detect_prompt(text)
             echo = command is None or any(
@@ -100,7 +104,13 @@ class PromptCLI:
                 for line in normalize_output(text).split("\n")
             )
             if found is not None and echo and (not exact_prompt or found == prompt):
-                return text, found
+                if not exact_prompt:
+                    return text, found
+                # A configuration line ending in a newline is body text, even
+                # when identical to the exec prompt. For an unterminated match,
+                # wait for receive quiescence: SSH can split within that line.
+                if normalize_output(text).split("\n")[-1].strip() == prompt:
+                    candidate = (text, found)
 
     def run_command(self, command: str, timeout: float = 10.0) -> str:
         if not command or "\n" in command or "\r" in command:
@@ -187,7 +197,9 @@ class DeviceCLI(PromptCLI):
         """Read sensitive text without logging, retaining whitespace/content.
 
         Configuration reads cannot change the exec prompt. Match that learned
-        prompt exactly so banner text ending in # or > cannot finish the read.
+        prompt exactly and allow one second of receive quiescence before
+        accepting an unterminated final prompt. Newline-terminated prompt lines
+        remain configuration content, including across receive boundaries.
         Only the synchronized echo and final prompt framing are removed.
         """
         self.require_session(self.session)
