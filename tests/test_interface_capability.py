@@ -250,11 +250,35 @@ def test_huawei_hostname_extraction(prompt):
 
 
 @pytest.mark.parametrize(
-    "prompt", ["edge-switch-01#", "edge-switch-01>", "(C-HAWTH-382GLEN-BAS1) #"]
+    "prompt,expected",
+    [
+        ("edge-switch-01#", "edge-switch-01"),
+        ("edge-switch-01>", "edge-switch-01"),
+        ("(C-HAWTH-382GLEN-BAS1) #", "C-HAWTH-382GLEN-BAS1"),
+        ("(VIC-MARIB-GORDON-BAS1) >", "VIC-MARIB-GORDON-BAS1"),
+        ("(access-sw)#", "access-sw"),
+        ("(access-sw)>", "access-sw"),
+        ("(access-sw)  #", "access-sw"),
+        ("(access-sw)\t>", "access-sw"),
+        ("  (access-sw) >  ", "access-sw"),
+    ],
 )
-def test_edgeswitch_hostname_extraction(prompt):
-    expected = "C-HAWTH-382GLEN-BAS1" if prompt.startswith("(") else "edge-switch-01"
+def test_edgeswitch_hostname_extraction(prompt, expected):
     assert extract_edgeswitch_hostname(prompt) == expected
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "", "#", ">", "()#", "() >", "(access-sw>", "access-sw)>",
+        "((access-sw))#", "(access-sw)", "(access-sw)$", "(access-sw) >>",
+        "(access-sw) # extra", "prefix (access-sw) >", "(access\nsw) >",
+        "(access\rsw)#", "access sw>", "access-sw##", "access:sw>",
+    ],
+)
+def test_edgeswitch_hostname_extraction_rejects_malformed_prompts(prompt):
+    with pytest.raises(ValueError, match="unrecognized EdgeSwitch prompt"):
+        extract_edgeswitch_hostname(prompt)
 
 
 def test_edgeswitch_parses_exact_live_multiline_status_table():
