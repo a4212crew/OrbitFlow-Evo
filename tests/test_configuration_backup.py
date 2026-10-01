@@ -147,7 +147,16 @@ def test_batch_failure_isolation_safe_outcomes_and_logs(tmp_path, monkeypatch, l
     assert all(p.read_text() == CONFIG for p in captures)
     assert all(client.closes == channel.close_calls == 1 for _, client, channel in sessions)
     assert 'failed: 2' in output.getvalue()
+    from openpyxl import load_workbook
+    workbook = load_workbook(folder / 'failed_devices.xlsx')
+    rows = list(workbook.active.values)
+    assert rows[0] == backup.FAILURE_COLUMNS
+    assert len(rows) == 3
+    assert {row[4] for row in rows[1:]} == {'input', 'capture'}
+    assert {row[1] for row in rows[1:]} == {'invalid', '192.0.2.2'}
+    workbook.close()
     safe = output.getvalue() + repr(outcomes) + ''.join(p.read_text() for p in (tmp_path/'logs').rglob('*.log'))
+    safe += repr(rows)
     for secret in ['fixture-only', 'fixture-password', 'fixture-user', 'banner motd']:
         assert secret not in safe
     assert not list(tmp_path.rglob('results.jsonl'))
@@ -214,3 +223,61 @@ def test_entry_point_uses_shared_excel_loader(tmp_path, monkeypatch):
     assert len(captured['targets']) == 2
     assert captured['backups_dir'] == Path('backups')
     assert captured['timeout'] == 60
+
+@pytest.mark.parametrize('stage', ['input', 'connect', 'inventory', 'capture', 'disconnect', 'write'])
+@pytest.mark.parametrize('model', ['ASR-920', ''])
+def test_failed_workbook_identity_and_secrets(tmp_path, monkeypatch, stage, model):
+    from contextlib import contextmanager
+    from openpyxl import load_workbook
+    secret = 'fixture-password'
+    context = SimpleNamespace(hostname='=fixture-password-switch', management_ip='192.0.2.1',
+                              hardware_model=model, device_family='ASR920', platform='cisco_xe')
+    def fail():
+        raise RuntimeError(CONFIG + secret)
+    @contextmanager
+    def connect(*args):
+        if stage == 'connect': fail()
+        yield object()
+        if stage == 'disconnect': fail()
+    @contextmanager
+    def cli(*args):
+        yield object()
+    def resolve(*args, **kwargs):
+        if stage == 'inventory': fail()
+        return context
+    def collect(*args, **kwargs):
+        if stage == 'capture': fail()
+        return CONFIG
+    monkeypatch.setattr(backup, 'connect_device', connect)
+    monkeypatch.setattr(backup, 'DeviceCLI', cli)
+    monkeypatch.setattr(backup.DeviceInventoryResolver, 'resolve', resolve)
+    monkeypatch.setattr(backup.ConfigurationService, 'collect', collect)
+    if stage == 'write':
+        monkeypatch.setattr(backup.BackupWriter, 'write', lambda *args: fail())
+    target = dict(management_ip='192.0.2.1', username='fixture-user',
+                  password='' if stage == 'input' else secret)
+    output = StringIO()
+    folder = backup.run_backup([target, target], object(), backups_dir=tmp_path/'backups',
+        inventory_path=tmp_path/'inventory.json', log_root=tmp_path/'logs', output=output)
+    workbook = load_workbook(folder/'failed_devices.xlsx')
+    rows = list(workbook.active.values)
+    assert rows[0] == backup.FAILURE_COLUMNS
+    assert len(rows) == 3
+    expected_identity = (None, '192.0.2.1', None, None) if stage in {'input', 'connect', 'inventory'} else (
+        '=[REDACTED]-switch', '192.0.2.1', model or 'ASR920', 'cisco_xe')
+    for row in rows[1:]:
+        assert row == expected_identity + (stage, backup.FAILURE_REASONS[stage])
+    assert all(cell.data_type != 'f' for row in workbook.active for cell in row)
+    safe = repr(rows) + output.getvalue() + ''.join(p.read_text() for p in (tmp_path/'logs').rglob('*.log'))
+    assert secret not in safe
+    assert 'banner motd' not in safe
+    workbook.close()
+
+
+def test_empty_run_has_header_only_workbook(tmp_path):
+    from openpyxl import load_workbook
+    folder = backup.run_backup([], object(), backups_dir=tmp_path/'backups',
+        inventory_path=tmp_path/'inventory.json', log_root=tmp_path/'logs', output=StringIO())
+    workbook = load_workbook(folder/'failed_devices.xlsx')
+    assert list(workbook.active.values) == [backup.FAILURE_COLUMNS]
+    workbook.close()

@@ -7,6 +7,10 @@ import sys
 from threading import Lock
 from uuid import uuid4
 
+from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+
 from orbitflow.capabilities.configuration import ConfigurationService
 from orbitflow.execution import execute_devices, Progress
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
@@ -14,6 +18,19 @@ from orbitflow.logging import module_logger, sanitize_text
 from orbitflow.targets import REQUIRED_COLUMNS
 from orbitflow.transport import DeviceCredentials, connect_device
 from orbitflow.vendors.common import DeviceCLI
+
+
+FAILURE_COLUMNS = ('Hostname', 'IP Address', 'Equipment Type', 'Platform',
+                   'Failure Stage', 'Failure Reason')
+FAILURE_REASONS = {
+    'input': 'Required target fields are missing or the management IP is invalid.',
+    'connect': 'Device connection could not be established.',
+    'inventory': 'Device identity could not be resolved.',
+    'capture': 'Complete configuration could not be captured.',
+    'disconnect': 'Device session cleanup failed.',
+    'write': 'Configuration file could not be written.',
+    'worker': 'Device worker could not complete.',
+}
 
 
 def filename_component(value):
@@ -67,7 +84,7 @@ def run_backup(targets, transport_config, *, inventory_path='data/live_validatio
                execution_config=None, timeout=60.0):
     """Consume shared list/Excel targets with bounded, isolated device workers.
 
-    Only status categories return from workers. Configuration is written while
+    Only safe failure metadata returns from workers. Configuration is written while
     owned by its device worker, never in a result spool or a full-run result set.
     Device type in filenames is the resolved OrbitFlow platform identifier.
     """
@@ -84,11 +101,23 @@ def run_backup(targets, transport_config, *, inventory_path='data/live_validatio
     store = JsonInventoryStore(inventory_path)
     status = Progress(output if output is not None else sys.stdout)
     completed = failed = 0
+    workbook = Workbook(write_only=True)
+    sheet = workbook.create_sheet('Failed Devices')
+    sheet.append(FAILURE_COLUMNS)
+
+    def failure_row(target, context, stage):
+        values = (context.hostname if context else '',
+                  context.management_ip if context else target.get('management_ip', ''),
+                  (context.hardware_model or context.device_family) if context else '',
+                  context.platform if context else '', stage, FAILURE_REASONS[stage])
+        return tuple(ILLEGAL_CHARACTERS_RE.sub('', clean(value or '')) for value in values)
+
     with module_logger('backup', 'configuration_backup', log_root=log_root) as (logger, _):
         logger.info('Configuration backup started')
         status(f'Configuration backup started: {len(targets)} devices')
         def capture(target):
             stage = 'input'
+            context = None
             try:
                 if not all(isinstance(target.get(field), str) and target[field].strip() for field in REQUIRED_COLUMNS):
                     raise ValueError('Missing required target field')
@@ -104,24 +133,38 @@ def run_backup(targets, transport_config, *, inventory_path='data/live_validatio
                     stage = 'disconnect'
                 stage = 'write'
                 writer.write(clean(context.hostname), context.platform, content)
-                return ''
+                return None
             except Exception:
                 # Fixed stage categories cannot echo exception text or dynamically
                 # constructed exception class names containing sensitive content.
-                return stage + '_failed'
+                return failure_row(target, context, stage)
 
         def record(outcome):
             nonlocal completed, failed
             completed += 1
-            category = 'worker_failed' if outcome.error_category else outcome.value
+            row = (failure_row(targets[outcome.position - 1], None, 'worker')
+                   if outcome.error_category else outcome.value)
+            category = row[4] + '_failed' if row else ''
             if category:
                 failed += 1
+                cells = []
+                for value in row:
+                    cell = WriteOnlyCell(sheet, value=value)
+                    cell.data_type = 's'
+                    cells.append(cell)
+                sheet.append(cells)
                 logger.error(f'Configuration backup target {outcome.position} failed', extra={'error_category': category})
             else:
                 logger.info(f'Configuration backup target {outcome.position} saved')
             status(f'[{outcome.position}/{len(targets)}]: ' + (f'failed ({category})' if category else 'saved'))
 
-        execute_devices(targets, capture, config=execution_config, on_outcome=record)
+        try:
+            execute_devices(targets, capture, config=execution_config, on_outcome=record)
+            workbook.save(writer.path / 'failed_devices.xlsx')
+        finally:
+            if not sheet.closed:
+                sheet.close()
+            workbook.close()
         logger.info('Configuration backup completed')
     status(f'Devices: {completed}; saved: {completed - failed}; failed: {failed}; folder: {clean(str(writer.path))}')
     return writer.path
