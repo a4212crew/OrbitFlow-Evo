@@ -23,6 +23,7 @@ OrbitFlow-Evo is a multi-vendor network automation platform for ISP operations.
 17. Reusable capabilities remain single-device components and must not depend on whether other devices are executing concurrently.
 18. Shared mutable resources such as inventory persistence, report/output generation, and process-wide logging state must be synchronized or aggregated by their owning shared layer rather than mutated unsafely by device workers.
 19. Large multi-device workflows must not require retaining an unbounded full-run result set in memory; reusable execution-result persistence and output consumption belong to shared infrastructure rather than feature-specific workers.
+20. Use the approved filesystem convention for new or migrated paths: `data/` holds persistent OrbitFlow application state, while `outputs/` holds OrbitFlow-generated operational output. The target layout is `data/inventory/inventory.json`, `outputs/reports/<report>/`, `outputs/backups/<backup-type>/`, `outputs/validation/<validation-type>/`, `outputs/logs/<module>/YYYY-MM-DD/`, and `outputs/runs/<task>/<run-id>/`. Treat this as the target architecture until runtime migration is implemented; do not claim legacy paths have moved before the code changes.
 
 ## 2. Architecture Boundaries
 
