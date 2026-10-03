@@ -100,7 +100,7 @@ device workers
        -> JSON/export
 ```
 
-The spool is execution infrastructure, not a reporting-specific file. Device workers do not write shared spool files directly.
+The spool is execution infrastructure, not a reporting-specific file. Device workers do not write shared spool files directly. Recoverable execution spool data belongs under `outputs/runs/`; persistent application state belongs under `data/`.
 
 Each execution uses a unique run directory, for example:
 
@@ -110,7 +110,7 @@ data/runs/<timestamp>_<run-id>/
     results.jsonl
 ```
 
-Use a timestamp plus a collision-resistant run identifier so concurrent or repeated runs never reuse the same spool path.
+Use a task namespace plus timestamp and a collision-resistant run identifier so concurrent or repeated runs never reuse the same spool path. This is the approved target layout; existing runtime defaults may remain on legacy paths until the dedicated migration is implemented.
 
 `results.jsonl` stores one sanitized execution envelope per completed target. The common envelope owns execution metadata such as run ID, input position, safe target/device identity, status, timestamps, error category, and a task-specific `payload`. The execution layer must not know capability-specific fields inside the payload.
 
