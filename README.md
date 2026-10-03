@@ -257,6 +257,33 @@ See `docs/architecture/codex-orchestration.md` for the complete state machine, t
 
 ## Inventory refresh and full Excel export
 
+After operator-controlled Teleport login, run:
+
+```shell
+python scripts/device_inventory_refresh.py devices.xlsx --proxy <proxy:443> --cluster <cluster> --bastion-host <bastion> --bastion-user <user>
+```
+
+The command uses the same Excel and Teleport arguments as the report/backup
+commands, including optional `--teleport-key-path`, `--teleport-cert-path`, and
+`--config`. The optional case-insensitive `Secret` Excel column supplies an
+enable credential. Defaults are:
+
+- Canonical latest-known inventory: `data/inventory/inventory.json`.
+- Unique UTC timestamp plus UUID workbook: `outputs/reports/inventory/inventory_<timestamp>_<id>.xlsx`.
+- Recoverable run data: `outputs/runs/inventory_refresh/<run-id>/`.
+- Shared module logs: `outputs/logs/<module>/YYYY-MM-DD/`; inventory diagnostics use `outputs/logs/inventory/YYYY-MM-DD/inventory_refresh.log`.
+
+Override these with `--inventory-path`, `--reports-dir`, `--spool-root`, and
+`--log-root`. Paths are relative to the working directory. Existing inventory at
+a legacy path is not moved automatically; select it explicitly if needed.
+Each invocation creates a distinct workbook and preserves earlier exports.
+Target failures do not prevent export; review `Run_Attempts` for their outcomes.
+Run-level input/export failure exits nonzero with a fixed safe message, without
+printing raw exceptions or credential-bearing paths. Successful export removes
+its spool; failed output retains the captured snapshot and attempts for retry
+with `orbitflow.inventory_refresh.export_inventory_spool(spool_path, export_path)`
+without reconnecting. Recovery callers should choose a new export filename.
+
 Call the reusable read-only workflow with an operator-provided `TransportConfig`:
 
 ```python
@@ -265,8 +292,10 @@ from orbitflow.inventory_refresh import refresh_inventory_from_excel
 report_path = refresh_inventory_from_excel(
     "devices.xlsx",
     transport_config,
-    inventory_path="data/inventory.json",
-    export_path="reports/inventory.xlsx",
+    inventory_path="data/inventory/inventory.json",
+    export_path="outputs/reports/inventory/manual_export.xlsx",
+    spool_root="outputs/runs/inventory_refresh",
+    log_root="outputs/logs",
 )
 ```
 

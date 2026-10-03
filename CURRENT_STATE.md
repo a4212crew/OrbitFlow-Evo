@@ -105,6 +105,16 @@ previous facts retained, and not requested identities; a separate attempts sheet
 includes unresolved failures. Connection/input failures preserve existing facts.
 Historical snapshots and production scheduling remain future work.
 
+`scripts/device_inventory_refresh.py` provides the operator command with the
+existing Excel/Teleport argument contract and configured shared execution.
+It defaults to canonical `data/inventory/inventory.json`, unique timestamped
+workbooks under `outputs/reports/inventory/`, recoverable spools under
+`outputs/runs/inventory_refresh/`, and shared module logs under `outputs/logs/`.
+It reuses the refresh/export workflow without changing reconciliation or vendor
+support. Deterministic command tests cover path overrides, distinct exports,
+isolated failures, retained facts, spool recovery, and credential exclusion.
+Legacy command defaults are unchanged; no live command validation was performed.
+
 Documentation baseline:
 - `.agents/skills/device-inventory/SKILL.md`
 - `.agents/skills/excel-inventory/SKILL.md`
