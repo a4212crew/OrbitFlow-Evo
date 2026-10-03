@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "policy_id": "isp-vlan-mvp-v1",
+  "database": {
+    "rule_id": "required-forwarding-domains",
+    "object_types": ["vlan", "bridge_domain", "vsi"],
+    "required_domains": ["2400-2444", 2449, 4001]
+  },
+  "interface": {
+    "rule_id": "trunk-required-vlans",
+    "match_all": [445, 545],
+    "match_any": [2449, 4001],
+    "required_vlans": [445, 545, "2400-2444", 2449, 4001]
+  }
+}
