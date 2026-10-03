@@ -1,5 +1,6 @@
 """Deterministic access tests; all credentials and devices are synthetic."""
 from io import StringIO
+from contextlib import closing
 from threading import Barrier, Lock
 from dataclasses import replace
 from pathlib import Path
@@ -24,6 +25,7 @@ from orbitflow.transport.policy import ConnectionStartPacer, connection_pacer
 from orbitflow.vendors.common import DeviceCLI, InteractiveCLITimeout
 from orbitflow.vendors.cisco.ios import CiscoIOSCLI
 from orbitflow.vendors.privilege import MissingEnableSecret, EnableAuthenticationFailed
+from orbitflow.vendors.privilege import ensure_privileged
 from orbitflow.vendors.ubiquiti.prompts import extract_edgeswitch_hostname
 from test_capability_context import DEVICES
 from test_configuration_backup import device_session, CONFIG
@@ -95,6 +97,87 @@ def enable_session(device, *, secret=SECRET, response='success', enabled_prompt=
 
 
 ACCESS_DEVICES = [d for d in DEVICES if d[1] in {'cisco_ios', 'cisco_xe', 'ubiquiti_edgeswitch'}]
+
+
+@pytest.mark.parametrize('cli_type', [DeviceCLI, CiscoIOSCLI])
+@pytest.mark.parametrize('device', ACCESS_DEVICES, ids=lambda d: d[2])
+@pytest.mark.parametrize('fragmented', [False, True])
+@pytest.mark.parametrize('scenario', [
+    'echo', 'stale_before', 'stale_after', 'changed_before', 'changed_after',
+    'denied', 'repeat', 'malformed', 'timeout', 'closed',
+])
+def test_enable_interactive_state_machine(cli_type, device, fragmented, scenario):
+    session, client, channel = enable_session(device)
+    channel.prompt = channel.prompt.replace('annotation', 'annotati\u00f6n')
+    user_prompt = channel.prompt
+    privileged_prompt = user_prompt[:-1] + '#'
+    pre = f'{user_prompt}enable\r\n'
+    if scenario == 'stale_before':
+        pre = f'{user_prompt}\r\n{user_prompt}\r\n' + pre + f'{user_prompt}\r\n'
+    if scenario == 'changed_before':
+        pre += user_prompt.replace('sw', 'other') + '\r\n'
+    pre += 'Password: '
+    post = SECRET + '\r\n'
+    if scenario == 'stale_after':
+        post += f'{user_prompt}\r\n{user_prompt}\r\n'
+    if scenario == 'changed_after':
+        post += user_prompt.replace('sw', 'other') + '\r\n'
+    if scenario == 'denied':
+        post += 'Access denied\r\n'
+    if scenario == 'repeat':
+        post += 'Password: \r\n'
+    elif scenario == 'malformed':
+        post += '(sw (broken) #\r\n'
+    post += privileged_prompt
+
+    def chunks(text):
+        data = text.encode()
+        return [data[i:i+1] for i in range(len(data))] if fragmented else [data]
+
+    original = channel.sendall
+    def send(data):
+        if data == b'enable\n':
+            channel.sent.append('enable')
+            channel.pending = chunks(pre)
+        elif data == (SECRET + '\n').encode():
+            channel.sent.append(SECRET)
+            channel.prompt = privileged_prompt
+            channel.pending = ([TimeoutError(SECRET)] if scenario == 'timeout' else
+                               [b''] if scenario == 'closed' else chunks(post))
+        else:
+            original(data)
+    channel.sendall = send
+    if scenario in {'echo', 'stale_before', 'stale_after'}:
+        with session, closing(cli_type(session)) as cli:
+            assert cli.prompt == privileged_prompt
+            assert SECRET not in cli.run_command('show running-config')
+        assert channel.sent.count(SECRET) == 1
+    else:
+        with pytest.raises(EnableAuthenticationFailed) as caught, session:
+            cli_type(session)
+        assert str(caught.value) == 'Enable authentication failed.'
+        assert caught.value.__cause__ is None
+        assert 'terminal length 0' not in channel.sent
+        assert channel.sent.count(SECRET) == (0 if scenario == 'changed_before' else 1)
+        if fragmented and scenario not in {'timeout', 'closed'}:
+            assert channel.pending, 'failure must precede the later privileged prompt'
+    assert channel.sent.count('enable') == 1
+    assert client.closes == channel.close_calls == 1
+    assert session.secret is None
+
+
+@pytest.mark.parametrize('prompt', ['sw>', '(sw (arbitrary (nested) annotation)) >'])
+@pytest.mark.parametrize('answered', [False, True])
+def test_enable_progress_does_not_reset_deadline(monkeypatch, prompt, answered):
+    channel = MagicMock()
+    channel.recv.side_effect = [b'Password:' if answered else prompt.encode(), prompt.encode()]
+    clock = iter([0, 1, 2, 3])
+    monkeypatch.setattr('orbitflow.vendors.privilege.time.monotonic', lambda: next(clock))
+    with pytest.raises(EnableAuthenticationFailed, match='^Enable authentication failed\\.$'):
+        ensure_privileged(channel, prompt, SECRET, timeout=3)
+    assert channel.recv.call_count == 2
+    assert [call.args[0] for call in channel.sendall.call_args_list] == (
+        [b'enable\n', (SECRET + '\n').encode()] if answered else [b'enable\n'])
 
 
 @pytest.mark.parametrize('cli_type', [DeviceCLI, CiscoIOSCLI])
