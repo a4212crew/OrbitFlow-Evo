@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 
 from orbitflow import reporting, configuration_backup as backup
 from orbitflow.logging import module_logger
-from test_device_reporting import install_fakes, CONFIG
+from test_device_reporting import install_fakes
 from test_configuration_backup import device_session, DEVICES
 
 
@@ -35,6 +35,8 @@ def test_command_paths(monkeypatch, kind, override):
 
 
 def test_default_report_recovery_paths(tmp_path, monkeypatch):
+    from scripts import device_interface_vlan_report as command
+
     monkeypatch.chdir(tmp_path)
     install_fakes(monkeypatch)
     store = Mock(wraps=reporting.JsonInventoryStore)
@@ -42,9 +44,13 @@ def test_default_report_recovery_paths(tmp_path, monkeypatch):
     original = reporting.write_workbook
     monkeypatch.setattr(reporting, 'write_workbook', Mock(side_effect=OSError('fixture failure')))
     targets = [dict(management_ip='192.0.2.1', username='synthetic-user', password='synthetic-password')]
+    loader = Mock(return_value=targets)
+    monkeypatch.setattr(command, 'load_targets', loader)
+    args = ['targets.xlsx', '--proxy', 'proxy', '--cluster', 'cluster',
+            '--bastion-host', 'host', '--bastion-user', 'user']
     with pytest.raises(OSError):
-        reporting.run_report(targets, CONFIG, output=StringIO())
-    store.assert_called_once_with('data/inventory/inventory.json')
+        command.main(args)
+    store.assert_called_once_with(Path('data/inventory/inventory.json'))
     root = Path('outputs/runs/interface_vlan_report')
     spool = next(root.iterdir())
     assert 'synthetic-password' not in ''.join(p.read_text() for p in spool.glob('*.json*'))
@@ -52,7 +58,8 @@ def test_default_report_recovery_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(reporting, 'connect_device', Mock(side_effect=AssertionError('no recollection')))
     path = reporting.export_report_spool(spool, 'outputs/reports/interface_vlan/recovered.xlsx')
     assert path.is_file() and not spool.exists()
-    path = reporting.run_report([], CONFIG, output=StringIO())
+    loader.return_value = []
+    path = command.main(args)
     assert path.parent == Path('outputs/reports/interface_vlan')
     assert path.name.startswith('device_interface_vlan_report_')
     assert not list(root.iterdir())

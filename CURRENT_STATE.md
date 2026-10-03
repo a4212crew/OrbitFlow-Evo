@@ -343,6 +343,8 @@ Production defaults use `data/inventory/inventory.json`, workbooks under
 `outputs/reports/interface_vlan/`, recoverable spools under
 `outputs/runs/interface_vlan_report/`, and logs under `outputs/logs/`.
 CLI and programmatic path overrides remain supported; legacy files are untouched.
+Programmatic `run_report()` calls with `spool_root=None` (including omission)
+keep recoverable spools under `<reports_dir>/runs/`; the CLI supplies the production spool default explicitly.
 
 `scripts/device_interface_vlan_report.py` composes the shared Excel target loader,
 inventory resolver, InterfaceService, and VlanService in a bounded concurrent

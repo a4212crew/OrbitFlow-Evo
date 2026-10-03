@@ -575,20 +575,27 @@ def test_connection_traceback_is_file_only(tmp_path, monkeypatch, capsys, system
         handler.close()
 
 
-def test_report_spool_retry_without_connections(tmp_path, monkeypatch):
+@pytest.mark.parametrize('explicit_none', [False, True])
+@pytest.mark.parametrize('path_type', [str, Path])
+def test_report_spool_retry_without_connections(tmp_path, monkeypatch, explicit_none, path_type):
+    monkeypatch.chdir(tmp_path)
+    reports_dir = tmp_path / 'custom-reports'
+    spool_options = {'spool_root': None} if explicit_none else {}
     events, closed = install_fakes(monkeypatch)
     original = reporting.write_workbook
     monkeypatch.setattr(reporting, 'write_workbook', Mock(side_effect=OSError('synthetic-password')))
     with pytest.raises(OSError):
         reporting.run_report(
             [{'management_ip': '192.0.2.1', 'username': 'synthetic-user', 'password': 'synthetic-password'}],
-            CONFIG, reports_dir=tmp_path, spool_root=tmp_path / 'runs', log_root=tmp_path / 'logs', output=StringIO())
-    spool = next((tmp_path / 'runs').iterdir())
+            CONFIG, reports_dir=path_type(reports_dir), log_root=tmp_path / 'logs',
+            output=StringIO(), **spool_options)
+    spool = next((reports_dir / 'runs').iterdir())
+    assert not (tmp_path / 'outputs' / 'runs').exists()
     for file in spool.glob('*.json*'):
         assert 'synthetic-password' not in file.read_text()
     monkeypatch.setattr(reporting, 'connect_device', Mock(side_effect=AssertionError('must not reconnect')))
     monkeypatch.setattr(reporting, 'write_workbook', original)
-    path = reporting.export_report_spool(spool, tmp_path / 'retry.xlsx')
+    path = reporting.export_report_spool(spool, reports_dir / 'retry.xlsx')
     book = load_workbook(path, read_only=True)
     assert sum(1 for _ in book['Interfaces'].values) == 2
     book.close()

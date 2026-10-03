@@ -193,8 +193,10 @@ One workbook is written at the end under
 `outputs/reports/interface_vlan/device_interface_vlan_report_<UTC timestamp>.xlsx`, with `Interfaces`,
 `VLAN_Database`, and `Run_Errors` sheets. Use `--reports-dir`, `--inventory-path`,
 `--spool-root`, and `--log-root` to override locations. The inventory default is
-`data/inventory/inventory.json`. Recoverable run spools use
+`data/inventory/inventory.json`. The command's recoverable run spools use
 `outputs/runs/interface_vlan_report/<run-id>/`, independently of the reports directory.
+For programmatic `run_report()` calls, omitting `spool_root` or passing `None`
+uses `<reports_dir>/runs/<run-id>/` to keep spools local to the caller's report directory.
 Successful workbook export cleans up its spool; failed export retains it for retry.
 Legacy files are never moved or imported automatically; select them explicitly
 through overrides. Reporting logs are written to
