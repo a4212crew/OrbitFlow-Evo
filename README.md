@@ -214,6 +214,100 @@ and identity separately from VLAN IDs. Text is stored literally, without Excel
 formula interpretation. Cells exceeding Excel's text limit fail explicitly
 instead of silently truncating observations.
 
+## Read-only VLAN compliance
+
+With `PYTHONPATH=src` set, use the same approved Excel target and Teleport inputs:
+
+```bash
+python scripts/device_vlan_compliance.py run devices.xlsx --proxy <proxy:443> --cluster <cluster> --bastion-host <bastion> --bastion-user <user>
+```
+
+The command collects InterfaceService and VlanService once per device through one
+resolved context/session/CLI, then evaluates both rules in a separate policy layer.
+It does not generate or apply configuration. Failed rows/devices are isolated;
+successful partial observations remain assessable. `Run_Errors` records safe stage
+and exception categories, without exception messages or device configuration.
+
+`policies/vlan_compliance.json` is the default policy; `--policy <file.json>` selects
+another. Schema version 1 requires `policy_id`, `database`, and `interface` sections.
+Unknown/missing fields, duplicate JSON keys, invalid IDs and invalid VLAN ranges
+fail before connecting. VLAN lists accept integers or inclusive strings such as
+`"2400-2444"`. Database `required_domains` additionally accepts exact named IDs.
+`object_types` selects accepted normalized object types (`vlan`, `bridge_domain`,
+`vsi`); a required domain may be satisfied by any accepted type. Names are never
+translated into numeric VLAN IDs, and interface references never create objects.
+Change the policy ID when revising a policy so retained findings identify its version.
+
+The supplied database rule requires domains 2400–2444, 2449 and 4001. The interface
+rule considers actual normalized `trunk` interfaces only. Its `match_all` requires
+445 and 545; `match_any` requires 2449 or 4001. Matching trunks must contain 445,
+545, 2400–2444, 2449 and 4001 in normalized **tagged** membership. Native/untagged,
+inner tags and legacy vendor fields do not satisfy this rule. `ALL` satisfies the
+signature and requirements; `NONE` does not match. Other known port types and
+nonmatching trunks are `not_applicable`; missing/ambiguous profiles, blank trunk
+membership and failed collection produce `unable_to_assess`. Findings otherwise
+use `compliant` or `non_compliant`. An observed empty database has missing objects,
+rather than being treated as failed collection. Current observation omits VLAN 1;
+policies containing numeric VLAN/domain 1 are rejected before collection.
+
+IOS-XR uses the optional schema-v1 `service_rules` section instead of the numeric
+database/trunk rules. Each entry selects `platform: "cisco_xr"`, distinct
+`database_rule` and `interface_rule` IDs, `signature`, `required`, and a boolean
+`baseline_complete`. Signature and required lists are AND groups; each nested
+list contains OR alternatives of `{"field": "object_id", "value": "BG/BD"}` or
+`{"field": "domain_id", "value": "BD"}`. Values match exactly and case-sensitively;
+they are not VLAN ranges. For example, a required group can be
+`[{"field": "object_id", "value": "TEST/RSVD-RSP0"}]` (illustrative only).
+Database checks use normalized bridge-domain objects. Interface checks group
+actual service subinterfaces under their observed parent, joining normalized
+`bridge_domains` to unique database `domain_id` values. Routed subinterfaces do
+not contribute services. No interface identities are created in observation.
+Missing parents/profiles or absent/ambiguous domain joins are unable to assess.
+
+The supplied XR signature is (`LBB-PPPoE` OR `LBB-PPPOE`) AND
+`VLAN545/BD_VLAN545` AND (`LEAPTEL-PPPoE/LEAPTEL-PPPoE` OR
+`URL-PPPOE/URL-PPPOE`). The default complete NCS baseline requires 51
+bridge-domain identities: IQNET-PPPOE, LBB-PPPoE (or LBB-PPPOE), LEAPTEL-PPPoE,
+RSVD-RSP0 through RSVD-RSP37, SPIRIT-PPPOE, SUPERLOOP1-PPPOE through
+SUPERLOOP6-PPPOE, and URL-PPPOE (each with matching bridge-group/domain names),
+plus `VLAN545/BD_VLAN545` and `VLAN745/BD_VLAN745`. These exact identities are
+listed in the external policy with `baseline_complete: true`. A matching parent
+must carry the entire baseline to be compliant; missing identities are reported
+as non-compliant. The database rule requires the same complete set device-wide.
+Unrelated parent groups remain not applicable. Policies without an XR entry
+produce `service_policy_unavailable` for XR rather than using the trunk rule.
+Missing services are reported as typed identity alternative groups in
+`missing_objects`, preserved in the JSON spool and Excel report.
+
+The workbook has `Findings`, `Run_Errors`, and `Details` sheets, with literal text,
+frozen headers and filters. Findings include identity, rule/policy, expected and
+observed state, missing VLANs/objects and normalized evidence. Large JSON fields
+are split into numbered fragments in `Details` without truncation. Reports default
+to `outputs/reports/vlan_compliance/`, recoverable JSONL runs to
+`outputs/runs/vlan_compliance/`, inventory to `data/inventory/inventory.json`, and
+module logs to `outputs/logs/compliance/YYYY-MM-DD/vlan_compliance.log`.
+`--reports-dir`, `--spool-root`, `--inventory-path`, `--log-root` and `--config`
+override those settings. Shared execution settings control device concurrency and
+connection pacing. Linux uses the existing `--teleport-key-path` and
+`--teleport-cert-path` options. Excel may include the optional `secret` column.
+
+Successful export removes the spool unless `--keep-spool` is supplied. Failed
+export retains it. Retry without credentials, policy reload or device connections:
+
+```bash
+python scripts/device_vlan_compliance.py export outputs/runs/vlan_compliance/<run-id> recovered.xlsx
+```
+
+`--allow-partial` explicitly exports an interrupted run's completed targets and
+retains the partial spool. It does not imply that missing targets were assessed.
+For future web/API consumers, `orbitflow.vlan_compliance.collect_compliance()`
+returns a `ComplianceRun` with counts and a spool handle, independently of Excel.
+Stream `ResultSpool(run.spool_path).records()` to consume JSON-ready per-device
+findings. A policy provider implements `load() -> VlanPolicy`; database/API
+providers can validate their mappings through `parse_policy()`.
+The pure `evaluate_vlan_compliance()` also accepts previously collected models.
+No live-device compliance validation has been performed.
+
 ## Tests
 
 The suite uses mocks and does not contact Teleport or network devices:
