@@ -469,7 +469,8 @@ service subinterfaces consolidate under observed parents, with exact named
 bridge-domain object matching and explicit signature alternatives. Observation
 is unchanged. Missing/ambiguous parent/profile/domain evidence is unable to assess;
 unrelated parent groups are not applicable. Tests cover parent isolation, name
-variants, missing services, policy changes and spool/Excel recovery. The supplied
-NCS policy includes the requested signature and known provider requirements but
-marks its baseline incomplete pending the remaining exact production service
-identities; satisfying that partial baseline cannot report full compliance.
+variants, missing services, policy changes and spool/Excel recovery. The default
+NCS policy now contains all 51 supplied bridge-domain identities and marks the
+baseline complete. Tests cover a fully compliant baseline, each required identity
+omitted from the database or a matching parent, both LBB case alternatives, and
+unrelated parent isolation. Trigger semantics and generic evaluation are unchanged.

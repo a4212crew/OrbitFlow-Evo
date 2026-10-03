@@ -22,6 +22,11 @@ OTHER = "TenGigE0/0/0/19"
 def policy_data():
     data = deepcopy(POLICY_DATA)
     rule = data["service_rules"][0]
+    # Small custom baseline keeps generic evaluator tests independent of defaults.
+    rule["required"] = deepcopy(rule["signature"][:2]) + [
+        [{"field": "object_id", "value": "LEAPTEL-PPPoE/LEAPTEL-PPPoE"}],
+        [{"field": "object_id", "value": "URL-PPPOE/URL-PPPOE"}],
+    ]
     rule["required"].append([{"field": "object_id", "value": "TEST/RSVD-RSP0"}])
     rule["baseline_complete"] = True
     return data
@@ -125,12 +130,14 @@ def test_order_does_not_change_findings_and_routed_units_do_not_contribute():
     assert evaluate(records, replace(vlans, interfaces=profiles))[1]["status"] == "non_compliant"
 
 
-def test_old_policy_and_incomplete_default_are_explicit():
+def test_old_policy_and_incomplete_custom_baseline_are_explicit():
     records, vlans = snapshot()
     old = policy_data()
     del old["service_rules"]
     assert all(f["reason"] == "service_policy_unavailable" for f in evaluate(records, vlans, old))
-    assert all(f["reason"] == "service_baseline_incomplete" for f in evaluate(records, vlans, POLICY_DATA))
+    incomplete = policy_data()
+    incomplete["service_rules"][0]["baseline_complete"] = False
+    assert all(f["reason"] == "service_baseline_incomplete" for f in evaluate(records, vlans, incomplete))
     assert evaluate(records, None)[0]["reason"] == "vlan_collection_unavailable"
     assert evaluate(None, vlans)[1]["status"] == "unable_to_assess"
 
@@ -174,3 +181,64 @@ def test_service_findings_spool_excel_recovery_and_secret_exclusion(tmp_path, mo
     finally:
         workbook.close()
 
+# Independent representation of the supplied observation, not derived from policy.
+NCS_NAMES = (
+    "IQNET-PPPOE", "LBB-PPPoE", "LEAPTEL-PPPoE",
+    *(f"RSVD-RSP{i}" for i in range(38)), "SPIRIT-PPPOE",
+    *(f"SUPERLOOP{i}-PPPOE" for i in range(1, 7)), "URL-PPPOE",
+)
+NCS_IDENTITIES = tuple(f"{name}/{name}" for name in NCS_NAMES) + (
+    "VLAN545/BD_VLAN545", "VLAN745/BD_VLAN745",
+)
+
+
+def ncs_snapshot(*, omitted=None, lbb="LBB-PPPoE", database_missing=False):
+    identities = tuple(identity.replace("LBB-PPPoE", lbb) for identity in NCS_IDENTITIES)
+    objects = tuple(VlanObject("bridge_domain", identity, domain_id=identity.split("/")[1])
+                    for identity in identities if not (database_missing and identity == omitted))
+    records, profiles = [], []
+    for parent, selected in ((PARENT, [o for o in objects if o.object_id != omitted]),
+                             (OTHER, [o for o in objects if o.domain_id == "IQNET-PPPOE"])):
+        records.append(replace(interface(parent), platform="cisco_xr"))
+        profiles.append(InterfaceVlanObservation(parent, port_type="routed"))
+        for index, obj in enumerate(selected, 1):
+            name = f"{parent}.{index}"
+            records.append(replace(interface(name), platform="cisco_xr"))
+            profiles.append(InterfaceVlanObservation(name, port_type="service",
+                                                     bridge_domains=(obj.domain_id,)))
+    return records, replace(state(), platform="cisco_xr", objects=objects, interfaces=tuple(profiles))
+
+
+@pytest.mark.parametrize("lbb", ["LBB-PPPoE", "LBB-PPPOE"])
+def test_complete_supplied_default_ncs_baseline(lbb):
+    records, vlans = ncs_snapshot(lbb=lbb)
+    rule = parse_policy(POLICY_DATA).service_rules[0]
+    assert rule.baseline_complete
+    assert len(rule.required) == len(NCS_IDENTITIES) == 51
+    assert {group[0].field for group in rule.required} == {"object_id"}
+    assert {selector.value for group in rule.required for selector in group} == (
+        set(NCS_IDENTITIES) | {"LBB-PPPOE/LBB-PPPOE"})
+    findings = evaluate(records, vlans, POLICY_DATA)
+    assert [f["status"] for f in findings] == ["compliant", "compliant", "not_applicable"]
+    assert all(not f["missing_objects"] for f in findings)
+
+
+@pytest.mark.parametrize("omitted", NCS_IDENTITIES)
+@pytest.mark.parametrize("database_missing", [False, True])
+def test_each_default_ncs_identity_is_required(omitted, database_missing):
+    records, vlans = ncs_snapshot(omitted=omitted, database_missing=database_missing)
+    findings = evaluate(records, vlans, POLICY_DATA)
+    group = next(group for group in parse_policy(POLICY_DATA).service_rules[0].required
+                 if any(selector.value == omitted for selector in group))
+    missing = [[{"field": selector.field, "value": selector.value} for selector in group]]
+    assert findings[0]["status"] == ("non_compliant" if database_missing else "compliant")
+    assert findings[0]["missing_objects"] == (missing if database_missing else [])
+    # Losing a mandatory trigger makes this parent out of scope, as before.
+    triggered = omitted not in ("LBB-PPPoE/LBB-PPPoE", "VLAN545/BD_VLAN545")
+    assert findings[1]["status"] == ("non_compliant" if triggered else "not_applicable")
+    assert findings[1]["missing_objects"] == (missing if triggered else [])
+    assert findings[2]["interface"] == OTHER
+    assert findings[2]["status"] == "not_applicable"
+    assert findings == evaluate(list(reversed(records)), replace(
+        vlans, objects=tuple(reversed(vlans.objects)),
+        interfaces=tuple(reversed(vlans.interfaces))), POLICY_DATA)

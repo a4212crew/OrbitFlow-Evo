@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_id": "isp-vlan-mvp-v2",
+  "policy_id": "isp-vlan-mvp-v3",
   "database": {
     "rule_id": "required-forwarding-domains",
     "object_types": [
@@ -68,18 +68,18 @@
       "required": [
         [
           {
-            "field": "domain_id",
-            "value": "LBB-PPPoE"
-          },
-          {
-            "field": "domain_id",
-            "value": "LBB-PPPOE"
+            "field": "object_id",
+            "value": "IQNET-PPPOE/IQNET-PPPOE"
           }
         ],
         [
           {
             "field": "object_id",
-            "value": "VLAN545/BD_VLAN545"
+            "value": "LBB-PPPoE/LBB-PPPoE"
+          },
+          {
+            "field": "object_id",
+            "value": "LBB-PPPOE/LBB-PPPOE"
           }
         ],
         [
@@ -91,11 +91,293 @@
         [
           {
             "field": "object_id",
+            "value": "RSVD-RSP0/RSVD-RSP0"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP1/RSVD-RSP1"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP2/RSVD-RSP2"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP3/RSVD-RSP3"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP4/RSVD-RSP4"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP5/RSVD-RSP5"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP6/RSVD-RSP6"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP7/RSVD-RSP7"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP8/RSVD-RSP8"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP9/RSVD-RSP9"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP10/RSVD-RSP10"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP11/RSVD-RSP11"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP12/RSVD-RSP12"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP13/RSVD-RSP13"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP14/RSVD-RSP14"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP15/RSVD-RSP15"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP16/RSVD-RSP16"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP17/RSVD-RSP17"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP18/RSVD-RSP18"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP19/RSVD-RSP19"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP20/RSVD-RSP20"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP21/RSVD-RSP21"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP22/RSVD-RSP22"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP23/RSVD-RSP23"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP24/RSVD-RSP24"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP25/RSVD-RSP25"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP26/RSVD-RSP26"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP27/RSVD-RSP27"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP28/RSVD-RSP28"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP29/RSVD-RSP29"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP30/RSVD-RSP30"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP31/RSVD-RSP31"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP32/RSVD-RSP32"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP33/RSVD-RSP33"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP34/RSVD-RSP34"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP35/RSVD-RSP35"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP36/RSVD-RSP36"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "RSVD-RSP37/RSVD-RSP37"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "SPIRIT-PPPOE/SPIRIT-PPPOE"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "SUPERLOOP1-PPPOE/SUPERLOOP1-PPPOE"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "SUPERLOOP2-PPPOE/SUPERLOOP2-PPPOE"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "SUPERLOOP3-PPPOE/SUPERLOOP3-PPPOE"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "SUPERLOOP4-PPPOE/SUPERLOOP4-PPPOE"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "SUPERLOOP5-PPPOE/SUPERLOOP5-PPPOE"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "SUPERLOOP6-PPPOE/SUPERLOOP6-PPPOE"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
             "value": "URL-PPPOE/URL-PPPOE"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "VLAN545/BD_VLAN545"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "VLAN745/BD_VLAN745"
           }
         ]
       ],
-      "baseline_complete": false
+      "baseline_complete": true
     }
   ]
 }

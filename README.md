@@ -266,11 +266,14 @@ Missing parents/profiles or absent/ambiguous domain joins are unable to assess.
 
 The supplied XR signature is (`LBB-PPPoE` OR `LBB-PPPOE`) AND
 `VLAN545/BD_VLAN545` AND (`LEAPTEL-PPPoE/LEAPTEL-PPPoE` OR
-`URL-PPPOE/URL-PPPOE`). Its known requirements include both provider identities.
-**The remaining production NCS named baseline has not been supplied.** Add its
-exact identities to `required` and set `baseline_complete` to `true` once complete.
-With the supplied `false` value, missing known requirements are non-compliant,
-but satisfying them yields `unable_to_assess` / `service_baseline_incomplete`.
+`URL-PPPOE/URL-PPPOE`). The default complete NCS baseline requires 51
+bridge-domain identities: IQNET-PPPOE, LBB-PPPoE (or LBB-PPPOE), LEAPTEL-PPPoE,
+RSVD-RSP0 through RSVD-RSP37, SPIRIT-PPPOE, SUPERLOOP1-PPPOE through
+SUPERLOOP6-PPPOE, and URL-PPPOE (each with matching bridge-group/domain names),
+plus `VLAN545/BD_VLAN545` and `VLAN745/BD_VLAN745`. These exact identities are
+listed in the external policy with `baseline_complete: true`. A matching parent
+must carry the entire baseline to be compliant; missing identities are reported
+as non-compliant. The database rule requires the same complete set device-wide.
 Unrelated parent groups remain not applicable. Policies without an XR entry
 produce `service_policy_unavailable` for XR rather than using the trunk rule.
 Missing services are reported as typed identity alternative groups in
