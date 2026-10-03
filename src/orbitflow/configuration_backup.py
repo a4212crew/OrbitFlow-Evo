@@ -26,6 +26,8 @@ from orbitflow.transport import (
     TransportConfigurationError, UnsupportedPlatformError, DeviceConnectionError,
 )
 from orbitflow.vendors.common import DeviceCLI, InteractiveCLIError
+from orbitflow.vendors.privilege import MissingEnableSecret, EnableAuthenticationFailed
+from orbitflow.transport.exceptions import ConnectionRetryExhausted, ConnectionCleanupError
 
 
 FAILURE_COLUMNS = ('Hostname', 'IP Address', 'Equipment Type', 'Platform',
@@ -52,6 +54,10 @@ def failure_reason(stage, error=None):
         chain.append(error)
         error = error.__cause__
     mappings = (
+        (MissingEnableSecret, 'Enable secret is required for privileged EXEC.'),
+        (EnableAuthenticationFailed, 'Enable authentication failed.'),
+        (ConnectionRetryExhausted, 'Transient connection failure after two attempts.'),
+        (ConnectionCleanupError, 'Connection cleanup failed; retry suppressed.'),
         (AuthenticationException, 'Authentication failed.'),
         (TimeoutError, 'Operation timed out.'),
         (UnsupportedConfigurationPlatform, 'Configuration capture is unsupported for the resolved platform.'),
@@ -138,6 +144,9 @@ def run_backup(targets, transport_config, *, inventory_path='data/live_validatio
                if key in {'username', 'password', 'secret', 'token', 'otp', 'private_key'}
                and isinstance(value, str) and value}
     pattern = re.compile('|'.join(re.escape(v) for v in sorted(secrets, key=lambda v: (-len(v), v)))) if secrets else None
+    capture_secrets = {target.get(key) for target in targets for key in ('password', 'secret')
+                       if isinstance(target.get(key), str) and target[key]}
+    capture_pattern = re.compile('|'.join(re.escape(v) for v in sorted(capture_secrets, key=lambda v: (-len(v), v)))) if capture_secrets else None
     def clean(value):
         text = sanitize_text(value)
         return pattern.sub('[REDACTED]', text) if pattern else text
@@ -168,7 +177,7 @@ def run_backup(targets, transport_config, *, inventory_path='data/live_validatio
                     raise ValueError('Missing required target field')
                 ip_address(target['management_ip'])
                 stage = 'connect'
-                with connect_device(target['management_ip'], DeviceCredentials(target['username'], target['password']), transport_config) as session:
+                with connect_device(target['management_ip'], DeviceCredentials(target['username'], target['password'], secret=target.get('secret')), transport_config) as session:
                     stage = 'inventory'
                     with DeviceCLI(session) as cli:
                         context = DeviceInventoryResolver(store, sanitize_fact=clean).resolve(
@@ -177,6 +186,10 @@ def run_backup(targets, transport_config, *, inventory_path='data/live_validatio
                         content = ConfigurationService(timeout=timeout).collect(session, context, cli=cli)
                     stage = 'disconnect'
                 stage = 'write'
+                # Captures retain configuration, but never supplied login/enable
+                # credentials, even if a device echoes them into the response.
+                if capture_pattern:
+                    content = capture_pattern.sub('[REDACTED]', content)
                 writer.write(clean(context.hostname), context.platform, content)
                 return None
             except Exception as exc:
@@ -188,6 +201,13 @@ def run_backup(targets, transport_config, *, inventory_path='data/live_validatio
             row = (failure_row(targets[outcome.position - 1], None, 'worker')
                    if outcome.error_category else outcome.value)
             category = row[4] + '_failed' if row else ''
+            if row:
+                category = {
+                    'Enable secret is required for privileged EXEC.': 'enable_secret_missing',
+                    'Enable authentication failed.': 'enable_authentication_failed',
+                    'Transient connection failure after two attempts.': 'connection_retry_exhausted',
+                    'Connection cleanup failed; retry suppressed.': 'connection_cleanup_failed',
+                }.get(row[-1], category)
             if category:
                 failed += 1
                 cells = []

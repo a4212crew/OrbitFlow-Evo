@@ -78,7 +78,7 @@ def _run_batch_validation(
         management_ip = target["management_ip"]
         resolver = DeviceInventoryResolver(store)
         try:
-            credentials = DeviceCredentials(target["username"], target["password"])
+            credentials = DeviceCredentials(target["username"], target["password"], secret=target.get("secret"))
             with connect_device(
                 management_ip, credentials, transport_config
             ) as session:

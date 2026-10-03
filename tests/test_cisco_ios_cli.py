@@ -54,9 +54,9 @@ def test_detect_prompt_supports_privileged_and_unprivileged_prompts(output, expe
 def test_command_execution_disables_paging_and_tracks_changed_prompt():
     channel = FakeChannel(
         [
-            b"Banner\r\nrouter>",
-            b"terminal length 0\r\nrouter>",
-            b"show version\r\nCisco IOS XE Software, Version 17.12\r\nrouter#",
+            b"Banner\r\nrouter#",
+            b"terminal length 0\r\nrouter#",
+            b"show version\r\nCisco IOS XE Software, Version 17.12\r\nrouter-new#",
         ]
     )
     cli = CiscoIOSCLI(make_session(channel), timeout=2)
@@ -65,7 +65,7 @@ def test_command_execution_disables_paging_and_tracks_changed_prompt():
 
     assert channel.sent == [b"\n", b"terminal length 0\n", b"show version\n"]
     assert result == "Cisco IOS XE Software, Version 17.12"
-    assert cli.prompt == "router#"
+    assert cli.prompt == "router-new#"
     assert channel.timeouts and all(timeout > 0 for timeout in channel.timeouts)
 
 

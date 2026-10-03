@@ -9,6 +9,8 @@ from contextlib import closing, contextmanager
 from typing import Any, Callable, Iterator
 
 from orbitflow.transport import DeviceSession
+from orbitflow.vendors.privilege import ensure_privileged
+from orbitflow.vendors.prompts import is_structural_prompt
 
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
@@ -47,6 +49,10 @@ class PromptCLI:
         try:
             self._channel.sendall(b"\n")
             _, self.prompt = self._read_until_prompt(timeout)
+            if platform_name in {"identification", "Cisco", "Ubiquiti EdgeSwitch"}:
+                self.prompt = ensure_privileged(
+                    self._channel, self.prompt, getattr(session, "secret", None), timeout
+                )
             output = self.run_command(paging_command, timeout=timeout)
             if rejected(output):
                 raise InteractiveCLIError(
@@ -67,7 +73,8 @@ class PromptCLI:
         matches = list(self._prompt_re.finditer(normalized))
         if not matches or normalized[matches[-1].end() :].strip():
             return None
-        return matches[-1].group(1).strip()
+        prompt = matches[-1].group(1).strip()
+        return prompt if is_structural_prompt(prompt) else None
 
     def _read_until_prompt(
         self, timeout: float, *, command: str | None = None, prompt: str = "",

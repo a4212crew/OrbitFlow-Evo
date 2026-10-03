@@ -23,3 +23,19 @@ class TunnelError(TransportError):
 
 class DeviceConnectionError(TransportError):
     """Raised when SSH connection to the target device fails."""
+
+
+class ConnectionRetryExhausted(DeviceConnectionError):
+    """Both approved transient connection attempts failed."""
+
+
+class TransientSSHHandshakeError(DeviceConnectionError):
+    """SSH session disappeared during initial remote-server-key retrieval."""
+
+
+class TunnelTimeout(TunnelError, TimeoutError):
+    """The local forwarding socket did not become ready within its deadline."""
+
+
+class ConnectionCleanupError(TransportError):
+    """Failed-start cleanup was incomplete; starting another attempt is unsafe."""

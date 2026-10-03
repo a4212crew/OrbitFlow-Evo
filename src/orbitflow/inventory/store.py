@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import time
 from functools import wraps
 from threading import RLock
 from weakref import WeakValueDictionary
@@ -119,10 +121,28 @@ class JsonInventoryStore:
     def _write(self, data: dict[str, object]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_name(self.path.name + ".tmp")
-        with temporary.open("w", encoding="utf-8") as handle:
-            json.dump(data, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        os.replace(temporary, self.path)
+        try:
+            with temporary.open("w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            # Keep the transaction lock and the same complete temporary file.
+            # Windows scanners/sync clients can briefly deny atomic replacement.
+            for attempt in range(4):
+                try:
+                    os.replace(temporary, self.path)
+                    break
+                except OSError as exc:
+                    access_denied = isinstance(exc, PermissionError) or getattr(exc, "winerror", None) in (5, 32, 33)
+                    if sys.platform != "win32" or not access_denied or attempt == 3:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
+        finally:
+            # Cleanup is best effort if Windows also locks the temporary file;
+            # never replace the original persistence failure with cleanup noise.
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _serial_key(vendor: str, serial: str) -> str:

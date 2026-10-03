@@ -10,6 +10,8 @@ from typing import Any, Iterator
 
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.common import DeviceCLI, open_prompt_cli
+from orbitflow.vendors.privilege import ensure_privileged
+from orbitflow.vendors.prompts import is_structural_prompt
 
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _PROMPT = re.compile(r"(?m)^([^\r\n]+[>#])[ \t]*$")
@@ -38,7 +40,8 @@ def detect_prompt(output: str) -> str | None:
     matches = list(_PROMPT.finditer(normalized))
     if not matches or normalized[matches[-1].end() :].strip():
         return None
-    return matches[-1].group(1).strip()
+    prompt = matches[-1].group(1).strip()
+    return prompt if is_structural_prompt(prompt) else None
 
 
 def extract_ios_hostname(prompt: str) -> str:
@@ -87,6 +90,9 @@ class CiscoIOSCLI:
         try:
             self._channel.sendall(b"\n")
             _, self.prompt = self._read_until_prompt(timeout)
+            self.prompt = ensure_privileged(
+                self._channel, self.prompt, getattr(session, "secret", None), timeout
+            )
             setup_output = self.run_command("terminal length 0", timeout=timeout)
             if _REJECTED_COMMAND.search(setup_output):
                 raise CiscoIOSCLIError(

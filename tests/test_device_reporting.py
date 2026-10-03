@@ -561,7 +561,7 @@ def test_connection_traceback_is_file_only(tmp_path, monkeypatch, capsys, system
         assert dependency.propagate is propagate
         assert dependency.level == previous_level
         assert capsys.readouterr() == ("", "")
-        assert "[1/1] 192.0.2.1: connect failed (DeviceConnectionError)" in output.getvalue()
+        assert "[1/1] 192.0.2.1: connect failed (ConnectionRetryExhausted)" in output.getvalue()
         assert f"stage failures: 1; report: {path}" in output.getvalue()
         logs = "".join(p.read_text() for p in (tmp_path / "logs").rglob("*.log"))
         assert secret not in logs + output.getvalue()
@@ -569,7 +569,7 @@ def test_connection_traceback_is_file_only(tmp_path, monkeypatch, capsys, system
         records = [json.loads(line) for line in transport_log.read_text().splitlines()]
         assert records[0]["error_category"] == "SSHDiagnostic"
         assert [item["category"] for item in records[-1]["exception_chain"]] == [
-            "DeviceConnectionError", "TimeoutError"]
+            "ConnectionRetryExhausted", "DeviceConnectionError", "TimeoutError"]
         assert records[-1]["exception_chain"][0]["frames"]
     finally:
         handler.close()

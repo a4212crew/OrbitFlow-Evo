@@ -4,10 +4,11 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 REQUIRED_COLUMNS = ("management_ip", "username", "password")
+OPTIONAL_COLUMNS = ("secret",)
 
 
 def load_targets(path: str | Path, *, isolate_invalid: bool = False) -> list[dict[str, str]]:
-    """Load required fields, ignoring future-compatible columns.
+    """Load required fields and optional secret, ignoring unknown columns.
 
     By default incomplete rows raise, preserving inventory validation behavior.
     Batch consumers may retain them for per-row error recording instead.
@@ -35,13 +36,14 @@ def load_targets(path: str | Path, *, isolate_invalid: bool = False) -> list[dic
                 name: (
                     ""
                     if headers[name] >= len(row) or row[headers[name]] is None
-                    else str(row[headers[name]]).strip()
+                    else (str(row[headers[name]]) if name == "secret"
+                          else str(row[headers[name]]).strip())
                 )
-                for name in REQUIRED_COLUMNS
+                for name in (*REQUIRED_COLUMNS, *OPTIONAL_COLUMNS) if name in headers
             }
             if not any(values.values()):
                 continue
-            if not all(values.values()) and not isolate_invalid:
+            if not all(values[name] for name in REQUIRED_COLUMNS) and not isolate_invalid:
                 raise ValueError(f"Excel row {row_number} has an empty required field")
             targets.append(values)
         if not targets:

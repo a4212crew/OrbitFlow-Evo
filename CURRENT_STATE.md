@@ -48,7 +48,7 @@ Detailed model: `docs/architecture/device-capability-oss-model.md`.
 `orbitflow.execution.execute_devices` provides bounded per-device workers,
 dynamic refill, isolated safe outcomes, copied logging context, synchronized
 progress, and input-ordered aggregation. `orbitflow.toml` configures
-`execution.max_concurrent_devices` (default 10); limit 1 runs sequentially.
+`execution.max_concurrent_devices` (default 5); limit 1 runs sequentially.
 Inventory refresh/export and Interface/VLAN reporting both use this layer.
 Workers own their resolver/context/session/CLI and per-device capabilities;
 Interface and VLAN collection remain sequential within one device. Workbook
@@ -88,12 +88,12 @@ returns normalized `DeviceContext` stable facts.
 
 Current behaviour:
 - deterministic detection of Cisco IOS, IOS-XE, IOS-XR, Huawei VRP, and Ubiquiti EdgeSwitch;
-- EdgeSwitch hostname extraction accepts parenthesized exec prompts ending in `#` or `>` with optional whitespace before the terminator, and retains simple `hostname#` / `hostname>` support (deterministically tested);
+- EdgeSwitch hostname extraction structurally accepts parenthesized exec prompts ending in `#` or `>`, including optional nested annotations of arbitrary text, normalizes to the base hostname, rejects malformed parentheses, and retains simple `hostname#` / `hostname>` support (deterministically tested);
 - family/profile selection for ASR920, C3850, C3750X, ME3600X, NCS540, NE05E, and EdgeSwitch;
 - ME3600X remains `cisco_ios` while retaining an EVC-capable profile;
 - serial-first physical identity reconciliation across management-IP changes;
 - likely replacement/reassignment and hostname-collision event reporting, with no unsafe merge when serial evidence is absent;
-- atomic latest JSON snapshots containing stable facts only and no credentials;
+- atomic latest JSON snapshots containing stable facts only and no credentials; Windows access-denied/sharing-lock replacement failures receive three short retries (0.3 seconds total), with best-effort temp cleanup and persistent failures still surfaced;
 - failed attempts preserve the last successful facts while updating sanitized attempt status and error metadata;
 - explicit controlled platform override support;
 - returned context is suitable for capability and workflow consumers without duplicating detection logic.
@@ -372,3 +372,47 @@ Relevant skill: `.agents/skills/device-inventory/SKILL.md`.
 `scripts/device_configuration_backup.py` captures current configuration for the existing Excel/list targets on Cisco IOS, IOS-XE, IOS-XR, Huawei VRP, and Ubiquiti EdgeSwitch. It reuses shared target loading, inventory identity, bounded execution, transport, and one DeviceCLI per device. Captures go directly to a unique UTC-dated folder with sanitized `<hostname>-<platform>.txt` names and collision suffixes. Sensitive text never enters logs or result spools; custom run folders carry Git-ignore protection. Failures are isolated by target and resources close on all paths. Deterministic coverage includes command selection, content preservation, cleanup, filename collisions, secret exclusion, and batch failure isolation. Live backup validation remains operator-controlled and has not been performed.
 Configuration capture regression coverage now includes configuration lines exactly matching the learned exec prompt at SSH receive boundaries. Newline-terminated matches remain body text; unterminated matches require one second of receive quiescence. A longer pause at an unterminated embedded prompt remains ambiguous; no live-device validation was performed.
 Each configuration backup run includes `failed_devices.xlsx`, streamed through the executor outcome consumer with one sanitized row per failed target. Resolved hostname, management IP, hardware model (family fallback), and normalized platform are retained when available; pre-resolution failures preserve the input IP without invented identity. Fixed exception-type reasons distinguish authentication, timeout, connection/transport, unsupported capture, rejected/empty output, and write failures, with stage-level fallbacks; exception text and configuration content are excluded. Deterministic tests cover mixed outcomes, all failure stages, literal Excel cells, and secret exclusion; no live validation was performed.
+
+Shared device access accepts optional Excel `Secret` / list `secret` credentials.
+IOS/IOS-XE and EdgeSwitch user EXEC sessions perform one private enable exchange
+and structurally verify the same base hostname and privileged `#` before
+setup/observation, allowing supported prompt spacing and EdgeSwitch annotation
+changes during enable. The bounded enable state machine tolerates fragmented
+command echoes and repeated same-host user EXEC prompts before and after the
+single secret submission. It rejects changed identity, malformed complete
+prompts, explicit rejection, repeated password challenges, timeout, and channel
+close without exposing exchange text. Deterministic regressions cover both CLI
+paths and IOS/IOS-XE/EdgeSwitch; operator-controlled live retesting is pending.
+Already privileged
+sessions and Huawei/IOS-XR prompt paths retain their existing behavior. Missing
+and failed enable authentication have fixed safe failure reasons. Credential
+representations omit passwords/keys/secrets; enable echoes are discarded and
+known supplied passwords/secrets are removed from backup captures. Inventory
+facts and retained result spools exclude enable credentials.
+
+Shared transport start admission is paced per execution run by
+`execution.connection_start_interval` (default 1.0 seconds; 0 disables pacing),
+independently of `max_concurrent_devices`. One retry is allowed only for typed
+transient connection-start failures, with fresh resources after successful
+cleanup and a fixed `execution.connection_retry_delay` (default 5.0 seconds),
+then normal start pacing. The default active-device limit is 5. These pressure
+reductions are deterministically tested; operator-controlled live retesting is
+pending. Authentication, privilege, command, parser, unsupported-platform, and
+unclassified SSH failures are not retried. Both OS transport architectures are
+preserved. Deterministic tests cover enable flows, annotation structure,
+concurrency/pacing, retry limits, cleanup and credential exclusion. These access
+changes have not been live-device validated.
+
+The bounded connection retry also recognizes Paramiko's lost-session exception
+at initial remote-server-key retrieval, using the raising site and rejecting any
+recorded authentication, host-key, or unclassified protocol failure. Arbitrary
+SSHException messages remain non-retryable. Deterministic Windows regressions
+cover recovery/exhaustion, cleanup before retry, and the retained Teleport socket
+path; this resilience revision has not been live-device validated.
+
+Shared and standalone Cisco prompt learning now validates supported prompt
+structure before accepting a final receive line, rejecting MOTD/banner separators
+and decorative text. Deterministic regressions cover combined and fragmented
+banner/prompt receives, inventory and command synchronization, Cisco location
+prefixes, Huawei views, nested EdgeSwitch annotations, enable flow, and cleanup.
+The prompt correction awaits operator-controlled live retesting.

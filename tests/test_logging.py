@@ -80,7 +80,7 @@ def test_transport_captures_dependency_noise_and_preserves_exception(tmp_path, m
         with pytest.raises(DeviceConnectionError) as caught:
             connect_device("192.0.2.1", DeviceCredentials("user", "synthetic-password"),
                            TransportConfig("proxy", "cluster", "bastion", "user"), system=system)
-    assert caught.value is error
+    assert caught.value.__cause__ is error
     assert (dependency.handlers, dependency.propagate, dependency.level) == previous
     assert not capsys.readouterr().err
     path = next((tmp_path / "transport").glob("*/transport.log"))
@@ -89,8 +89,8 @@ def test_transport_captures_dependency_noise_and_preserves_exception(tmp_path, m
     assert "synthetic-token" not in text
     records = [json.loads(line) for line in text.splitlines()]
     assert records[-1]["management_ip"] == "192.0.2.1"
-    assert records[-1]["error_category"] == "DeviceConnectionError"
-    assert records[-1]["exception_chain"][1]["category"] == "TimeoutError"
+    assert records[-1]["error_category"] == "ConnectionRetryExhausted"
+    assert records[-1]["exception_chain"][2]["category"] == "TimeoutError"
 
 
 def test_overlapping_connections_restore_only_after_last_exit(tmp_path, capsys):

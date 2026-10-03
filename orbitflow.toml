@@ -1,2 +1,4 @@
 [execution]
-max_concurrent_devices = 10
+max_concurrent_devices = 5
+connection_start_interval = 1.0
+connection_retry_delay = 5.0
