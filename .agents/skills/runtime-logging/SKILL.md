@@ -13,7 +13,7 @@ The current shared implementation is `orbitflow.logging`.
 
 ## File Layout
 
-Default layout:
+Target layout:
 
 ```text
 logs/<module>/YYYY-MM-DD/<name>.log
@@ -27,7 +27,7 @@ logs/transport/YYYY-MM-DD/transport.log
 logs/reporting/YYYY-MM-DD/interface_vlan_report.log
 ```
 
-Logs are runtime artifacts and remain ignored by Git.
+Logs are generated operational output and remain ignored by Git. This is the approved target layout; existing runtime defaults may remain on legacy paths until the dedicated migration is implemented.
 
 ## Ownership
 
