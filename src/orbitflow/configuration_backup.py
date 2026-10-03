@@ -130,8 +130,8 @@ class BackupWriter:
         return path
 
 
-def run_backup(targets, transport_config, *, inventory_path='data/live_validation/inventory.json',
-               backups_dir='backups', log_root='logs', output=None, clock=None,
+def run_backup(targets, transport_config, *, inventory_path='data/inventory/inventory.json',
+               backups_dir='outputs/backups/configuration', log_root='outputs/logs', output=None, clock=None,
                execution_config=None, timeout=60.0):
     """Consume shared list/Excel targets with bounded, isolated device workers.
 

@@ -190,12 +190,18 @@ Programmatic callers can pass the same target dictionaries to
 `orbitflow.reporting.run_report(targets, transport_config)`.
 
 One workbook is written at the end under
-`reports/device_interface_vlan_report_<UTC timestamp>.xlsx`, with `Interfaces`,
+`outputs/reports/interface_vlan/device_interface_vlan_report_<UTC timestamp>.xlsx`, with `Interfaces`,
 `VLAN_Database`, and `Run_Errors` sheets. Use `--reports-dir`, `--inventory-path`,
-and `--log-root` to override output locations. The inventory default remains
-`data/live_validation/inventory.json`. Reporting logs are written to
-`logs/reporting/YYYY-MM-DD/interface_vlan_report.log`; console output is a
-single completion summary including the failure count.
+`--spool-root`, and `--log-root` to override locations. The inventory default is
+`data/inventory/inventory.json`. The command's recoverable run spools use
+`outputs/runs/interface_vlan_report/<run-id>/`, independently of the reports directory.
+For programmatic `run_report()` calls, omitting `spool_root` or passing `None`
+uses `<reports_dir>/runs/<run-id>/` to keep spools local to the caller's report directory.
+Successful workbook export cleans up its spool; failed export retains it for retry.
+Legacy files are never moved or imported automatically; select them explicitly
+through overrides. Reporting logs are written to
+`outputs/logs/reporting/YYYY-MM-DD/interface_vlan_report.log`; console output
+includes stage progress and a completion summary with the failure count.
 
 Interface aliases join within each resolved device; subinterfaces remain
 separate. Multiple service observations use aligned lines in the detail columns
@@ -388,7 +394,10 @@ concurrency validation has been performed.
 
 Run `python scripts/device_configuration_backup.py devices.xlsx --proxy <proxy> --cluster <cluster> --bastion-host <host> --bastion-user <user>` after operator-controlled Teleport login. Input uses the existing `management_ip`, `username`, and `password` Excel columns. An optional `Secret` (case-insensitive) column supplies the enable credential; list targets use `secret`. Missing or blank secrets are allowed for devices already in privileged EXEC. IOS/IOS-XE and EdgeSwitch user EXEC prompts require the supplied secret; the shared CLI sends `enable`, answers one password prompt, and verifies privileged `#` before continuing. EdgeSwitch annotations such as `(HOSTNAME (arbitrary annotation)) >` are accepted and excluded from the normalized hostname. Optional `--config`, `--inventory-path`, `--log-root`, `--teleport-key-path`, and `--teleport-cert-path` follow the other batch scripts; `--timeout` defaults to 60 seconds per configuration command.
 
-The read-only workflow uses shared bounded device execution and one session/CLI per device. Cisco IOS/IOS-XE/IOS-XR and EdgeSwitch use `show running-config`; Huawei VRP uses `display current-configuration`, with existing platform paging setup. Each run creates one unique UTC-dated folder under `backups/` (override with `--backups-dir`). Successful captures are directly inside it as `<hostname>-<platform>.txt`, using resolved platform identifiers such as `cisco_xe`. Windows-invalid characters are replaced, and collisions receive numeric suffixes, including names differing only by case. Failed targets report their input position and failure stage while peers continue.
+The read-only workflow uses shared bounded device execution and one session/CLI per device. Cisco IOS/IOS-XE/IOS-XR and EdgeSwitch use `show running-config`; Huawei VRP uses `display current-configuration`, with existing platform paging setup. Each run creates one unique UTC-dated folder under `outputs/backups/configuration/` (override with `--backups-dir`). Successful captures are directly inside it as `<hostname>-<platform>.txt`, using resolved platform identifiers such as `cisco_xe`. Windows-invalid characters are replaced, and collisions receive numeric suffixes, including names differing only by case. Failed targets report their input position and failure stage while peers continue.
+
+Backup inventory defaults to `data/inventory/inventory.json` (`--inventory-path`);
+logs default to `outputs/logs/` (`--log-root`). Legacy files remain untouched.
 
 Backups contain sensitive configuration. Exact supplied login passwords and enable secrets are replaced with `[REDACTED]` in captures; other configuration content is preserved. Default output is Git-ignored; each run also includes a local ignore file for custom output roots. Store these files with operator-managed access controls and retention; never force-add them to Git. Logs and execution outcomes contain only status metadata, and configuration is never placed in result spools. Transport echo/final prompts are removed and terminal line endings normalized; configuration text, indentation, and blank lines are retained. No live backup validation has been performed.
 

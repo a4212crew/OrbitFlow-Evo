@@ -222,7 +222,7 @@ def test_entry_point_uses_shared_excel_loader(tmp_path, monkeypatch):
     assert script.main([str(path), '--proxy', 'proxy', '--cluster', 'cluster',
                         '--bastion-host', 'host', '--bastion-user', 'user']) == 'done'
     assert len(captured['targets']) == 2
-    assert captured['backups_dir'] == Path('backups')
+    assert captured['backups_dir'] == Path('outputs/backups/configuration')
     assert captured['timeout'] == 60
 
 @pytest.mark.parametrize('error_type', [RuntimeError, backup.AuthenticationException, TimeoutError, ConnectionError])

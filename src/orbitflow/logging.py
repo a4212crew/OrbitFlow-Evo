@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 from threading import RLock
 
-_root = ContextVar("orbitflow_log_root", default=Path("logs"))
+_root = ContextVar("orbitflow_log_root", default=Path("outputs/logs"))
 MAX_BYTES = 2 * 1024 * 1024
 BACKUP_COUNT = 3
 _writers_lock = RLock()

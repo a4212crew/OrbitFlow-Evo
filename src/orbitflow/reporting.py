@@ -116,10 +116,10 @@ def _with_header(columns, rows):
     yield from rows
 
 
-def run_report(targets, transport_config, *, inventory_path="data/live_validation/inventory.json",
-               reports_dir="reports", log_root="logs", output=None, clock=None,
+def run_report(targets, transport_config, *, inventory_path="data/inventory/inventory.json",
+               reports_dir="outputs/reports/interface_vlan", log_root="outputs/logs", output=None, clock=None,
                execution_config=None, spool_root=None):
-    """Accept the approved list of target dictionaries; isolate failures by stage."""
+    """Accept approved targets; isolate failures and default spools to reports_dir/runs."""
     output = output if output is not None else sys.stdout
     clock = clock or (lambda: datetime.now(timezone.utc))
     targets = list(targets)
@@ -137,7 +137,7 @@ def run_report(targets, transport_config, *, inventory_path="data/live_validatio
 
     started = clock()
     path = Path(reports_dir) / f"device_interface_vlan_report_{started.strftime('%Y%m%dT%H%M%S_%fZ')}.xlsx"
-    spool = ResultSpool.create(spool_root or Path(reports_dir) / "runs",
+    spool = ResultSpool.create(spool_root if spool_root is not None else Path(reports_dir) / "runs",
                                "interface_vlan_report", len(targets), clean=clean)
     failure_count = 0
     store = JsonInventoryStore(inventory_path)

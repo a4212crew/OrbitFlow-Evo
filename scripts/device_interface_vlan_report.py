@@ -16,9 +16,10 @@ def main(argv=None):
         parser.add_argument(f"--{option}", required=True)
     parser.add_argument("--teleport-key-path", type=Path)
     parser.add_argument("--teleport-cert-path", type=Path)
-    parser.add_argument("--inventory-path", type=Path, default=Path("data/live_validation/inventory.json"))
-    parser.add_argument("--reports-dir", type=Path, default=Path("reports"))
-    parser.add_argument("--log-root", type=Path, default=Path("logs"))
+    parser.add_argument("--inventory-path", type=Path, default=Path("data/inventory/inventory.json"))
+    parser.add_argument("--reports-dir", type=Path, default=Path("outputs/reports/interface_vlan"))
+    parser.add_argument("--log-root", type=Path, default=Path("outputs/logs"))
+    parser.add_argument("--spool-root", type=Path, default=Path("outputs/runs/interface_vlan_report"))
     parser.add_argument("--config", type=Path, default=Path("orbitflow.toml"))
     args = parser.parse_args(argv)
     config = TransportConfig(
@@ -29,6 +30,7 @@ def main(argv=None):
     return run_report(
         load_targets(args.excel_path, isolate_invalid=True), config,
         execution_config=load_execution_config(args.config),
+        spool_root=args.spool_root,
         inventory_path=args.inventory_path, reports_dir=args.reports_dir, log_root=args.log_root,
     )
 

@@ -339,6 +339,13 @@ Codex and controller pytest temporary files use unique task/purpose-isolated `or
 
 ## Batch Interface/VLAN Reporting
 
+Production defaults use `data/inventory/inventory.json`, workbooks under
+`outputs/reports/interface_vlan/`, recoverable spools under
+`outputs/runs/interface_vlan_report/`, and logs under `outputs/logs/`.
+CLI and programmatic path overrides remain supported; legacy files are untouched.
+Programmatic `run_report()` calls with `spool_root=None` (including omission)
+keep recoverable spools under `<reports_dir>/runs/`; the CLI supplies the production spool default explicitly.
+
 `scripts/device_interface_vlan_report.py` composes the shared Excel target loader,
 inventory resolver, InterfaceService, and VlanService in a bounded concurrent
 read-only batch. Inventory and both capabilities reuse one established session per target.
@@ -378,6 +385,11 @@ Relevant skill: `.agents/skills/device-inventory/SKILL.md`.
 
 
 ## Device Configuration Backup
+
+Production defaults use `data/inventory/inventory.json`, unique backup run folders
+under `outputs/backups/configuration/`, and logs under `outputs/logs/`.
+The shared logging default also uses `outputs/logs/`; explicit roots still work.
+Per-run backup ignore protection and all capture/security behavior are preserved.
 
 `scripts/device_configuration_backup.py` captures current configuration for the existing Excel/list targets on Cisco IOS, IOS-XE, IOS-XR, Huawei VRP, and Ubiquiti EdgeSwitch. It reuses shared target loading, inventory identity, bounded execution, transport, and one DeviceCLI per device. Captures go directly to a unique UTC-dated folder with sanitized `<hostname>-<platform>.txt` names and collision suffixes. Sensitive text never enters logs or result spools; custom run folders carry Git-ignore protection. Failures are isolated by target and resources close on all paths. Deterministic coverage includes command selection, content preservation, cleanup, filename collisions, secret exclusion, and batch failure isolation. Live backup validation remains operator-controlled and has not been performed.
 Configuration capture regression coverage now includes configuration lines exactly matching the learned exec prompt at SSH receive boundaries. Newline-terminated matches remain body text; unterminated matches require one second of receive quiescence. A longer pause at an unterminated embedded prompt remains ambiguous; no live-device validation was performed.

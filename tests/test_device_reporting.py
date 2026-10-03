@@ -203,7 +203,7 @@ def test_concurrent_report_owns_device_resources_and_aggregates_on_caller(tmp_pa
     targets = [{'management_ip': f'192.0.2.{i}', 'username': 'synthetic-user',
                 'password': 'synthetic-password'} for i in (1, 2)]
     path = reporting.run_report(targets, CONFIG, inventory_path=tmp_path / 'inventory.json',
-                                reports_dir=tmp_path, log_root=tmp_path / 'logs',
+                                reports_dir=tmp_path, spool_root=tmp_path / 'runs', log_root=tmp_path / 'logs',
                                 output=StringIO(), execution_config=ExecutionConfig(2))
     sessions = [value for event, value in events if event == 'inventory']
     assert len({id(session) for session in sessions}) == 2
@@ -230,7 +230,7 @@ def test_batch_isolation_session_context_and_secrets(tmp_path, monkeypatch, stag
     monkeypatch.setattr(reporting, 'write_workbook', writer)
     output = StringIO()
     path = reporting.run_report(targets, CONFIG, inventory_path=tmp_path / 'inventory.json',
-                                reports_dir=tmp_path, log_root=tmp_path / 'logs', output=output, clock=lambda: NOW)
+                                reports_dir=tmp_path, spool_root=tmp_path / 'runs', log_root=tmp_path / 'logs', output=output, clock=lambda: NOW)
     assert writer.call_count == 1
     console = output.getvalue()
     assert 'Interface/VLAN batch started: 2 devices' in console
@@ -290,7 +290,7 @@ def test_reporting_failure_logs_safe_exception_chain(tmp_path, monkeypatch, stag
     output = StringIO()
 
     def run():
-        return reporting.run_report(targets, CONFIG, reports_dir=tmp_path,
+        return reporting.run_report(targets, CONFIG, reports_dir=tmp_path, spool_root=tmp_path / 'runs',
                                     log_root=tmp_path / 'logs', output=output, clock=lambda: NOW)
 
     if stage == 'workbook':
@@ -334,7 +334,7 @@ def test_shared_loader_preserves_legacy_validation_and_isolates_bad_row(tmp_path
         load_targets(path)
     targets = load_targets(path, isolate_invalid=True)
     events, _ = install_fakes(monkeypatch)
-    result = reporting.run_report(targets, CONFIG, reports_dir=tmp_path / 'reports',
+    result = reporting.run_report(targets, CONFIG, reports_dir=tmp_path / 'reports', spool_root=tmp_path / 'runs',
                                  log_root=tmp_path / 'logs', output=StringIO(), clock=lambda: NOW)
     workbook = load_workbook(result)
     assert workbook['Run_Errors']['C2'].value == 'input'
@@ -356,7 +356,7 @@ def test_1500_device_batch_writes_once(tmp_path, monkeypatch):
         return original(path, interfaces, database, errors, **kwargs)
     writer = Mock(side_effect=streaming_writer)
     monkeypatch.setattr(reporting, 'write_workbook', writer)
-    path = reporting.run_report(targets, CONFIG, reports_dir=tmp_path, log_root=tmp_path / 'logs',
+    path = reporting.run_report(targets, CONFIG, reports_dir=tmp_path, spool_root=tmp_path / 'runs', log_root=tmp_path / 'logs',
                                 output=StringIO(), clock=lambda: NOW, execution_config=ExecutionConfig(5))
     assert writer.call_count == 1
     workbook = load_workbook(path, read_only=True)
@@ -500,7 +500,7 @@ def test_progress_is_flushed_before_each_stage(tmp_path, monkeypatch):
     check(reporting, 'write_workbook', 'Interface/VLAN batch: workbook generation')
     reporting.run_report(
         [{'management_ip': '192.0.2.1', 'username': 'synthetic-user', 'password': 'synthetic-password'}],
-        CONFIG, reports_dir=tmp_path, log_root=tmp_path / 'logs', output=output, clock=lambda: NOW)
+        CONFIG, reports_dir=tmp_path, spool_root=tmp_path / 'runs', log_root=tmp_path / 'logs', output=output, clock=lambda: NOW)
     assert output.flushed == output.getvalue()
 
 
@@ -511,7 +511,7 @@ def test_progress_input_normalization_failures_and_empty_batch(tmp_path, monkeyp
     reporting.run_report(
         [{'management_ip': 'synthetic-password\nforged', 'password': 'synthetic-password'},
          {'management_ip': '192.0.2.1', 'username': 'synthetic-user', 'password': 'synthetic-password'}],
-        CONFIG, reports_dir=tmp_path, log_root=tmp_path / 'logs', output=output, clock=lambda: NOW)
+        CONFIG, reports_dir=tmp_path, spool_root=tmp_path / 'runs', log_root=tmp_path / 'logs', output=output, clock=lambda: NOW)
     console = output.getvalue()
     assert '[1/2] [REDACTED]\\nforged: input failed (ValueError)' in console
     assert '[2/2] 192.0.2.1: normalize failed (ValueError)' in console
@@ -519,7 +519,7 @@ def test_progress_input_normalization_failures_and_empty_batch(tmp_path, monkeyp
     assert 'raw secret output' not in console
     assert 'stage failures: 2; report:' in console
     output = StringIO()
-    reporting.run_report([], CONFIG, reports_dir=tmp_path, log_root=tmp_path / 'logs', output=output)
+    reporting.run_report([], CONFIG, reports_dir=tmp_path, spool_root=tmp_path / 'runs', log_root=tmp_path / 'logs', output=output)
     assert 'batch started: 0 devices' in output.getvalue()
     assert 'workbook generation' in output.getvalue()
     assert 'Devices: 0; stage failures: 0; report:' in output.getvalue()
@@ -556,7 +556,7 @@ def test_connection_traceback_is_file_only(tmp_path, monkeypatch, capsys, system
     try:
         path = reporting.run_report(
             [{"management_ip": "192.0.2.1", "username": "user", "password": secret}],
-            CONFIG, reports_dir=tmp_path, log_root=tmp_path / "logs", output=output)
+            CONFIG, reports_dir=tmp_path, spool_root=tmp_path / 'runs', log_root=tmp_path / "logs", output=output)
         assert dependency.handlers == [handler]
         assert dependency.propagate is propagate
         assert dependency.level == previous_level
@@ -575,20 +575,27 @@ def test_connection_traceback_is_file_only(tmp_path, monkeypatch, capsys, system
         handler.close()
 
 
-def test_report_spool_retry_without_connections(tmp_path, monkeypatch):
+@pytest.mark.parametrize('explicit_none', [False, True])
+@pytest.mark.parametrize('path_type', [str, Path])
+def test_report_spool_retry_without_connections(tmp_path, monkeypatch, explicit_none, path_type):
+    monkeypatch.chdir(tmp_path)
+    reports_dir = tmp_path / 'custom-reports'
+    spool_options = {'spool_root': None} if explicit_none else {}
     events, closed = install_fakes(monkeypatch)
     original = reporting.write_workbook
     monkeypatch.setattr(reporting, 'write_workbook', Mock(side_effect=OSError('synthetic-password')))
     with pytest.raises(OSError):
         reporting.run_report(
             [{'management_ip': '192.0.2.1', 'username': 'synthetic-user', 'password': 'synthetic-password'}],
-            CONFIG, reports_dir=tmp_path, log_root=tmp_path / 'logs', output=StringIO())
-    spool = next((tmp_path / 'runs').iterdir())
+            CONFIG, reports_dir=path_type(reports_dir), log_root=tmp_path / 'logs',
+            output=StringIO(), **spool_options)
+    spool = next((reports_dir / 'runs').iterdir())
+    assert not (tmp_path / 'outputs' / 'runs').exists()
     for file in spool.glob('*.json*'):
         assert 'synthetic-password' not in file.read_text()
     monkeypatch.setattr(reporting, 'connect_device', Mock(side_effect=AssertionError('must not reconnect')))
     monkeypatch.setattr(reporting, 'write_workbook', original)
-    path = reporting.export_report_spool(spool, tmp_path / 'retry.xlsx')
+    path = reporting.export_report_spool(spool, reports_dir / 'retry.xlsx')
     book = load_workbook(path, read_only=True)
     assert sum(1 for _ in book['Interfaces'].values) == 2
     book.close()
