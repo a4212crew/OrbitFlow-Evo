@@ -28,8 +28,9 @@ full-run report/attempt aggregation, not the existing inventory-store format.
 
 ## Workflow consumers
 
-Interface/VLAN reporting defaults to `<reports_dir>/runs`; inventory refresh
-defaults to `<export_parent>/runs`. Both accept `spool_root` to choose another
+Interface/VLAN reporting defaults to `outputs/runs/interface_vlan_report/`. The
+inventory refresh CLI defaults to `outputs/runs/inventory_refresh/`; its Python
+API defaults to `<export_parent>/runs`. Both accept `spool_root` to choose another
 location. Reporting prints its run path and inventory logs its path. Failed runs
 can also be found by inspecting these directories' manifests.
 
@@ -46,9 +47,9 @@ Retry in Python, supplying the retained run directory and destination:
 from orbitflow.reporting import export_report_spool
 from orbitflow.inventory_refresh import export_inventory_spool
 
-export_report_spool(run_directory, "reports/recovered.xlsx")
+export_report_spool(run_directory, "outputs/reports/interface_vlan/recovered.xlsx")
 # For an inventory_refresh run instead:
-export_inventory_spool(run_directory, "reports/recovered_inventory.xlsx")
+export_inventory_spool(run_directory, "outputs/reports/inventory/recovered_inventory.xlsx")
 ```
 
 Consumers stream write-only worksheets and publish through a temporary workbook.
@@ -89,7 +90,7 @@ from datetime import datetime, timedelta, timezone
 from orbitflow.result_spool import cleanup_stale_runs
 
 removed = cleanup_stale_runs(
-    "reports/runs", before=datetime.now(timezone.utc) - timedelta(days=30)
+    "outputs/runs/interface_vlan_report", before=datetime.now(timezone.utc) - timedelta(days=30)
 )
 ```
 
