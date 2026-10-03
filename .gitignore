@@ -8,6 +8,8 @@ htmlcov/
 *.log
 .env
 data/live_validation/
+data/inventory/
+outputs/
 logs/
 devices.xlsx
 reports/

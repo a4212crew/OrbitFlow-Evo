@@ -4,6 +4,9 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from zipfile import ZipFile
+from pathlib import Path
+from functools import partial
+import json
 
 from openpyxl import Workbook, load_workbook
 import pytest
@@ -13,11 +16,135 @@ from orbitflow.config import ExecutionConfig
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.models import DeviceContext
 from orbitflow.transport import TransportConfig
+from scripts import device_inventory_refresh as command
 
 
 BEFORE = datetime(2026, 9, 28, tzinfo=timezone.utc)
 NOW = BEFORE + timedelta(days=1)
 CONFIG = TransportConfig("proxy", "cluster", "bastion", "user")
+COMMAND_ARGS = ["--proxy", "proxy", "--cluster", "cluster",
+                "--bastion-host", "bastion", "--bastion-user", "user"]
+
+
+def test_operator_command_defaults_overrides_and_unique_names(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    calls = []
+    def capture(source, config, **kwargs):
+        calls.append((source, config, kwargs))
+        return kwargs["export_path"]
+    monkeypatch.setattr(command, "refresh_inventory_from_excel", capture)
+    class FrozenClock:
+        @staticmethod
+        def now(tz):
+            return NOW
+    monkeypatch.setattr(command, "datetime", FrozenClock)
+    first = command.main(["targets.xlsx", *COMMAND_ARGS])
+    second = command.main(["targets.xlsx", *COMMAND_ARGS])
+    assert first != second
+    assert first.parent == Path("outputs/reports/inventory")
+    assert first.name.startswith("inventory_20260929T000000_000000Z_")
+    source, transport, options = calls[0]
+    assert source == "targets.xlsx"
+    assert transport == CONFIG
+    assert options["inventory_path"] == Path("data/inventory/inventory.json")
+    assert options["spool_root"] == Path("outputs/runs/inventory_refresh")
+    assert options["log_root"] == Path("outputs/logs")
+    assert options["execution_config"] == ExecutionConfig()
+    Path("custom.toml").write_text("[execution]\nmax_concurrent_devices = 2\nconnection_start_interval = 0\n")
+    command.main(["targets.xlsx", *COMMAND_ARGS, "--config", "custom.toml",
+                  "--inventory-path", "custom/state.json", "--reports-dir", "custom/reports",
+                  "--spool-root", "custom/runs", "--log-root", "custom/logs",
+                  "--teleport-key-path", "identity", "--teleport-cert-path", "identity-cert.pub"])
+    _, transport, options = calls[-1]
+    assert transport.teleport_key_path == Path("identity")
+    assert transport.teleport_cert_path == Path("identity-cert.pub")
+    assert options["inventory_path"] == Path("custom/state.json")
+    assert options["export_path"].parent == Path("custom/reports")
+    assert options["spool_root"] == Path("custom/runs")
+    assert options["log_root"] == Path("custom/logs")
+    assert options["execution_config"] == ExecutionConfig(2, 0)
+
+
+def test_operator_command_full_export_and_recoverable_failure(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(command, "TransportConfig", lambda **kwargs: CONFIG)
+    monkeypatch.setattr(command, "refresh_inventory_from_excel",
+                        partial(refresh.refresh_inventory_from_excel, clock=lambda: NOW))
+    store = JsonInventoryStore("data/inventory/inventory.json")
+    failed = seed(store, "192.0.2.1", "SERIAL1")
+    omitted = seed(store, "192.0.2.3", "SERIAL3")
+    connected, _, _ = setup_network(monkeypatch, {
+        "192.0.2.1": "connect-failure", "192.0.2.2": ("SERIAL2", "new-router"),
+    })
+    source = input_file(tmp_path, [target("192.0.2.1"), target("192.0.2.2"),
+                                   ["192.0.2.4", "", "runtime-password"]])
+    book = load_workbook(source)
+    book.active.cell(1, 4, "Secret")
+    for row in range(2, 5):
+        book.active.cell(row, 4, "runtime-enable")
+    book.save(source)
+    book.close()
+    first = command.main([str(source), *COMMAND_ARGS])
+    original = first.read_bytes()
+    rows = sheets(first)
+    by_id = {row["device_id"]: row for row in rows["Inventory"]}
+    assert by_id[failed.device_id]["refresh_status"] == refresh.FAILED
+    assert by_id[failed.device_id]["hostname"] == failed.hostname
+    assert by_id[failed.device_id]["last_successful_collection"] == BEFORE.isoformat()
+    assert by_id[omitted.device_id]["refresh_status"] == refresh.NOT_REQUESTED
+    assert len(rows["Inventory"]) == 3
+    assert [row["status"] for row in rows["Run_Attempts"]] == ["failed", "refreshed", "failed"]
+    assert sorted(connected) == ["192.0.2.1", "192.0.2.2"]
+    second = command.main([str(source), *COMMAND_ARGS])
+    assert second != first and second.is_file()
+    assert first.read_bytes() == original
+    assert list(Path("outputs/runs/inventory_refresh").iterdir()) == []
+    logs = list(Path("outputs/logs/inventory").glob("????-??-??/inventory_refresh.log"))
+    assert logs
+    writer = refresh._write_export
+    def fail(*args, **kwargs):
+        raise OSError("runtime-login runtime-password runtime-enable token=private-test-token")
+    monkeypatch.setattr(refresh, "_write_export", fail)
+    with pytest.raises(SystemExit) as error:
+        command.main([str(source), *COMMAND_ARGS])
+    assert error.value.code != 0
+    assert error.value.__suppress_context__
+    assert first.read_bytes() == original
+    spool = next(Path("outputs/runs/inventory_refresh").iterdir())
+    manifest = json.loads((spool / "manifest.json").read_text())
+    assert manifest["collection_complete"]
+    assert manifest["completed_count"] == 3
+    assert manifest["failed_count"] == 2
+    persisted = "".join(path.read_text() for path in spool.glob("*.json*"))
+    persisted += store.path.read_text() + "".join(path.read_text() for path in logs)
+    output = capsys.readouterr()
+    persisted += str(error.value) + output.out + output.err
+    with ZipFile(first) as archive:
+        persisted += "".join(archive.read(name).decode() for name in archive.namelist() if name.endswith(".xml"))
+    for secret in ("runtime-login", "runtime-password", "runtime-enable", "private-test-token"):
+        assert secret not in persisted
+    monkeypatch.setattr(refresh, "_write_export", writer)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Recovery must not connect")
+    monkeypatch.setattr(refresh, "connect_device", forbidden)
+    recovered = refresh.export_inventory_spool(spool, "outputs/reports/inventory/recovered.xlsx")
+    assert sheets(recovered) == rows
+    assert not spool.exists()
+
+
+@pytest.mark.parametrize("stage", ["config", "input"])
+def test_operator_command_suppresses_raw_setup_errors(tmp_path, monkeypatch, capsys, stage):
+    monkeypatch.chdir(tmp_path)
+    def fail(*args, **kwargs):
+        raise ValueError("runtime-password token=hidden")
+    monkeypatch.setattr(command, "load_execution_config" if stage == "config"
+                        else "refresh_inventory_from_excel", fail)
+    with pytest.raises(SystemExit) as error:
+        command.main(["targets.xlsx", *COMMAND_ARGS])
+    output = capsys.readouterr()
+    assert "runtime-password" not in str(error.value) + output.out + output.err
+    assert "hidden" not in str(error.value) + output.out + output.err
+    assert error.value.__suppress_context__
 
 
 def seed(store, ip, serial, hostname="old-router"):
