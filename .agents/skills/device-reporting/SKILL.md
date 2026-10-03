@@ -149,6 +149,8 @@ logs/reporting/YYYY-MM-DD/interface_vlan_report.log
 
 Keep console output concise and record per-device/stage failures in both the run log and `Run_Errors` where appropriate.
 
+User-facing report files belong under the approved output hierarchy, for example `outputs/reports/interface_vlan/`. This is the target path architecture; until runtime migration is implemented, existing code may still use legacy defaults.
+
 ## Tests
 
 Cover:
