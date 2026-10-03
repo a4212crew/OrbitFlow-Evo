@@ -308,11 +308,12 @@ Inventory refresh/export and Interface/VLAN reporting use
 
 ```toml
 [execution]
-max_concurrent_devices = 10
-connection_start_interval = 0.25
+max_concurrent_devices = 5
+connection_start_interval = 1.0
+connection_retry_delay = 5.0
 ```
 
-The default is 10 when the file is absent. The setting must be a positive integer;
+The default is 5 when the file is absent. The setting must be a positive integer;
 use 1 for sequential execution on the caller thread. Reporting accepts
 `--config <path>` for an alternative TOML file. Programmatic callers of either
 workflow may pass `execution_config=ExecutionConfig(3)` or
@@ -321,11 +322,15 @@ No feature-specific worker limit is needed. This read-only default does not
 authorize concurrent provisioning or live validation.
 
 `connection_start_interval` is the minimum spacing in seconds between shared
-connection-start admissions within a run (default 0.25; set 0 to disable).
+connection-start admissions within a run (default 1.0; set 0 to disable).
 It paces new connections and retries without changing the active-device limit.
 Standalone transport callers use the default spacing. The shared transport
 retries once for typed connection timeouts, resets, aborts, and refusals, after
-closing the failed attempt's resources. Authentication, privilege, host-key,
+closing the failed attempt's resources and waiting `connection_retry_delay`
+seconds (default 5.0; set 0 to disable backoff). Both timing settings must be
+finite and non-negative. The retry then obtains a normal connection-start slot;
+there are at most two attempts. Successful first attempts and non-retryable
+failures do not wait for backoff. Authentication, privilege, host-key,
 parser, unsupported-platform, and command failures are not retried. Generic SSH
 errors without a typed transient cause are not retried. Failed cleanup suppresses
 retry. Windows local forwarding and Linux certificate/direct-tcpip paths remain

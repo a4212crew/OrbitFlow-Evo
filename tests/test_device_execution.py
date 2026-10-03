@@ -16,14 +16,18 @@ def test_invalid_limits(value):
 
 def test_configuration(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    assert load_execution_config().max_concurrent_devices == 10
+    assert load_execution_config() == ExecutionConfig(5, 1.0, 5.0)
     (tmp_path / "orbitflow.toml").write_text("[execution]\nmax_concurrent_devices = 3\n")
     assert load_execution_config() == ExecutionConfig(3)
+    (tmp_path / "orbitflow.toml").write_text(
+        "[execution]\nmax_concurrent_devices = 7\n"
+        "connection_start_interval = 2.0\nconnection_retry_delay = 8.0\n")
+    assert load_execution_config() == ExecutionConfig(7, 2.0, 8.0)
     with pytest.raises(FileNotFoundError):
         load_execution_config(tmp_path / "missing.toml")
 
 
-@pytest.mark.parametrize("limit", [2, 10])
+@pytest.mark.parametrize("limit", [2, 5, 10])
 def test_bound_refill_failures_order_and_context(limit, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     release = Event()
@@ -59,7 +63,7 @@ def test_bound_refill_failures_order_and_context(limit, tmp_path, monkeypatch):
     # Run the coordinator in the caller's copied context, as production does.
     from contextvars import copy_context
     def run():
-        results.extend(execute_devices(range(limit * 3), worker, config=ExecutionConfig(limit) if limit != 10 else None))
+        results.extend(execute_devices(range(limit * 3), worker, config=ExecutionConfig(limit) if limit != 5 else None))
     thread = Thread(target=copy_context().run, args=(run,))
     thread.start()
     try:
@@ -95,3 +99,9 @@ def test_limit_one_is_sequential_and_failure_isolated():
     assert outcomes[1].error_category == "ValueError"
     assert outcomes[3].value == 3
     assert execute_devices([], worker) == []
+
+
+@pytest.mark.parametrize("delay", [-1, True, float("nan"), float("inf"), "5", None])
+def test_invalid_retry_delay(delay):
+    with pytest.raises(ValueError, match="connection_retry_delay"):
+        ExecutionConfig(connection_retry_delay=delay)

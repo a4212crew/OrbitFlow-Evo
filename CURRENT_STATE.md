@@ -48,7 +48,7 @@ Detailed model: `docs/architecture/device-capability-oss-model.md`.
 `orbitflow.execution.execute_devices` provides bounded per-device workers,
 dynamic refill, isolated safe outcomes, copied logging context, synchronized
 progress, and input-ordered aggregation. `orbitflow.toml` configures
-`execution.max_concurrent_devices` (default 10); limit 1 runs sequentially.
+`execution.max_concurrent_devices` (default 5); limit 1 runs sequentially.
 Inventory refresh/export and Interface/VLAN reporting both use this layer.
 Workers own their resolver/context/session/CLI and per-device capabilities;
 Interface and VLAN collection remain sequential within one device. Workbook
@@ -391,10 +391,13 @@ known supplied passwords/secrets are removed from backup captures. Inventory
 facts and retained result spools exclude enable credentials.
 
 Shared transport start admission is paced per execution run by
-`execution.connection_start_interval` (default 0.25 seconds; 0 disables pacing),
+`execution.connection_start_interval` (default 1.0 seconds; 0 disables pacing),
 independently of `max_concurrent_devices`. One retry is allowed only for typed
 transient connection-start failures, with fresh resources after successful
-cleanup; authentication, privilege, command, parser, unsupported-platform, and
+cleanup and a fixed `execution.connection_retry_delay` (default 5.0 seconds),
+then normal start pacing. The default active-device limit is 5. These pressure
+reductions are deterministically tested; operator-controlled live retesting is
+pending. Authentication, privilege, command, parser, unsupported-platform, and
 unclassified SSH failures are not retried. Both OS transport architectures are
 preserved. Deterministic tests cover enable flows, annotation structure,
 concurrency/pacing, retry limits, cleanup and credential exclusion. These access

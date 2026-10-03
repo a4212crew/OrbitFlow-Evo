@@ -11,6 +11,11 @@ from orbitflow.transport import windows
 from orbitflow.transport.exceptions import DeviceConnectionError, ConnectionRetryExhausted
 
 
+@pytest.fixture(autouse=True)
+def no_real_backoff(monkeypatch):
+    monkeypatch.setattr('orbitflow.transport.policy.sleep', lambda delay: None)
+
+
 def lost_session(client, underlying=None):
     transport = SimpleNamespace(active=False, initial_kex_done=False,
                                 get_exception=lambda: underlying)

@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from threading import Lock
 
 from orbitflow.config import load_execution_config
-from orbitflow.transport.policy import ConnectionStartPacer, connection_pacer
+from orbitflow.transport.policy import (
+    ConnectionStartPacer, connection_pacer, connection_retry_delay,
+)
 
 
 @dataclass(frozen=True)
@@ -40,11 +42,13 @@ def execute_devices(targets, worker, *, config=None, on_outcome=None):
     pacer = ConnectionStartPacer(config.connection_start_interval)
     def invoke(position, target):
         token = connection_pacer.set(pacer)
+        retry_token = connection_retry_delay.set(config.connection_retry_delay)
         try:
             return DeviceOutcome(position, worker(target))
         except Exception as exc:
             return DeviceOutcome(position, error_category=type(exc).__name__)
         finally:
+            connection_retry_delay.reset(retry_token)
             connection_pacer.reset(token)
 
     outcomes = []

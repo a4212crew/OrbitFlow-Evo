@@ -292,10 +292,17 @@ def test_failed_workbook_privilege_reason(tmp_path, monkeypatch, response):
     assert client.closes == channel.close_calls == 1
 
 
+@pytest.fixture(autouse=True)
+def retry_sleeps(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr('orbitflow.transport.policy.sleep', sleeps.append)
+    return sleeps
+
+
 @pytest.mark.parametrize('system', ['windows', 'linux'])
 @pytest.mark.parametrize('failure', [TimeoutError, ConnectionResetError, ConnectionRefusedError, TunnelTimeout])
 @pytest.mark.parametrize('recover', [True, False])
-def test_bounded_transient_retry(monkeypatch, system, failure, recover):
+def test_bounded_transient_retry(monkeypatch, system, failure, recover, retry_sleeps):
     import importlib
     module = importlib.import_module('orbitflow.transport.' + system)
     attempts, starts = [], []
@@ -315,13 +322,14 @@ def test_bounded_transient_retry(monkeypatch, system, failure, recover):
             connect_device('192.0.2.1', DeviceCredentials('user'), TRANSPORT, system=system)
         assert backup.failure_reason('connect', caught.value) == 'Transient connection failure after two attempts.'
     assert len(attempts) == len(starts) == 2
+    assert retry_sleeps == [5.0]
 
 
 @pytest.mark.parametrize('error', [AuthenticationException(SECRET), SSHException(SECRET),
     MissingEnableSecret(SECRET), EnableAuthenticationFailed(SECRET), ValueError(SECRET),
     TransportConfigurationError(SECRET), UnsupportedPlatformError(SECRET),
     InteractiveCLITimeout(SECRET), backup.ConfigurationCommandRejected(SECRET)])
-def test_no_retry_of_nontransient_errors(monkeypatch, error):
+def test_no_retry_of_nontransient_errors(monkeypatch, error, retry_sleeps):
     calls = []
     def connect(*args):
         calls.append(1)
@@ -331,6 +339,7 @@ def test_no_retry_of_nontransient_errors(monkeypatch, error):
     with pytest.raises(type(error)):
         connect_device('192.0.2.1', DeviceCredentials('user'), TRANSPORT, system='windows')
     assert calls == [1]
+    assert retry_sleeps == []
 
 
 @pytest.mark.parametrize('interval', [-1, True, float('nan'), float('inf'), '1'])
@@ -349,9 +358,12 @@ def test_pacing_spaces_starts_without_serializing_active_devices(monkeypatch):
             with recording_lock:
                 super().wait()
                 starts.append(now[0])
-    pacer = RecordingPacer(0.5, clock=lambda: now[0], sleep=sleep)
-    monkeypatch.setattr('orbitflow.execution.ConnectionStartPacer', lambda interval: pacer)
-    lock, barrier = Lock(), Barrier(3)
+    pacer = RecordingPacer(1.0, clock=lambda: now[0], sleep=sleep)
+    def make_pacer(interval):
+        assert interval == 1.0
+        return pacer
+    monkeypatch.setattr('orbitflow.execution.ConnectionStartPacer', make_pacer)
+    lock, barrier = Lock(), Barrier(5)
     active, peak = 0, 0
     def connect(*args):
         nonlocal active, peak
@@ -368,16 +380,16 @@ def test_pacing_spaces_starts_without_serializing_active_devices(monkeypatch):
     def worker(target):
         with connect_device(str(target), DeviceCredentials('user'), TRANSPORT, system='windows'):
             return target
-    outcomes = execute_devices(range(3), worker, config=ExecutionConfig(3, 0.5))
+    outcomes = execute_devices(range(5), worker, config=ExecutionConfig())
     assert all(not item.error_category for item in outcomes)
-    assert starts == [0, 0.5, 1.0]
-    assert peak == 3 and active == 0
+    assert starts == [0, 1, 2, 3, 4]
+    assert peak == 5 and active == 0
     assert connection_pacer.get() is None
 
 
 @pytest.mark.parametrize('system', ['windows', 'linux'])
 @pytest.mark.parametrize('cleanup_fails', [False, True])
-def test_real_transport_retry_cleans_every_resource_first(monkeypatch, system, cleanup_fails):
+def test_real_transport_retry_cleans_every_resource_first(monkeypatch, system, cleanup_fails, retry_sleeps):
     import importlib
     module = importlib.import_module('orbitflow.transport.' + system)
     monkeypatch.setattr('orbitflow.transport.wait_for_connection_start', lambda: None)
@@ -403,6 +415,11 @@ def test_real_transport_retry_cleans_every_resource_first(monkeypatch, system, c
         clients = iter([bastions[0], targets[0], bastions[1], targets[1]])
         resources = [bastions[0].get_transport.return_value.open_channel.return_value.close,
                      bastions[0].close, proxies[0].close]
+    def backoff(delay):
+        assert targets[0].close.call_count == 1
+        assert all(resource.call_count == 1 for resource in resources)
+        retry_sleeps.append(delay)
+    monkeypatch.setattr('orbitflow.transport.policy.sleep', backoff)
     def client():
         item = next(clients)
         if item is targets[1]:
@@ -422,11 +439,12 @@ def test_real_transport_retry_cleans_every_resource_first(monkeypatch, system, c
             pass
         assert targets[1].close.call_count == 1
     assert all(resource.call_count == 1 for resource in resources)
+    assert retry_sleeps == ([] if cleanup_fails else [5.0])
 
 
 @pytest.mark.parametrize('cause', [AuthenticationException(SECRET), ValueError(SECRET),
     InteractiveCLITimeout(SECRET), EnableAuthenticationFailed(SECRET)])
-def test_wrapped_nonretryable_failure(monkeypatch, cause):
+def test_wrapped_nonretryable_failure(monkeypatch, cause, retry_sleeps):
     calls = []
     def connect(*args):
         calls.append(1)
@@ -436,6 +454,7 @@ def test_wrapped_nonretryable_failure(monkeypatch, cause):
     with pytest.raises(DeviceConnectionError):
         connect_device('192.0.2.1', DeviceCredentials('user'), TRANSPORT, system='windows')
     assert calls == [1]
+    assert retry_sleeps == []
 
 
 def test_direct_inventory_excludes_enable_secret(tmp_path):
@@ -501,3 +520,54 @@ def test_partial_annotation_at_prompt_character_receive_boundary():
         assert cli.prompt == channel.prompt
         assert extract_edgeswitch_hostname(cli.prompt) == 'sw'
     assert client.closes == channel.close_calls == 1
+
+
+@pytest.mark.parametrize('delay', [0.0, 5.0, 8.0])
+@pytest.mark.parametrize('limit', [1, 5])
+def test_retry_backoff_then_pacing_and_run_config(monkeypatch, delay, limit):
+    from orbitflow.transport.policy import connection_retry_delay
+    now, events = [0.0], []
+
+    def pacing_sleep(seconds):
+        events.append(('pacing', seconds))
+        now[0] += seconds
+
+    pacer = ConnectionStartPacer(1.0, clock=lambda: now[0], sleep=pacing_sleep)
+    monkeypatch.setattr('orbitflow.execution.ConnectionStartPacer', lambda interval: pacer)
+
+    def backoff(seconds):
+        assert events[-1] == ('cleanup', 0.0)
+        events.append(('backoff', seconds))
+        now[0] += seconds
+        # A peer takes a start slot just as backoff ends. The retry must wait
+        # for the next slot, even though it has already waited for backoff.
+        pacer.wait()
+
+    monkeypatch.setattr('orbitflow.transport.policy.sleep', backoff)
+    attempts = []
+
+    def connect(*args):
+        attempts.append(now[0])
+        if len(attempts) == 1:
+            events.append(('cleanup', now[0]))
+            raise TimeoutError()
+        return DeviceSession(object(), lambda: None)
+
+    monkeypatch.setattr('orbitflow.transport.windows.connect_windows', connect)
+
+    def worker(target):
+        with connect_device(str(target), DeviceCredentials('user'), TRANSPORT, system='windows'):
+            return target
+
+    config = ExecutionConfig(limit, connection_retry_delay=delay)
+    outcomes = execute_devices([1], worker, config=config)
+    assert not outcomes[0].error_category
+    assert attempts == [0.0, delay + 1.0]
+    assert events == ([('cleanup', 0.0), ('backoff', delay), ('pacing', 1.0)]
+                      if delay else [('cleanup', 0.0), ('pacing', 1.0)])
+    assert connection_retry_delay.get() == 5.0
+    # A successful first attempt must not back off.
+    events.clear()
+    outcomes = execute_devices([2], worker, config=config)
+    assert not outcomes[0].error_category
+    assert not any(event[0] == 'backoff' for event in events)

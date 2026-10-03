@@ -16,7 +16,9 @@ from .exceptions import (
     UnsupportedPlatformError,
 )
 from .models import DeviceCredentials, DeviceSession, TransportConfig
-from .policy import wait_for_connection_start, retryable_connection_failure
+from .policy import (
+    wait_for_connection_start, retryable_connection_failure, wait_before_connection_retry,
+)
 
 
 def connect_device(
@@ -50,6 +52,9 @@ def connect_device(
                     raise ConnectionRetryExhausted(
                         "Transient connection failure after two attempts."
                     ) from exc
+                # OS connectors finish cleanup before raising; cleanup failures
+                # are non-retryable. The next attempt still acquires a start slot.
+                wait_before_connection_retry()
             else:
                 session.secret = credentials.secret
                 return session

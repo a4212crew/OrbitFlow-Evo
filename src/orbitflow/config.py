@@ -7,8 +7,9 @@ import math
 
 @dataclass(frozen=True)
 class ExecutionConfig:
-    max_concurrent_devices: int = 10
-    connection_start_interval: float = 0.25
+    max_concurrent_devices: int = 5
+    connection_start_interval: float = 1.0
+    connection_retry_delay: float = 5.0
 
     def __post_init__(self):
         if type(self.max_concurrent_devices) is not int or self.max_concurrent_devices < 1:
@@ -17,6 +18,10 @@ class ExecutionConfig:
                 or not math.isfinite(self.connection_start_interval)
                 or self.connection_start_interval < 0):
             raise ValueError("execution.connection_start_interval must be finite and non-negative")
+        if (type(self.connection_retry_delay) not in (int, float)
+                or not math.isfinite(self.connection_retry_delay)
+                or self.connection_retry_delay < 0):
+            raise ValueError("execution.connection_retry_delay must be finite and non-negative")
 
 
 def load_execution_config(path="orbitflow.toml"):
