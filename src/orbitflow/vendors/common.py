@@ -10,6 +10,7 @@ from typing import Any, Callable, Iterator
 
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.privilege import ensure_privileged
+from orbitflow.vendors.prompts import is_structural_prompt
 
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
@@ -73,16 +74,7 @@ class PromptCLI:
         if not matches or normalized[matches[-1].end() :].strip():
             return None
         prompt = matches[-1].group(1).strip()
-        if prompt.startswith("("):
-            from orbitflow.vendors.ubiquiti.prompts import extract_edgeswitch_hostname
-
-            try:
-                extract_edgeswitch_hostname(prompt)
-            except ValueError:
-                # A receive boundary may cut an annotation at an embedded #/>.
-                # It is not a complete prompt; keep reading to the deadline.
-                return None
-        return prompt
+        return prompt if is_structural_prompt(prompt) else None
 
     def _read_until_prompt(
         self, timeout: float, *, command: str | None = None, prompt: str = "",

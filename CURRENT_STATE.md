@@ -393,3 +393,10 @@ unclassified SSH failures are not retried. Both OS transport architectures are
 preserved. Deterministic tests cover enable flows, annotation structure,
 concurrency/pacing, retry limits, cleanup and credential exclusion. These access
 changes have not been live-device validated.
+
+Shared and standalone Cisco prompt learning now validates supported prompt
+structure before accepting a final receive line, rejecting MOTD/banner separators
+and decorative text. Deterministic regressions cover combined and fragmented
+banner/prompt receives, inventory and command synchronization, Cisco location
+prefixes, Huawei views, nested EdgeSwitch annotations, enable flow, and cleanup.
+The prompt correction awaits operator-controlled live retesting.
