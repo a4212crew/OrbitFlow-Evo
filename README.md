@@ -250,6 +250,32 @@ use `compliant` or `non_compliant`. An observed empty database has missing objec
 rather than being treated as failed collection. Current observation omits VLAN 1;
 policies containing numeric VLAN/domain 1 are rejected before collection.
 
+IOS-XR uses the optional schema-v1 `service_rules` section instead of the numeric
+database/trunk rules. Each entry selects `platform: "cisco_xr"`, distinct
+`database_rule` and `interface_rule` IDs, `signature`, `required`, and a boolean
+`baseline_complete`. Signature and required lists are AND groups; each nested
+list contains OR alternatives of `{"field": "object_id", "value": "BG/BD"}` or
+`{"field": "domain_id", "value": "BD"}`. Values match exactly and case-sensitively;
+they are not VLAN ranges. For example, a required group can be
+`[{"field": "object_id", "value": "TEST/RSVD-RSP0"}]` (illustrative only).
+Database checks use normalized bridge-domain objects. Interface checks group
+actual service subinterfaces under their observed parent, joining normalized
+`bridge_domains` to unique database `domain_id` values. Routed subinterfaces do
+not contribute services. No interface identities are created in observation.
+Missing parents/profiles or absent/ambiguous domain joins are unable to assess.
+
+The supplied XR signature is (`LBB-PPPoE` OR `LBB-PPPOE`) AND
+`VLAN545/BD_VLAN545` AND (`LEAPTEL-PPPoE/LEAPTEL-PPPoE` OR
+`URL-PPPOE/URL-PPPOE`). Its known requirements include both provider identities.
+**The remaining production NCS named baseline has not been supplied.** Add its
+exact identities to `required` and set `baseline_complete` to `true` once complete.
+With the supplied `false` value, missing known requirements are non-compliant,
+but satisfying them yields `unable_to_assess` / `service_baseline_incomplete`.
+Unrelated parent groups remain not applicable. Policies without an XR entry
+produce `service_policy_unavailable` for XR rather than using the trunk rule.
+Missing services are reported as typed identity alternative groups in
+`missing_objects`, preserved in the JSON spool and Excel report.
+
 The workbook has `Findings`, `Run_Errors`, and `Details` sheets, with literal text,
 frozen headers and filters. Findings include identity, rule/policy, expected and
 observed state, missing VLANs/objects and normalized evidence. Large JSON fields

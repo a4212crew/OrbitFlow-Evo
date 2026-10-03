@@ -1,15 +1,101 @@
 {
   "schema_version": 1,
-  "policy_id": "isp-vlan-mvp-v1",
+  "policy_id": "isp-vlan-mvp-v2",
   "database": {
     "rule_id": "required-forwarding-domains",
-    "object_types": ["vlan", "bridge_domain", "vsi"],
-    "required_domains": ["2400-2444", 2449, 4001]
+    "object_types": [
+      "vlan",
+      "bridge_domain",
+      "vsi"
+    ],
+    "required_domains": [
+      "2400-2444",
+      2449,
+      4001
+    ]
   },
   "interface": {
     "rule_id": "trunk-required-vlans",
-    "match_all": [445, 545],
-    "match_any": [2449, 4001],
-    "required_vlans": [445, 545, "2400-2444", 2449, 4001]
-  }
+    "match_all": [
+      445,
+      545
+    ],
+    "match_any": [
+      2449,
+      4001
+    ],
+    "required_vlans": [
+      445,
+      545,
+      "2400-2444",
+      2449,
+      4001
+    ]
+  },
+  "service_rules": [
+    {
+      "platform": "cisco_xr",
+      "database_rule": "xr-required-services",
+      "interface_rule": "xr-parent-required-services",
+      "signature": [
+        [
+          {
+            "field": "domain_id",
+            "value": "LBB-PPPoE"
+          },
+          {
+            "field": "domain_id",
+            "value": "LBB-PPPOE"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "VLAN545/BD_VLAN545"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "LEAPTEL-PPPoE/LEAPTEL-PPPoE"
+          },
+          {
+            "field": "object_id",
+            "value": "URL-PPPOE/URL-PPPOE"
+          }
+        ]
+      ],
+      "required": [
+        [
+          {
+            "field": "domain_id",
+            "value": "LBB-PPPoE"
+          },
+          {
+            "field": "domain_id",
+            "value": "LBB-PPPOE"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "VLAN545/BD_VLAN545"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "LEAPTEL-PPPoE/LEAPTEL-PPPoE"
+          }
+        ],
+        [
+          {
+            "field": "object_id",
+            "value": "URL-PPPOE/URL-PPPOE"
+          }
+        ]
+      ],
+      "baseline_complete": false
+    }
+  ]
 }

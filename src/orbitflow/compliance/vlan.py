@@ -25,6 +25,12 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
               "management_ip": context.management_ip if context else management_ip,
               "hostname": context.hostname if context else "",
               "platform": context.platform if context else ""}
+    if context is not None and context.platform == "cisco_xr":
+        from orbitflow.compliance.services import evaluate_services
+        service_policy = next((rule for rule in policy.service_rules
+                               if rule.platform == context.platform), None)
+        return safe_data(evaluate_services(device, interfaces, vlans, policy.policy_id,
+                                           service_policy), clean)
     database_expected = {"object_types": policy.object_types,
                          "required_domains": policy.required_domains}
     interface_expected = {"port_type": "trunk", "match_all": policy.match_all,

@@ -8,6 +8,22 @@ from typing import Protocol
 
 
 @dataclass(frozen=True)
+class ServiceIdentity:
+    field: str
+    value: str
+
+
+@dataclass(frozen=True)
+class ServicePolicy:
+    platform: str
+    database_rule: str
+    interface_rule: str
+    signature: tuple[tuple[ServiceIdentity, ...], ...]
+    required: tuple[tuple[ServiceIdentity, ...], ...]
+    baseline_complete: bool
+
+
+@dataclass(frozen=True)
 class VlanPolicy:
     policy_id: str
     database_rule: str
@@ -17,6 +33,7 @@ class VlanPolicy:
     match_all: tuple[int, ...]
     match_any: tuple[int, ...]
     required_vlans: tuple[int, ...]
+    service_rules: tuple[ServicePolicy, ...] = ()
 
 
 class PolicyProvider(Protocol):
@@ -81,7 +98,8 @@ def _values(values, *, domains=False):
 
 def parse_policy(data) -> VlanPolicy:
     """Reject typos/unknown fields before a run; never echo arbitrary input values."""
-    _fields(data, ("schema_version", "policy_id", "database", "interface"))
+    fields = ("schema_version", "policy_id", "database", "interface")
+    _fields(data, (*fields, "service_rules") if isinstance(data, dict) and "service_rules" in data else fields)
     if type(data["schema_version"]) is not int or data["schema_version"] != 1:
         raise ValueError("Unsupported compliance policy version")
     database, interface = data["database"], data["interface"]
@@ -94,9 +112,48 @@ def parse_policy(data) -> VlanPolicy:
     database_rule, interface_rule = _identifier(database["rule_id"]), _identifier(interface["rule_id"])
     if database_rule == interface_rule:
         raise ValueError("Policy rule IDs must be distinct")
+    services = []
+    rule_ids = {database_rule, interface_rule}
+    platforms = set()
+    entries = data.get("service_rules", [])
+    if not isinstance(entries, list):
+        raise ValueError("Invalid service rules")
+    for entry in entries:
+        _fields(entry, ("platform", "database_rule", "interface_rule", "signature", "required", "baseline_complete"))
+        platform = _identifier(entry["platform"])
+        if platform != "cisco_xr" or platform in platforms:
+            raise ValueError("Unsupported or duplicate service platform")
+        platforms.add(platform)
+        ids = [_identifier(entry[field]) for field in ("database_rule", "interface_rule")]
+        if len(set(ids)) != 2 or rule_ids.intersection(ids):
+            raise ValueError("Policy rule IDs must be distinct")
+        rule_ids.update(ids)
+        if type(entry["baseline_complete"]) is not bool:
+            raise ValueError("Invalid service baseline completeness")
+        services.append(ServicePolicy(platform, *ids, _identity_groups(entry["signature"]),
+                                      _identity_groups(entry["required"]), entry["baseline_complete"]))
     return VlanPolicy(
         _identifier(data["policy_id"]), database_rule, tuple(sorted(set(types))),
         _values(database["required_domains"], domains=True), interface_rule,
         _values(interface["match_all"]), _values(interface["match_any"]),
         _values(interface["required_vlans"]),
+        tuple(services),
     )
+
+
+def _identity_groups(groups):
+    """AND across groups, OR across exact typed identities within each group."""
+    if not isinstance(groups, list) or not groups:
+        raise ValueError("Service identities require nonempty groups")
+    result = []
+    for group in groups:
+        if not isinstance(group, list) or not group:
+            raise ValueError("Service identities require nonempty alternatives")
+        alternatives = []
+        for selector in group:
+            _fields(selector, ("field", "value"))
+            if selector["field"] not in ("object_id", "domain_id"):
+                raise ValueError("Invalid service identity field")
+            alternatives.append(ServiceIdentity(selector["field"], _identifier(selector["value"])))
+        result.append(tuple(sorted(set(alternatives), key=lambda item: (item.field, item.value))))
+    return tuple(result)

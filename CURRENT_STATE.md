@@ -463,3 +463,13 @@ isolation, secret exclusion, output recovery and a 1,500-device run at concurren
 5 with complete spool/Excel output. No remediation or new vendor
 interpretation was introduced. Live compliance validation remains unperformed;
 Policies requesting VLAN 1 are rejected because observation omits it.
+
+IOS-XR compliance now has a separate external-policy service path: actual L2
+service subinterfaces consolidate under observed parents, with exact named
+bridge-domain object matching and explicit signature alternatives. Observation
+is unchanged. Missing/ambiguous parent/profile/domain evidence is unable to assess;
+unrelated parent groups are not applicable. Tests cover parent isolation, name
+variants, missing services, policy changes and spool/Excel recovery. The supplied
+NCS policy includes the requested signature and known provider requirements but
+marks its baseline incomplete pending the remaining exact production service
+identities; satisfying that partial baseline cannot report full compliance.
