@@ -10,6 +10,7 @@ from paramiko.ssh_exception import NoValidConnectionsError
 from .exceptions import (
     DeviceConnectionError, TeleportError, TunnelError,
     TransportConfigurationError, UnsupportedPlatformError,
+    TransientSSHHandshakeError,
 )
 
 
@@ -48,12 +49,16 @@ def retryable_connection_failure(error):
     if isinstance(error, (AuthenticationException, BadHostKeyException,
                           TransportConfigurationError, UnsupportedPlatformError)):
         return False
+    if isinstance(error, TransientSSHHandshakeError):
+        return True
     if isinstance(error, NoValidConnectionsError):
         return bool(error.errors) and all(retryable_connection_failure(item)
                                          for item in error.errors.values())
     if isinstance(error, (DeviceConnectionError, TeleportError, TunnelError)):
         seen = set()
         while isinstance(error, (DeviceConnectionError, TeleportError, TunnelError)):
+            if isinstance(error, TransientSSHHandshakeError):
+                return True
             if id(error) in seen:
                 return False
             seen.add(id(error))

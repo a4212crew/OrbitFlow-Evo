@@ -93,7 +93,7 @@ Current behaviour:
 - ME3600X remains `cisco_ios` while retaining an EVC-capable profile;
 - serial-first physical identity reconciliation across management-IP changes;
 - likely replacement/reassignment and hostname-collision event reporting, with no unsafe merge when serial evidence is absent;
-- atomic latest JSON snapshots containing stable facts only and no credentials;
+- atomic latest JSON snapshots containing stable facts only and no credentials; Windows access-denied/sharing-lock replacement failures receive three short retries (0.3 seconds total), with best-effort temp cleanup and persistent failures still surfaced;
 - failed attempts preserve the last successful facts while updating sanitized attempt status and error metadata;
 - explicit controlled platform override support;
 - returned context is suitable for capability and workflow consumers without duplicating detection logic.
@@ -399,6 +399,13 @@ unclassified SSH failures are not retried. Both OS transport architectures are
 preserved. Deterministic tests cover enable flows, annotation structure,
 concurrency/pacing, retry limits, cleanup and credential exclusion. These access
 changes have not been live-device validated.
+
+The bounded connection retry also recognizes Paramiko's lost-session exception
+at initial remote-server-key retrieval, using the raising site and rejecting any
+recorded authentication, host-key, or unclassified protocol failure. Arbitrary
+SSHException messages remain non-retryable. Deterministic Windows regressions
+cover recovery/exhaustion, cleanup before retry, and the retained Teleport socket
+path; this resilience revision has not been live-device validated.
 
 Shared and standalone Cisco prompt learning now validates supported prompt
 structure before accepting a final receive line, rejecting MOTD/banner separators

@@ -29,6 +29,10 @@ class ConnectionRetryExhausted(DeviceConnectionError):
     """Both approved transient connection attempts failed."""
 
 
+class TransientSSHHandshakeError(DeviceConnectionError):
+    """SSH session disappeared during initial remote-server-key retrieval."""
+
+
 class TunnelTimeout(TunnelError, TimeoutError):
     """The local forwarding socket did not become ready within its deadline."""
 
