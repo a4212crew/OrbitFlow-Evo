@@ -375,7 +375,9 @@ Each configuration backup run includes `failed_devices.xlsx`, streamed through t
 
 Shared device access accepts optional Excel `Secret` / list `secret` credentials.
 IOS/IOS-XE and EdgeSwitch user EXEC sessions perform one private enable exchange
-and verify the privileged prompt before setup/observation. Already privileged
+and structurally verify the same base hostname and privileged `#` before
+setup/observation, allowing supported prompt spacing and EdgeSwitch annotation
+changes during enable. Already privileged
 sessions and Huawei/IOS-XR prompt paths retain their existing behavior. Missing
 and failed enable authentication have fixed safe failure reasons. Credential
 representations omit passwords/keys/secrets; enable echoes are discarded and

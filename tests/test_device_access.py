@@ -62,7 +62,7 @@ def test_malformed_prompt(prompt):
         extract_edgeswitch_hostname(prompt)
 
 
-def enable_session(device, *, secret=SECRET, response='success'):
+def enable_session(device, *, secret=SECRET, response='success', enabled_prompt=None):
     session, client, channel = device_session(device)
     channel.prompt = '(sw (arbitrary (nested) annotation)) >' if device[1] == 'ubiquiti_edgeswitch' else 'sw>'
     session.secret = secret
@@ -75,8 +75,10 @@ def enable_session(device, *, secret=SECRET, response='success'):
         elif command == SECRET:
             channel.sent.append(command)
             if response == 'success':
-                channel.prompt = channel.prompt[:-1] + '#'
+                channel.prompt = enabled_prompt if enabled_prompt is not None else channel.prompt[:-1] + '#'
                 channel.pending = [(SECRET + '\r\n' + channel.prompt).encode()]
+                # Later command echoes use the learned prompt without surrounding whitespace.
+                channel.prompt = channel.prompt.strip()
             elif response == 'repeat':
                 channel.pending = [b'Password: ']
             elif response == 'timeout':
@@ -93,6 +95,52 @@ def enable_session(device, *, secret=SECRET, response='success'):
 
 
 ACCESS_DEVICES = [d for d in DEVICES if d[1] in {'cisco_ios', 'cisco_xe', 'ubiquiti_edgeswitch'}]
+
+
+@pytest.mark.parametrize('cli_type', [DeviceCLI, CiscoIOSCLI])
+@pytest.mark.parametrize('enabled_prompt', ['sw#', '  sw#\t'])
+def test_enable_cisco_prompt_formatting(cli_type, enabled_prompt):
+    session, client, channel = enable_session(ACCESS_DEVICES[0], enabled_prompt=enabled_prompt)
+    with session:
+        cli = cli_type(session)
+        assert cli.prompt == 'sw#'
+        cli.close()
+    assert channel.sent[:4] == ['', 'enable', SECRET, 'terminal length 0']
+    assert client.closes == channel.close_calls == 1
+
+
+@pytest.mark.parametrize('enabled_prompt', [
+    '(sw (different annotation))#', '(sw (new (nested) annotation))\t#',
+    '(sw)#', 'sw#', '  (sw (changed # > text))  #\t',
+])
+def test_enable_edgeswitch_prompt_presentation_change(enabled_prompt):
+    edge = next(d for d in ACCESS_DEVICES if d[1] == 'ubiquiti_edgeswitch')
+    session, client, channel = enable_session(edge, enabled_prompt=enabled_prompt)
+    with session, DeviceCLI(session) as cli:
+        assert cli.prompt == enabled_prompt.strip()
+        assert extract_edgeswitch_hostname(cli.prompt) == 'sw'
+        assert SECRET not in cli.run_command('show running-config')
+    assert channel.sent[:4] == ['', 'enable', SECRET, 'terminal length 0']
+    assert channel.sent.count('enable') == channel.sent.count(SECRET) == 1
+    assert client.closes == channel.close_calls == 1
+
+
+@pytest.mark.parametrize('cli_type', [DeviceCLI, CiscoIOSCLI])
+@pytest.mark.parametrize('device', ACCESS_DEVICES, ids=lambda d: d[2])
+@pytest.mark.parametrize('enabled_prompt', [
+    'other#', '(other (arbitrary annotation)) #',
+    '(sw (unbalanced) #', '(sw annotation) #', 'sw(config)#',
+    '(sw (changed annotation)) >', '% Access denied\r\nsw#',
+])
+def test_enable_rejects_changed_identity_or_invalid_exec(cli_type, device, enabled_prompt):
+    session, client, channel = enable_session(device, enabled_prompt=enabled_prompt)
+    with pytest.raises(EnableAuthenticationFailed) as caught, session:
+        cli_type(session)
+    assert str(caught.value) == 'Enable authentication failed.'
+    assert caught.value.__cause__ is None
+    assert 'terminal length 0' not in channel.sent
+    assert channel.sent.count('enable') == channel.sent.count(SECRET) == 1
+    assert client.closes == channel.close_calls == 1
 
 
 @pytest.mark.parametrize('device', ACCESS_DEVICES, ids=lambda d: d[2])
