@@ -1,2 +1,3 @@
 [execution]
 max_concurrent_devices = 10
+connection_start_interval = 0.25

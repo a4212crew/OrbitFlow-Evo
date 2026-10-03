@@ -11,6 +11,7 @@ import paramiko
 from .authentication import connect_target
 from .exceptions import (
     DeviceConnectionError,
+    ConnectionCleanupError,
     TeleportError,
     TransportConfigurationError,
     TunnelError,
@@ -83,7 +84,7 @@ def connect_linux(
         try:
             _close_all(bastion, proxy)
         except Exception:
-            pass
+            raise ConnectionCleanupError("Connection cleanup failed; retry suppressed.") from None
         raise TeleportError("failed to establish the Teleport bastion session") from exc
 
     try:
@@ -113,7 +114,7 @@ def connect_linux(
         try:
             _close_all(target, channel, bastion, proxy)
         except Exception:
-            pass
+            raise ConnectionCleanupError("Connection cleanup failed; retry suppressed.") from None
         if isinstance(exc, TunnelError):
             raise
         raise DeviceConnectionError(

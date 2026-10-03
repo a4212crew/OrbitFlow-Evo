@@ -88,7 +88,7 @@ returns normalized `DeviceContext` stable facts.
 
 Current behaviour:
 - deterministic detection of Cisco IOS, IOS-XE, IOS-XR, Huawei VRP, and Ubiquiti EdgeSwitch;
-- EdgeSwitch hostname extraction accepts parenthesized exec prompts ending in `#` or `>` with optional whitespace before the terminator, and retains simple `hostname#` / `hostname>` support (deterministically tested);
+- EdgeSwitch hostname extraction structurally accepts parenthesized exec prompts ending in `#` or `>`, including optional nested annotations of arbitrary text, normalizes to the base hostname, rejects malformed parentheses, and retains simple `hostname#` / `hostname>` support (deterministically tested);
 - family/profile selection for ASR920, C3850, C3750X, ME3600X, NCS540, NE05E, and EdgeSwitch;
 - ME3600X remains `cisco_ios` while retaining an EVC-capable profile;
 - serial-first physical identity reconciliation across management-IP changes;
@@ -372,3 +372,22 @@ Relevant skill: `.agents/skills/device-inventory/SKILL.md`.
 `scripts/device_configuration_backup.py` captures current configuration for the existing Excel/list targets on Cisco IOS, IOS-XE, IOS-XR, Huawei VRP, and Ubiquiti EdgeSwitch. It reuses shared target loading, inventory identity, bounded execution, transport, and one DeviceCLI per device. Captures go directly to a unique UTC-dated folder with sanitized `<hostname>-<platform>.txt` names and collision suffixes. Sensitive text never enters logs or result spools; custom run folders carry Git-ignore protection. Failures are isolated by target and resources close on all paths. Deterministic coverage includes command selection, content preservation, cleanup, filename collisions, secret exclusion, and batch failure isolation. Live backup validation remains operator-controlled and has not been performed.
 Configuration capture regression coverage now includes configuration lines exactly matching the learned exec prompt at SSH receive boundaries. Newline-terminated matches remain body text; unterminated matches require one second of receive quiescence. A longer pause at an unterminated embedded prompt remains ambiguous; no live-device validation was performed.
 Each configuration backup run includes `failed_devices.xlsx`, streamed through the executor outcome consumer with one sanitized row per failed target. Resolved hostname, management IP, hardware model (family fallback), and normalized platform are retained when available; pre-resolution failures preserve the input IP without invented identity. Fixed exception-type reasons distinguish authentication, timeout, connection/transport, unsupported capture, rejected/empty output, and write failures, with stage-level fallbacks; exception text and configuration content are excluded. Deterministic tests cover mixed outcomes, all failure stages, literal Excel cells, and secret exclusion; no live validation was performed.
+
+Shared device access accepts optional Excel `Secret` / list `secret` credentials.
+IOS/IOS-XE and EdgeSwitch user EXEC sessions perform one private enable exchange
+and verify the privileged prompt before setup/observation. Already privileged
+sessions and Huawei/IOS-XR prompt paths retain their existing behavior. Missing
+and failed enable authentication have fixed safe failure reasons. Credential
+representations omit passwords/keys/secrets; enable echoes are discarded and
+known supplied passwords/secrets are removed from backup captures. Inventory
+facts and retained result spools exclude enable credentials.
+
+Shared transport start admission is paced per execution run by
+`execution.connection_start_interval` (default 0.25 seconds; 0 disables pacing),
+independently of `max_concurrent_devices`. One retry is allowed only for typed
+transient connection-start failures, with fresh resources after successful
+cleanup; authentication, privilege, command, parser, unsupported-platform, and
+unclassified SSH failures are not retried. Both OS transport architectures are
+preserved. Deterministic tests cover enable flows, annotation structure,
+concurrency/pacing, retry limits, cleanup and credential exclusion. These access
+changes have not been live-device validated.

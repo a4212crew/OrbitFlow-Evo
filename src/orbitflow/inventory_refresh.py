@@ -61,7 +61,7 @@ def refresh_inventory_from_excel(
         raise ValueError("Input, inventory and export paths must be distinct")
     targets = load_targets(source, isolate_invalid=True)
     clock = clock or (lambda: datetime.now(timezone.utc))
-    sensitive = {target[field] for target in targets for field in ("username", "password")
+    sensitive = {target[field] for target in targets for field in ("username", "password", "secret")
                  if target.get(field)}
     pattern = re.compile("|".join(re.escape(value) for value in
                          sorted(sensitive, key=lambda value: (-len(value), value)))) if sensitive else None
@@ -93,7 +93,7 @@ def refresh_inventory_from_excel(
                 if clean(ip) != ip:
                     raise ValueError("Unsafe target address")
                 stage = "connect"
-                with connect_device(ip, DeviceCredentials(target["username"], target["password"]),
+                with connect_device(ip, DeviceCredentials(target["username"], target["password"], secret=target.get("secret")),
                                     transport_config) as session:
                     stage = "inventory"
                     context = resolver.resolve(session, management_ip=ip)

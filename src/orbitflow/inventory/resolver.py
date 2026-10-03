@@ -49,6 +49,11 @@ class DeviceInventoryResolver:
                 platform_override: str | None = None, cli: DeviceCLI | None = None) -> DeviceContext:
         """Borrow ``cli`` when supplied; otherwise own a temporary probe shell."""
         attempted_at = self._clock()
+        secret = getattr(session, "secret", None)
+        def sanitize_fact(value):
+            if isinstance(secret, str) and secret:
+                value = value.replace(secret, "[REDACTED]")
+            return self._sanitize_fact(value) if self._sanitize_fact else value
         try:
             if platform_override and platform_override not in self._SUPPORTED:
                 raise DeviceInventoryError(f"unsupported platform override: {platform_override}")
@@ -82,13 +87,13 @@ class DeviceInventoryResolver:
                     raise DeviceInventoryError("identification output did not contain a hostname")
                 # Batch callers can remove known runtime credentials echoed into
                 # otherwise valid facts before those facts reach persistence.
-                if self._sanitize_fact is not None:
+                if self._sanitize_fact is not None or secret:
                     sanitized = {}
                     for key, value in facts.items():
                         if isinstance(value, str):
-                            value = self._sanitize_fact(value)
+                            value = sanitize_fact(value)
                         elif isinstance(value, tuple):
-                            value = tuple(self._sanitize_fact(item) for item in value)
+                            value = tuple(sanitize_fact(item) for item in value)
                         sanitized[key] = value
                     if any(sanitized.get(key) != facts.get(key) for key in ("vendor", "serial_number")):
                         # Redacted serials must never become a shared identity key.

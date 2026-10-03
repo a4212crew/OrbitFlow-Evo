@@ -7,6 +7,7 @@ import re
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.common import DeviceCLI, open_prompt_cli
 from orbitflow.vendors.interface_types import InterfaceCollection, InterfaceObservation
+from .prompts import extract_edgeswitch_hostname
 
 _REJECTED = re.compile(
     r"(?:%\s*(?:Invalid input|Unknown command)|Unrecognized command)", re.IGNORECASE
@@ -20,17 +21,6 @@ _COLUMN_SPANS = tuple(
     (match.start(), match.end()) for match in re.finditer(r"-+", _HEADER[-1])
 )
 _FOOTER = "Flow Control:Disabled"
-
-
-def extract_edgeswitch_hostname(prompt: str) -> str:
-    """Extract the hostname from an EdgeSwitch exec prompt."""
-    match = re.fullmatch(
-        r"(?:\((?P<parenthesized>[^()\r\n]+)\)\s*[#>]|" r"(?P<simple>[^:#>\s()]+)[#>])",
-        prompt.strip(),
-    )
-    if match is None:
-        raise ValueError(f"unrecognized EdgeSwitch prompt: {prompt!r}")
-    return match.group("parenthesized") or match.group("simple")
 
 
 def parse_interfaces_status(output: str) -> list[InterfaceObservation]:

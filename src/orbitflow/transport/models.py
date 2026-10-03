@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -12,8 +12,9 @@ class DeviceCredentials:
     """Credentials for the target device, separate from Teleport identity."""
 
     username: str
-    password: str | None = None
-    pkey: Any | None = None
+    password: str | None = field(default=None, repr=False)
+    pkey: Any | None = field(default=None, repr=False)
+    secret: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -37,10 +38,11 @@ class TransportConfig:
 class DeviceSession:
     """Own an established target SSH client and all dependent resources."""
 
-    def __init__(self, client: Any, cleanup: Callable[[], None]) -> None:
+    def __init__(self, client: Any, cleanup: Callable[[], None], *, secret: str | None = None) -> None:
         self.client = client
         self._cleanup = cleanup
         self._closed = False
+        self.secret = secret
 
     def invoke_shell(self, **kwargs: Any) -> Any:
         """Open the target's interactive shell."""
@@ -50,6 +52,7 @@ class DeviceSession:
         """Close all resources once, in transport-defined dependency order."""
         if not self._closed:
             self._closed = True
+            self.secret = None
             self._cleanup()
 
     def __enter__(self) -> DeviceSession:

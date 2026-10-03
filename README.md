@@ -309,6 +309,7 @@ Inventory refresh/export and Interface/VLAN reporting use
 ```toml
 [execution]
 max_concurrent_devices = 10
+connection_start_interval = 0.25
 ```
 
 The default is 10 when the file is absent. The setting must be a positive integer;
@@ -318,6 +319,17 @@ workflow may pass `execution_config=ExecutionConfig(3)` or
 `execution_config=load_execution_config("settings.toml")` from `orbitflow.config`.
 No feature-specific worker limit is needed. This read-only default does not
 authorize concurrent provisioning or live validation.
+
+`connection_start_interval` is the minimum spacing in seconds between shared
+connection-start admissions within a run (default 0.25; set 0 to disable).
+It paces new connections and retries without changing the active-device limit.
+Standalone transport callers use the default spacing. The shared transport
+retries once for typed connection timeouts, resets, aborts, and refusals, after
+closing the failed attempt's resources. Authentication, privilege, host-key,
+parser, unsupported-platform, and command failures are not retried. Generic SSH
+errors without a typed transient cause are not retried. Failed cleanup suppresses
+retry. Windows local forwarding and Linux certificate/direct-tcpip paths remain
+unchanged.
 
 A worker owns the complete device workflow, resolver, context, connection and CLI
 resources. A free slot immediately accepts another target, even while earlier
@@ -340,10 +352,12 @@ concurrency validation has been performed.
 
 ### Device configuration backup
 
-Run `python scripts/device_configuration_backup.py devices.xlsx --proxy <proxy> --cluster <cluster> --bastion-host <host> --bastion-user <user>` after operator-controlled Teleport login. Input uses the existing `management_ip`, `username`, and `password` Excel columns. Optional `--config`, `--inventory-path`, `--log-root`, `--teleport-key-path`, and `--teleport-cert-path` follow the other batch scripts; `--timeout` defaults to 60 seconds per configuration command.
+Run `python scripts/device_configuration_backup.py devices.xlsx --proxy <proxy> --cluster <cluster> --bastion-host <host> --bastion-user <user>` after operator-controlled Teleport login. Input uses the existing `management_ip`, `username`, and `password` Excel columns. An optional `Secret` (case-insensitive) column supplies the enable credential; list targets use `secret`. Missing or blank secrets are allowed for devices already in privileged EXEC. IOS/IOS-XE and EdgeSwitch user EXEC prompts require the supplied secret; the shared CLI sends `enable`, answers one password prompt, and verifies privileged `#` before continuing. EdgeSwitch annotations such as `(HOSTNAME (arbitrary annotation)) >` are accepted and excluded from the normalized hostname. Optional `--config`, `--inventory-path`, `--log-root`, `--teleport-key-path`, and `--teleport-cert-path` follow the other batch scripts; `--timeout` defaults to 60 seconds per configuration command.
 
 The read-only workflow uses shared bounded device execution and one session/CLI per device. Cisco IOS/IOS-XE/IOS-XR and EdgeSwitch use `show running-config`; Huawei VRP uses `display current-configuration`, with existing platform paging setup. Each run creates one unique UTC-dated folder under `backups/` (override with `--backups-dir`). Successful captures are directly inside it as `<hostname>-<platform>.txt`, using resolved platform identifiers such as `cisco_xe`. Windows-invalid characters are replaced, and collisions receive numeric suffixes, including names differing only by case. Failed targets report their input position and failure stage while peers continue.
 
-Backups contain sensitive, unredacted configuration. Default output is Git-ignored; each run also includes a local ignore file for custom output roots. Store these files with operator-managed access controls and retention; never force-add them to Git. Logs and execution outcomes contain only status metadata, and configuration is never placed in result spools. Transport echo/final prompts are removed and terminal line endings normalized; configuration text, indentation, and blank lines are retained. No live backup validation has been performed.
+Backups contain sensitive configuration. Exact supplied login passwords and enable secrets are replaced with `[REDACTED]` in captures; other configuration content is preserved. Default output is Git-ignored; each run also includes a local ignore file for custom output roots. Store these files with operator-managed access controls and retention; never force-add them to Git. Logs and execution outcomes contain only status metadata, and configuration is never placed in result spools. Transport echo/final prompts are removed and terminal line endings normalized; configuration text, indentation, and blank lines are retained. No live backup validation has been performed.
 
 Each backup run also writes `failed_devices.xlsx` in the same dated folder, with one row per failed target and columns Hostname, IP Address, Equipment Type, Platform, Failure Stage, and Failure Reason. Equipment Type uses the resolved hardware model (device family fallback); Platform remains the normalized platform identifier. Before identity resolution, identity fields remain blank and the supplied management IP is retained. Reasons are fixed, sanitized exception-category descriptions with a stage fallback; exception text and configuration contents are excluded. Runs with no failures produce a header-only workbook.
+
+Backup failure reporting distinguishes missing enable secrets, failed enable authentication, exhausted transient connection retries, and failed connection cleanup using fixed safe reasons. Neither the enable exchange nor raw exception text enters logs, inventory, spools, or `failed_devices.xlsx`.

@@ -11,7 +11,9 @@ from typing import Any
 import paramiko
 
 from .authentication import connect_target
-from .exceptions import DeviceConnectionError, TeleportError, TunnelError
+from .exceptions import (
+    DeviceConnectionError, TeleportError, TunnelError, TunnelTimeout, ConnectionCleanupError,
+)
 from .models import DeviceCredentials, DeviceSession, TransportConfig
 
 
@@ -55,7 +57,7 @@ def _open_forwarded_socket(process: Any, port: int, timeout: float) -> socket.so
             )
         if time.monotonic() < deadline:
             time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
-    raise TunnelError("timed out waiting for the tsh local forwarding port")
+    raise TunnelTimeout("timed out waiting for the tsh local forwarding port")
 
 
 def connect_windows(
@@ -91,14 +93,15 @@ def connect_windows(
     except OSError as exc:
         raise TeleportError("failed to start tsh local forwarding") from exc
 
-    client = paramiko.SSHClient()
+    client = None
     forwarded_socket = None
-    if config.verify_device_host_key:
-        client.load_system_host_keys()
-        client.set_missing_host_key_policy(paramiko.RejectPolicy())
-    else:
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
+        client = paramiko.SSHClient()
+        if config.verify_device_host_key:
+            client.load_system_host_keys()
+            client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        else:
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         # This first successful forward connection is retained for Paramiko.
         # Reading its SSH banner here would consume protocol data Paramiko owns.
         forwarded_socket = _open_forwarded_socket(
@@ -115,10 +118,17 @@ def connect_windows(
             timeout=config.connect_timeout,
         )
     except Exception as exc:
-        client.close()
-        if forwarded_socket is not None:
-            forwarded_socket.close()
-        _stop_process(process)
+        # Attempt every cleanup before the shared layer considers a retry.
+        cleanup_failed = False
+        for cleanup_resource in (lambda: client.close() if client is not None else None,
+                                 lambda: forwarded_socket.close() if forwarded_socket is not None else None,
+                                 lambda: _stop_process(process)):
+            try:
+                cleanup_resource()
+            except Exception:
+                cleanup_failed = True
+        if cleanup_failed:
+            raise ConnectionCleanupError("Connection cleanup failed; retry suppressed.") from None
         if isinstance(exc, TunnelError):
             raise
         raise DeviceConnectionError(

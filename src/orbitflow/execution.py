@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from threading import Lock
 
 from orbitflow.config import load_execution_config
+from orbitflow.transport.policy import ConnectionStartPacer, connection_pacer
 
 
 @dataclass(frozen=True)
@@ -36,11 +37,15 @@ def execute_devices(targets, worker, *, config=None, on_outcome=None):
     are copied separately into each invocation. Limit 1 runs on the caller.
     """
     config = config if config is not None else load_execution_config()
+    pacer = ConnectionStartPacer(config.connection_start_interval)
     def invoke(position, target):
+        token = connection_pacer.set(pacer)
         try:
             return DeviceOutcome(position, worker(target))
         except Exception as exc:
             return DeviceOutcome(position, error_category=type(exc).__name__)
+        finally:
+            connection_pacer.reset(token)
 
     outcomes = []
     def deliver(outcome):

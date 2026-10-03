@@ -170,7 +170,7 @@ def run_report(targets, transport_config, *, inventory_path="data/live_validatio
                     raise ValueError("Missing required target field")
                 stage = "connect"
                 status(f"{label}: {stage}")
-                with connect_device(ip, DeviceCredentials(target["username"], target["password"]), transport_config) as session:
+                with connect_device(ip, DeviceCredentials(target["username"], target["password"], secret=target.get("secret")), transport_config) as session:
                     stage = "inventory"
                     status(f"{label}: {stage}")
                     with DeviceCLI(session) as cli:
