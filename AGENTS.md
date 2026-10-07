@@ -15,7 +15,7 @@ OrbitFlow-Evo is a multi-vendor network automation platform for ISP operations.
 9. Keep operator console output concise; detailed sanitized diagnostics belong in module-owned logs.
 10. Add/update deterministic tests when behaviour changes. State any untested limitation.
 11. Do not silently redesign architecture outside task scope.
-12. Normalized capability models are authoritative for cross-vendor semantics; higher layers must not reinterpret raw vendor configuration.
+12. Normalized capability models are authoritative for reusable cross-vendor observation. A routed audit/analysis skill may derive validated audit facts from preserved saved-configuration relationships and evidence, but reporting/workflow layers must not perform ad-hoc vendor reinterpretation.
 13. Do not create synthetic interface identities solely from VLAN, L2VPN, VSI, bridge-domain, or other service references.
 14. Append meaningful completed features, behavioural changes, bug fixes, and orchestration changes to the current monthly `docs/devlog/YYYY-MM.md`. Update `CURRENT_STATE.md` only when the implemented/validated capability baseline changes.
 15. Multi-device execution must use the shared OrbitFlow device-execution layer; feature modules must not create independent thread pools, worker pools, or equivalent concurrency mechanisms.
@@ -69,6 +69,7 @@ Use this table to choose the skill(s) directly relevant to the task. Start there
 | Excel/list input and credential precedence | `.agents/skills/excel-inventory/SKILL.md` |
 | Interface collection/parsing/change tracking | `.agents/skills/interface-collector/SKILL.md` |
 | VLAN observation and VLAN state | `.agents/skills/vlan-observation/SKILL.md` |
+| Saved-configuration VLAN audit/compliance, family-specific relationship validation, audit findings | `.agents/skills/vlan-configuration-audit/SKILL.md` |
 | Interface/VLAN Excel reporting and batch report composition | `.agents/skills/device-reporting/SKILL.md` |
 | Runtime/module logging and dependency-log routing | `.agents/skills/runtime-logging/SKILL.md` |
 | Access VLAN provisioning | `.agents/skills/access-vlan-provisioning/SKILL.md` |
@@ -91,7 +92,7 @@ Load `.agents/skills/codex-orchestration/SKILL.md` only when changing or trouble
 
 - `AGENTS.md` — permanent global rules and routing/context policy.
 - `CURRENT_STATE.md` — concise implemented/validated state.
-- `.agents/skills/*/SKILL.md` — task-specific implementation knowledge.
+- `.agents/skills/*/SKILL.md` — task-specific implementation knowledge. For VLAN audit/compliance work, route to `.agents/skills/vlan-configuration-audit/SKILL.md`; keep Codex task/revision instructions concise and let the routed skill carry the detailed business rules.
 - `docs/architecture/` — durable architecture/cross-feature decisions.
 - `docs/devlog/YYYY-MM.md` — completed work/troubleshooting history; append without reading history unless needed.
 - `DEVLOG.md` — short index.
