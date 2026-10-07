@@ -442,35 +442,44 @@ The prompt correction awaits operator-controlled live retesting.
 
 ## VLAN Compliance MVP
 
-`orbitflow.compliance` provides separate read-only policy analysis over normalized
-VlanService objects and actual InterfaceService identities. External validated
-JSON policy defines required forwarding domains and a trunk membership signature;
-the default requires domains 2400-2444, 2449 and 4001, plus tagged 445/545 on trunks
-matching 445 AND 545 AND (2449 OR 4001). Exact domain identities remain distinct
-from ingress tags; named service objects are not translated into numeric VLANs.
-Structured findings distinguish compliant, non-compliant, not-applicable and
-unable-to-assess outcomes, retaining safe normalized evidence and missing state.
+The existing Issue #65 branch contains a reusable read-only compliance MVP over
+VlanService and InterfaceService, including external JSON policy, shared
+execution/spooling/logging, CLI/report export, and deterministic scale coverage.
 
-`orbitflow.vlan_compliance.collect_compliance` collects each capability once per
-device using shared context/session/CLI, execution, logging and result spooling.
-`scripts/device_vlan_compliance.py` composes collection with streaming Excel output
-and supports connection-free recovery from retained spools. Defaults use
-`outputs/reports/vlan_compliance/`, `outputs/runs/vlan_compliance/` and
-`outputs/logs/compliance/`; policy defaults to `policies/vlan_compliance.json`.
-The application spool and policy-provider contract are reusable independently of
-Excel. Deterministic tests cover policy parsing, rule scope, partial/failed-device
-isolation, secret exclusion, output recovery and a 1,500-device run at concurrency
-5 with complete spool/Excel output. No remediation or new vendor
-interpretation was introduced. Live compliance validation remains unperformed;
-Policies requesting VLAN 1 are rejected because observation omits it.
+The **approved next revision design** supersedes the earlier generic/NCS
+named-service compliance assumptions but is **not yet implemented**. The
+authoritative design is documented in
+`.agents/skills/vlan-configuration-audit/SKILL.md`.
 
-IOS-XR compliance now has a separate external-policy service path: actual L2
-service subinterfaces consolidate under observed parents, with exact named
-bridge-domain object matching and explicit signature alternatives. Observation
-is unchanged. Missing/ambiguous parent/profile/domain evidence is unable to assess;
-unrelated parent groups are not applicable. Tests cover parent isolation, name
-variants, missing services, policy changes and spool/Excel recovery. The default
-NCS policy now contains all 51 supplied bridge-domain identities and marks the
-baseline complete. Tests cover a fully compliant baseline, each required identity
-omitted from the database or a matching parent, both LBB case alternatives, and
-unrelated parent isolation. Trigger semantics and generic evaluation are unchanged.
+The approved audit boundary is:
+
+```text
+saved configuration
+    -> VlanService/vendor observation
+    -> family-specific AuditResolver
+    -> validated audit facts
+    -> common compliance engine
+```
+
+Common policy uses database-required VLANs `445,545,2400-2444,2449,4001` and
+interface-required VLANs `2400-2444,2449,4001`. Trunk/EVC/Hybrid interface
+evaluation is applicable only when validated membership contains 445 and 545 and
+at least one of 2449 or 4001. Access is not applicable.
+
+Saved configuration is authoritative for audit semantics. InterfaceService is
+used for identity/state correlation. Audit results preserve
+`interface_name`, `config_interface_name`, match status, exact missing VLANs,
+configuration findings, and source evidence.
+
+Approved family-specific resolvers cover:
+- ME3600X explicit VLAN DB plus inline/global service-instance bridge-domain binding;
+- ASR920 bridge-domain/service-instance database and Access/EVC-Trunk/Hybrid classification;
+- Catalyst 3750X/3850 explicit VLAN DB, explicit/All-VLAN trunks, and Port-channel ownership;
+- Huawei VRP global VLAN plus valid VSI-bound termination database, parent/child consolidation, and direct untagged VSI attachment;
+- IOS-XR/NCS540 bridge-domain -> attached existing l2transport subinterface -> numeric dot1q mapping only; the previous 51-name baseline is no longer authoritative;
+- EdgeSwitch ordered participation membership, independent tagging/PVID validation, and LAG ownership.
+
+No configuration generation/apply is part of this phase. Current code remains the
+pre-revision MVP until Codex implements the routed audit skill on the existing
+Issue #65 / PR #66 branch and the user completes live validation.
+
