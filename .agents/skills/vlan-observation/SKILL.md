@@ -21,7 +21,7 @@ Vendor parsers report observed facts only. A separate analysis/policy layer deci
 - Adapter/parser behaviour may depend on platform plus device family/capability profile.
 - Reuse DeviceSession and the shared CLI lifecycle; do not create transport logic here.
 - Keep vendor commands and parsers isolated.
-- Vendor parsers own vendor interpretation. Reporting must consume normalized output rather than reconstructing semantics from raw fields.
+- Vendor parsers own reusable observation semantics. Reporting must consume normalized output rather than reconstructing vendor syntax. A routed audit resolver may validate preserved saved-configuration relationships/evidence and derive audit-specific facts; that logic belongs in the audit skill, not reporting.
 - Interface existence and references to an interface from another configuration section are separate facts.
 - Never create a normal interface identity solely because L2VPN, bridge-domain, VSI, VLAN, or service configuration references that name.
 - Unmatched service references should be retained as validation findings for a later analysis layer, not promoted to real interfaces.
@@ -242,9 +242,13 @@ vlan tagging
 
 Normalization:
 
-- PVID/participating untagged VLAN and no tagged VLANs -> `access`;
-- all participating VLANs tagged and no active untagged/PVID VLAN -> `trunk`;
-- accepted untagged/PVID traffic plus tagged VLANs -> `hybrid`.
+- participation determines membership; PVID and tagging do not create membership;
+- a PVID may describe untagged handling only when that VLAN is a participating member;
+- all participating VLANs tagged and no valid untagged member -> `trunk`;
+- exactly one valid participating untagged/PVID VLAN and no tagged members -> `access`;
+- one valid participating untagged/PVID VLAN plus tagged members -> `hybrid`.
+
+Observation should preserve configured participation, tagging, PVID, and exclusions distinctly enough for the audit layer to report invalid combinations rather than silently normalize them away.
 
 Example:
 
@@ -264,7 +268,7 @@ bridge_domains: 100,200,300
 service_mappings: untagged -> 100; 200 -> 200; 300 -> 300
 ```
 
-Excluded VLANs may be retained as supporting facts but are not active forwarding domains.
+Excluded VLANs may be retained as supporting facts but are not active forwarding domains. Repeated participation include/exclude statements should preserve source-order semantics; consistency findings remain the audit layer's responsibility.
 
 ## Normalized Forwarding-Domain Database Contract
 
@@ -340,7 +344,7 @@ name: <bridge-domain>
 domain_id: <bridge-domain>
 ```
 
-Do not inspect interface encapsulation or interface bindings to create NCS540 database objects.
+Do not inspect interface encapsulation or interface bindings to create NCS540 observation database objects. Audit-specific numeric VLAN availability is derived later by the IOS-XR AuditResolver only from a valid bridge-domain -> existing l2transport interface -> numeric dot1q relationship.
 
 ### Huawei VRP
 
