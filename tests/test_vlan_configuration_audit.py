@@ -318,7 +318,8 @@ def test_xr_numeric_mapping_conflicts_unbound_routed_and_same_name_groups():
     assert child["interface_match_status"] == "matched"
 
 
-def test_edgeswitch_order_database_membership_tagging_pvid_and_lag():
+@pytest.mark.parametrize("reference", ["3/1", "lag 1"])
+def test_edgeswitch_order_database_membership_tagging_pvid_and_lag(reference):
     config = """vlan database
 vlan 445,545,2449
 vlan name 4001 "annotation-only"
@@ -330,14 +331,14 @@ vlan participation include 545
 vlan tagging 445,545,2449,4001
 exit
 interface 0/1
-addport 1
+addport REFERENCE
 exit
 interface 0/2
 description "Access_port"
 vlan pvid 100
 vlan participation include 445,545,2449
 vlan tagging 445,545,2449
-addport 1
+addport REFERENCE
 exit
 interface 0/3
 vlan participation include 445,545,2449
@@ -345,6 +346,7 @@ vlan tagging 445,545,2449
 vlan participation exclude 545
 exit
 """
+    config = config.replace("REFERENCE", reference)
     results = audit(config, "EdgeSwitch")
     assert results[0]["observed"]["valid_database_vlans"] == [445, 545, 2449]
     assert {o["domain_id"] for o in results[0]["observed"]["database_inventory"]} == {"445", "545", "2449"}
@@ -353,8 +355,50 @@ exit
     assert lag["observed"]["tagged"] == [445, 545, 2449]
     assert {"TAGGED_VLAN_NOT_IN_MEMBERSHIP", "INTERFACE_VLAN_NOT_IN_DATABASE"} <= codes(lag)
     assert row(results, "0/1")["observed"]["configuration_owner"] == "lag 1"
+    for name in ("0/1", "0/2"):
+        member = row(results, name)
+        assert member["observed"]["inherited_from"] == "lag 1"
+        assert member["observed"]["valid_interface_vlans"] == lag["observed"]["valid_interface_vlans"]
+        assert member["status"] == lag["status"] == "non_compliant"
+        assert member["missing_vlans"] == lag["missing_vlans"]
+        assert "AGGREGATE_NOT_FOUND" not in codes(member)
+        assert any(e["excerpt"] == f"addport {reference}" for e in member["evidence"]["sources"])
+    assert "AGGREGATE_CONFIG_CONFLICT" not in codes(row(results, "0/1"))
     assert {"PVID_NOT_IN_MEMBERSHIP", "AGGREGATE_CONFIG_CONFLICT"} <= codes(row(results, "0/2"))
     assert row(results, "0/3")["status"] == "not_applicable"
+
+
+@pytest.mark.parametrize("reference,owner", [("3/2", "lag 2"), ("lag 2", "lag 2"),
+                                               ("1", None), ("0/2", None), ("3/9", None)])
+def test_edgeswitch_lag_reference_exact_owner_or_review(reference, owner):
+    config = f"""vlan database
+vlan 445,545,2449
+exit
+interface 0/1
+addport {reference}
+exit
+interface lag 1
+vlan participation include 445
+vlan pvid 445
+exit
+interface lag 2
+vlan participation include 445,545,2449
+vlan tagging 445,545,2449
+exit
+"""
+    results = audit(config, "EdgeSwitch")
+    member = row(results, "0/1")
+    assert len(results) == 4  # Never synthesize an interface from a reference.
+    if owner:
+        assert member["observed"]["configuration_owner"] == owner
+        assert member["observed"]["inherited_from"] == owner
+        assert member["observed"]["valid_interface_vlans"] == [445, 545, 2449]
+        assert "AGGREGATE_NOT_FOUND" not in codes(member)
+    else:
+        assert member["observed"]["configuration_owner"] == "0/1"
+        assert member["observed"]["valid_interface_vlans"] == []
+        assert "AGGREGATE_NOT_FOUND" in codes(member)
+        assert member["status"] == "unable_to_assess"
 
 
 @pytest.mark.parametrize("members,tags,pvid,kind", [

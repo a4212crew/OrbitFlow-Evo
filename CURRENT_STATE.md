@@ -449,6 +449,9 @@ family-specific AuditResolver -> common external policy -> JSON spool/Excel.
 Resolvers cover ME3600X, ASR920, Catalyst 3750X/3850, Huawei VRP (NE05/NE05E),
 NCS540 and EdgeSwitch. They validate service bindings, database membership,
 parent/child consolidation, canonical identity matching and aggregate ownership.
+EdgeSwitch audit resolves member `addport 3/N` and `addport lag N` references
+to configured `interface lag N` ownership, with inheritance/conflict coverage;
+unsupported or absent aggregate references remain explicit review findings.
 NCS540 numeric VLANs require valid BD -> existing l2transport subinterface ->
 explicit dot1q mappings; the earlier named-service baseline is removed.
 

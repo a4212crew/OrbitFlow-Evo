@@ -116,8 +116,14 @@ class AuditResolver:
             group = last(node.children, "aggregate")
             if not group:
                 continue
-            name = (group if group.startswith("lag ") or "/" in group else "lag " + group) if edge else "Port-channel" + group
-            owner = self.key(name)
+            name = "Port-channel" + group
+            if edge:
+                # EdgeSwitch's logical LAG slot is 3: addport 3/N refers
+                # to interface lag N, not an interface literally named 3/N.
+                # The documented alternative is addport lag N. Preserve
+                # unsupported references as evidence, without guessing owners.
+                name = "lag " + group[2:] if group.startswith("3/") else group
+            owner = self.key(name) if not edge or name.startswith("lag ") else None
             row = self.rows[key]
             if owner not in self.rows:
                 self.problem("AGGREGATE_NOT_FOUND", key, children(node.children, "aggregate"), aggregate=name)
