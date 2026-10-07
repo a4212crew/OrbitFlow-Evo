@@ -2,6 +2,7 @@
 
 import re
 
+from orbitflow.vendors.configuration_facts import observe_configuration
 from orbitflow.models import InterfaceVlanObservation, VlanObject
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.common import DeviceCLI, open_prompt_cli
@@ -180,4 +181,5 @@ class HuaweiVlanAdapter:
                     "Huawei VRP rejected approved command 'display current-configuration'"
                 )
             interfaces, objects = parse_huawei_config(output)
-            return VlanCollection(extract_huawei_hostname(cli.prompt), interfaces, objects)
+            return VlanCollection(extract_huawei_hostname(cli.prompt), interfaces, objects,
+                                  observe_configuration(output, "huawei_vrp"))

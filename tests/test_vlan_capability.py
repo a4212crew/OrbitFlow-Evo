@@ -351,6 +351,9 @@ def test_service_uses_only_approved_command_and_normalizes_identity(platform):
     )
     assert channel.sent == [b"\n", f"{paging}\n".encode(), f"{command}\n".encode()]
     assert state.device_ip == "192.0.2.1" and state.collection_time == now
+    assert state.configuration is not None
+    assert state.configuration[0].source_filename == "running-config"
+    assert state.configuration[0].line == 1
 
 
 def test_service_rejects_unsupported_platform():

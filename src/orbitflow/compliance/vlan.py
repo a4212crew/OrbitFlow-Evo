@@ -1,7 +1,8 @@
-"""Pure VLAN compliance rules. Only normalized capability fields are authoritative."""
+"""Common policy engine over family-validated saved-configuration audit facts."""
 
 from orbitflow.logging import sanitize_text
 from orbitflow.vendors.interface_names import canonical_interface_name
+from orbitflow.compliance.resolvers import resolver_for, parent_name
 
 
 def safe_data(value, clean=sanitize_text):
@@ -15,88 +16,103 @@ def safe_data(value, clean=sanitize_text):
 
 def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_ip="",
                              clean=sanitize_text):
-    """Return findings; None means collection unavailable, an empty collection is valid.
+    """Evaluate both rule families from one snapshot; no collection or mutation.
 
-    Domain requirements match exact domain_id on any policy-accepted object type.
-    Trunk membership uses tagged_vlans only, never legacy/raw service fields.
-    Unknown membership cannot establish that a trunk is out of scope.
+    Configuration problems are independent structured findings within each
+    database/interface result. Missing evidence never becomes a fabricated fact.
     """
-    device = {"device_id": context.device_id if context else "",
-              "management_ip": context.management_ip if context else management_ip,
-              "hostname": context.hostname if context else "",
-              "platform": context.platform if context else ""}
-    if context is not None and context.platform == "cisco_xr":
-        from orbitflow.compliance.services import evaluate_services
-        service_policy = next((rule for rule in policy.service_rules
-                               if rule.platform == context.platform), None)
-        return safe_data(evaluate_services(device, interfaces, vlans, policy.policy_id,
-                                           service_policy), clean)
-    database_expected = {"object_types": policy.object_types,
-                         "required_domains": policy.required_domains}
-    interface_expected = {"port_type": "trunk", "match_all": policy.match_all,
-                          "match_any": policy.match_any, "required_vlans": policy.required_vlans}
+    device = dict(device_id=context.device_id if context else "",
+                  management_ip=context.management_ip if context else management_ip,
+                  hostname=context.hostname if context else "", platform=context.platform if context else "",
+                  family=context.device_family if context else "")
+    database_expected = dict(required_vlans=sorted(map(int, policy.required_domains)))
+    interface_expected = dict(interface_types=["trunk", "evc", "hybrid"], match_all=policy.match_all,
+                              match_any=policy.match_any, required_vlans=policy.required_vlans)
     findings = []
 
-    def finding(rule, expected, observed, *, interface=None, status, reason,
-                missing_vlans=(), missing_objects=(), evidence=None):
+    def emit(rule, expected, observed, status, reason, *, interface=None, missing=(), source=(), recommendation=""):
         findings.append(dict(policy_id=policy.policy_id, rule_id=rule, device=device,
                              interface=interface, expected=expected, observed=observed,
-                             missing_vlans=missing_vlans, missing_objects=missing_objects,
-                             status=status, reason=reason, evidence=evidence or {}))
+                             missing_vlans=list(missing),
+                             missing_objects=[str(v) for v in missing] if rule == policy.database_rule else [],
+                             status=status, reason=reason, explanation=reason.replace("_", " "),
+                             recommendation=recommendation, evidence=dict(sources=list(source))))
 
-    if context is None or vlans is None:
-        finding(policy.database_rule, database_expected, None,
-                status="unable_to_assess", reason="vlan_collection_unavailable")
-    else:
-        objects = sorted(({"object_type": obj.object_type, "object_id": obj.object_id,
-                           "domain_id": obj.domain_id} for obj in vlans.objects),
-                         key=lambda obj: (obj["object_type"], obj["object_id"], obj["domain_id"]))
-        domains = {obj["domain_id"] for obj in objects if obj["object_type"] in policy.object_types}
-        missing = sorted(set(policy.required_domains) - domains)
-        finding(policy.database_rule, database_expected, {"objects": objects},
-                status="non_compliant" if missing else "compliant",
-                reason="missing_objects" if missing else "required_objects_present",
-                missing_objects=missing, evidence={"collection_time": vlans.collection_time.isoformat()})
+    resolver = resolver_for(context) if context else None
+    unavailable = ("vlan_collection_unavailable" if vlans is None or context is None else
+                   "unsupported_or_uncertain_family" if resolver is None else
+                   "saved_configuration_evidence_unavailable" if vlans.configuration is None else "")
+    if unavailable:
+        for rule, expected in ((policy.database_rule, database_expected), (policy.interface_rule, interface_expected)):
+            emit(rule, expected, None, "unable_to_assess", unavailable)
+        return safe_data(findings, clean)
 
-    if context is None or interfaces is None:
-        finding(policy.interface_rule, interface_expected, None,
-                status="unable_to_assess", reason="interface_collection_unavailable")
-    else:
-        key = lambda name: canonical_interface_name(context.platform, name)
-        profiles = {}
-        for item in vlans.interfaces if vlans is not None else ():
-            profiles.setdefault(key(item.interface_name), []).append(item)
-        actual = {key(record.port_name): record for record in interfaces}
-        if not actual:
-            finding(policy.interface_rule, interface_expected, {"interface_count": 0},
-                    status="not_applicable", reason="no_actual_interfaces")
-        for name, record in sorted(actual.items()):
-            matches = profiles.get(name, [])
-            item = matches[0] if len(matches) == 1 else None
-            observed = None if item is None else {"port_type": item.port_type,
-                                                  "tagged_vlans": item.tagged_vlans}
-            missing = []
-            if item is None or item.port_type not in {"trunk", "access", "hybrid", "evc", "service", "routed"}:
-                status, reason = "unable_to_assess", "forwarding_profile_unavailable_or_ambiguous"
-            elif item.port_type != "trunk":
-                status, reason = "not_applicable", "not_a_trunk"
-            elif item.tagged_vlans == "ALL":
-                status, reason = "compliant", "all_tagged_vlans_accepted"
-            elif item.tagged_vlans == "NONE":
-                status, reason = "not_applicable", "signature_not_matched"
-            elif (not isinstance(item.tagged_vlans, tuple) or not item.tagged_vlans
-                  or any(type(v) is not int or not 1 <= v <= 4094 for v in item.tagged_vlans)):
-                status, reason = "unable_to_assess", "tagged_membership_unavailable"
-            else:
-                tags = set(item.tagged_vlans)
-                if not set(policy.match_all) <= tags or not set(policy.match_any) & tags:
-                    status, reason = "not_applicable", "signature_not_matched"
-                else:
-                    missing = sorted(set(policy.required_vlans) - tags)
-                    status = "non_compliant" if missing else "compliant"
-                    reason = "missing_vlans" if missing else "required_vlans_present"
-            finding(policy.interface_rule, interface_expected, observed,
-                    interface=record.port_name, status=status, reason=reason,
-                    missing_vlans=missing, evidence={"interface_collection_time": record.collection_time.isoformat(),
-                    "vlan_collection_time": vlans.collection_time.isoformat() if vlans else None})
+    facts = resolver(context, vlans).result()
+    rows = facts.pop("interfaces")
+    source = facts.pop("evidence")
+    missing = sorted(set(map(int, policy.required_domains)) - set(facts["valid_database_vlans"]))
+    facts["compliance_findings"] = ([dict(code="DATABASE_REQUIRED_VLAN_MISSING", vlans=missing)] if missing else [])
+    emit(policy.database_rule, database_expected, facts, "non_compliant" if missing else "compliant",
+         "missing_database_vlans" if missing else "required_database_vlans_present", missing=missing,
+         source=source, recommendation="Provide the missing global VLANs or valid family-specific service mappings." if missing else "")
+
+    key = lambda name: canonical_interface_name(context.platform, name)
+    actual = {key(record.port_name): record for record in interfaces or ()}
+    # Observed-only children may be shown as parent details, but never gain
+    # forwarding facts or create a parent/interface from a service reference.
+    for name, record in actual.items():
+        if name in rows:
+            continue
+        parent = parent_name(name)
+        problem = dict(code="INTERFACE_NOT_IN_CONFIG", interface_name=record.port_name, evidence=[])
+        if parent in rows:
+            rows[parent]["configuration_findings"].append(problem)
+            rows[parent]["child_interfaces"].append(dict(interface_name=record.port_name,
+                config_interface_name="not in config file", interface_match_status="not_in_config"))
+            continue
+        rows[name] = dict(config_interface_name="not in config file", interface_type="review",
+                          description=record.port_description, shutdown=record.admin_status.lower() in {"down", "shutdown"},
+                          valid_interface_vlans=[], configuration_findings=[problem], evidence=[], review=True,
+                          child_interfaces=[], numeric_mappings=[], configuration_owner="")
+    for name, row in sorted(rows.items()):
+        if "consolidated_into" in row:
+            # Retain identity matching for child details as well as parent rows.
+            target = rows[row["consolidated_into"]]
+            for child in target["child_interfaces"]:
+                if child["interface_name"] == row["config_interface_name"]:
+                    child.update(config_interface_name=row["config_interface_name"],
+                                 interface_name=actual[name].port_name if name in actual else "not observed",
+                                 interface_match_status="matched" if name in actual else "config_only")
+            continue
+        record = actual.get(name)
+        config_only = record is None
+        match = "not_in_config" if row["config_interface_name"] == "not in config file" else "config_only" if config_only else "matched"
+        row.update(interface_name=record.port_name if record else "not observed", interface_match_status=match,
+                   interface_collection_available=interfaces is not None)
+        if match == "config_only":
+            row["configuration_findings"].append(dict(code="CONFIG_ONLY_INTERFACE", evidence=[]))
+        tags = set(row["valid_interface_vlans"])
+        trigger = set(policy.match_all) <= tags and bool(set(policy.match_any) & tags)
+        row["trigger_applicable"] = trigger and (row["interface_type"] in {"trunk", "evc", "hybrid"}
+                                                   or row.get("audit_valid_tagged_subset", False))
+        missing = []
+        if row["review"]:
+            status, reason = "unable_to_assess", "ambiguous_or_unavailable_interface_facts"
+        elif not row["trigger_applicable"]:
+            status, reason = "not_applicable", "access_excluded" if row["interface_type"] == "access" else "signature_not_matched"
+        else:
+            missing = sorted(set(policy.required_vlans) - tags)
+            status, reason = ("non_compliant", "missing_interface_vlans") if missing else ("compliant", "required_interface_vlans_present")
+        row["compliance_findings"] = ([dict(code="INTERFACE_REQUIRED_VLAN_MISSING", vlans=missing)] if missing else [])
+        recommendation = ""
+        if missing:
+            recommendation = ("Add missing global VLANs; this All VLAN trunk uses the device database."
+                              if row.get("all_vlan") else "Review missing VLAN membership on " + row["configuration_owner"] + ".")
+        elif row["configuration_findings"]:
+            recommendation = "Review the reported configuration relationships and identity evidence."
+        emit(policy.interface_rule, interface_expected, row, status, reason,
+             interface=record.port_name if record else row["config_interface_name"], missing=missing,
+             source=row.pop("evidence"), recommendation=recommendation)
+    if not rows:
+        emit(policy.interface_rule, interface_expected, {"interface_count": 0}, "not_applicable", "no_configured_or_observed_interfaces")
     return safe_data(findings, clean)

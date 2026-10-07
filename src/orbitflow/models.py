@@ -84,6 +84,23 @@ class VlanState:
     interfaces: tuple[InterfaceVlanObservation, ...]
     objects: tuple[VlanObject, ...]
     collection_time: datetime
+    configuration: tuple[ConfigFact, ...] | None = None
+
+
+@dataclass(frozen=True)
+class ConfigFact:
+    """Allowlisted saved-configuration fact with exact, sanitized source evidence.
+
+    The vendor observation layer owns syntax, ordering and nesting. References
+    remain references; they never manufacture configured interface identities.
+    """
+
+    kind: str
+    value: str | tuple[int, ...]
+    source_filename: str
+    line: int
+    excerpt: str
+    children: tuple[ConfigFact, ...] = ()
 
 
 @dataclass(frozen=True)

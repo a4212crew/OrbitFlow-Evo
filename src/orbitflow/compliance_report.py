@@ -8,7 +8,10 @@ from orbitflow.result_spool import ResultSpool
 
 
 FINDING_COLUMNS = ("Input Position", "Device IP", "Device Name", "Interface", "Policy", "Rule",
-                   "Status", "Reason", "Expected", "Observed", "Missing VLANs", "Missing Objects", "Evidence")
+                   "Status", "Reason", "Expected", "Observed", "Missing VLANs", "Missing Objects", "Evidence",
+                   "Family", "Config Interface", "Interface Match", "Type", "Description", "Shutdown",
+                   "Valid VLANs", "Trigger Applicable", "Configuration Owner", "Configuration Findings",
+                   "Explanation", "Recommendation")
 ERROR_COLUMNS = ("Input Position", "Device IP", "Stage", "Error Category")
 DETAIL_COLUMNS = ("Input Position", "Finding", "Field", "Part", "JSON Fragment")
 JSON_FIELDS = ("expected", "observed", "missing_vlans", "missing_objects", "evidence")
@@ -31,9 +34,18 @@ def export_compliance_spool(spool_path, path, *, cleanup=True, allow_partial=Fal
                     values = [_json(finding[field]) for field in JSON_FIELDS]
                     values = [value if len(value) <= 30000 else f"See Details: finding {index}, {field}"
                               for field, value in zip(JSON_FIELDS, values)]
+                    observed = finding.get("observed") or {}
+                    codes = ", ".join(p["code"] for p in observed.get("configuration_findings", []))
                     yield [record["input_position"], finding["device"]["management_ip"],
                            finding["device"]["hostname"], finding["interface"] or "", finding["policy_id"],
-                           finding["rule_id"], finding["status"], finding["reason"], *values]
+                           finding["rule_id"], finding["status"], finding["reason"], *values,
+                           finding["device"].get("family", ""), observed.get("config_interface_name", ""),
+                           observed.get("interface_match_status", ""), observed.get("interface_type", ""),
+                           observed.get("description", ""), observed.get("shutdown", ""),
+                           _json(observed.get("valid_interface_vlans", observed.get("valid_database_vlans", []))),
+                           observed.get("trigger_applicable", ""), observed.get("configuration_owner", ""),
+                           codes if len(codes) <= 30000 else "See Observed / Details",
+                           finding.get("explanation", ""), finding.get("recommendation", "")]
 
         def errors():
             for record in run.records():

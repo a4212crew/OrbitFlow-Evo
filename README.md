@@ -229,59 +229,63 @@ successful partial observations remain assessable. `Run_Errors` records safe sta
 and exception categories, without exception messages or device configuration.
 
 `policies/vlan_compliance.json` is the default policy; `--policy <file.json>` selects
-another. Schema version 1 requires `policy_id`, `database`, and `interface` sections.
-Unknown/missing fields, duplicate JSON keys, invalid IDs and invalid VLAN ranges
-fail before connecting. VLAN lists accept integers or inclusive strings such as
-`"2400-2444"`. Database `required_domains` additionally accepts exact named IDs.
-`object_types` selects accepted normalized object types (`vlan`, `bridge_domain`,
-`vsi`); a required domain may be satisfied by any accepted type. Names are never
-translated into numeric VLAN IDs, and interface references never create objects.
-Change the policy ID when revising a policy so retained findings identify its version.
+another. **Schema version 2** requires `policy_id`, `database` (`rule_id`,
+`required_domains`), and `interface` (`rule_id`, `match_all`, `match_any`,
+`required_vlans`). VLAN lists accept integers or inclusive strings such as
+`"2400-2444"`, restricted to 2-4001. Unknown fields, duplicate JSON keys,
+invalid IDs and invalid ranges fail before connecting. Schema-v1 named-service
+policies are superseded and rejected; start custom policies from the supplied
+schema-v2 file. Database object types are family-defined validated facts, not
+policy selectors. Change the policy ID whenever revising policy.
 
-The supplied database rule requires domains 2400–2444, 2449 and 4001. The interface
-rule considers actual normalized `trunk` interfaces only. Its `match_all` requires
-445 and 545; `match_any` requires 2449 or 4001. Matching trunks must contain 445,
-545, 2400–2444, 2449 and 4001 in normalized **tagged** membership. Native/untagged,
-inner tags and legacy vendor fields do not satisfy this rule. `ALL` satisfies the
-signature and requirements; `NONE` does not match. Other known port types and
-nonmatching trunks are `not_applicable`; missing/ambiguous profiles, blank trunk
-membership and failed collection produce `unable_to_assess`. Findings otherwise
-use `compliant` or `non_compliant`. An observed empty database has missing objects,
-rather than being treated as failed collection. Current observation omits VLAN 1;
-policies containing numeric VLAN/domain 1 are rejected before collection.
+The database rule requires 445, 545, 2400-2444, 2449 and 4001. Trunk, EVC and
+Hybrid interfaces trigger when validated membership contains 445 AND 545 AND
+(2449 OR 4001); triggered interfaces require 2400-2444, 2449 and 4001.
+Access and nonmatching interfaces are `not_applicable`. Missing required VLANs
+are `non_compliant`; complete requirements are `compliant`. Unknown families,
+unavailable configuration evidence, and ambiguous audited relationships produce
+`unable_to_assess`. Configuration problems are reported independently, even
+when the compliance trigger does not match.
 
-IOS-XR uses the optional schema-v1 `service_rules` section instead of the numeric
-database/trunk rules. Each entry selects `platform: "cisco_xr"`, distinct
-`database_rule` and `interface_rule` IDs, `signature`, `required`, and a boolean
-`baseline_complete`. Signature and required lists are AND groups; each nested
-list contains OR alternatives of `{"field": "object_id", "value": "BG/BD"}` or
-`{"field": "domain_id", "value": "BD"}`. Values match exactly and case-sensitively;
-they are not VLAN ranges. For example, a required group can be
-`[{"field": "object_id", "value": "TEST/RSVD-RSP0"}]` (illustrative only).
-Database checks use normalized bridge-domain objects. Interface checks group
-actual service subinterfaces under their observed parent, joining normalized
-`bridge_domains` to unique database `domain_id` values. Routed subinterfaces do
-not contribute services. No interface identities are created in observation.
-Missing parents/profiles or absent/ambiguous domain joins are unable to assess.
+Saved configuration is authoritative. VlanService preserves an allowlisted
+configuration fact tree with nesting, source order, filename/source label,
+one-based lines and sanitized source excerpts. Online collection labels its
+inspected source `running-config`; it does not create a backup file. Family
+AuditResolvers validate these facts before the common policy engine:
 
-The supplied XR signature is (`LBB-PPPoE` OR `LBB-PPPOE`) AND
-`VLAN545/BD_VLAN545` AND (`LEAPTEL-PPPoE/LEAPTEL-PPPoE` OR
-`URL-PPPOE/URL-PPPOE`). The default complete NCS baseline requires 51
-bridge-domain identities: IQNET-PPPOE, LBB-PPPoE (or LBB-PPPOE), LEAPTEL-PPPoE,
-RSVD-RSP0 through RSVD-RSP37, SPIRIT-PPPOE, SUPERLOOP1-PPPOE through
-SUPERLOOP6-PPPOE, and URL-PPPOE (each with matching bridge-group/domain names),
-plus `VLAN545/BD_VLAN545` and `VLAN745/BD_VLAN745`. These exact identities are
-listed in the external policy with `baseline_complete: true`. A matching parent
-must carry the entire baseline to be compliant; missing identities are reported
-as non-compliant. The database rule requires the same complete set device-wide.
-Unrelated parent groups remain not applicable. Policies without an XR entry
-produce `service_policy_unavailable` for XR rather than using the trunk rule.
-Missing services are reported as typed identity alternative groups in
-`missing_objects`, preserved in the JSON spool and Excel report.
+- ME3600X uses explicit global VLANs for the database and resolved inline/global
+  service-instance BDs for EVC membership.
+- ASR920 uses global and inline BDs; unresolved/conflicting bindings contribute
+  no membership. Multiple untagged services are flagged independently.
+- Catalyst 3750X/3850 use explicit VLAN databases. All VLAN trunks use the
+  database without expanding 1-4094; 3750X additionally requires explicit dot1q
+  trunk encapsulation. Dynamic modes are not assumed trunks. Port-channel
+  forwarding ownership and explicit member conflicts are retained.
+- Huawei VRP combines global VLANs with valid VSI-bound termination VLANs.
+  Valid child services consolidate into their configured trunk parent; VSI
+  names/IDs, control VIDs and routed dot1q never establish numeric audit VLANs.
+- NCS540 maps numeric dot1q only through a valid existing bridge-domain attachment
+  to an existing l2transport subinterface. BD names, subinterface suffixes and
+  unbound encapsulation never establish numeric VLANs. Conflicting attachments,
+  invalid references and unresolved untagged mappings remain visible.
+- EdgeSwitch uses ordered participation intersected with the explicit database;
+  tagging and PVID cannot create membership. LAG forwarding ownership is retained.
+
+InterfaceService supplies identity/state correlation by canonical name.
+Configuration-only interfaces remain authoritative and are marked `config_only`;
+observed-only interfaces are marked `not_in_config`. Child services consolidate
+into configured parents, logical aggregates remain separate, and shutdown ports
+are still audited. Unknown service references never create interface rows.
+See [.agents/skills/vlan-configuration-audit/SKILL.md](.agents/skills/vlan-configuration-audit/SKILL.md)
+for the family rules. No remediation configuration is generated.
 
 The workbook has `Findings`, `Run_Errors`, and `Details` sheets, with literal text,
 frozen headers and filters. Findings include identity, rule/policy, expected and
-observed state, missing VLANs/objects and normalized evidence. Large JSON fields
+observed state, missing VLANs/objects and normalized evidence. Dedicated columns
+show family, config identity/match, interface type, shutdown, valid VLANs, trigger,
+configuration owner, configuration problem codes, explanation and recommendation.
+Full tagged/untagged/native/PVID, child, mapping and source details remain in
+Observed/Evidence JSON. Large JSON fields
 are split into numbered fragments in `Details` without truncation. Reports default
 to `outputs/reports/vlan_compliance/`, recoverable JSONL runs to
 `outputs/runs/vlan_compliance/`, inventory to `data/inventory/inventory.json`, and
@@ -306,6 +310,10 @@ Stream `ResultSpool(run.spool_path).records()` to consume JSON-ready per-device
 findings. A policy provider implements `load() -> VlanPolicy`; database/API
 providers can validate their mappings through `parse_policy()`.
 The pure `evaluate_vlan_compliance()` also accepts previously collected models.
+A saved-file caller can use the vendor-owned `observe_configuration(text,
+platform, source_filename=...)` projection as the snapshot's `configuration`
+field alongside the existing vendor parser output. Older snapshots without this
+evidence explicitly return unable to assess.
 No live-device compliance validation has been performed.
 
 ## Tests

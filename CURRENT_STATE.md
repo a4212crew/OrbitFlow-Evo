@@ -440,46 +440,32 @@ prefixes, Huawei views, nested EdgeSwitch annotations, enable flow, and cleanup.
 The prompt correction awaits operator-controlled live retesting.
 
 
-## VLAN Compliance MVP
+## VLAN Configuration Audit
 
-The existing Issue #65 branch contains a reusable read-only compliance MVP over
-VlanService and InterfaceService, including external JSON policy, shared
-execution/spooling/logging, CLI/report export, and deterministic scale coverage.
+Issue #65 now implements the saved-configuration audit boundary:
+VlanService/vendor observation -> preserved configuration facts/evidence ->
+family-specific AuditResolver -> common external policy -> JSON spool/Excel.
 
-The **approved next revision design** supersedes the earlier generic/NCS
-named-service compliance assumptions but is **not yet implemented**. The
-authoritative design is documented in
-`.agents/skills/vlan-configuration-audit/SKILL.md`.
+Resolvers cover ME3600X, ASR920, Catalyst 3750X/3850, Huawei VRP (NE05/NE05E),
+NCS540 and EdgeSwitch. They validate service bindings, database membership,
+parent/child consolidation, canonical identity matching and aggregate ownership.
+NCS540 numeric VLANs require valid BD -> existing l2transport subinterface ->
+explicit dot1q mappings; the earlier named-service baseline is removed.
 
-The approved audit boundary is:
+Schema-v2 JSON policy requires database VLANs 445,545,2400-2444,2449,4001.
+Trunk/EVC/Hybrid interfaces matching 445 AND 545 AND (2449 OR 4001) require
+2400-2444,2449,4001. Access/nonmatching interfaces are not applicable.
+Configuration findings remain independent of compliance, and uncertain families
+or unavailable configuration evidence explicitly return unable to assess.
 
-```text
-saved configuration
-    -> VlanService/vendor observation
-    -> family-specific AuditResolver
-    -> validated audit facts
-    -> common compliance engine
-```
+The existing read-only CLI, shared per-device execution/session/capabilities,
+centralized spool and report recovery remain in use. Structured findings retain
+source labels/filenames, one-based line evidence, configured/observed identities,
+shutdown, mappings, exact missing VLANs and configuration ownership. Sensitive
+and unrelated configuration statements are excluded from the observation
+projection. No remediation generation/apply is implemented.
 
-Common policy uses database-required VLANs `445,545,2400-2444,2449,4001` and
-interface-required VLANs `2400-2444,2449,4001`. Trunk/EVC/Hybrid interface
-evaluation is applicable only when validated membership contains 445 and 545 and
-at least one of 2449 or 4001. Access is not applicable.
-
-Saved configuration is authoritative for audit semantics. InterfaceService is
-used for identity/state correlation. Audit results preserve
-`interface_name`, `config_interface_name`, match status, exact missing VLANs,
-configuration findings, and source evidence.
-
-Approved family-specific resolvers cover:
-- ME3600X explicit VLAN DB plus inline/global service-instance bridge-domain binding;
-- ASR920 bridge-domain/service-instance database and Access/EVC-Trunk/Hybrid classification;
-- Catalyst 3750X/3850 explicit VLAN DB, explicit/All-VLAN trunks, and Port-channel ownership;
-- Huawei VRP global VLAN plus valid VSI-bound termination database, parent/child consolidation, and direct untagged VSI attachment;
-- IOS-XR/NCS540 bridge-domain -> attached existing l2transport subinterface -> numeric dot1q mapping only; the previous 51-name baseline is no longer authoritative;
-- EdgeSwitch ordered participation membership, independent tagging/PVID validation, and LAG ownership.
-
-No configuration generation/apply is part of this phase. Current code remains the
-pre-revision MVP until Codex implements the routed audit skill on the existing
-Issue #65 / PR #66 branch and the user completes live validation.
-
+Deterministic coverage includes every documented family, policy validation,
+relationship failures, secret exclusion, failed-device isolation and 1,500-device
+spool/report recovery. Live audit validation has not been performed.
+Authoritative semantics: `.agents/skills/vlan-configuration-audit/SKILL.md`.

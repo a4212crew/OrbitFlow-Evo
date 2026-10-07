@@ -19,6 +19,7 @@ from orbitflow.config import ExecutionConfig
 from orbitflow.execution import DeviceOutcome
 from orbitflow.models import DeviceContext, InterfaceRecord, InterfaceVlanObservation, VlanObject, VlanState
 from orbitflow.result_spool import ResultSpool
+from orbitflow.vendors.configuration_facts import observe_configuration
 
 
 NOW = datetime(2026, 10, 3, tzinfo=timezone.utc)
@@ -38,9 +39,14 @@ def interface(name="Gi0/1"):
 def state(tags=(445, 545, 2449), port_type="trunk", objects=None):
     if objects is None:
         objects = tuple(VlanObject("vlan", str(v)) for v in POLICY.required_domains)
+    database = ",".join(o.domain_id for o in objects if o.object_type == "vlan")
+    allowed = ",".join(map(str, tags)) if isinstance(tags, tuple) else tags.lower()
+    config = (f"vlan {database}\n!\n" if database else "") + (
+        f"interface GigabitEthernet0/1\n switchport trunk encapsulation dot1q\n"
+        f" switchport mode {port_type}\n switchport trunk allowed vlan {allowed or 'none'}\n!")
     return VlanState("switch", "192.0.2.1", "cisco_ios",
                      (InterfaceVlanObservation("GigabitEthernet0/1", port_type=port_type, tagged_vlans=tags),),
-                     objects, NOW)
+                     objects, NOW, observe_configuration(config, "cisco_ios"))
 
 
 def evaluate(vlans=None, *, policy=POLICY):
@@ -48,8 +54,8 @@ def evaluate(vlans=None, *, policy=POLICY):
 
 
 def test_default_policy_and_provider(tmp_path):
-    assert POLICY.required_vlans == (445, 545, *range(2400, 2445), 2449, 4001)
-    assert len(POLICY.required_domains) == 47
+    assert POLICY.required_vlans == (*range(2400, 2445), 2449, 4001)
+    assert set(map(int, POLICY.required_domains)) == {445, 545, *range(2400, 2445), 2449, 4001}
     assert JsonPolicyProvider(app.DEFAULT_POLICY).load() == POLICY
     path = tmp_path / "invalid.json"
     path.write_text('{"schema_version": 1, "schema_version": 2}')
@@ -58,14 +64,16 @@ def test_default_policy_and_provider(tmp_path):
 
 
 @pytest.mark.parametrize("section,key,value", [
-    (None, "schema_version", True), (None, "schema_version", 2),
+    (None, "schema_version", True), (None, "schema_version", 1),
     (None, "extra", "typo"), (None, "policy_id", "password=do-not-echo"),
     ("database", "required_domains", []), ("database", "object_types", ["unknown"]),
+    ("database", "required_domains", ["named-service"]),
     ("interface", "match_all", [True]), ("interface", "match_any", [0]),
     ("database", "required_domains", [1]), ("interface", "match_all", ["1-10"]),
-    ("interface", "required_vlans", [4095]), ("interface", "required_vlans", ["2444-2400"]),
+    ("interface", "required_vlans", [4002]), ("interface", "required_vlans", ["2444-2400"]),
     ("interface", "required_vlans", ["ALL"]), ("interface", "match_any", "2449"),
     ("interface", "rule_id", "required-forwarding-domains"),
+    (None, "service_rules", []),
 ])
 def test_invalid_policy_rejected_without_echo(section, key, value):
     data = deepcopy(POLICY_DATA)
@@ -77,30 +85,11 @@ def test_invalid_policy_rejected_without_echo(section, key, value):
 
 def test_policy_change_changes_both_rules_without_code():
     data = deepcopy(POLICY_DATA)
-    data["database"].update(required_domains=["RSVD-RSP0"], object_types=["bridge_domain"])
+    data["database"].update(required_domains=[10, 20, 30])
     data["interface"].update(match_all=[10], match_any=[20, 30], required_vlans=[10, 20, 30])
-    policy = parse_policy(data)
-    findings = evaluate(state((10, 20), objects=(VlanObject("bridge_domain", "BG/RSVD-RSP0", domain_id="RSVD-RSP0"),)), policy=policy)
-    assert findings[0]["status"] == "compliant"
+    findings = evaluate(state((10, 20), objects=tuple(VlanObject("vlan", str(v)) for v in (10, 20))), policy=parse_policy(data))
+    assert findings[0]["missing_vlans"] == [30]
     assert findings[1]["missing_vlans"] == [30]
-
-
-@pytest.mark.parametrize("object_type", ["vlan", "bridge_domain", "vsi"])
-def test_database_uses_normalized_exact_domain_identity(object_type):
-    objects = tuple(VlanObject(object_type, "group/" + v, domain_id=v) for v in POLICY.required_domains)
-    finding = evaluate(state(objects=objects))[0]
-    assert finding["status"] == "compliant"
-    assert finding["observed"]["objects"][0]["object_type"] == object_type
-    finding = evaluate(state(objects=(VlanObject("bridge_domain", "group/RSVD-RSP0", vlan_ids=(2400,), domain_id="RSVD-RSP0"),)))[0]
-    assert finding["status"] == "non_compliant"
-    assert finding["missing_objects"] == list(POLICY.required_domains)
-
-
-def test_database_missing_and_empty_are_not_collection_failure():
-    objects = tuple(VlanObject("vlan", v) for v in POLICY.required_domains if v != "4001")
-    assert evaluate(state(objects=objects))[0]["missing_objects"] == ["4001"]
-    assert evaluate(state(objects=()))[0]["status"] == "non_compliant"
-    assert evaluate_vlan_compliance(context(), [], None, POLICY)[0]["status"] == "unable_to_assess"
 
 
 @pytest.mark.parametrize("tags,status,missing", [
@@ -109,35 +98,20 @@ def test_database_missing_and_empty_are_not_collection_failure():
     ((445, 2449, 4001), "not_applicable", []),
     ((545, 2449, 4001), "not_applicable", []),
     ((445, 545), "not_applicable", []),
-    (POLICY.required_vlans, "compliant", []),
+    ((445, 545, *POLICY.required_vlans), "compliant", []),
     ("ALL", "compliant", []), ("NONE", "not_applicable", []),
-    ((), "unable_to_assess", []), ("", "unable_to_assess", []),
+    ((), "not_applicable", []),
 ])
 def test_trunk_signature_and_membership(tags, status, missing):
     finding = evaluate(state(tags))[1]
     assert finding["interface"] == "Gi0/1"
     assert finding["status"] == status
     assert finding["missing_vlans"] == missing
-    assert finding["observed"]["tagged_vlans"] == (list(tags) if isinstance(tags, tuple) else tags)
 
 
-@pytest.mark.parametrize("port_type", ["access", "hybrid", "evc", "service", "routed"])
-def test_only_normalized_trunks_are_in_scope(port_type):
-    assert evaluate(state(POLICY.required_vlans, port_type))[1]["status"] == "not_applicable"
-
-
-def test_join_uses_only_actual_interfaces_and_normalized_fields():
-    vlans = state()
-    profile = replace(vlans.interfaces[0], mode="trunk", port_type="", allowed_vlans=POLICY.required_vlans,
-                      referenced_vlans=POLICY.required_vlans, inner_vlan=4001)
-    vlans = replace(vlans, interfaces=(profile, InterfaceVlanObservation("Gi0/99", port_type="trunk", tagged_vlans="ALL")))
-    findings = evaluate(vlans)
-    assert len(findings) == 2
-    assert findings[1]["status"] == "unable_to_assess"
-    assert "allowed_vlans" not in json.dumps(findings)
-    assert evaluate_vlan_compliance(context(), [], vlans, POLICY)[1]["reason"] == "no_actual_interfaces"
-    assert evaluate(replace(vlans, interfaces=()))[1]["status"] == "unable_to_assess"
-    assert evaluate(replace(vlans, interfaces=(profile, profile)))[1]["status"] == "unable_to_assess"
+def test_evidence_missing_is_not_silently_assessed():
+    findings = evaluate(replace(state(), configuration=None))
+    assert all(f["status"] == "unable_to_assess" for f in findings)
 
 
 def install_fakes(monkeypatch, fail=None):
@@ -178,7 +152,7 @@ def install_fakes(monkeypatch, fail=None):
                 raise RuntimeError("synthetic-password token=never-output")
             if stage == "interfaces":
                 return [replace(interface(), port_description="secret-output")]
-            return state(POLICY.required_vlans)
+            return state((445, 545, *POLICY.required_vlans))
         return run
 
     monkeypatch.setattr(app, "connect_device", connect)
@@ -214,7 +188,7 @@ def test_application_failure_isolation_and_safe_reusable_results(tmp_path, monke
     assert [event for ip, event in events if ip.endswith(".2")] == ["connect", "inventory", "interfaces", "vlans"]
     assert "192.0.2.2" in closed
     if stage == "interfaces":
-        assert [f["status"] for f in records[0]["payload"]["findings"]] == ["compliant", "unable_to_assess"]
+        assert [f["status"] for f in records[0]["payload"]["findings"]] == ["compliant", "compliant"]
     if stage == "vlans":
         assert [f["status"] for f in records[0]["payload"]["findings"]] == ["unable_to_assess", "unable_to_assess"]
     output_text = json.dumps(records) + opts["output"].getvalue()
@@ -230,7 +204,7 @@ def test_application_failure_isolation_and_safe_reusable_results(tmp_path, monke
         assert sheet.freeze_panes == "A2"
         assert sheet["C4"].value == "=[REDACTED]"
         assert sheet["C4"].data_type == "s"
-        assert sheet.auto_filter.ref == "A1:M5"
+        assert sheet.auto_filter.ref == "A1:Y5"
     finally:
         workbook.close()
 

@@ -3,7 +3,7 @@
 from dataclasses import dataclass, replace
 import re
 
-from orbitflow.models import InterfaceVlanObservation, VlanObject
+from orbitflow.models import ConfigFact, InterfaceVlanObservation, VlanObject
 
 
 @dataclass(frozen=True)
@@ -11,6 +11,7 @@ class VlanCollection:
     device_name: str
     interfaces: tuple[InterfaceVlanObservation, ...]
     objects: tuple[VlanObject, ...]
+    configuration: tuple[ConfigFact, ...] | None = None
 
 
 def parse_vlan_list(value: str, *, range_word: str = "-") -> tuple[int, ...]:

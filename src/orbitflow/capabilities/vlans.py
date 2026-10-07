@@ -96,4 +96,5 @@ class VlanService:
             result.interfaces,
             result.objects,
             self._clock(),
+            result.configuration,
         )
