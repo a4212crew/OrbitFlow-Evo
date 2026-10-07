@@ -11,7 +11,7 @@ FINDING_COLUMNS = ("Input Position", "Device IP", "Device Name", "Interface", "P
                    "Status", "Reason", "Expected", "Observed", "Missing VLANs", "Missing Objects", "Evidence",
                    "Family", "Config Interface", "Interface Match", "Type", "Description", "Shutdown",
                    "Valid VLANs", "Trigger Applicable", "Configuration Owner", "Configuration Findings",
-                   "Explanation", "Recommendation")
+                   "Explanation", "Recommendation", "Admin Status", "Oper Status")
 ERROR_COLUMNS = ("Input Position", "Device IP", "Stage", "Error Category")
 DETAIL_COLUMNS = ("Input Position", "Finding", "Field", "Part", "JSON Fragment")
 JSON_FIELDS = ("expected", "observed", "missing_vlans", "missing_objects", "evidence")
@@ -45,7 +45,9 @@ def export_compliance_spool(spool_path, path, *, cleanup=True, allow_partial=Fal
                            _json(observed.get("valid_interface_vlans", observed.get("valid_database_vlans", []))),
                            observed.get("trigger_applicable", ""), observed.get("configuration_owner", ""),
                            codes if len(codes) <= 30000 else "See Observed / Details",
-                           finding.get("explanation", ""), finding.get("recommendation", "")]
+                           finding.get("explanation", ""), finding.get("recommendation", ""),
+                           observed.get("admin_status", "unavailable" if finding["interface"] else ""),
+                           observed.get("oper_status", "unavailable" if finding["interface"] else "")]
 
         def errors():
             for record in run.records():

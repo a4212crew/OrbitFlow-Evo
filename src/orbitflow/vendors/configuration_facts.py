@@ -23,7 +23,7 @@ _COMMON = (
 )
 _IOS = (
     ("vlan", rf"vlan ({_LIST})", "list"),
-    ("bridge_domain", rf"bridge-domain ({_NAME})", "text"),
+    ("bridge_domain", rf"bridge-domain ({_NAME})(?: split-horizon group [0-9]+)?", "text"),
     ("service_instance", r"service instance (\d+) ethernet", "text"),
     ("member", rf"member ({_NAME} service-instance \d+)", "text"),
     ("mode", r"switchport mode (\w+)", "text"),

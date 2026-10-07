@@ -295,6 +295,12 @@ override those settings. Shared execution settings control device concurrency an
 connection pacing. Linux uses the existing `--teleport-key-path` and
 `--teleport-cert-path` options. Excel may include the optional `secret` column.
 
+The Findings workbook includes dedicated `Admin Status` and `Oper Status`
+columns from canonically matched InterfaceService records. Config-only interfaces
+show `not observed`; older spools without state show `unavailable`. `Shutdown`
+remains a separate saved-configuration field. `Missing VLANs` displays the exact
+numeric missing VLANs for each database/interface finding.
+
 Successful export removes the spool unless `--keep-spool` is supplied. Failed
 export retains it. Retry without credentials, policy reload or device connections:
 

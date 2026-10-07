@@ -470,5 +470,11 @@ projection. No remediation generation/apply is implemented.
 
 Deterministic coverage includes every documented family, policy validation,
 relationship failures, secret exclusion, failed-device isolation and 1,500-device
-spool/report recovery. Live audit validation has not been performed.
+spool/report recovery. Operator ASR920 live validation exposed inline bridge-domain
+modifiers; the saved-configuration parser now accepts `split-horizon group <N>`
+while preserving the original excerpt/line and rejecting unsupported trailing text.
+Deterministic regressions cover the full required range and ME3600X database
+separation. Interface results retain observed admin/oper state separately from
+configured shutdown, with dedicated Excel columns and visible exact missing VLANs.
+This revision awaits operator-controlled live retesting.
 Authoritative semantics: `.agents/skills/vlan-configuration-audit/SKILL.md`.

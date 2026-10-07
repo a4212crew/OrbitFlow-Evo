@@ -58,6 +58,11 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
 
     key = lambda name: canonical_interface_name(context.platform, name)
     actual = {key(record.port_name): record for record in interfaces or ()}
+
+    def interface_state(record):
+        return dict(admin_status=record.admin_status if record else "not observed",
+                    oper_status=record.oper_status if record else "not observed")
+
     # Observed-only children may be shown as parent details, but never gain
     # forwarding facts or create a parent/interface from a service reference.
     for name, record in actual.items():
@@ -68,10 +73,11 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
         if parent in rows:
             rows[parent]["configuration_findings"].append(problem)
             rows[parent]["child_interfaces"].append(dict(interface_name=record.port_name,
-                config_interface_name="not in config file", interface_match_status="not_in_config"))
+                config_interface_name="not in config file", interface_match_status="not_in_config",
+                **interface_state(record)))
             continue
         rows[name] = dict(config_interface_name="not in config file", interface_type="review",
-                          description=record.port_description, shutdown=record.admin_status.lower() in {"down", "shutdown"},
+                          description=record.port_description, shutdown=None,
                           valid_interface_vlans=[], configuration_findings=[problem], evidence=[], review=True,
                           child_interfaces=[], numeric_mappings=[], configuration_owner="")
     for name, row in sorted(rows.items()):
@@ -82,13 +88,14 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
                 if child["interface_name"] == row["config_interface_name"]:
                     child.update(config_interface_name=row["config_interface_name"],
                                  interface_name=actual[name].port_name if name in actual else "not observed",
-                                 interface_match_status="matched" if name in actual else "config_only")
+                                 interface_match_status="matched" if name in actual else "config_only",
+                                 **interface_state(actual.get(name)))
             continue
         record = actual.get(name)
         config_only = record is None
         match = "not_in_config" if row["config_interface_name"] == "not in config file" else "config_only" if config_only else "matched"
         row.update(interface_name=record.port_name if record else "not observed", interface_match_status=match,
-                   interface_collection_available=interfaces is not None)
+                   interface_collection_available=interfaces is not None, **interface_state(record))
         if match == "config_only":
             row["configuration_findings"].append(dict(code="CONFIG_ONLY_INTERFACE", evidence=[]))
         tags = set(row["valid_interface_vlans"])

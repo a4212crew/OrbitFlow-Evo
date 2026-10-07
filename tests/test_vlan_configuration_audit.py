@@ -316,6 +316,7 @@ def test_xr_numeric_mapping_conflicts_unbound_routed_and_same_name_groups():
     assert {o["object_id"] for o in results[0]["observed"]["database_inventory"]} == {"arbitrary/named", "arbitrary/4001", "other/named"}
     child = next(c for c in parent["observed"]["child_interfaces"] if c["config_interface_name"].endswith(".100"))
     assert child["interface_match_status"] == "matched"
+    assert child["admin_status"] == child["oper_status"] == "up"
 
 
 @pytest.mark.parametrize("reference", ["3/1", "lag 1"])
@@ -504,3 +505,75 @@ def test_normalized_routed_catalyst_port_is_not_unresolved_switchport():
     result = audit("interface Gi0/1\n no switchport\n ip address 192.0.2.1 255.255.255.0\n!")
     assert result[1]["status"] == "not_applicable"
     assert "UNRESOLVED_SWITCHPORT_MODE" not in codes(result[1])
+
+
+@pytest.mark.parametrize("family", ["ASR920", "ME3600X"])
+def test_evc_split_horizon_required_range_preserves_identity_and_evidence(family):
+    required = [445, 545, *range(2400, 2445), 2449, 4001]
+    config = "interface GigabitEthernet0/1\n"
+    for sid, vlan in enumerate(required, 1):
+        modifier = " split-horizon group 0" if 2400 <= vlan <= 2444 else ""
+        config += (f" service instance {sid} ethernet\n"
+                   f"  encapsulation dot1q {vlan}\n  bridge-domain {vlan}{modifier}\n")
+    results = audit(config, family, observed=("Gi0/1",))
+    port = results[1]
+    assert port["status"] == "compliant"
+    assert port["missing_vlans"] == []
+    assert port["observed"]["valid_interface_vlans"] == required
+    assert results[0]["observed"]["valid_database_vlans"] == (required if family == "ASR920" else [])
+    assert results[0]["status"] == ("compliant" if family == "ASR920" else "non_compliant")
+    sources = port["evidence"]["sources"]
+    for vlan in range(2400, 2445):
+        excerpt = f"  bridge-domain {vlan} split-horizon group 0"
+        source = next(s for s in sources if s["excerpt"] == excerpt)
+        assert source["line"] == config.splitlines().index(excerpt) + 1
+        assert source["source_filename"] == "synthetic.cfg"
+
+
+@pytest.mark.parametrize("suffix", ["split-horizon", "split-horizon group", "split-horizon group nope",
+                                     "split-horizon group -1", "split-horizon group 0 extra", "arbitrary text"])
+def test_evc_bridge_domain_rejects_unknown_or_malformed_modifiers(suffix):
+    config = f"interface Gi0/1\n service instance 1 ethernet\n  encapsulation dot1q 2400\n  bridge-domain 2400 {suffix}\n"
+    result = audit(config, "ASR920")
+    assert result[0]["observed"]["valid_database_vlans"] == []
+    assert result[1]["observed"]["valid_interface_vlans"] == []
+    assert "UNRESOLVED_SERVICE_INSTANCE" in codes(result[1])
+    assert suffix not in json.dumps([asdict(f) for f in observe_configuration(config, "cisco_xe")])
+
+
+def test_interface_states_and_missing_vlans_survive_spool_export(tmp_path):
+    from openpyxl import load_workbook
+    from orbitflow.compliance_report import export_compliance_spool
+    from orbitflow.execution import DeviceOutcome
+    from orbitflow.result_spool import ResultSpool
+
+    config = "vlan 445,545,2449\ninterface GigabitEthernet0/1\n shutdown\n switchport mode trunk\ninterface Gi0/2\n switchport mode access\n"
+    ctx = replace(context(), platform="cisco_xe", device_family="C3850")
+    snapshot = VlanState("switch", ctx.management_ip, ctx.platform, (), (), NOW,
+                         observe_configuration(config, ctx.platform))
+    records = [replace(interface("Gi0/1"), admin_status="up", oper_status="down"),
+               replace(interface("Gi0/99"), admin_status="down", oper_status="down")]
+    findings = evaluate_vlan_compliance(ctx, records, snapshot, POLICY)
+    assert findings[1]["observed"]["shutdown"] is True
+    observed_only = row(findings, "not in config file")["observed"]
+    assert observed_only["shutdown"] is None
+    assert observed_only["admin_status"] == "down"
+    spool = ResultSpool.create(tmp_path / "runs", "vlan_compliance", 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload={"findings": findings, "errors": []})
+    path = export_compliance_spool(spool.path, tmp_path / "report.xlsx", cleanup=False)
+    workbook = load_workbook(path)
+    try:
+        values = iter(workbook["Findings"].values)
+        headers = next(values)
+        rows = [dict(zip(headers, cells)) for cells in values]
+        for finding, cells in zip(findings, rows):
+            assert json.loads(cells["Missing VLANs"]) == finding["missing_vlans"]
+        assert rows[0]["Status"] == "non_compliant"
+        matched = next(r for r in rows if r["Interface Match"] == "matched")
+        assert (matched["Admin Status"], matched["Oper Status"], matched["Shutdown"]) == ("up", "down", "True")
+        assert json.loads(matched["Missing VLANs"]) == [*range(2400, 2445), 4001]
+        config_only = next(r for r in rows if r["Interface Match"] == "config_only")
+        assert config_only["Admin Status"] == config_only["Oper Status"] == "not observed"
+    finally:
+        workbook.close()
