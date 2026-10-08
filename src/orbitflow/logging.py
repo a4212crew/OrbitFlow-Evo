@@ -25,6 +25,20 @@ _dependency_previous = {}
 _dependency_handler = None
 _dependency_sinks = ()
 _active_dependency_loggers = []
+_code_root = Path(__file__).resolve().parents[2]
+
+
+def _frame_location(tb):
+    """Only repository code locations are diagnostic data, never caller paths."""
+    code = tb.tb_frame.f_code
+    try:
+        relative = Path(code.co_filename).resolve().relative_to(_code_root)
+    except (ValueError, OSError):
+        relative = None
+    if relative is not None and relative.parts[0] in {'src', 'scripts'}:
+        return {'file': relative.as_posix(), 'line': tb.tb_lineno,
+                'function': code.co_name}
+    return {'file': '[external]', 'line': tb.tb_lineno, 'function': '[omitted]'}
 
 
 def sanitize_text(value):
@@ -61,21 +75,49 @@ class SafeFormatter(logging.Formatter):
             diagnostics = []
             exc = record.exc_info[1]
             seen = set()
-            while exc is not None and id(exc) not in seen:
+            pending = [exc]
+            while pending:
+                exc = pending.pop()
+                if id(exc) in seen:
+                    continue
                 seen.add(id(exc))
                 frames = []
                 tb = exc.__traceback__
                 while tb is not None:
-                    frames.append({"file": Path(tb.tb_frame.f_code.co_filename).name,
-                                   "line": tb.tb_lineno,
-                                   "function": tb.tb_frame.f_code.co_name})
+                    frames.append(_frame_location(tb))
                     tb = tb.tb_next
                 diagnostics.append({"category": type(exc).__name__,
                                     "errno": exc.errno if isinstance(exc, OSError) else None,
                                     "frames": frames})
-                exc = exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)
+                secondary = getattr(exc, 'spool_state_error', None)
+                if isinstance(secondary, BaseException):
+                    pending.append(secondary)
+                cause = exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)
+                if cause is not None:
+                    pending.append(cause)
             data["exception_chain"] = diagnostics
         return json.dumps(data, ensure_ascii=True)
+
+
+def log_run_failure(exc, *, log_root=None):
+    """Log outside device scopes; never let logging replace the original failure."""
+    try:
+        with module_logger('application', 'run_errors', log_root=log_root) as (logger, _):
+            logger.error('Run-level application/persistence/export failure',
+                         exc_info=(type(exc), exc, exc.__traceback__),
+                         extra={'error_category': type(exc).__name__, 'run_diagnostic': True})
+        return True
+    except Exception:
+        return False
+
+
+class _SafeRotatingFileHandler(RotatingFileHandler):
+    def handleError(self, record):
+        if getattr(record, 'run_diagnostic', False):
+            # The caller reports a fixed fallback; logging's default handler
+            # would otherwise print a raw filesystem traceback to stderr.
+            raise
+        super().handleError(record)
 
 
 @contextmanager
@@ -94,7 +136,7 @@ def module_logger(module, filename=None, *, log_root=None):
     writer_key = path.resolve()
     with _writers_lock:
         if writer_key not in _writers:
-            handler = RotatingFileHandler(path, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT,
+            handler = _SafeRotatingFileHandler(path, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT,
                                           encoding="utf-8")
             handler.setFormatter(SafeFormatter())
             _writers[writer_key] = [handler, 0]

@@ -66,6 +66,13 @@ is opt-in and remains retained. See `docs/architecture/result-spool.md`.
 Completed-spool removal retries transient permission denials with bounded delays;
 exhaustion warns without failing successful output and retains a cleanup-only
 manifest for subsequent removal.
+Manifest atomic replacement now uses four bounded permission attempts without
+replaying appends. Persistence failures stop collection, preserve the original
+error even if interruption marking fails, and retain canonical JSONL for explicit
+partial recovery with reconciled counts. Compliance summaries use persisted
+records. Spool-backed CLIs record sanitised run-level exception chains/code
+locations outside device logger scopes. Deterministic fault-injection coverage
+is implemented; operator-led validation of the 686-target workload is pending.
 Deterministic scale coverage includes 1,500 targets at concurrency 5; live network
 scale validation remains operator-controlled.
 

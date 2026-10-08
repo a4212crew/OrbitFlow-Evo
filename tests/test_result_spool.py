@@ -244,3 +244,138 @@ def test_cleanup_permission_retention_preserves_unknown_contents_checks(tmp_path
     with pytest.raises(ValueError, match='unexpected spool contents'):
         ResultSpool(spool.path).remove()
     assert (spool.path / 'keep').read_text() == 'unrelated'
+
+@pytest.mark.parametrize('denials', [1, 3, 4])
+def test_manifest_replace_retry_is_only_rename(tmp_path, monkeypatch, denials):
+    from pathlib import Path
+    import orbitflow.result_spool as module
+
+    spool = ResultSpool.create(tmp_path, 'synthetic', 2)
+    replace = Path.replace
+    attempts, delays = [], []
+    error = PermissionError('private path and password')
+    def deny(path, destination):
+        state = json.loads(path.read_text())
+        if path.name == 'manifest.tmp' and state['completed_count'] == 1 and state['status'] == 'collecting':
+            attempts.append(state)
+            if len(attempts) <= denials:
+                raise error
+        return replace(path, destination)
+    monkeypatch.setattr(Path, 'replace', deny)
+    monkeypatch.setattr(module, 'sleep', delays.append)
+    def collect():
+        with spool.collection():
+            spool.append(DeviceOutcome(1, error_category='InterfaceCapabilityError'))
+            spool.append(DeviceOutcome(2, 'ok'))
+    if denials == 4:
+        with pytest.raises(PermissionError) as caught:
+            collect()
+        assert caught.value is error
+    else:
+        collect()
+    reopened = ResultSpool(spool.path)
+    records = list(reopened.records())
+    assert [r['input_position'] for r in records] == ([1] if denials == 4 else [1, 2])
+    assert reopened.manifest['completed_count'] == len(records)
+    assert reopened.manifest['failed_count'] == 1
+    assert reopened.manifest['status'] == ('interrupted' if denials == 4 else 'collected')
+    assert len(attempts) == min(denials + 1, 4)
+    assert delays == [0.1, 0.2, 0.4][:min(denials, 3)]
+
+
+def test_five_workers_sink_failure_keeps_commit_and_primary_error(tmp_path, monkeypatch):
+    from pathlib import Path
+    import orbitflow.result_spool as module
+
+    spool = ResultSpool.create(tmp_path, 'synthetic', 30)
+    replace = Path.replace
+    delays, states, started, delivered = [], [], [], []
+    primary, secondary = PermissionError('primary secret'), PermissionError('secondary secret')
+    def deny(path, destination):
+        state = json.loads(path.read_text())
+        if state['completed_count']:
+            states.append(state['status'])
+            raise secondary if state['status'] == 'interrupted' else primary
+        return replace(path, destination)
+    monkeypatch.setattr(Path, 'replace', deny)
+    monkeypatch.setattr(module, 'sleep', delays.append)
+    barrier, lock = Barrier(5), Lock()
+    caller = get_ident()
+    def worker(value):
+        with lock:
+            started.append(value)
+        barrier.wait(timeout=10)
+        raise ValueError('device secret')
+    def persist(outcome):
+        assert get_ident() == caller
+        delivered.append(outcome.position)
+        spool.append(outcome)
+    with pytest.raises(PermissionError) as caught:
+        with spool.collection():
+            execute_devices(range(30), worker, config=ExecutionConfig(5, 0, 0), on_outcome=persist)
+    assert caught.value is primary
+    assert primary.spool_state_error is secondary
+    assert sorted(started) == list(range(5))  # No refill after the failed checkpoint.
+    assert len(delivered) == 1
+    assert states == ['collecting'] * 4 + ['interrupted'] * 4
+    assert delays == [0.1, 0.2, 0.4] * 2
+    reopened = ResultSpool(spool.path)
+    assert reopened.manifest['completed_count'] == 0  # Stale checkpoint is explicit.
+    assert reopened.manifest['status'] == 'collecting'
+    assert [r['input_position'] for r in reopened.records()] == delivered
+    monkeypatch.setattr(Path, 'replace', replace)
+    with pytest.raises(ValueError, match='partial'):
+        reopened.consume(lambda run: None)
+    assert reopened.consume(lambda run: len(list(run.records())), allow_partial=True) == 1
+    assert reopened.manifest['completed_count'] == reopened.manifest['failed_count'] == 1
+    assert reopened.manifest['status'] == 'partial_consumed'
+    assert spool.path.exists()
+
+
+@pytest.mark.parametrize('status', ['collecting', 'collected', 'consuming', 'consumed', 'output_failed'])
+def test_manifest_lifecycle_denial_preserves_error(tmp_path, monkeypatch, status):
+    from pathlib import Path
+    import orbitflow.result_spool as module
+
+    spool = ResultSpool.create(tmp_path, 'synthetic', 0)
+    replace = Path.replace
+    attempts = []
+    error = PermissionError('sensitive filesystem path')
+    original = RuntimeError('consumer secret')
+    def deny(path, destination):
+        if json.loads(path.read_text())['status'] == status:
+            attempts.append(1)
+            raise error
+        return replace(path, destination)
+    monkeypatch.setattr(Path, 'replace', deny)
+    monkeypatch.setattr(module, 'sleep', lambda delay: None)
+    def fail(run):
+        raise original
+    with pytest.raises((PermissionError, RuntimeError)) as caught:
+        with spool.collection():
+            pass
+        spool.consume(fail if status == 'output_failed' else lambda run: None)
+    assert caught.value is (original if status == 'output_failed' else error)
+    assert len(attempts) == 4
+    assert spool.path.exists()
+    if status in {'collecting', 'collected'}:
+        assert ResultSpool(spool.path).manifest['collection_complete'] is False
+    if status == 'output_failed':
+        assert original.spool_state_error is error
+
+
+def test_append_cannot_be_retried_after_checkpoint_error(tmp_path, monkeypatch):
+    spool = ResultSpool.create(tmp_path, 'synthetic', 1)
+    state = spool._state
+    with pytest.raises(RuntimeError, match='persistence failure'):
+        with spool.collection():
+            def fail(status):
+                if status == 'collecting':
+                    raise PermissionError('private')
+                state(status)
+            monkeypatch.setattr(spool, '_state', fail)
+            with pytest.raises(PermissionError):
+                spool.append(DeviceOutcome(1, 'value'))
+            with pytest.raises(RuntimeError, match='persistence failure'):
+                spool.append(DeviceOutcome(1, 'value'))
+    assert len(list(spool.records())) == 1

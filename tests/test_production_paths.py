@@ -48,7 +48,7 @@ def test_default_report_recovery_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(command, 'load_targets', loader)
     args = ['targets.xlsx', '--proxy', 'proxy', '--cluster', 'cluster',
             '--bastion-host', 'host', '--bastion-user', 'user']
-    with pytest.raises(OSError):
+    with pytest.raises(SystemExit, match='Interface/VLAN report failed'):
         command.main(args)
     store.assert_called_once_with(Path('data/inventory/inventory.json'))
     root = Path('outputs/runs/interface_vlan_report')

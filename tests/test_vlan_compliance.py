@@ -380,3 +380,37 @@ def test_readable_evidence_layout_and_overflow_recovery(tmp_path):
     assert report.configuration_evidence({"evidence": {"sources": []}}) == ("", "", "")
     multiple = {"evidence": {"sources": [*excerpts, dict(source_filename="other.cfg", line=2, excerpt=" original")]}}
     assert report.configuration_evidence(multiple)[1:] == ("other.cfg\nsaved.cfg", "other.cfg: 2\nsaved.cfg: 114,117,119-121")
+
+
+def test_manifest_failure_partial_compliance_export_without_reconnect(tmp_path, monkeypatch):
+    import orbitflow.result_spool as module
+    events, closed = install_fakes(monkeypatch)
+    original = Path.replace
+    def deny(path, destination):
+        if path.name == 'manifest.tmp' and json.loads(path.read_text())['completed_count']:
+            raise PermissionError('private path password=secret')
+        return original(path, destination)
+    monkeypatch.setattr(Path, 'replace', deny)
+    monkeypatch.setattr(module, 'sleep', lambda delay: None)
+    opts = options(tmp_path)
+    opts['execution_config'] = ExecutionConfig(1, 0, 0)
+    with pytest.raises(PermissionError):
+        app.collect_compliance(targets(), None, **opts)
+    assert len(closed) == 1
+    spool = ResultSpool(next((tmp_path / 'runs').iterdir()))
+    assert spool.manifest['completed_count'] == 0
+    records = list(spool.records())
+    assert [r['input_position'] for r in records] == [1]
+    monkeypatch.setattr(Path, 'replace', original)
+    monkeypatch.setattr(app, 'connect_device', Mock(side_effect=AssertionError('must not reconnect')))
+    output = tmp_path / 'partial.xlsx'
+    report.export_compliance_spool(spool.path, output, allow_partial=True)
+    with_output = ResultSpool(spool.path)
+    assert with_output.manifest['completed_count'] == 1
+    assert with_output.manifest['status'] == 'partial_consumed'
+    workbook = load_workbook(output, read_only=True)
+    try:
+        assert sum(1 for _ in workbook['Database Results'].rows) == 2
+        assert sum(1 for _ in workbook['Interface Results'].rows) == 2
+    finally:
+        workbook.close()

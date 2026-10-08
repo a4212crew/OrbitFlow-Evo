@@ -101,7 +101,6 @@ def collect_compliance(targets, transport_config, *, policy_provider=None,
                     "findings": findings, "errors": safe_data(errors, clean)}
 
         def persist(outcome):
-            nonlocal failed_devices
             target = targets[outcome.position - 1]
             ip = target.get("management_ip", "")
             if outcome.error_category:
@@ -113,13 +112,15 @@ def collect_compliance(targets, transport_config, *, policy_provider=None,
             else:
                 payload = outcome.value
             failed = bool(payload["errors"])
-            failed_devices += failed
-            for finding in payload["findings"]:
-                counts[finding["status"]] += 1
             spool.append(outcome, payload=payload, target=ip, failed=failed)
 
         with spool.collection():
             execute_devices(enumerate(targets, 1), collect, config=execution_config, on_outcome=persist)
+        # Summaries describe committed JSONL only; a failed sink returns no summary.
+        for record in spool.records():
+            failed_devices += record["status"] == "failed"
+            for finding in record["payload"]["findings"]:
+                counts[finding["status"]] += 1
         logger.info("VLAN compliance collection completed")
     status(f"VLAN compliance: {len(targets)} devices; {failed_devices} device errors; "
            f"{counts['non_compliant']} non-compliant; {counts['unable_to_assess']} unable to assess")
