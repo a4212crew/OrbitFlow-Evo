@@ -73,12 +73,17 @@ Use this table to choose the skill(s) directly relevant to the task. Start there
 | Interface/VLAN Excel reporting and batch report composition | `.agents/skills/device-reporting/SKILL.md` |
 | Runtime/module logging and dependency-log routing | `.agents/skills/runtime-logging/SKILL.md` |
 | Access VLAN provisioning | `.agents/skills/access-vlan-provisioning/SKILL.md` |
+| Offline Change Plans, configuration validation and approval gates | `.agents/skills/configuration-management/SKILL.md` |
 | Cisco IOS / IOS-XE / IOS-XR CLI behaviour | `.agents/skills/cisco-network-cli/SKILL.md` |
 | Huawei VRP CLI behaviour | `.agents/skills/huawei-network-cli/SKILL.md` |
 | Ubiquiti EdgeSwitch CLI behaviour | `.agents/skills/ubiquiti-network-cli/SKILL.md` |
 | Controller, Codex invocation, task/revision lifecycle, PR/review orchestration | `.agents/skills/codex-orchestration/SKILL.md` |
 
 The orchestration skill is for orchestration/controller work only. Normal feature tasks do not load it merely because Codex is the implementation worker.
+
+Until the controller installs the new configuration-management skill at its
+routed path, read its staged source at
+`docs/architecture/configuration/configuration-management.SKILL.md`.
 
 ## 6. Orchestration Boundary
 
