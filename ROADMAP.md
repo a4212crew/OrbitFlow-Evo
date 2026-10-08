@@ -20,3 +20,16 @@ Items here are not automatically approved implementation tasks. Move an item int
 - Expand transport/session abstraction so collectors and provisioners share one stable device-session API.
 - Add credential-provider abstraction suitable for both Windows and Linux.
 - Add additional vendor/platform skills as OrbitFlow scope grows.
+
+## Universal Configuration Management (Proposed)
+
+Architecture: [docs/architecture/configuration/](docs/architecture/configuration/README.md). These are prospective phases, not approved implementation issues or completed features.
+
+1. Define and validate a versioned shared Change Plan contract for manual CLI, Excel/CSV, templates and compliance-derived proposals.
+2. Build a non-destructive validation and approval boundary, reusing shared device execution, transport, backups and logging.
+3. Introduce controlled IOS/IOS-XE execution with mandatory preflight, verified state, explicit save and safe failure/unknown-state reporting; validate in a lab first.
+4. Add tested, capability-gated transactional IOS-XR support, then EdgeSwitch and other families as separately scoped work.
+5. Add reviewed configuration templates, bulk input and audit-ready UI/scheduling integrations.
+6. Add desired-state storage, drift detection and approval-gated reconciliation after implementation maturity.
+
+Automated rollback must remain conditional on vendor capability and field-tested recovery. Configuration concurrency requires its own conservative, explicitly approved policy.
