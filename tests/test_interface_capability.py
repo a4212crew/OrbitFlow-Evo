@@ -572,3 +572,85 @@ def test_cisco_xr_admin_down_spellings_normalize_to_down(status):
 
     assert records[0].admin_status == "down"
     assert records[0].oper_status == "down"
+
+
+# Sanitised tables using the two operator-observed layouts; no device dumps.
+EDGE_HEADERS = {
+    "standard": (
+        "                                         Link    Physical    Physical    Flow Control",
+        "Port       Name                          State   Mode        Status      Status",
+        "---------  ----------------------------  ------  ----------  ----------  ------------",
+    ),
+    "media": (
+        "                                         Link    Physical    Physical    Media               Flow Control",
+        "Port       Name                          State   Mode        Status      Type                Status",
+        "---------  ----------------------------  ------  ----------  ----------  ------------------  ------------",
+    ),
+}
+
+
+def edge_table(layout, description, *, byte_width=False):
+    # Some fixed-width CLI renderers measure UTF-8 bytes rather than code points.
+    width = len(description.encode("utf-8")) if byte_width else len(description)
+    assert width <= 28
+    name = description + " " * (28 - width)
+    media = "Unknown             " if layout == "media" else ""
+    rows = [
+        f"0/4        {name}  Up      Auto        1000 Full   {media}Inactive",
+        f"0/17                                     Down    Auto D                  {media}Inactive",
+        "3/1                                      Down",
+        "3/6                                      Up",
+    ]
+    return "\r\n".join((*EDGE_HEADERS[layout], *rows, "Flow Control:Disabled"))
+
+
+@pytest.mark.parametrize("layout", EDGE_HEADERS)
+@pytest.mark.parametrize("space", ["\u00a0", "\u2007", "\u202f"])
+@pytest.mark.parametrize("byte_width", [False, True])
+def test_edgeswitch_unicode_description_layouts_through_service(layout, space, byte_width):
+    description = f"LW0024035 -{space}168 Williams Ro" if space == "\u00a0" else f"Customer{space}handoff"
+    output = edge_table(layout, description, byte_width=byte_width)
+    records, channel, _ = run_collection("ubiquiti_edgeswitch", output=output)
+    assert [(r.port_name, r.port_description, r.admin_status, r.oper_status) for r in records] == [
+        ("0/4", description, "", "up"),
+        ("0/17", "", "", "down"),
+        ("3/1", "", "", "down"),
+        ("3/6", "", "", "up"),
+    ]
+    assert channel.sent == [b"\n", b"terminal length 0\n", b"show interfaces status all\n"]
+
+
+@pytest.mark.parametrize("layout", EDGE_HEADERS)
+@pytest.mark.parametrize("damage", [
+    "header", "mixed_header", "incomplete_header", "no_rows", "truncated_state",
+    "bad_state", "bad_port", "bad_gap", "extra_column", "after_footer", "rejected",
+])
+def test_edgeswitch_invalid_tables_remain_capability_failures(layout, damage):
+    output = edge_table(layout, "Sanitised customer")
+    lines = output.splitlines()
+    if damage == "header":
+        lines[0] = lines[0].replace("Physical", "Unexpected", 1)
+    elif damage == "mixed_header":
+        lines[2] = EDGE_HEADERS["media" if layout == "standard" else "standard"][2]
+    elif damage == "incomplete_header":
+        lines = lines[:2]
+    elif damage == "no_rows":
+        lines = lines[:3]
+    elif damage == "truncated_state":
+        lines = lines[:3] + [lines[3][:42]]
+    elif damage == "bad_state":
+        lines[3] = lines[3].replace("Up", "XX", 1)
+    elif damage == "bad_port":
+        lines[3] = lines[3].replace("0/4", "0 4", 1)
+    elif damage == "bad_gap":
+        lines[3] = lines[3][:39] + "XX" + lines[3][41:]
+    elif damage == "extra_column":
+        lines[3] += " " * 20 + "unexpected"
+    elif damage == "after_footer":
+        lines.append(lines[3])
+    elif damage == "rejected":
+        lines.append("% Invalid input detected")
+    with pytest.raises(InterfaceCapabilityError) as error:
+        run_collection("ubiquiti_edgeswitch", output="\r\n".join(lines))
+    assert isinstance(error.value.__cause__, ValueError)
+    assert "Sanitised customer" not in str(error.value)

@@ -199,16 +199,16 @@ about other unexpected content. `device_name` is optional:
 vendor adapters extract it from their already-detected CLI prompt, while an
 explicit caller-supplied name remains a compatibility override.
 EdgeSwitch uses only `terminal length 0` and `show interfaces status all`; its
-parser supports the confirmed multi-line status header, blank names, short
-rows, and `(hostname) #` prompts while leaving unavailable admin state empty.
-**Known open EdgeSwitch parser limitation (2026-10-08):** six devices failed
-interface collection with `InterfaceCapabilityError` wrapping `ValueError`.
-Four captured devices expose an additional `Media Type` status column not handled
-by the current exact-header parser (a fifth device has the same error location
-but lacks an output capture). One standard-format device has a non-breaking
-space in a port description and trips fixed-width row validation. These are
-parser failures, not evidence of faulty physical ports. A vendor-specific parser
-fix is pending; evidence and acceptance criteria are in
+parser accepts both verified six-column and seven-column (`Media Type`) headers
+with layout-specific fixed boundaries. Deterministic InterfaceService regressions
+cover Unicode description whitespace (including the captured port `0/4` U+00A0
+case), character/UTF-8 byte-counted padding, blank names, `Auto D`, and short
+`3/x` rows. Port names and descriptions are preserved; Up/Down is authoritative
+and unavailable admin state stays empty. Unknown/incomplete headers, malformed
+rows and rejected commands remain failures without raw row text in parser errors.
+Issue #70 is ready for operator live validation on the six previously failing
+devices; remediation has not been live validated. `10.121.9.3` still needs its
+actual CLI output checked because its layout was not captured. Evidence:
 `docs/operations/edgeswitch-interface-status-observations-2026-10-08.md`.
 VLAN resolver/wrong-configuration work remains a separate future issue.
 
