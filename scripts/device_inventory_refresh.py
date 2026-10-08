@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from orbitflow.config import load_execution_config
+from orbitflow.logging import log_run_failure
 from orbitflow.inventory_refresh import refresh_inventory_from_excel
 from orbitflow.transport import TransportConfig
 
@@ -38,12 +39,14 @@ def main(argv=None):
             spool_root=args.spool_root, log_root=args.log_root,
             execution_config=load_execution_config(args.config),
         )
-    except Exception:
+    except Exception as exc:
+        if not log_run_failure(exc, log_root=args.log_root):
+            print("Run-level diagnostics could not be written.", flush=True)
         # Paths, parser errors and third-party exception messages may contain
         # credentials. Never render them or an exception chain to the terminal.
         raise SystemExit(
             "Inventory refresh/export failed. Check input and configured paths, "
-            "inventory logs, and any retained run spool."
+            "application/inventory logs, and any retained run spool."
         ) from None
     print("Inventory workbook saved in the configured reports directory. "
           "Review Run_Attempts for target failures.", flush=True)

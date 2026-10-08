@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from orbitflow.config import load_execution_config
+from orbitflow.logging import log_run_failure
 from orbitflow.reporting import run_report
 from orbitflow.targets import load_targets
 from orbitflow.transport import TransportConfig
@@ -22,17 +23,22 @@ def main(argv=None):
     parser.add_argument("--spool-root", type=Path, default=Path("outputs/runs/interface_vlan_report"))
     parser.add_argument("--config", type=Path, default=Path("orbitflow.toml"))
     args = parser.parse_args(argv)
-    config = TransportConfig(
-        proxy=args.proxy, cluster=args.cluster,
-        bastion_host=args.bastion_host, bastion_user=args.bastion_user,
-        teleport_key_path=args.teleport_key_path, teleport_cert_path=args.teleport_cert_path,
-    )
-    return run_report(
-        load_targets(args.excel_path, isolate_invalid=True), config,
-        execution_config=load_execution_config(args.config),
-        spool_root=args.spool_root,
-        inventory_path=args.inventory_path, reports_dir=args.reports_dir, log_root=args.log_root,
-    )
+    try:
+        config = TransportConfig(
+            proxy=args.proxy, cluster=args.cluster,
+            bastion_host=args.bastion_host, bastion_user=args.bastion_user,
+            teleport_key_path=args.teleport_key_path, teleport_cert_path=args.teleport_cert_path,
+        )
+        return run_report(
+            load_targets(args.excel_path, isolate_invalid=True), config,
+            execution_config=load_execution_config(args.config),
+            spool_root=args.spool_root,
+            inventory_path=args.inventory_path, reports_dir=args.reports_dir, log_root=args.log_root,
+        )
+    except Exception as exc:
+        if not log_run_failure(exc, log_root=args.log_root):
+            print("Run-level diagnostics could not be written.", flush=True)
+        raise SystemExit("Interface/VLAN report failed. Check application logs and retained run spool.") from None
 
 
 if __name__ == "__main__":

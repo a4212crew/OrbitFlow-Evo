@@ -21,7 +21,7 @@ from orbitflow.logging import sanitize_text
 logger = logging.getLogger(__name__)
 
 
-def _remove_with_retry(operation):
+def _permission_retry(operation):
     """Allow a bounded handle-release delay without changing access controls."""
     for delay in (0.1, 0.2, 0.4, None):
         try:
@@ -31,6 +31,10 @@ def _remove_with_retry(operation):
             if delay is None:
                 raise
             sleep(delay)
+
+
+def _remove_with_retry(operation):
+    return _permission_retry(operation)
 
 
 def _now():
@@ -96,7 +100,14 @@ class ResultSpool:
         self.manifest.update(status=status, updated_at=_now())
         temporary = self.path / 'manifest.tmp'
         temporary.write_text(json.dumps(self.manifest), encoding='utf-8')
-        temporary.replace(self.path / 'manifest.json')
+        _permission_retry(lambda: temporary.replace(self.path / 'manifest.json'))
+
+    def _failed_state(self, status, original):
+        """Keep the primary failure even when the diagnostic checkpoint fails."""
+        try:
+            self._state(status)
+        except Exception as secondary:
+            original.spool_state_error = secondary
 
     def _safe(self, value):
         if isinstance(value, dict):
@@ -117,27 +128,34 @@ class ResultSpool:
             self.manifest = json.loads((self.path / 'manifest.json').read_text(encoding='utf-8'))
             if self.manifest['status'] != 'created':
                 raise ValueError('Collection cannot be repeated')
-            self._state('collecting')
             self._owner = get_ident()
             self._positions = set()  # Metadata only; never retains task payloads.
+            self._append_failed = False
             try:
+                self._state('collecting')
                 with (self.path / 'results.jsonl').open('a', encoding='utf-8', newline='\n') as writer:
                     self._writer = writer
                     yield self
+                if self._append_failed:
+                    raise RuntimeError('Collection stopped after persistence failure')
                 if len(self._positions) != self.manifest['target_count']:
                     raise ValueError('Incomplete target outcomes')
                 self.manifest['collection_complete'] = True
                 self._state('collected')
-            except BaseException:
-                self._state('interrupted')
+            except BaseException as exc:
+                self.manifest['collection_complete'] = False
+                self._failed_state('interrupted', exc)
                 raise
             finally:
                 self._writer = None
                 self._positions.clear()
 
     def append(self, outcome, *, payload=None, target='', failed=False):
+        """Flush exactly once, then checkpoint. Never retry an append failure."""
         if self._writer is None or get_ident() != self._owner:
             raise RuntimeError('Only the collection owner may append')
+        if self._append_failed:
+            raise RuntimeError('Collection stopped after persistence failure')
         position = outcome.position
         if type(position) is not int or position in self._positions or not 1 <= position <= self.manifest['target_count']:
             raise ValueError('Duplicate or invalid input position')
@@ -146,12 +164,17 @@ class ResultSpool:
                       target=self.clean(target), status='failed' if failed or category else 'success',
                       completed_at=_now(), error_category=category,
                       payload=self._safe(outcome.value if payload is None else payload))
-        self._writer.write(json.dumps(record, ensure_ascii=True, allow_nan=False) + '\n')
-        self._writer.flush()
-        self._positions.add(position)
-        self.manifest['completed_count'] += 1
-        self.manifest['failed_count'] += record['status'] == 'failed'
-        self._state('collecting')
+        line = json.dumps(record, ensure_ascii=True, allow_nan=False) + '\n'
+        try:
+            self._writer.write(line)
+            self._writer.flush()
+            self._positions.add(position)
+            self.manifest['completed_count'] += 1
+            self.manifest['failed_count'] += record['status'] == 'failed'
+            self._state('collecting')
+        except BaseException:
+            self._append_failed = True
+            raise
 
     def records(self):
         """Input order via a bounded-cache disk index; JSONL remains authoritative."""
@@ -205,13 +228,19 @@ class ResultSpool:
             complete = self.manifest['collection_complete']
             if not allow_partial and (not complete or self.manifest['status'] in {'created', 'collecting', 'interrupted'}):
                 raise ValueError('Incomplete collection; explicitly request partial consumption')
-            self._state('consuming')
             try:
+                # Reconcile stale checkpoints from canonical records under the lease.
+                completed = failed = 0
+                for record in self.records():
+                    completed += 1
+                    failed += record['status'] == 'failed'
+                self.manifest.update(completed_count=completed, failed_count=failed)
+                self._state('consuming')
                 result = consumer(self)
-            except BaseException:
-                self._state('output_failed')
+                self._state('consumed' if complete else 'partial_consumed')
+            except BaseException as exc:
+                self._failed_state('output_failed', exc)
                 raise
-            self._state('consumed' if complete else 'partial_consumed')
         if cleanup and complete:
             self.remove()
         return result

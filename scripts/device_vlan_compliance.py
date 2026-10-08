@@ -6,6 +6,7 @@ from pathlib import Path
 from orbitflow.compliance import JsonPolicyProvider
 from orbitflow.compliance_report import export_compliance_spool
 from orbitflow.config import load_execution_config
+from orbitflow.logging import log_run_failure
 from orbitflow.targets import load_targets
 from orbitflow.transport import TransportConfig
 from orbitflow.vlan_compliance import DEFAULT_POLICY, run_compliance
@@ -29,6 +30,7 @@ def main(argv=None):
     export = commands.add_parser("export", help="Recover a report without device connections")
     export.add_argument("spool_path", type=Path)
     export.add_argument("output_path", type=Path)
+    export.add_argument("--log-root", type=Path, default=Path("outputs/logs"))
     export.add_argument("--keep-spool", action="store_true")
     export.add_argument("--allow-partial", action="store_true")
     args = parser.parse_args(argv)
@@ -46,8 +48,10 @@ def main(argv=None):
                                   inventory_path=args.inventory_path, reports_dir=args.reports_dir,
                                   spool_root=args.spool_root, log_root=args.log_root,
                                   execution_config=load_execution_config(args.config), cleanup=not args.keep_spool)
-    except Exception:
-        raise SystemExit("VLAN compliance failed. Check policy/input paths, compliance logs, "
+    except Exception as exc:
+        if not log_run_failure(exc, log_root=args.log_root):
+            print("Run-level diagnostics could not be written.", flush=True)
+        raise SystemExit("VLAN compliance failed. Check policy/input paths, application/compliance logs, "
                          "and the retained run spool; export can retry without device connections.") from None
     print("Compliance workbook saved. Review Findings and Run_Errors.", flush=True)
     return path

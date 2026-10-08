@@ -20,6 +20,36 @@ partial recovery. A completed spool with corrupt, duplicate or missing records
 fails consumption and remains retained. This is process-interruption recovery,
 not a power-loss durability guarantee.
 
+Manifest replacement retries only the atomic `manifest.tmp.replace(manifest.json)`
+operation on `PermissionError`: four attempts, with 0.1, 0.2 and 0.4 second delays.
+It never retries JSONL append, changes permissions, or ignores exhaustion. A
+successful JSONL flush commits the record for process-level recovery even if its
+manifest checkpoint fails. Neither flush nor atomic rename implies `fsync` or
+power-loss durability. JSONL remains canonical; manifest counts may lag after an
+interruption. Explicit consumption validates/streams JSONL under the lease and
+reconciles completed/failed counts before checkpointing the consumer state.
+
+A sink failure aborts scheduling and further delivery; already running workers
+finish their resource cleanup, but their undelivered outcomes are not committed.
+The run is incomplete, never automatically resumed or recollected. The failing
+append must not be replayed: it may already have committed. The spool rejects
+further appends after a write/flush/checkpoint failure, including when a caller
+catches that error. No full-run payload collection is retained in memory.
+An interruption checkpoint is best effort and never masks the original error;
+if it also fails, the prior manifest and canonical JSONL remain available and
+the secondary error is included in sanitised run diagnostics. Recovery still
+requires explicit partial-export opt-in while collection is incomplete, and
+requires filesystem access to have recovered.
+
+The compliance, inventory refresh and Interface/VLAN CLIs record top-level
+application/persistence/export failures through the shared logger at
+`outputs/logs/application/YYYY-MM-DD/run_errors.log` (or `--log-root`). This works
+outside per-device logging scopes, including policy/input and export failures.
+Logs retain categories, errno and repository code locations/exception chains,
+not exception messages, source lines, locals or external filesystem paths. The
+console stays concise; failure to write diagnostics is explicitly reported.
+These run-level errors are distinct from isolated device-stage failures.
+
 Completion order is persisted; consumers read input order through a temporary,
 bounded-cache SQLite offset index. Only one target payload is decoded at a time.
 The index is disposable; JSONL is authoritative. Per-target result size, input

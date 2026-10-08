@@ -33,6 +33,8 @@ def execute_devices(targets, worker, *, config=None, on_outcome=None):
 
     With on_outcome, deliver completions on the caller and return an empty list;
     only bounded in-flight results are retained. Sink failures abort scheduling.
+    They propagate unchanged, without sink retry or conversion to DeviceOutcome.
+    In-flight workers finish cleanup; undelivered results are not committed.
 
     Exception objects/text and targets (which may contain credentials) are never
     retained in failure outcomes. Context variables, including the log root,

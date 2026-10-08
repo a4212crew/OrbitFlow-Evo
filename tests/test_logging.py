@@ -163,3 +163,80 @@ def test_concurrent_log_writers_share_rotation_handler(tmp_path):
     assert handlers[0].stream is None
     records = [json.loads(line) for line in outcomes[0].value.read_text().splitlines()]
     assert len(records) == 40
+
+
+def test_run_failure_outside_scope_omits_sensitive_paths_and_secondary_text(tmp_path):
+    from orbitflow.logging import log_run_failure
+    from orbitflow.result_spool import ResultSpool
+    spool = ResultSpool.create(tmp_path / 'private-directory', 'synthetic', 0)
+    try:
+        with spool.collection():
+            raise RuntimeError('password=primary-secret')
+    except RuntimeError as exc:
+        try:
+            exec(compile("raise PermissionError('secondary-secret')", '/private/token-name.py', 'exec'))
+        except PermissionError as secondary:
+            exc.spool_state_error = secondary
+        assert log_run_failure(exc, log_root=tmp_path / 'logs')
+    text = next((tmp_path / 'logs').glob('application/*/run_errors.log')).read_text()
+    for forbidden in ('primary-secret', 'secondary-secret', 'private-directory', 'token-name', str(tmp_path)):
+        assert forbidden not in text
+    record = json.loads(text)
+    assert record['error_category'] == 'RuntimeError'
+    assert [item['category'] for item in record['exception_chain']] == ['RuntimeError', 'PermissionError']
+    assert record['message'].startswith('Run-level')
+    assert any(frame['file'] == '[external]' for item in record['exception_chain'] for frame in item['frames'])
+
+
+def test_logging_failure_does_not_replace_application_error(tmp_path, monkeypatch):
+    import orbitflow.logging as module
+    def fail(*args, **kwargs):
+        raise PermissionError('private path')
+    monkeypatch.setattr(module, 'module_logger', fail)
+    assert module.log_run_failure(ValueError('secret'), log_root=tmp_path) is False
+
+
+@pytest.mark.parametrize('command_name', ['device_vlan_compliance', 'device_inventory_refresh', 'device_interface_vlan_report'])
+def test_cli_run_failure_is_logged_before_safe_exit(tmp_path, monkeypatch, capsys, command_name):
+    from importlib import import_module
+    from orbitflow.result_spool import ResultSpool
+    cli = import_module('scripts.' + command_name)
+    def fail(*args, **kwargs):
+        # A real OrbitFlow raising frame, plus a secret-bearing chained exception.
+        try:
+            raise OSError('private-user-path password=never-log-this')
+        except OSError as cause:
+            try:
+                ResultSpool.create(tmp_path, 'test', -1)
+            except ValueError as exc:
+                raise exc from cause
+    args = ['targets.xlsx', '--proxy', 'proxy', '--cluster', 'cluster',
+            '--bastion-host', 'bastion', '--bastion-user', 'operator',
+            '--log-root', str(tmp_path / 'logs')]
+    if command_name == 'device_vlan_compliance':
+        args.insert(0, 'run')
+        monkeypatch.setattr(cli, 'load_targets', fail)
+    elif command_name == 'device_inventory_refresh':
+        monkeypatch.setattr(cli, 'refresh_inventory_from_excel', fail)
+    else:
+        monkeypatch.setattr(cli, 'load_targets', fail)
+    with pytest.raises(SystemExit) as caught:
+        cli.main(args)
+    content = next((tmp_path / 'logs').glob('application/*/run_errors.log')).read_text()
+    record = json.loads(content)
+    assert record['error_category'] == 'ValueError'
+    assert any(frame['file'] == 'src/orbitflow/result_spool.py' and frame['function'] == 'create'
+               for item in record['exception_chain'] for frame in item['frames'])
+    console = capsys.readouterr()
+    for forbidden in ('never-log-this', 'private-user-path', str(tmp_path)):
+        assert forbidden not in content + str(caught.value) + console.out + console.err
+    assert 'Traceback' not in console.err
+
+
+def test_run_log_emit_failure_has_no_raw_logging_traceback(tmp_path, monkeypatch, capsys):
+    import orbitflow.logging as module
+    def denied(*args):
+        raise PermissionError('sensitive-path password=secret')
+    monkeypatch.setattr(module._SafeRotatingFileHandler, 'shouldRollover', denied)
+    assert module.log_run_failure(ValueError('private exception'), log_root=tmp_path) is False
+    assert capsys.readouterr() == ('', '')
