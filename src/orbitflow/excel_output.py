@@ -22,6 +22,7 @@ def write_tables(path, tables, *, clean=sanitize_text):
             for index, column in enumerate(columns, 1):
                 sheet.column_dimensions[get_column_letter(index)].width = (
                     42 if column in {"Description", "Service Mappings", "Tagged VLANs", "Bridge Domains",
+                                     "Configuration Evidence", "Evidence Source", "Evidence Lines",
                                      "Expected", "Observed", "Missing VLANs", "Missing Objects", "Evidence", "JSON Fragment"}
                     else 28 if column in {"Collection Time", "Time", "Device Name", "Service Binding Name"}
                     else max(18, len(column) + 2)

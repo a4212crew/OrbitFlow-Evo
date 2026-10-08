@@ -144,6 +144,13 @@ class AuditResolver:
 
     def result(self):
         self.resolve()
+        for key, row in self.rows.items():
+            row["no_vlan_service_configuration"] = (
+                self.config[key].kind != "l2_interface"
+                and not any(n.kind not in {"description", "shutdown", "routed"}
+                            for n in self.config[key].children)
+                and not row["child_interfaces"] and not row.get("inherited_from")
+                and not row["configuration_findings"])
         return dict(valid_database_vlans=sorted(self.database),
                     database_inventory=[dict(object_type=o.object_type, object_id=o.object_id,
                                              domain_id=o.domain_id, name=o.name) for o in self.state.objects],
@@ -161,9 +168,9 @@ class CatalystAuditResolver(AuditResolver):
             self.membership(key, untagged=numeric(last(lines, "access", ())), kind="access")
             return
         if mode != "trunk":
-            has_switching = any(n.kind in {"mode", "allowed", "access", "native", "trunk_encapsulation"} for n in lines)
+            has_switching = any(n.kind in {"mode", "allowed", "access", "native", "trunk_encapsulation", "unsupported_allowed"} for n in lines)
             inherited = bool(last(lines, "aggregate")) and not has_switching
-            if not inherited and (has_switching or key not in self.routed):
+            if not inherited and has_switching:
                 self.problem("UNRESOLVED_SWITCHPORT_MODE", key, (node,))
                 row.update(interface_type="review", review=True)
             return
@@ -383,17 +390,12 @@ class EdgeSwitchAuditResolver(AuditResolver):
                 if invalid:
                     self.problem(code, key, (node,), vlans=sorted(invalid))
             valid_tags = tagged & valid
-            untagged = valid - valid_tags
+            untagged = (pvid & valid) - tagged
             row.update(configured_membership_vlans=sorted(members), configured_tagged_vlans=sorted(tagged),
                        configured_pvid=sorted(pvid), pvid=sorted(pvid))
-            if len(untagged) > 1:
-                self.problem("MULTIPLE_UNTAGGED_MEMBERSHIPS", key, (node,), vlans=sorted(untagged))
-                kind = "review"
-            elif untagged and untagged != pvid:
-                self.problem("UNCLEAR_VLAN_CLASSIFICATION", key, (node,))
-                kind = "review"
-            else:
-                kind = "hybrid" if untagged and valid_tags else "access" if untagged else "trunk" if valid_tags else "review"
+            kind = "hybrid" if untagged and valid_tags else "access" if untagged else "trunk" if valid_tags else "review"
+            if not any(n.kind in {"include", "exclude", "tagged", "untagged_vlans", "pvid"} for n in node.children):
+                kind = "routed"
             self.membership(key, valid_tags, untagged if kind != "review" else (), kind)
             row["review"] = kind == "review"
         self.aggregates(edge=True)

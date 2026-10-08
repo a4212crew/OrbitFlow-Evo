@@ -199,12 +199,12 @@ def test_application_failure_isolation_and_safe_reusable_results(tmp_path, monke
     assert not run.spool_path.exists()
     workbook = load_workbook(path)
     try:
-        assert workbook.sheetnames == ["Findings", "Run_Errors", "Details"]
-        sheet = workbook["Findings"]
+        assert workbook.sheetnames == ["Interface Results", "Database Results", "Run Errors", "Details"]
+        sheet = workbook["Database Results"]
         assert sheet.freeze_panes == "A2"
-        assert sheet["C4"].value == "=[REDACTED]"
-        assert sheet["C4"].data_type == "s"
-        assert sheet.auto_filter.ref == "A1:AA5"
+        assert sheet["D3"].value == "=[REDACTED]"
+        assert sheet["D3"].data_type == "s"
+        assert sheet.auto_filter.ref == "A1:Q3"
     finally:
         workbook.close()
 
@@ -251,8 +251,8 @@ def test_large_normalized_evidence_is_preserved_in_excel_details(tmp_path):
     path = report.export_compliance_spool(spool.path, tmp_path / "large.xlsx", cleanup=False)
     workbook = load_workbook(path)
     try:
-        assert workbook["Findings"]["J2"].value == "See Details: finding 1, observed"
-        parts = [row[4] for row in list(workbook["Details"].values)[1:]]
+        parts = [row[4] for row in list(workbook["Details"].values)[1:]
+                 if row[1] == "1" and row[2] == "observed"]
         assert json.loads("".join(parts)) == findings[0]["observed"]
     finally:
         workbook.close()
@@ -319,7 +319,8 @@ def test_1500_devices_use_bounded_workers_and_complete_spool(tmp_path, monkeypat
     path = report.export_compliance_spool(run.spool_path, tmp_path / "scale.xlsx")
     workbook = load_workbook(path, read_only=True)
     try:
-        assert sum(1 for _ in workbook["Findings"].rows) == 3001
+        assert sum(1 for _ in workbook["Interface Results"].rows) == 1501
+        assert sum(1 for _ in workbook["Database Results"].rows) == 1501
     finally:
         workbook.close()
 
@@ -344,3 +345,38 @@ def test_cli_run_and_recovery(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as caught:
         cli.main(["export", "retained-run", "report.xlsx"])
     assert "never-output" not in str(caught.value)
+
+
+def test_readable_evidence_layout_and_overflow_recovery(tmp_path):
+    findings = evaluate()
+    excerpts = [dict(source_filename="saved.cfg", line=line, excerpt=f"  preserved line {line}")
+                for line in (121, 114, 119, 120, 117, 114)]
+    findings[1]["evidence"] = {"sources": excerpts}
+    findings[0]["evidence"] = {"sources": [dict(source_filename="saved.cfg", line=1, excerpt="x" * 31000)]}
+    spool = ResultSpool.create(tmp_path / "runs", "vlan_compliance", 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload={"findings": findings, "errors": []})
+    path = report.export_compliance_spool(spool.path, tmp_path / "evidence.xlsx", cleanup=False)
+    workbook = load_workbook(path)
+    try:
+        for title in ("Interface Results", "Database Results"):
+            values = list(workbook[title].values)
+            headers = values[0]
+            assert headers[1:3] == ("Device IP", "Family")
+            assert "Missing Objects" not in headers and "Evidence" not in headers
+            assert len(values) == 2
+        cells = dict(zip(*list(workbook["Interface Results"].values)))
+        assert cells["Configuration Evidence"] == "\n".join(f"  preserved line {line}" for line in (114, 117, 119, 120, 121))
+        assert cells["Evidence Lines"] == "114,117,119-121"
+        assert cells["Evidence Source"] == "saved.cfg"
+        database = dict(zip(*list(workbook["Database Results"].values)))
+        assert database["Configuration Evidence"] == "See Details: finding 1, Configuration Evidence"
+        parts = [r[4] for r in list(workbook["Details"].values)[1:] if r[2] == "Configuration Evidence"]
+        assert "".join(parts) == "x" * 31000
+        structured = [r[4] for r in list(workbook["Details"].values)[1:] if r[1:3] == ("2", "evidence")]
+        assert json.loads("".join(structured)) == findings[1]["evidence"]
+    finally:
+        workbook.close()
+    assert report.configuration_evidence({"evidence": {"sources": []}}) == ("", "", "")
+    multiple = {"evidence": {"sources": [*excerpts, dict(source_filename="other.cfg", line=2, excerpt=" original")]}}
+    assert report.configuration_evidence(multiple)[1:] == ("other.cfg\nsaved.cfg", "other.cfg: 2\nsaved.cfg: 114,117,119-121")

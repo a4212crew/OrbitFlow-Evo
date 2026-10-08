@@ -478,3 +478,12 @@ separation. Interface results retain observed admin/oper state separately from
 configured shutdown, with dedicated Excel columns and visible exact missing VLANs.
 This revision awaits operator-controlled live retesting.
 Authoritative semantics: `.agents/skills/vlan-configuration-audit/SKILL.md`.
+
+The Issue #65 reporting revision excludes InterfaceService-only identities from
+audit rows/children and marks configured interfaces without L2 service configuration
+not applicable. EdgeSwitch valid audit membership includes participating tagged
+VLANs plus a participating non-tagged PVID; participation-only VLANs remain evidence.
+Excel separates Interface Results, Database Results, Run Errors and Details, with
+readable preserved configuration excerpts/source/compact line references and exact
+Missing VLANs. Structured evidence remains available in JSON and Details. These
+revision behaviors are deterministically tested; no new live validation was run.

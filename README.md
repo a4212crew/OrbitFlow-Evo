@@ -269,24 +269,31 @@ AuditResolvers validate these facts before the common policy engine:
   unbound encapsulation never establish numeric VLANs. Conflicting attachments,
   invalid references and unresolved untagged mappings remain visible.
 - EdgeSwitch uses ordered participation intersected with the explicit database;
-  tagging and PVID cannot create membership. LAG forwarding ownership is retained.
+  tagging and PVID cannot create membership. Only participating tagged VLANs and
+  a participating, non-tagged PVID contribute audit VLANs; participation-only
+  VLANs remain evidence. LAG forwarding ownership is retained.
 
 InterfaceService supplies identity/state correlation by canonical name.
 Configuration-only interfaces remain authoritative and are marked `config_only`;
-observed-only interfaces are marked `not_in_config`. Child services consolidate
+observed-only interfaces are omitted from audit rows and child details. Configured
+interfaces without L2 service configuration are `not_applicable` with reason
+`no_vlan_service_configuration`. Child services consolidate
 into configured parents, logical aggregates remain separate, and shutdown ports
 are still audited. Unknown service references never create interface rows.
 See [.agents/skills/vlan-configuration-audit/SKILL.md](.agents/skills/vlan-configuration-audit/SKILL.md)
 for the family rules. No remediation configuration is generated.
 
-The workbook has `Findings`, `Run_Errors`, and `Details` sheets, with literal text,
-frozen headers and filters. Findings include identity, rule/policy, expected and
-observed state, missing VLANs/objects and normalized evidence. Dedicated columns
-show family, config identity/match, interface type, shutdown, valid VLANs, trigger,
-configuration owner, configuration problem codes, explanation and recommendation.
-Full tagged/untagged/native/PVID, child, mapping and source details remain in
-Observed/Evidence JSON. Large JSON fields
-are split into numbered fragments in `Details` without truncation. Reports default
+The workbook has `Interface Results` (one row per audited interface),
+`Database Results` (one row per device), `Run Errors`, and `Details` sheets,
+with literal text, frozen headers and filters. `Family` follows `Device IP`.
+Both result sheets show exact numeric `Missing VLANs`; redundant `Missing Objects`
+is retained only in the JSON/API model. Interface columns retain config identity,
+type, shutdown, valid VLANs, trigger, configuration owner, findings, explanation
+and recommendation. `Configuration Evidence` shows only preserved excerpts with
+original indentation; `Evidence Source` and `Evidence Lines` identify their source
+and compact line references. No omitted configuration statements are invented.
+Structured observed/evidence JSON and oversized display fields remain in `Details`,
+split into numbered fragments without truncation. Reports default
 to `outputs/reports/vlan_compliance/`, recoverable JSONL runs to
 `outputs/runs/vlan_compliance/`, inventory to `data/inventory/inventory.json`, and
 module logs to `outputs/logs/compliance/YYYY-MM-DD/vlan_compliance.log`.
@@ -295,7 +302,7 @@ override those settings. Shared execution settings control device concurrency an
 connection pacing. Linux uses the existing `--teleport-key-path` and
 `--teleport-cert-path` options. Excel may include the optional `secret` column.
 
-The Findings workbook includes dedicated `Admin Status` and `Oper Status`
+The `Interface Results` sheet includes dedicated `Admin Status` and `Oper Status`
 columns from canonically matched InterfaceService records. Config-only interfaces
 show `not observed`; older spools without state show `unavailable`. `Shutdown`
 remains a separate saved-configuration field. `Missing VLANs` displays the exact

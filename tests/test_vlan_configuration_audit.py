@@ -73,9 +73,8 @@ interface GigabitEthernet0/1
     assert trunk["missing_vlans"] == [*range(2400, 2445), 4001]
     assert row(results, "Gi0/2")["status"] == "not_applicable"
     assert "CONFIG_ONLY_INTERFACE" in codes(row(results, "Gi0/2"))
-    missing = row(results, "not in config file")
-    assert missing["observed"]["interface_match_status"] == "not_in_config"
-    assert missing["status"] == "unable_to_assess"
+    assert "Gi0/99" not in json.dumps(results)
+    assert "INTERFACE_NOT_IN_CONFIG" not in json.dumps(results)
     for source in trunk["evidence"]["sources"]:
         assert source["source_filename"] == "synthetic.cfg"
         assert config.splitlines()[source["line"] - 1] == source["excerpt"]
@@ -97,7 +96,7 @@ def test_all_vlan_uses_database_and_recommends_global_change(family, encapsulati
         assert "global VLANs" in trunk["recommendation"]
 
 
-@pytest.mark.parametrize("command", ["description unclassified", "switchport mode dynamic", "switchport trunk allowed vlan 445,545,2449",
+@pytest.mark.parametrize("command", ["switchport mode dynamic", "switchport trunk allowed vlan 445,545,2449",
                                       "switchport mode trunk\n switchport trunk allowed vlan add 445"])
 def test_unspecified_dynamic_and_unsupported_allowed_never_pass(command):
     result = audit("vlan 445,545,2449\n!\ninterface Gi0/1\n " + command + "\n!")
@@ -404,7 +403,7 @@ exit
 
 @pytest.mark.parametrize("members,tags,pvid,kind", [
     ("445", "", "445", "access"), ("445,545", "545", "445", "hybrid"),
-    ("445,545", "445,545", "", "trunk"), ("445,545", "", "445", "review"),
+    ("445,545", "445,545", "", "trunk"), ("445,545", "", "445", "access"),
     ("", "445", "445", "review"),
 ])
 def test_edge_classification_no_membership_from_tagging_or_pvid(members, tags, pvid, kind):
@@ -555,21 +554,24 @@ def test_interface_states_and_missing_vlans_survive_spool_export(tmp_path):
                replace(interface("Gi0/99"), admin_status="down", oper_status="down")]
     findings = evaluate_vlan_compliance(ctx, records, snapshot, POLICY)
     assert findings[1]["observed"]["shutdown"] is True
-    observed_only = row(findings, "not in config file")["observed"]
-    assert observed_only["shutdown"] is None
-    assert observed_only["admin_status"] == "down"
+    assert "Gi0/99" not in json.dumps(findings)
     spool = ResultSpool.create(tmp_path / "runs", "vlan_compliance", 1)
     with spool.collection():
         spool.append(DeviceOutcome(1), payload={"findings": findings, "errors": []})
     path = export_compliance_spool(spool.path, tmp_path / "report.xlsx", cleanup=False)
     workbook = load_workbook(path)
     try:
-        values = iter(workbook["Findings"].values)
+        values = iter(workbook["Interface Results"].values)
         headers = next(values)
         rows = [dict(zip(headers, cells)) for cells in values]
-        for finding, cells in zip(findings, rows):
+        for finding, cells in zip(findings[1:], rows):
             assert json.loads(cells["Missing VLANs"]) == finding["missing_vlans"]
-        assert rows[0]["Status"] == "non_compliant"
+        database_values = list(workbook["Database Results"].values)
+        assert len(database_values) == 2
+        database = dict(zip(*database_values))
+        assert database["Status"] == "non_compliant"
+        assert json.loads(database["Missing VLANs"]) == findings[0]["missing_vlans"] == [*range(2400, 2445), 4001]
+        assert len(rows) == 2
         matched = next(r for r in rows if r["Interface Match"] == "matched")
         assert (matched["Admin Status"], matched["Oper Status"], matched["Shutdown"]) == ("up", "down", "True")
         assert json.loads(matched["Missing VLANs"]) == [*range(2400, 2445), 4001]
@@ -577,3 +579,62 @@ def test_interface_states_and_missing_vlans_survive_spool_export(tmp_path):
         assert config_only["Admin Status"] == config_only["Oper Status"] == "not observed"
     finally:
         workbook.close()
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_unused_configured_interface_is_not_applicable(family):
+    name = "0/1" if family == "EdgeSwitch" else "GE0/1" if family == "NE05E" else "Gi0/1"
+    config = f"interface {name}\n description unused\n shutdown\n"
+    port = row(audit(config, family), name)
+    assert port["status"] == "not_applicable"
+    assert port["reason"] == "no_vlan_service_configuration"
+    assert port["observed"]["admin_status"] == port["observed"]["oper_status"] == "not observed"
+    assert port["observed"]["shutdown"] is True
+
+
+@pytest.mark.parametrize("pvid,tags,valid,untagged,kind", [
+    ("445", "545,2449", [445, 545, 2449], [445], "hybrid"),
+    ("445", "445,545,2449", [445, 545, 2449], [], "trunk"),
+    ("4001", "445,545,2449", [445, 545, 2449], [], "trunk"),
+    ("", "445,545,2449", [445, 545, 2449], [], "trunk"),
+    ("445", "", [445], [445], "access"),
+    ("", "", [], [], "review"),
+])
+def test_edge_participation_does_not_establish_vlan_role(pvid, tags, valid, untagged, kind):
+    config = "vlan database\nvlan 445,545,2400,2449,4001\nexit\ninterface 0/1\nvlan participation include 445,545,2400,2449\n"
+    if pvid:
+        config += f"vlan pvid {pvid}\n"
+    if tags:
+        config += f"vlan tagging {tags}\n"
+    port = audit(config + "exit", "EdgeSwitch")[1]
+    observed = port["observed"]
+    assert observed["configured_membership_vlans"] == [445, 545, 2400, 2449]
+    assert observed["valid_interface_vlans"] == valid
+    assert observed["untagged"] == untagged
+    assert observed["interface_type"] == kind
+    assert "MULTIPLE_UNTAGGED_MEMBERSHIPS" not in codes(port)
+    if kind in {"hybrid", "trunk"}:
+        assert port["missing_vlans"] == [*range(2400, 2445), 4001]
+    elif kind == "review":
+        assert port["status"] == "unable_to_assess"
+
+
+@pytest.mark.parametrize("family,parent,child", [
+    ("C3850", "Gi0/1", "Gi0/1.100"),
+    ("NE05E", "GE0/1", "GE0/1.100"),
+    ("NCS540", "Te0/0/0/1", "Te0/0/0/1.100"),
+])
+def test_observed_only_identities_do_not_create_rows_or_child_details(family, parent, child):
+    results = audit(f"interface {parent}\n description unused\n", family,
+                    observed=(parent, child, "Gi0/99"))
+    assert len(results) == 2
+    assert results[1]["observed"]["child_interfaces"] == []
+    assert child not in json.dumps(results)
+    assert "Gi0/99" not in json.dumps(results)
+    assert "INTERFACE_NOT_IN_CONFIG" not in json.dumps(results)
+    # An observed parent cannot supply a configured parent for an L2 child.
+    if family == "NCS540":
+        results = audit(f"interface {child} l2transport\n encapsulation dot1q 445\n!", family, observed=(parent,))
+        assert len(results) == 2
+        assert results[1]["observed"]["interface_match_status"] == "config_only"
+        assert "PARENT_INTERFACE_NOT_FOUND" in codes(results[1])

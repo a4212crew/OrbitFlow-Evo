@@ -2,7 +2,7 @@
 
 from orbitflow.logging import sanitize_text
 from orbitflow.vendors.interface_names import canonical_interface_name
-from orbitflow.compliance.resolvers import resolver_for, parent_name
+from orbitflow.compliance.resolvers import resolver_for
 
 
 def safe_data(value, clean=sanitize_text):
@@ -63,23 +63,6 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
         return dict(admin_status=record.admin_status if record else "not observed",
                     oper_status=record.oper_status if record else "not observed")
 
-    # Observed-only children may be shown as parent details, but never gain
-    # forwarding facts or create a parent/interface from a service reference.
-    for name, record in actual.items():
-        if name in rows:
-            continue
-        parent = parent_name(name)
-        problem = dict(code="INTERFACE_NOT_IN_CONFIG", interface_name=record.port_name, evidence=[])
-        if parent in rows:
-            rows[parent]["configuration_findings"].append(problem)
-            rows[parent]["child_interfaces"].append(dict(interface_name=record.port_name,
-                config_interface_name="not in config file", interface_match_status="not_in_config",
-                **interface_state(record)))
-            continue
-        rows[name] = dict(config_interface_name="not in config file", interface_type="review",
-                          description=record.port_description, shutdown=None,
-                          valid_interface_vlans=[], configuration_findings=[problem], evidence=[], review=True,
-                          child_interfaces=[], numeric_mappings=[], configuration_owner="")
     for name, row in sorted(rows.items()):
         if "consolidated_into" in row:
             # Retain identity matching for child details as well as parent rows.
@@ -93,7 +76,7 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
             continue
         record = actual.get(name)
         config_only = record is None
-        match = "not_in_config" if row["config_interface_name"] == "not in config file" else "config_only" if config_only else "matched"
+        match = "config_only" if config_only else "matched"
         row.update(interface_name=record.port_name if record else "not observed", interface_match_status=match,
                    interface_collection_available=interfaces is not None, **interface_state(record))
         if match == "config_only":
@@ -105,6 +88,8 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
         missing = []
         if row["review"]:
             status, reason = "unable_to_assess", "ambiguous_or_unavailable_interface_facts"
+        elif row.get("no_vlan_service_configuration"):
+            status, reason = "not_applicable", "no_vlan_service_configuration"
         elif not row["trigger_applicable"]:
             status, reason = "not_applicable", "access_excluded" if row["interface_type"] == "access" else "signature_not_matched"
         else:
