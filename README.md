@@ -261,6 +261,8 @@ AuditResolvers validate these facts before the common policy engine:
   database without expanding 1-4094; 3750X additionally requires explicit dot1q
   trunk encapsulation. Dynamic modes are not assumed trunks. Port-channel
   forwarding ownership and explicit member conflicts are retained.
+- C3750X, C3850 and ME3600X infer Access from `switchport access vlan` even
+  without explicit access mode. Contradictory switching intent remains reviewable.
 - Huawei VRP combines global VLANs with valid VSI-bound termination VLANs.
   Valid child services consolidate into their configured trunk parent; VSI
   names/IDs, control VIDs and routed dot1q never establish numeric audit VLANs.
@@ -271,7 +273,8 @@ AuditResolvers validate these facts before the common policy engine:
 - EdgeSwitch uses ordered participation intersected with the explicit database;
   tagging and PVID cannot create membership. Only participating tagged VLANs and
   a participating, non-tagged PVID contribute audit VLANs; participation-only
-  VLANs remain evidence. LAG forwarding ownership is retained.
+  VLANs remain evidence. Empty valid audit membership is not applicable for
+  physical ports and LAGs. LAG forwarding ownership is retained.
 
 InterfaceService supplies identity/state correlation by canonical name.
 Configuration-only interfaces remain authoritative and are marked `config_only`;
@@ -292,6 +295,11 @@ type, shutdown, valid VLANs, trigger, configuration owner, findings, explanation
 and recommendation. `Configuration Evidence` shows only preserved excerpts with
 original indentation; `Evidence Source` and `Evidence Lines` identify their source
 and compact line references. No omitted configuration statements are invented.
+Database evidence contains only contributing declarations and relationship proof:
+global VLANs for Catalyst/ME3600X, bridge-domain/service relationships for ASR920,
+global VLANs and validated VSI terminations for Huawei, validated BD attachments
+and dot1q subinterfaces for NCS540, and VLAN database declarations for EdgeSwitch.
+Configured BDI, pseudowire and service-only interface rows remain visible.
 Structured observed/evidence JSON and oversized display fields remain in `Details`,
 split into numbered fragments without truncation. Reports default
 to `outputs/reports/vlan_compliance/`, recoverable JSONL runs to

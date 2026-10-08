@@ -487,3 +487,13 @@ Excel separates Interface Results, Database Results, Run Errors and Details, wit
 readable preserved configuration excerpts/source/compact line references and exact
 Missing VLANs. Structured evidence remains available in JSON and Details. These
 revision behaviors are deterministically tested; no new live validation was run.
+
+The live-validation revision infers Access from C3750X/C3850/ME3600X access-VLAN
+configuration without explicit mode unless switching intent conflicts. EdgeSwitch
+physical/LAG rows with empty valid audit membership are not applicable; unresolved
+aggregate references still require review. Configured BDI/pseudowire/service-only
+rows remain retained. Database evidence now contains contributing declarations and
+validated family-specific relationships, preserving source indentation and line
+references through spool recovery and Excel export. Detailed structured mappings
+remain available. Deterministic coverage includes all supported families; this
+revision has not been live-device tested.

@@ -67,8 +67,22 @@ class AuditResolver:
                               review=False, all_vlan=False, configuration_owner=node.value)
                      for key, node in self.config.items()}
         self.database = values(self.roots, "vlan")
+        self.database_proof = set()
+        self.prove([n for n in children(self.roots, "vlan") if numeric(n.value)])
         self.problems = []
         self.mappings = []
+
+    def prove(self, nodes):
+        """Select contributing statements; their original ancestors supply context."""
+        self.database_proof.update((n.source_filename, n.line) for n in nodes)
+
+    def database_evidence(self):
+        def project(node):
+            nested = [item for child in node.children for item in project(child)]
+            if nested or (node.source_filename, node.line) in self.database_proof:
+                return evidence((replace(node, children=()),)) + nested
+            return []
+        return [item for node in self.roots for item in project(node)]
 
     def problem(self, code, key=None, nodes=(), **details):
         item = dict(code=code, **details, evidence=evidence(nodes))
@@ -155,7 +169,7 @@ class AuditResolver:
                     database_inventory=[dict(object_type=o.object_type, object_id=o.object_id,
                                              domain_id=o.domain_id, name=o.name) for o in self.state.objects],
                     numeric_mappings=self.mappings, configuration_findings=self.problems,
-                    evidence=evidence(self.roots), interfaces=self.rows)
+                    evidence=self.database_evidence(), interfaces=self.rows)
 
 
 class CatalystAuditResolver(AuditResolver):
@@ -164,7 +178,14 @@ class CatalystAuditResolver(AuditResolver):
         lines = node.children
         mode = last(lines, "mode")
         row["native"] = sorted(numeric(last(lines, "native", ())))
-        if mode == "access":
+        access = bool(children(lines, "access"))
+        contradictory = access and (mode not in {"", "access"}
+                                    or any(n.kind in {"routed", "allowed", "unsupported_allowed"} for n in lines))
+        if contradictory:
+            self.problem("CONFLICTING_SWITCHPORT_INTENT", key, (node,))
+            row.update(interface_type="review", review=True)
+            return
+        if mode == "access" or (not mode and access):
             self.membership(key, untagged=numeric(last(lines, "access", ())), kind="access")
             return
         if mode != "trunk":
@@ -218,6 +239,8 @@ class EVCAuditResolver(CatalystAuditResolver):
             if not asr and children(bd.children, "member") and numeric(bd.value) - self.database:
                 self.problem("BRIDGE_DOMAIN_MISSING_GLOBAL_VLAN", nodes=(bd,), vlans=sorted(numeric(bd.value) - self.database))
         if asr:
+            self.database_proof.clear()
+            self.prove([bd for bd in bridges if numeric(bd.value)])
             self.database = set().union(*(numeric(bd.value) for bd in bridges))
         for key, node in self.config.items():
             services = {}
@@ -237,6 +260,7 @@ class EVCAuditResolver(CatalystAuditResolver):
                 resolved = inline | global_ids
                 if asr:
                     self.database.update(set().union(*(numeric(v) for v in inline)))
+                    self.prove([n for n in children(service.children, "bridge_domain") if numeric(n.value)])
                 status = "valid" if len(resolved) == 1 else "conflict" if resolved else "unresolved"
                 nodes = (service, *(n for _, n in global_bindings))
                 if status != "valid":
@@ -246,6 +270,9 @@ class EVCAuditResolver(CatalystAuditResolver):
                 outer = values(service.children, "encapsulation")
                 untagged_count += is_untagged
                 audit = set().union(*(numeric(v) for v in resolved)) if status == "valid" else set()
+                if asr and audit:
+                    self.prove(children(service.children, "encapsulation") + children(service.children, "untagged")
+                               + [n for _, n in global_bindings])
                 if not is_untagged and not outer:
                     self.problem("UNCLEAR_EVC_CLASSIFICATION", key, (service,), service_instance_id=sid)
                     audit = set()
@@ -301,6 +328,8 @@ class HuaweiAuditResolver(AuditResolver):
                         self.problem("L2_TERMINATION_WITHOUT_VALID_VSI", key, (node,))
                 tags = termination if valid else set()
                 self.database.update(tags)
+                if tags:
+                    self.prove(children(lines, "termination") + children(lines, "vsi_binding") + [vsis[vsi]])
                 self.membership(key, tags, kind="service" if parent_name(key) else "access")
                 row["forwarding_domains"] = [vsi]
                 row["numeric_mappings"].append(dict(termination_vlan=sorted(termination),
@@ -325,6 +354,7 @@ class HuaweiAuditResolver(AuditResolver):
 class XRAuditResolver(AuditResolver):
     def resolve(self):
         self.database = set()
+        self.database_proof.clear()
         attachments = {}
         for l2vpn in children(self.roots, "l2vpn"):
             for group in children(l2vpn.children, "bridge_group"):
@@ -358,6 +388,8 @@ class XRAuditResolver(AuditResolver):
                     self.problem("L2TRANSPORT_WITHOUT_ENCAPSULATION", key, nodes)
             mapped = tags if valid and len(domains) == 1 and parent_name(key) else set()
             self.database.update(mapped)
+            if mapped:
+                self.prove(children(node.children, "encapsulation") + [n for _, n in bindings])
             self.membership(key, mapped, kind="service" if valid else "routed")
             row["numeric_mappings"] = [dict(bridge_domains=domains, encapsulation=sorted(tags),
                                              audit_vlan=sorted(mapped), evidence=evidence(nodes))]
@@ -370,6 +402,9 @@ class XRAuditResolver(AuditResolver):
 class EdgeSwitchAuditResolver(AuditResolver):
     def resolve(self):
         self.database = set().union(*(values(n.children, "vlan") for n in children(self.roots, "vlan_database")))
+        self.database_proof.clear()
+        for node in children(self.roots, "vlan_database"):
+            self.prove([n for n in children(node.children, "vlan") if numeric(n.value)])
         for key, node in self.config.items():
             members, tagged = set(), set()
             row = self.rows[key]
@@ -393,7 +428,7 @@ class EdgeSwitchAuditResolver(AuditResolver):
             untagged = (pvid & valid) - tagged
             row.update(configured_membership_vlans=sorted(members), configured_tagged_vlans=sorted(tagged),
                        configured_pvid=sorted(pvid), pvid=sorted(pvid))
-            kind = "hybrid" if untagged and valid_tags else "access" if untagged else "trunk" if valid_tags else "review"
+            kind = "hybrid" if untagged and valid_tags else "access" if untagged else "trunk" if valid_tags else "no_membership"
             if not any(n.kind in {"include", "exclude", "tagged", "untagged_vlans", "pvid"} for n in node.children):
                 kind = "routed"
             self.membership(key, valid_tags, untagged if kind != "review" else (), kind)

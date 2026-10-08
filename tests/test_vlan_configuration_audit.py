@@ -20,7 +20,7 @@ FAMILIES = {"C3750X": "cisco_ios", "C3850": "cisco_xe", "ME3600X": "cisco_ios",
 
 
 def audit(config, family="C3850", observed=(), *, filename="synthetic.cfg"):
-    platform = FAMILIES[family]
+    platform = "huawei_vrp" if family == "NE05" else FAMILIES[family]
     ctx = replace(context(), platform=platform, device_family=family)
     if platform in {"cisco_ios", "cisco_xe"}:
         profiles, objects = parse_ios_running_config(config, evc=family in {"ME3600X", "ASR920"}, vlan_database=family != "ASR920")
@@ -404,7 +404,7 @@ exit
 @pytest.mark.parametrize("members,tags,pvid,kind", [
     ("445", "", "445", "access"), ("445,545", "545", "445", "hybrid"),
     ("445,545", "445,545", "", "trunk"), ("445,545", "", "445", "access"),
-    ("", "445", "445", "review"),
+    ("", "445", "445", "no_membership"),
 ])
 def test_edge_classification_no_membership_from_tagging_or_pvid(members, tags, pvid, kind):
     config = "vlan database\nvlan 445,545\nexit\ninterface 0/1\n"
@@ -465,7 +465,7 @@ def test_all_required_vlans_compliant_for_every_family(family):
         config += "l2vpn\n bridge group example\n  bridge-domain not-a-number\n"
         config += "".join(f"   interface TenGigE0/0/0/1.{sid}\n" for sid in range(100, 100 + len(required)))
         config += "!"
-    elif family == "NE05E":
+    elif family in {"NE05", "NE05E"}:
         config = "vlan batch 445 545 2400 to 2444 2449 4001\n#\ninterface GE0/1\n port link-type trunk\n port trunk allow-pass vlan 445 545 2400 to 2444 2449 4001\n#"
     else:
         config = f"vlan database\nvlan {ids}\nexit\ninterface 0/1\nvlan participation include {ids}\nvlan tagging {ids}\nexit"
@@ -598,7 +598,7 @@ def test_unused_configured_interface_is_not_applicable(family):
     ("4001", "445,545,2449", [445, 545, 2449], [], "trunk"),
     ("", "445,545,2449", [445, 545, 2449], [], "trunk"),
     ("445", "", [445], [445], "access"),
-    ("", "", [], [], "review"),
+    ("", "", [], [], "no_membership"),
 ])
 def test_edge_participation_does_not_establish_vlan_role(pvid, tags, valid, untagged, kind):
     config = "vlan database\nvlan 445,545,2400,2449,4001\nexit\ninterface 0/1\nvlan participation include 445,545,2400,2449\n"
@@ -617,6 +617,8 @@ def test_edge_participation_does_not_establish_vlan_role(pvid, tags, valid, unta
         assert port["missing_vlans"] == [*range(2400, 2445), 4001]
     elif kind == "review":
         assert port["status"] == "unable_to_assess"
+    else:
+        assert port["status"] == "not_applicable"
 
 
 @pytest.mark.parametrize("family,parent,child", [
@@ -638,3 +640,92 @@ def test_observed_only_identities_do_not_create_rows_or_child_details(family, pa
         assert len(results) == 2
         assert results[1]["observed"]["interface_match_status"] == "config_only"
         assert "PARENT_INTERFACE_NOT_FOUND" in codes(results[1])
+
+@pytest.mark.parametrize("family", ["C3750X", "C3850", "ME3600X"])
+@pytest.mark.parametrize("intent", ["", " switchport mode trunk\n", " switchport mode dynamic\n", " no switchport\n", " switchport trunk allowed vlan 445\n"])
+def test_access_vlan_infers_access_unless_switching_intent_conflicts(family, intent):
+    result = row(audit("vlan 445\n!\ninterface Gi0/1\n switchport access vlan 445\n" + intent, family), "Gi0/1")
+    if intent:
+        assert result["status"] == "unable_to_assess"
+        assert "CONFLICTING_SWITCHPORT_INTENT" in codes(result)
+    else:
+        assert result["status"] == "not_applicable"
+        assert result["reason"] == "access_excluded"
+        assert result["observed"]["interface_type"] == "access"
+
+
+@pytest.mark.parametrize("name", ["0/1", "lag 1"])
+@pytest.mark.parametrize("commands", [
+    "vlan participation exclude 1-4094",
+    "vlan participation include 445\nvlan participation exclude 445",
+    "vlan participation include 445",
+    "vlan tagging 445\nvlan pvid 445",
+    "vlan participation include 4001\nvlan tagging 4001",
+])
+def test_edge_empty_effective_membership_is_not_applicable(name, commands):
+    config = f"vlan database\nvlan 445\nexit\ninterface {name}\n{commands}\nexit\n"
+    if name == "lag 1":
+        config += "interface 0/1\naddport 3/1\nexit\n"
+    results = audit(config, "EdgeSwitch")
+    for port in results[1:]:
+        assert port["status"] == "not_applicable"
+        assert port["observed"]["valid_interface_vlans"] == []
+        assert not port["observed"]["review"]
+
+
+@pytest.mark.parametrize("family,name", [("ASR920", "BDI445"), ("NCS540", "PW-Ether1"), ("NCS540", "BVI445")])
+def test_configured_service_only_rows_retained(family, name):
+    results = audit(f"interface {name}\n description service-only\n!\n", family, observed=("Gi0/99",))
+    assert len(results) == 2
+    port = row(results, name)
+    assert port["status"] == "not_applicable"
+    assert port["observed"]["interface_match_status"] == "config_only"
+    assert "Gi0/99" not in json.dumps(results)
+
+
+@pytest.mark.parametrize("family", [*FAMILIES, "NE05"])
+def test_database_evidence_only_contributing_proof_survives_export(family, tmp_path):
+    from openpyxl import load_workbook
+    from orbitflow.compliance_report import export_compliance_spool
+    from orbitflow.execution import DeviceOutcome
+    from orbitflow.result_spool import ResultSpool
+
+    if family in {"C3750X", "C3850", "ME3600X"}:
+        config = "vlan 445\n!\ninterface Gi0/1\n description unrelated\n switchport access vlan 545\n service instance 1 ethernet\n  encapsulation dot1q 2449\n  bridge-domain 2449\n"
+        expected = ["vlan 445"]
+    elif family == "ASR920":
+        config = "vlan 4001\n!\ninterface Gi0/1\n description unrelated\n service instance 1 ethernet\n  encapsulation dot1q 3000\n  bridge-domain 445 split-horizon group 0\n service instance 2 ethernet\n  encapsulation dot1q 3999\n!\nbridge-domain 545\n member Gi0/1 service-instance 2\n"
+        expected = ["interface Gi0/1", " service instance 1 ethernet", "  encapsulation dot1q 3000", "  bridge-domain 445 split-horizon group 0", " service instance 2 ethernet", "  encapsulation dot1q 3999", "bridge-domain 545", " member Gi0/1 service-instance 2"]
+    elif family in {"NE05", "NE05E"}:
+        config = "vlan batch 445\n#\nvsi example static\n description unrelated\n#\ninterface GE0/1\n port link-type trunk\n#\ninterface GE0/1.10\n description unrelated\n dot1q termination vid 545\n l2 binding vsi example\n#\ninterface GE0/1.20\n dot1q termination vid 4001\n l2 binding vsi absent\n#\n"
+        expected = ["vlan batch 445", "vsi example static", "interface GE0/1.10", " dot1q termination vid 545", " l2 binding vsi example"]
+    elif family == "NCS540":
+        config = xr_config()
+        expected = list(dict.fromkeys(line for line in config.splitlines() if line in {
+            "interface TenGigE0/0/0/1.100 l2transport", " encapsulation dot1q 445",
+            "interface TenGigE0/0/0/1.200 l2transport", " encapsulation dot1q 545",
+            "interface TenGigE0/0/0/1.300 l2transport", " encapsulation dot1q 2449",
+            "l2vpn", " bridge group arbitrary", "  bridge-domain named",
+            "   interface TenGigE0/0/0/1.100", "   interface TenGigE0/0/0/1.200", "   interface TenGigE0/0/0/1.300"}))
+    else:
+        config = "vlan database\nvlan 445,545\nvlan name 4001 \"annotation-only\"\nexit\ninterface 0/1\nvlan participation include 445\nvlan tagging 445\nexit\n"
+        expected = ["vlan database", "vlan 445,545"]
+    findings = audit(config, family)
+    proof = findings[0]["evidence"]["sources"]
+    assert [e["excerpt"] for e in proof] == expected
+    for item in proof:
+        assert item["excerpt"] == config.splitlines()[item["line"] - 1]
+        assert item["source_filename"] == "synthetic.cfg"
+    spool = ResultSpool.create(tmp_path / "runs", "vlan_compliance", 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload={"findings": findings, "errors": []})
+    path = export_compliance_spool(spool.path, tmp_path / "report.xlsx", cleanup=False)
+    workbook = load_workbook(path)
+    try:
+        database = dict(zip(*list(workbook["Database Results"].values)))
+        assert database["Configuration Evidence"] == "\n".join(expected)
+        assert database["Evidence Source"] == "synthetic.cfg"
+        assert database["Evidence Lines"]
+        assert len(list(workbook["Details"].values)) > 1
+    finally:
+        workbook.close()
