@@ -29,7 +29,9 @@ _IOS = (
     ("mode", r"switchport mode (\w+)", "text"),
     ("trunk_encapsulation", r"switchport trunk encapsulation (\w+)", "text"),
     ("allowed", rf"switchport trunk allowed vlan ({_LIST}|all|none)", "list"),
-    ("unsupported_allowed", r"switchport trunk allowed vlan ((?:add|remove|except) [\d,\s-]+)", "text"),
+    ("allowed_add", r"switchport trunk allowed vlan add ([\d,\s-]+)", "list"),
+    ("allowed_remove", r"switchport trunk allowed vlan remove ([\d,\s-]+)", "list"),
+    ("allowed_except", r"switchport trunk allowed vlan except ([\d,\s-]+)", "list"),
     ("access", r"switchport access vlan (\d+)", "list"),
     ("native", r"switchport trunk native vlan (\d+)", "list"),
     ("aggregate", r"channel-group (\d+)(?: mode \w+)?", "text"),
@@ -134,8 +136,23 @@ def observe_configuration(output, platform, *, source_filename="running-config")
                 if match:
                     value = match[1]
                     if conversion == "list":
-                        value = value.upper() if value in {"all", "none"} else parse_vlan_list(value, range_word="to")
+                        try:
+                            if kind.startswith("allowed") and platform in {"cisco_ios", "cisco_xe"}:
+                                if value not in {"all", "none"} and not re.fullmatch(
+                                        r"[0-9]+(?:\s*-\s*[0-9]+)?(?:(?:\s*,\s*|\s+)[0-9]+(?:\s*-\s*[0-9]+)?)*", value):
+                                    raise ValueError("invalid allowed list")
+                            value = value.upper() if value in {"all", "none"} else parse_vlan_list(value, range_word="to")
+                        except ValueError:
+                            if platform not in {"cisco_ios", "cisco_xe"} or not kind.startswith("allowed"):
+                                raise
+                            kind, value = "unsupported_allowed", "invalid_allowed_operation"
                     entries.append((kind, value))
+        if (platform in {"cisco_ios", "cisco_xe"}
+                and re.match(r"switchport trunk allowed vlan(?:\s|$)", line) and not entries):
+            # Unknown tails can contain secrets. Retain a safe marker and line
+            # reference, never arbitrary unrecognized command text.
+            entries.append(("unsupported_allowed", "invalid_allowed_operation"))
+            raw = " " * indent + "switchport trunk allowed vlan [unrecognized operation omitted]"
         for kind, value in entries:
             node = [kind, value, number, _safe_source(raw), []]
             (stack[-1][1][4] if stack else roots).append(node)

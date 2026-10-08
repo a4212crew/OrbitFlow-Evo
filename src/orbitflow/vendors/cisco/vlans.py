@@ -112,8 +112,8 @@ def parse_ios_running_config(
             elif allowed_value == "all":
                 allowed_ids = None
             elif allowed_value is not None and allowed_value.split()[0] in {"add", "remove", "except"}:
-                # Preserve unsupported operation in configuration facts for audit
-                # review without failing collection for every other interface.
+                # Ordered operations are retained in configuration facts for the
+                # family audit resolver; legacy profiles do not replay them.
                 allowed_ids = ()
             elif allowed_value is not None:
                 allowed_ids = parse_vlan_list(allowed_value)

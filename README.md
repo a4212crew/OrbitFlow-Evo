@@ -335,6 +335,11 @@ A saved-file caller can use the vendor-owned `observe_configuration(text,
 platform, source_filename=...)` projection as the snapshot's `configuration`
 field alongside the existing vendor parser output. Older snapshots without this
 evidence explicitly return unable to assess.
+C3750X, C3850 and ME3600X trunk audits replay ordered allowed-VLAN lists,
+`add`, `remove`, `none`, `all` and `except`. `except` uses the validated device
+VLAN database minus exclusions; All retains existing family-specific validation.
+The report preserves the ordered source statements. Malformed operations require
+review. ASR920 service-instance handling is unchanged.
 No live-device compliance validation has been performed.
 
 ## Tests

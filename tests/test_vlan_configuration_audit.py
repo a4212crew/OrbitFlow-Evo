@@ -97,7 +97,7 @@ def test_all_vlan_uses_database_and_recommends_global_change(family, encapsulati
 
 
 @pytest.mark.parametrize("command", ["switchport mode dynamic", "switchport trunk allowed vlan 445,545,2449",
-                                      "switchport mode trunk\n switchport trunk allowed vlan add 445"])
+                                      "switchport mode trunk\n switchport trunk allowed vlan add"])
 def test_unspecified_dynamic_and_unsupported_allowed_never_pass(command):
     result = audit("vlan 445,545,2449\n!\ninterface Gi0/1\n " + command + "\n!")
     assert row(result, "Gi0/1")["status"] == "unable_to_assess"
@@ -727,5 +727,89 @@ def test_database_evidence_only_contributing_proof_survives_export(family, tmp_p
         assert database["Evidence Source"] == "synthetic.cfg"
         assert database["Evidence Lines"]
         assert len(list(workbook["Details"].values)) > 1
+    finally:
+        workbook.close()
+
+
+@pytest.mark.parametrize("family", ["C3750X", "C3850", "ME3600X"])
+@pytest.mark.parametrize("operations,expected", [
+    (["445,545,2400-2444,2449", "add 4001"], {445, 545, *range(2400, 2445), 2449, 4001}),
+    (["445,545,2449,4001", "remove 4001"], {445, 545, 2449}),
+    (["none", "add 445,545,2449,4001"], {445, 545, 2449, 4001}),
+    (["all"], {445, 545, *range(2400, 2445), 2449, 4001}),
+    (["except 2400-2444,4001"], {445, 545, 2449}),
+    (["none", "add 445,545,2449", "remove 2449", "add 4001"], {445, 545, 4001}),
+    (["none", "add 445,545,2449", "add 4001", "remove 2449,4001"], {445, 545}),
+    (["all", "remove 4001", "add 4001"], {445, 545, *range(2400, 2445), 2449, 4001}),
+    (["all", "none", "add 445", "545,2449"], {545, 2449}),
+    (["none", "add 4001", "except 4001", "add 4001"], {445, 545, *range(2400, 2445), 2449, 4001}),
+])
+def test_cisco_ordered_trunk_replay(family, operations, expected):
+    statements = [" switchport trunk allowed vlan " + op for op in operations]
+    config = ("vlan 445,545,2400-2444,2449,4001\n!\ninterface Gi0/1\n"
+              " switchport trunk encapsulation dot1q\n" + "\n".join(statements)
+              + "\n switchport mode trunk\n!")
+    trunk = row(audit(config, family), "Gi0/1")
+    assert trunk["observed"]["valid_interface_vlans"] == sorted(expected)
+    assert "UNSUPPORTED_ALLOWED_VLAN_OPERATION" not in codes(trunk)
+    trigger = {445, 545} <= expected and bool({2449, 4001} & expected)
+    missing = {*range(2400, 2445), 2449, 4001} - expected
+    expected_status = ("non_compliant" if missing else "compliant") if trigger else "not_applicable"
+    assert trunk["status"] == expected_status
+    if trigger:
+        assert trunk["missing_vlans"] == sorted(missing)
+    sources = [e for e in trunk["evidence"]["sources"] if "allowed vlan" in e["excerpt"]]
+    assert [e["excerpt"] for e in sources] == statements
+    assert [config.splitlines()[e["line"] - 1] for e in sources] == statements
+
+
+@pytest.mark.parametrize("family", ["C3750X", "C3850", "ME3600X"])
+@pytest.mark.parametrize("invalid", ["add", "remove 4001-2449", "except 4095", "add 445,,545", "add 445 token sensitive-value"])
+def test_malformed_ordered_trunk_operation_requires_review(family, invalid):
+    config = ("vlan 445,545,2449,4001\n!\ninterface Gi0/1\n switchport mode trunk\n"
+              " switchport trunk allowed vlan 445,545,2449\n"
+              " switchport trunk allowed vlan " + invalid + "\n!")
+    result = audit(config, family)
+    trunk = row(result, "Gi0/1")
+    assert trunk["status"] == "unable_to_assess"
+    assert "UNSUPPORTED_ALLOWED_VLAN_OPERATION" in codes(trunk)
+    assert "sensitive-value" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("family", ["C3750X", "C3850", "ME3600X"])
+def test_ordered_replay_preserves_family_database_validation(family):
+    config = ("vlan 445,545,2449\n!\ninterface Gi0/1\n switchport mode trunk\n"
+              " switchport trunk allowed vlan 445,545,2449\n"
+              " switchport trunk allowed vlan add 4001\n!")
+    trunk = row(audit(config, family), "Gi0/1")
+    assert trunk["observed"]["valid_interface_vlans"] == ([445, 545, 2449, 4001] if family == "ME3600X" else [445, 545, 2449])
+    assert ("ALLOWED_VLAN_NOT_IN_DATABASE" in codes(trunk)) == (family != "ME3600X")
+
+
+@pytest.mark.parametrize("family", ["C3750X", "C3850", "ME3600X"])
+def test_ordered_replay_repeated_stanza_evidence_survives_spool_report(family, tmp_path):
+    from openpyxl import load_workbook
+    from orbitflow.compliance_report import export_compliance_spool
+    from orbitflow.execution import DeviceOutcome
+    from orbitflow.result_spool import ResultSpool
+
+    config = ("vlan 445,545,2400-2444,2449,4001\n!\ninterface Gi0/1\n"
+              " switchport mode trunk\n switchport trunk allowed vlan 445,545,2400-2444,2449\n"
+              "!\ninterface Gi0/1\n switchport trunk allowed vlan add 4001\n"
+              " switchport trunk allowed vlan remove 2449\n!")
+    findings = audit(config, family)
+    trunk = row(findings, "Gi0/1")
+    assert trunk["missing_vlans"] == [2449]
+    spool = ResultSpool.create(tmp_path / "runs", "vlan_compliance", 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload={"findings": findings, "errors": []})
+    path = export_compliance_spool(spool.path, tmp_path / "report.xlsx", cleanup=False)
+    workbook = load_workbook(path)
+    try:
+        report = dict(zip(*list(workbook["Interface Results"].values)))
+        excerpts = report["Configuration Evidence"]
+        statements = [line for line in config.splitlines() if "allowed vlan" in line]
+        assert [line for line in excerpts.splitlines() if "allowed vlan" in line] == statements
+        assert report["Evidence Source"] == "synthetic.cfg"
     finally:
         workbook.close()

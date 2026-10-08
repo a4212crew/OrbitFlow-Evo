@@ -497,3 +497,10 @@ validated family-specific relationships, preserving source indentation and line
 references through spool recovery and Excel export. Detailed structured mappings
 remain available. Deterministic coverage includes all supported families; this
 revision has not been live-device tested.
+
+C3750X/C3850/ME3600X conventional trunk audit replays allowed-VLAN replace,
+add, remove, none, all and except operations in source order. All retains family
+validation; except uses the validated device database minus exclusions. Existing
+family database intersection, access inference and aggregate ownership remain.
+Ordered excerpts survive JSON spool/Excel recovery; malformed operations require
+review. This revision has deterministic coverage; live retesting is pending.

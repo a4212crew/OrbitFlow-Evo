@@ -144,7 +144,7 @@ class AuditResolver:
                 row["review"] = True
                 continue
             aggregate = self.rows[owner]
-            explicit = any(n.kind in {"mode", "allowed", "include", "exclude", "pvid", "tagged", "access", "native"}
+            explicit = any(n.kind in {"mode", "allowed_add", "allowed_remove", "allowed_except", "unsupported_allowed", "allowed", "include", "exclude", "pvid", "tagged", "access", "native"}
                            for n in node.children)
             if explicit and any(row[field] != aggregate[field]
                                 for field in ("interface_type", "valid_interface_vlans", "native", "pvid", "tagged")):
@@ -180,7 +180,7 @@ class CatalystAuditResolver(AuditResolver):
         row["native"] = sorted(numeric(last(lines, "native", ())))
         access = bool(children(lines, "access"))
         contradictory = access and (mode not in {"", "access"}
-                                    or any(n.kind in {"routed", "allowed", "unsupported_allowed"} for n in lines))
+                                    or any(n.kind in {"routed", "allowed", "allowed_add", "allowed_remove", "allowed_except", "unsupported_allowed"} for n in lines))
         if contradictory:
             self.problem("CONFLICTING_SWITCHPORT_INTENT", key, (node,))
             row.update(interface_type="review", review=True)
@@ -189,7 +189,7 @@ class CatalystAuditResolver(AuditResolver):
             self.membership(key, untagged=numeric(last(lines, "access", ())), kind="access")
             return
         if mode != "trunk":
-            has_switching = any(n.kind in {"mode", "allowed", "access", "native", "trunk_encapsulation", "unsupported_allowed"} for n in lines)
+            has_switching = any(n.kind in {"mode", "allowed", "allowed_add", "allowed_remove", "allowed_except", "access", "native", "trunk_encapsulation", "unsupported_allowed"} for n in lines)
             inherited = bool(last(lines, "aggregate")) and not has_switching
             if not inherited and has_switching:
                 self.problem("UNRESOLVED_SWITCHPORT_MODE", key, (node,))
@@ -199,7 +199,21 @@ class CatalystAuditResolver(AuditResolver):
             self.problem("UNSUPPORTED_ALLOWED_VLAN_OPERATION", key, children(lines, "unsupported_allowed"))
             row.update(interface_type="review", review=True)
             return
-        allowed = last(lines, "allowed", "ALL")
+        allowed = "ALL"
+        operations = [n for n in lines if n.kind in {"allowed", "allowed_add", "allowed_remove", "allowed_except"}]
+        for operation in operations:
+            if operation.kind == "allowed":
+                allowed = operation.value
+            elif operation.kind == "allowed_except":
+                allowed = tuple(sorted(self.database - numeric(operation.value)))
+            else:
+                if allowed == "ALL" and self.context.device_family == "C3750X" and last(lines, "trunk_encapsulation") != "dot1q":
+                    self.problem("INVALID_ALL_VLAN_TRUNK", key, operations)
+                    row.update(interface_type="review", review=True)
+                    return
+                current = self.database.copy() if allowed == "ALL" else numeric(allowed)
+                operand = numeric(operation.value)
+                allowed = tuple(sorted(current | operand if operation.kind == "allowed_add" else current - operand))
         row["configured_membership_vlans"] = allowed
         if allowed == "ALL":
             row["all_vlan"] = True
@@ -212,7 +226,7 @@ class CatalystAuditResolver(AuditResolver):
             tags = numeric(allowed)
             missing = tags - self.database if validate_database else set()
             if missing:
-                self.problem("ALLOWED_VLAN_NOT_IN_DATABASE", key, children(lines, "allowed"), vlans=sorted(missing))
+                self.problem("ALLOWED_VLAN_NOT_IN_DATABASE", key, operations, vlans=sorted(missing))
             if validate_database:
                 tags &= self.database
         self.membership(key, tags, kind="trunk")
