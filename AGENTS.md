@@ -81,9 +81,6 @@ Use this table to choose the skill(s) directly relevant to the task. Start there
 
 The orchestration skill is for orchestration/controller work only. Normal feature tasks do not load it merely because Codex is the implementation worker.
 
-Until the controller installs the new configuration-management skill at its
-routed path, read its staged source at
-`docs/architecture/configuration/configuration-management.SKILL.md`.
 
 ## 6. Orchestration Boundary
 

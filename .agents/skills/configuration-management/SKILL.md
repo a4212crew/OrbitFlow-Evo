@@ -5,9 +5,6 @@ description: Use for offline Universal Change Plans, deterministic rendering, va
 
 # Configuration Management
 
-Installation target: `.agents/skills/configuration-management/SKILL.md`.
-Staged here because the implementation session cannot write `.agents`.
-
 Phase 1–2 implementation is in `src/orbitflow/configuration/`; operator entry
 points are `python -m orbitflow.configuration.cli` and
 `scripts/configuration_plan.py`. Read `docs/architecture/configuration/offline-plans.md`
