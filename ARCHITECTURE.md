@@ -309,3 +309,7 @@ GitHub Issue
 ```
 
 Parallel workers must not share one mutable working directory.
+
+## 17. Proposed Universal Configuration Management
+
+The approved design direction for future controlled device changes is documented in [docs/architecture/configuration/](docs/architecture/configuration/README.md). Manual CLI, Excel/CSV, reviewed templates and validated compliance findings produce a common Change Plan. An explicit approval gate precedes shared, device-scoped prechecks, checkpoint/backup, platform-specific apply, verification, conditional persistence/recovery and audit. This section documents proposed architecture only; it does **not** establish an implemented or live-validated configuration engine.
