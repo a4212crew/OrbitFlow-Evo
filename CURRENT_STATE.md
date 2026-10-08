@@ -438,3 +438,69 @@ and decorative text. Deterministic regressions cover combined and fragmented
 banner/prompt receives, inventory and command synchronization, Cisco location
 prefixes, Huawei views, nested EdgeSwitch annotations, enable flow, and cleanup.
 The prompt correction awaits operator-controlled live retesting.
+
+
+## VLAN Configuration Audit
+
+Issue #65 now implements the saved-configuration audit boundary:
+VlanService/vendor observation -> preserved configuration facts/evidence ->
+family-specific AuditResolver -> common external policy -> JSON spool/Excel.
+
+Resolvers cover ME3600X, ASR920, Catalyst 3750X/3850, Huawei VRP (NE05/NE05E),
+NCS540 and EdgeSwitch. They validate service bindings, database membership,
+parent/child consolidation, canonical identity matching and aggregate ownership.
+EdgeSwitch audit resolves member `addport 3/N` and `addport lag N` references
+to configured `interface lag N` ownership, with inheritance/conflict coverage;
+unsupported or absent aggregate references remain explicit review findings.
+NCS540 numeric VLANs require valid BD -> existing l2transport subinterface ->
+explicit dot1q mappings; the earlier named-service baseline is removed.
+
+Schema-v2 JSON policy requires database VLANs 445,545,2400-2444,2449,4001.
+Trunk/EVC/Hybrid interfaces matching 445 AND 545 AND (2449 OR 4001) require
+2400-2444,2449,4001. Access/nonmatching interfaces are not applicable.
+Configuration findings remain independent of compliance, and uncertain families
+or unavailable configuration evidence explicitly return unable to assess.
+
+The existing read-only CLI, shared per-device execution/session/capabilities,
+centralized spool and report recovery remain in use. Structured findings retain
+source labels/filenames, one-based line evidence, configured/observed identities,
+shutdown, mappings, exact missing VLANs and configuration ownership. Sensitive
+and unrelated configuration statements are excluded from the observation
+projection. No remediation generation/apply is implemented.
+
+Deterministic coverage includes every documented family, policy validation,
+relationship failures, secret exclusion, failed-device isolation and 1,500-device
+spool/report recovery. Operator ASR920 live validation exposed inline bridge-domain
+modifiers; the saved-configuration parser now accepts `split-horizon group <N>`
+while preserving the original excerpt/line and rejecting unsupported trailing text.
+Deterministic regressions cover the full required range and ME3600X database
+separation. Interface results retain observed admin/oper state separately from
+configured shutdown, with dedicated Excel columns and visible exact missing VLANs.
+This revision awaits operator-controlled live retesting.
+Authoritative semantics: `.agents/skills/vlan-configuration-audit/SKILL.md`.
+
+The Issue #65 reporting revision excludes InterfaceService-only identities from
+audit rows/children and marks configured interfaces without L2 service configuration
+not applicable. EdgeSwitch valid audit membership includes participating tagged
+VLANs plus a participating non-tagged PVID; participation-only VLANs remain evidence.
+Excel separates Interface Results, Database Results, Run Errors and Details, with
+readable preserved configuration excerpts/source/compact line references and exact
+Missing VLANs. Structured evidence remains available in JSON and Details. These
+revision behaviors are deterministically tested; no new live validation was run.
+
+The live-validation revision infers Access from C3750X/C3850/ME3600X access-VLAN
+configuration without explicit mode unless switching intent conflicts. EdgeSwitch
+physical/LAG rows with empty valid audit membership are not applicable; unresolved
+aggregate references still require review. Configured BDI/pseudowire/service-only
+rows remain retained. Database evidence now contains contributing declarations and
+validated family-specific relationships, preserving source indentation and line
+references through spool recovery and Excel export. Detailed structured mappings
+remain available. Deterministic coverage includes all supported families; this
+revision has not been live-device tested.
+
+C3750X/C3850/ME3600X conventional trunk audit replays allowed-VLAN replace,
+add, remove, none, all and except operations in source order. All retains family
+validation; except uses the validated device database minus exclusions. Existing
+family database intersection, access inference and aggregate ownership remain.
+Ordered excerpts survive JSON spool/Excel recovery; malformed operations require
+review. This revision has deterministic coverage; live retesting is pending.

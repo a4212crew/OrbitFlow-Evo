@@ -27,6 +27,7 @@ It is a stable reference for ChatGPT / Atlas, Codex, developers, and future proj
 External OSS/BSS / REST API / GUI / schedulers
         -> Integration layer
         -> Application / workflow layer
+        -> Analysis / policy / audit-resolver layer (when required)
         -> Shared device-execution layer
         -> Reusable device capability layer
         -> Vendor-specific implementation
@@ -159,6 +160,36 @@ It observes interface VLAN references plus VLAN, bridge-domain, and equivalent s
 It is not a configuration consistency checker. Compliance/policy logic belongs in a separate analysis layer consuming normalized VLAN state.
 
 The capability is live validated across all five currently supported platform identifiers.
+
+## 9A. Saved-Configuration Audit Resolver Boundary
+
+Read-only configuration audit is a separate analysis concern above observation capabilities.
+
+For VLAN audit, the approved architecture is:
+
+```text
+Saved running configuration
+        -> vendor parser / VlanService
+        -> preserved observations + relationships + source evidence
+        -> family-specific AuditResolver
+        -> validated audit facts
+        -> common compliance engine
+        -> report / future remediation planning
+```
+
+Responsibilities remain explicit:
+
+- `VlanService` reports configured facts and vendor-specific relationships.
+- A family-specific `AuditResolver` validates cross-section relationships and derives the authoritative facts used by audit.
+- The common compliance engine evaluates policy only from validated audit facts.
+- Reporting does not reinterpret vendor configuration.
+- Future remediation/config generation consumes validated findings and planning output; it must not bypass the resolver or infer directly from raw parser text.
+
+Saved configuration is authoritative for configuration-audit semantics. `InterfaceService` may contribute observed identity/state and is correlated by canonical interface name; it does not override saved configuration meaning.
+
+Family-specific resolvers are expected for ME3600X, ASR920, Catalyst 3750X/3850, Huawei VRP, IOS-XR/NCS540, and Ubiquiti EdgeSwitch while producing a shared audit result model.
+
+Detailed business rules belong in `.agents/skills/vlan-configuration-audit/SKILL.md`, not in this architecture document.
 
 ## 10. Vendor Isolation
 

@@ -214,6 +214,134 @@ and identity separately from VLAN IDs. Text is stored literally, without Excel
 formula interpretation. Cells exceeding Excel's text limit fail explicitly
 instead of silently truncating observations.
 
+## Read-only VLAN compliance
+
+With `PYTHONPATH=src` set, use the same approved Excel target and Teleport inputs:
+
+```bash
+python scripts/device_vlan_compliance.py run devices.xlsx --proxy <proxy:443> --cluster <cluster> --bastion-host <bastion> --bastion-user <user>
+```
+
+The command collects InterfaceService and VlanService once per device through one
+resolved context/session/CLI, then evaluates both rules in a separate policy layer.
+It does not generate or apply configuration. Failed rows/devices are isolated;
+successful partial observations remain assessable. `Run_Errors` records safe stage
+and exception categories, without exception messages or device configuration.
+
+`policies/vlan_compliance.json` is the default policy; `--policy <file.json>` selects
+another. **Schema version 2** requires `policy_id`, `database` (`rule_id`,
+`required_domains`), and `interface` (`rule_id`, `match_all`, `match_any`,
+`required_vlans`). VLAN lists accept integers or inclusive strings such as
+`"2400-2444"`, restricted to 2-4001. Unknown fields, duplicate JSON keys,
+invalid IDs and invalid ranges fail before connecting. Schema-v1 named-service
+policies are superseded and rejected; start custom policies from the supplied
+schema-v2 file. Database object types are family-defined validated facts, not
+policy selectors. Change the policy ID whenever revising policy.
+
+The database rule requires 445, 545, 2400-2444, 2449 and 4001. Trunk, EVC and
+Hybrid interfaces trigger when validated membership contains 445 AND 545 AND
+(2449 OR 4001); triggered interfaces require 2400-2444, 2449 and 4001.
+Access and nonmatching interfaces are `not_applicable`. Missing required VLANs
+are `non_compliant`; complete requirements are `compliant`. Unknown families,
+unavailable configuration evidence, and ambiguous audited relationships produce
+`unable_to_assess`. Configuration problems are reported independently, even
+when the compliance trigger does not match.
+
+Saved configuration is authoritative. VlanService preserves an allowlisted
+configuration fact tree with nesting, source order, filename/source label,
+one-based lines and sanitized source excerpts. Online collection labels its
+inspected source `running-config`; it does not create a backup file. Family
+AuditResolvers validate these facts before the common policy engine:
+
+- ME3600X uses explicit global VLANs for the database and resolved inline/global
+  service-instance BDs for EVC membership.
+- ASR920 uses global and inline BDs; unresolved/conflicting bindings contribute
+  no membership. Multiple untagged services are flagged independently.
+- Catalyst 3750X/3850 use explicit VLAN databases. All VLAN trunks use the
+  database without expanding 1-4094; 3750X additionally requires explicit dot1q
+  trunk encapsulation. Dynamic modes are not assumed trunks. Port-channel
+  forwarding ownership and explicit member conflicts are retained.
+- C3750X, C3850 and ME3600X infer Access from `switchport access vlan` even
+  without explicit access mode. Contradictory switching intent remains reviewable.
+- Huawei VRP combines global VLANs with valid VSI-bound termination VLANs.
+  Valid child services consolidate into their configured trunk parent; VSI
+  names/IDs, control VIDs and routed dot1q never establish numeric audit VLANs.
+- NCS540 maps numeric dot1q only through a valid existing bridge-domain attachment
+  to an existing l2transport subinterface. BD names, subinterface suffixes and
+  unbound encapsulation never establish numeric VLANs. Conflicting attachments,
+  invalid references and unresolved untagged mappings remain visible.
+- EdgeSwitch uses ordered participation intersected with the explicit database;
+  tagging and PVID cannot create membership. Only participating tagged VLANs and
+  a participating, non-tagged PVID contribute audit VLANs; participation-only
+  VLANs remain evidence. Empty valid audit membership is not applicable for
+  physical ports and LAGs. LAG forwarding ownership is retained.
+
+InterfaceService supplies identity/state correlation by canonical name.
+Configuration-only interfaces remain authoritative and are marked `config_only`;
+observed-only interfaces are omitted from audit rows and child details. Configured
+interfaces without L2 service configuration are `not_applicable` with reason
+`no_vlan_service_configuration`. Child services consolidate
+into configured parents, logical aggregates remain separate, and shutdown ports
+are still audited. Unknown service references never create interface rows.
+See [.agents/skills/vlan-configuration-audit/SKILL.md](.agents/skills/vlan-configuration-audit/SKILL.md)
+for the family rules. No remediation configuration is generated.
+
+The workbook has `Interface Results` (one row per audited interface),
+`Database Results` (one row per device), `Run Errors`, and `Details` sheets,
+with literal text, frozen headers and filters. `Family` follows `Device IP`.
+Both result sheets show exact numeric `Missing VLANs`; redundant `Missing Objects`
+is retained only in the JSON/API model. Interface columns retain config identity,
+type, shutdown, valid VLANs, trigger, configuration owner, findings, explanation
+and recommendation. `Configuration Evidence` shows only preserved excerpts with
+original indentation; `Evidence Source` and `Evidence Lines` identify their source
+and compact line references. No omitted configuration statements are invented.
+Database evidence contains only contributing declarations and relationship proof:
+global VLANs for Catalyst/ME3600X, bridge-domain/service relationships for ASR920,
+global VLANs and validated VSI terminations for Huawei, validated BD attachments
+and dot1q subinterfaces for NCS540, and VLAN database declarations for EdgeSwitch.
+Configured BDI, pseudowire and service-only interface rows remain visible.
+Structured observed/evidence JSON and oversized display fields remain in `Details`,
+split into numbered fragments without truncation. Reports default
+to `outputs/reports/vlan_compliance/`, recoverable JSONL runs to
+`outputs/runs/vlan_compliance/`, inventory to `data/inventory/inventory.json`, and
+module logs to `outputs/logs/compliance/YYYY-MM-DD/vlan_compliance.log`.
+`--reports-dir`, `--spool-root`, `--inventory-path`, `--log-root` and `--config`
+override those settings. Shared execution settings control device concurrency and
+connection pacing. Linux uses the existing `--teleport-key-path` and
+`--teleport-cert-path` options. Excel may include the optional `secret` column.
+
+The `Interface Results` sheet includes dedicated `Admin Status` and `Oper Status`
+columns from canonically matched InterfaceService records. Config-only interfaces
+show `not observed`; older spools without state show `unavailable`. `Shutdown`
+remains a separate saved-configuration field. `Missing VLANs` displays the exact
+numeric missing VLANs for each database/interface finding.
+
+Successful export removes the spool unless `--keep-spool` is supplied. Failed
+export retains it. Retry without credentials, policy reload or device connections:
+
+```bash
+python scripts/device_vlan_compliance.py export outputs/runs/vlan_compliance/<run-id> recovered.xlsx
+```
+
+`--allow-partial` explicitly exports an interrupted run's completed targets and
+retains the partial spool. It does not imply that missing targets were assessed.
+For future web/API consumers, `orbitflow.vlan_compliance.collect_compliance()`
+returns a `ComplianceRun` with counts and a spool handle, independently of Excel.
+Stream `ResultSpool(run.spool_path).records()` to consume JSON-ready per-device
+findings. A policy provider implements `load() -> VlanPolicy`; database/API
+providers can validate their mappings through `parse_policy()`.
+The pure `evaluate_vlan_compliance()` also accepts previously collected models.
+A saved-file caller can use the vendor-owned `observe_configuration(text,
+platform, source_filename=...)` projection as the snapshot's `configuration`
+field alongside the existing vendor parser output. Older snapshots without this
+evidence explicitly return unable to assess.
+C3750X, C3850 and ME3600X trunk audits replay ordered allowed-VLAN lists,
+`add`, `remove`, `none`, `all` and `except`. `except` uses the validated device
+VLAN database minus exclusions; All retains existing family-specific validation.
+The report preserves the ordered source statements. Malformed operations require
+review. ASR920 service-instance handling is unchanged.
+No live-device compliance validation has been performed.
+
 ## Tests
 
 The suite uses mocks and does not contact Teleport or network devices:

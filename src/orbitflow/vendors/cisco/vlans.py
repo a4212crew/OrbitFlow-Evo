@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 
+from orbitflow.vendors.configuration_facts import observe_configuration
 from orbitflow.models import InterfaceVlanObservation, VlanObject
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.common import DeviceCLI
@@ -110,6 +111,10 @@ def parse_ios_running_config(
                 allowed_ids = ()
             elif allowed_value == "all":
                 allowed_ids = None
+            elif allowed_value is not None and allowed_value.split()[0] in {"add", "remove", "except"}:
+                # Ordered operations are retained in configuration facts for the
+                # family audit resolver; legacy profiles do not replay them.
+                allowed_ids = ()
             elif allowed_value is not None:
                 allowed_ids = parse_vlan_list(allowed_value)
             else:
@@ -317,7 +322,8 @@ class CiscoVlanAdapter:
             if _REJECTED.search(output):
                 raise ValueError("Cisco rejected approved command 'show running-config'")
             interfaces, objects = parse_ios_running_config(output, evc=self._evc, vlan_database=self.vlan_database)
-            return VlanCollection(extract_ios_hostname(cli.prompt), interfaces, objects)
+            return VlanCollection(extract_ios_hostname(cli.prompt), interfaces, objects,
+                                  observe_configuration(output, "cisco_ios"))
 
 
 class CiscoXEVlanAdapter(CiscoVlanAdapter):
@@ -344,4 +350,5 @@ class CiscoXRVlanAdapter:
                     "Cisco IOS-XR rejected approved command 'show running-config'"
                 )
             interfaces, objects = parse_ios_xr_running_config(output)
-            return VlanCollection(extract_ios_xr_hostname(cli.prompt), interfaces, objects)
+            return VlanCollection(extract_ios_xr_hostname(cli.prompt), interfaces, objects,
+                                  observe_configuration(output, "cisco_xr"))

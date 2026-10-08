@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "policy_id": "isp-vlan-configuration-audit-v4",
+  "database": {
+    "rule_id": "required-forwarding-domains",
+    "required_domains": [
+      445,
+      545,
+      "2400-2444",
+      2449,
+      4001
+    ]
+  },
+  "interface": {
+    "rule_id": "trunk-required-vlans",
+    "match_all": [
+      445,
+      545
+    ],
+    "match_any": [
+      2449,
+      4001
+    ],
+    "required_vlans": [
+      "2400-2444",
+      2449,
+      4001
+    ]
+  }
+}

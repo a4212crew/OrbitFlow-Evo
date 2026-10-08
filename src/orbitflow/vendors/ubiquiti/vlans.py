@@ -2,6 +2,7 @@
 
 import re
 
+from orbitflow.vendors.configuration_facts import observe_configuration
 from orbitflow.models import InterfaceVlanObservation, VlanObject
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.common import DeviceCLI, open_prompt_cli
@@ -31,7 +32,6 @@ def parse_edgeswitch_config(
                     name_match = re.fullmatch(r"vlan name (\d+) ([\"'])(.*?)\2", line)
                     if name_match:
                         vlan_id = int(name_match.group(1))
-                        database.add(vlan_id)
                         vlan_names[vlan_id] = name_match.group(3)
                     else:
                         database.update(parse_vlan_list(line[5:]))
@@ -69,13 +69,31 @@ def parse_edgeswitch_config(
             )
             tagging = next((x for x in body if x.startswith("vlan tagging ")), "")
             pvid = int(pvid_line.split()[-1]) if pvid_line else None
-            included = parse_vlan_list(include[27:]) if include else ()
-            excluded = parse_vlan_list(exclude[27:]) if exclude else ()
-            tagged = parse_vlan_list(tagging[13:]) if tagging else ()
+            active, exclusions, configured_tags = set(), set(), set()
+            for line in body:
+                if line.startswith("vlan participation include "):
+                    ids = set(parse_vlan_list(line[27:]))
+                    active.update(ids)
+                    exclusions.difference_update(ids)
+                elif line.startswith("vlan participation exclude "):
+                    ids = set(parse_vlan_list(line[27:]))
+                    active.difference_update(ids)
+                    exclusions.update(ids)
+                elif line.startswith("vlan tagging "):
+                    value = line[13:]
+                    disable = value.endswith(" disable")
+                    value = re.sub(r" (?:enable|disable)$", "", value)
+                    ids = set(parse_vlan_list(value))
+                    if disable:
+                        configured_tags.difference_update(ids)
+                    else:
+                        configured_tags.update(ids)
+            included = tuple(sorted(active))
+            excluded = tuple(sorted(exclusions))
+            tagged = tuple(sorted(configured_tags))
             refs = tuple(
                 sorted(set(included) | set(tagged) | ({pvid} if pvid else set()))
             )
-            active = (set(included) | ({pvid} if pvid else set())) - set(excluded)
             tagged = tuple(sorted(set(tagged) & active))
             untagged = pvid if pvid in active and pvid not in tagged else ""
             if refs or excluded:
@@ -129,5 +147,6 @@ class EdgeSwitchVlanAdapter:
                 )
             interfaces, objects = parse_edgeswitch_config(output)
             return VlanCollection(
-                extract_edgeswitch_hostname(cli.prompt), interfaces, objects
+                extract_edgeswitch_hostname(cli.prompt), interfaces, objects,
+                observe_configuration(output, "ubiquiti_edgeswitch")
             )
