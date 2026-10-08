@@ -2,9 +2,9 @@
 
 ## Status and scope
 
-**Confirmed parser defect; not yet fixed.** The reusable `InterfaceService` raises `InterfaceCapabilityError` on six Ubiquiti EdgeSwitch devices during VLAN-compliance collection. The nested exception is `ValueError` in `src/orbitflow/vendors/ubiquiti/interfaces.py:parse_interfaces_status`. This does **not** establish a faulty physical interface. The VLAN compliance workflow can proceed with its separate VLAN collection even where interface observation fails.
+**Parser fix implemented in Issue #70; operator live validation pending.** The following describes the original failure evidence: The reusable `InterfaceService` raises `InterfaceCapabilityError` on six Ubiquiti EdgeSwitch devices during VLAN-compliance collection. The nested exception is `ValueError` in `src/orbitflow/vendors/ubiquiti/interfaces.py:parse_interfaces_status`. This does **not** establish a faulty physical interface. The VLAN compliance workflow can proceed with its separate VLAN collection even where interface observation fails.
 
-This note captures supplied operator CLI observations and sanitised run diagnostics. Do not treat it as implemented parser behaviour or completed live remediation.
+This note captures supplied operator CLI observations and sanitised run diagnostics. The implementation now recognises both headers below and preserves Unicode descriptions using validated fixed character or UTF-8 byte boundaries. Deterministic regressions cover the port `0/4` case, blank descriptions, `Auto D`, short rows and invalid output through InterfaceService. Byte-counted padding is regression coverage, not a separately confirmed live renderer diagnosis. No live remediation is claimed; all six devices still require operator validation, including actual CLI output verification for `10.121.9.3`.
 
 ## Affected live devices
 
@@ -43,14 +43,14 @@ Both formats contain physical ports such as `0/1`, `0/10`, `0/26` and short `3/1
 
 In the standard-header sample, port `0/4` has description `LW0024035 -\u00a0168 Williams Ro`. The `U+00A0` between the hyphen and number is meaningful evidence for the line-70 failure: the parser slices using fixed character offsets and requires ASCII spaces between columns. The port itself reports `Up`. Do not normalise Unicode in a way that shifts fixed-width boundaries; preserve the field value correctly.
 
-## Current implementation and diagnosis
+## Original implementation and diagnosis (before Issue #70)
 
 - `src/orbitflow/vendors/ubiquiti/interfaces.py`: `_HEADER` is a single exact three-line constant; `_COLUMN_SPANS` is derived from that separator line. `parse_interfaces_status()` raises at line 40 when a header differs from the one accepted exact layout.
 - The same parser uses fixed-column slicing and structural checks for row validity. The standard-header device with `U+00A0` fails at the row-validation path (line 70 in the observed revision).
 - `src/orbitflow/capabilities/interfaces.py:InterfaceService.collect()` wraps these `ValueError` failures as `InterfaceCapabilityError`. `src/orbitflow/vlan_compliance.py` logs the per-stage failure but continues evaluating other stages/targets.
 - The new shared run-level diagnostics from Issue #67/PR #68 are **merged**. They help identify exception category and safe file/function/line metadata; they do not intentionally log raw command output.
 
-## Proposed parser-fix acceptance criteria (future separate Issue)
+## Parser-fix acceptance criteria (Issue #70)
 
 1. Recognise **both verified header variants** and select column boundaries from the matched variant rather than guessing from arbitrary headers.
 2. Parse legitimate Unicode whitespace in descriptions (including `U+00A0`) without corrupting fixed-width column alignment.
