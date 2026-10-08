@@ -72,7 +72,8 @@ error even if interruption marking fails, and retain canonical JSONL for explici
 partial recovery with reconciled counts. Compliance summaries use persisted
 records. Spool-backed CLIs record sanitised run-level exception chains/code
 locations outside device logger scopes. Deterministic fault-injection coverage
-is implemented; operator-led validation of the 686-target workload is pending.
+is implemented; operator confirmed successful 686-target live validation and PR #68
+was merged as Issue #67.
 Deterministic scale coverage includes 1,500 targets at concurrency 5; live network
 scale validation remains operator-controlled.
 
@@ -200,6 +201,16 @@ explicit caller-supplied name remains a compatibility override.
 EdgeSwitch uses only `terminal length 0` and `show interfaces status all`; its
 parser supports the confirmed multi-line status header, blank names, short
 rows, and `(hostname) #` prompts while leaving unavailable admin state empty.
+**Known open EdgeSwitch parser limitation (2026-10-08):** six devices failed
+interface collection with `InterfaceCapabilityError` wrapping `ValueError`.
+Four captured devices expose an additional `Media Type` status column not handled
+by the current exact-header parser (a fifth device has the same error location
+but lacks an output capture). One standard-format device has a non-breaking
+space in a port description and trips fixed-width row validation. These are
+parser failures, not evidence of faulty physical ports. A vendor-specific parser
+fix is pending; evidence and acceptance criteria are in
+`docs/operations/edgeswitch-interface-status-observations-2026-10-08.md`.
+VLAN resolver/wrong-configuration work remains a separate future issue.
 
 Implemented reusable read-only `VlanService` for Cisco IOS, IOS-XE, IOS-XR,
 Huawei VRP, and Ubiquiti EdgeSwitch. It uses each platform's approved full
