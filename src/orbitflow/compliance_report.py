@@ -10,7 +10,7 @@ from orbitflow.result_spool import ResultSpool
 COMMON_COLUMNS = ("Input Position", "Device IP", "Family", "Device Name", "Policy", "Rule",
                   "Status", "Reason", "Expected", "Valid VLANs", "Missing VLANs")
 EVIDENCE_COLUMNS = ("Configuration Findings", "Explanation", "Recommendation",
-                    "Configuration Evidence", "Evidence Source", "Evidence Lines")
+                    "Configuration Evidence", "Evidence Source", "Evidence Lines", "Configuration Health")
 INTERFACE_COLUMNS = COMMON_COLUMNS + ("Interface", "Config Interface", "Interface Match", "Type",
                     "Description", "Admin Status", "Oper Status", "Shutdown", "Trigger Applicable",
                     "Configuration Owner") + EVIDENCE_COLUMNS
@@ -82,7 +82,7 @@ def export_compliance_spool(spool_path, path, *, cleanup=True, allow_partial=Fal
                                    observed.get("oper_status", "unavailable"), observed.get("shutdown", ""),
                                    observed.get("trigger_applicable", ""), observed.get("configuration_owner", "")]
                     values += [codes, finding.get("explanation", ""), finding.get("recommendation", ""),
-                               excerpt, source, lines]
+                               excerpt, source, lines, finding.get("configuration_health", "unable_to_assess")]
                     columns = INTERFACE_COLUMNS if interface_results else DATABASE_COLUMNS
                     if raw:
                         yield record["input_position"], index, columns, values
