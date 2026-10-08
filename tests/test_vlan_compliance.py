@@ -204,7 +204,7 @@ def test_application_failure_isolation_and_safe_reusable_results(tmp_path, monke
         assert sheet.freeze_panes == "A2"
         assert sheet["D3"].value == "=[REDACTED]"
         assert sheet["D3"].data_type == "s"
-        assert sheet.auto_filter.ref == "A1:Q3"
+        assert sheet.auto_filter.ref == "A1:R3"
     finally:
         workbook.close()
 

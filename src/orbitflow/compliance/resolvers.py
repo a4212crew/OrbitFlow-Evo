@@ -95,7 +95,7 @@ class AuditResolver:
         if kind:
             row["interface_type"] = kind
 
-    def consolidate(self, key, *, require_trunk=False):
+    def consolidate(self, key, *, require_trunk=False, preserve_parent_type=False):
         parent = parent_name(key)
         if parent is None:
             return
@@ -111,7 +111,8 @@ class AuditResolver:
         else:
             target["valid_interface_vlans"] = sorted(set(target["valid_interface_vlans"]) | set(row["valid_interface_vlans"]))
             target["tagged"] = sorted(set(target["tagged"]) | set(row["tagged"]))
-            if row["valid_interface_vlans"] and not require_trunk:
+            if (row["valid_interface_vlans"] and not require_trunk
+                    and not (preserve_parent_type and target["interface_type"] in {"trunk", "hybrid"})):
                 target["interface_type"] = "evc"
         target["child_interfaces"].append(dict(interface_name=row["config_interface_name"],
                                               description=row["description"], shutdown=row["shutdown"],
@@ -181,10 +182,17 @@ class CatalystAuditResolver(AuditResolver):
         access = bool(children(lines, "access"))
         contradictory = access and (mode not in {"", "access"}
                                     or any(n.kind in {"routed", "allowed", "allowed_add", "allowed_remove", "allowed_except", "unsupported_allowed"} for n in lines))
+        if self.context.device_family in {"C3750X", "ME3600X"} and mode == "access":
+            contradictory |= any(n.kind in {"allowed", "allowed_add", "allowed_remove", "allowed_except", "unsupported_allowed"} for n in lines)
         if contradictory:
             self.problem("CONFLICTING_SWITCHPORT_INTENT", key, (node,))
-            row.update(interface_type="review", review=True)
-            return
+            authoritative = (self.context.device_family in {"C3750X", "ME3600X"}
+                             and mode in {"access", "trunk"} and not children(lines, "routed"))
+            if not authoritative:
+                if mode not in {"access", "trunk"}:
+                    self.problem("UNRESOLVED_SWITCHPORT_MODE", key, (node,))
+                row.update(interface_type="review", review=True)
+                return
         if mode == "access" or (not mode and access):
             self.membership(key, untagged=numeric(last(lines, "access", ())), kind="access")
             return
@@ -333,13 +341,19 @@ class HuaweiAuditResolver(AuditResolver):
                 tags = self.database.copy() if last(lines, "allowed") == "ALL" or last(lines, "tagged") == "ALL" else values(lines, "allowed") | values(lines, "tagged")
                 self.membership(key, tags, values(lines, "untagged_vlans"), "hybrid" if mode == "hybrid" else "trunk")
             vsi = last(lines, "vsi_binding")
+            bindings = {n.value for n in children(lines, "vsi_binding")}
             termination = values(lines, "termination")
             if vsi:
-                valid = vsi in vsis
-                if not valid:
-                    self.problem("VSI_REFERENCE_NOT_FOUND", key, children(lines, "vsi_binding"), vsi=vsi)
-                    if termination:
-                        self.problem("L2_TERMINATION_WITHOUT_VALID_VSI", key, (node,))
+                valid = vsi in vsis and len(bindings) == 1
+                if len(bindings) > 1:
+                    self.problem("CONFLICTING_VSI_BINDING", key, children(lines, "vsi_binding"))
+                for missing_vsi in sorted(bindings - vsis.keys()):
+                    self.problem("VSI_REFERENCE_NOT_FOUND", key, children(lines, "vsi_binding"), vsi=missing_vsi)
+                if not valid and termination:
+                    self.problem("L2_TERMINATION_WITHOUT_VALID_VSI", key, (node,))
+                if parent_name(key) and not termination:
+                    self.problem("L2_SUBINTERFACE_WITHOUT_TERMINATION", key, (node,))
+                    valid = False
                 tags = termination if valid else set()
                 self.database.update(tags)
                 if tags:
@@ -362,7 +376,14 @@ class HuaweiAuditResolver(AuditResolver):
             # Unbound dot1q is routed detail, never inferred L2 membership.
         for key in self.config:
             if parent_name(key):
-                self.consolidate(key, require_trunk=bool(last(self.config[key].children, "vsi_binding")))
+                bound = bool(last(self.config[key].children, "vsi_binding"))
+                parent = self.rows.get(parent_name(key), {})
+                # NE05E L2 termination is a child service, independent of a
+                # conventional parent trunk declaration. Explicit access intent
+                # still conflicts with tagged child forwarding.
+                require_trunk = bound and (self.context.device_family != "NE05E"
+                                            or parent.get("interface_type") == "access")
+                self.consolidate(key, require_trunk=require_trunk, preserve_parent_type=True)
 
 
 class XRAuditResolver(AuditResolver):

@@ -645,13 +645,119 @@ def test_observed_only_identities_do_not_create_rows_or_child_details(family, pa
 @pytest.mark.parametrize("intent", ["", " switchport mode trunk\n", " switchport mode dynamic\n", " no switchport\n", " switchport trunk allowed vlan 445\n"])
 def test_access_vlan_infers_access_unless_switching_intent_conflicts(family, intent):
     result = row(audit("vlan 445\n!\ninterface Gi0/1\n switchport access vlan 445\n" + intent, family), "Gi0/1")
-    if intent:
+    if intent == " switchport mode trunk\n" and family == "ME3600X":
+        assert result["status"] == "not_applicable"
+        assert result["configuration_health"] == "wrong_configuration"
+    elif intent:
         assert result["status"] == "unable_to_assess"
         assert "CONFLICTING_SWITCHPORT_INTENT" in codes(result)
     else:
         assert result["status"] == "not_applicable"
         assert result["reason"] == "access_excluded"
         assert result["observed"]["interface_type"] == "access"
+
+
+@pytest.mark.parametrize("family,mode,allowed,status", [
+    ("C3750X", "trunk", "445,545,2449", "non_compliant"),
+    ("ME3600X", "trunk", "445,545,2449", "non_compliant"),
+    ("C3750X", "trunk", "445,545,2400-2444,2449,4001", "compliant"),
+    ("ME3600X", "trunk", "445,545,2400-2444,2449,4001", "compliant"),
+    ("C3750X", "trunk", "none", "not_applicable"),
+    ("ME3600X", "trunk", "none", "not_applicable"),
+    ("C3750X", "trunk", "all", "compliant"),
+    ("ME3600X", "trunk", "all", "compliant"),
+    ("C3750X", "access", "445,545,2449", "not_applicable"),
+    ("ME3600X", "access", "445,545,2449", "not_applicable"),
+    ("C3750X", "trunk", "all\n switchport trunk allowed vlan remove 4001", "non_compliant"),
+    ("ME3600X", "trunk", "except 4001", "non_compliant"),
+    ("C3750X", "trunk", "none\n switchport trunk allowed vlan add 445,545,2449", "non_compliant"),
+])
+def test_issue72_thirteen_explicit_mode_conflicts(family, mode, allowed, status):
+    config = ("vlan 445,545,2400-2444,2449,4001\n!\ninterface Gi0/1\n"
+              f" switchport mode {mode}\n switchport access vlan 100\n"
+              f" switchport trunk encapsulation dot1q\n switchport trunk allowed vlan {allowed}\n!")
+    finding = row(audit(config, family), "Gi0/1")
+    assert finding["status"] == status
+    assert finding["configuration_health"] == "wrong_configuration"
+    assert "CONFLICTING_SWITCHPORT_INTENT" in codes(finding)
+    if status == "non_compliant":
+        assert finding["missing_vlans"]
+        assert finding["observed"]["compliance_findings"][0]["code"] == "INTERFACE_REQUIRED_VLAN_MISSING"
+    if mode == "access":
+        assert finding["observed"]["valid_interface_vlans"] == [100]
+    for proof in finding["evidence"]["sources"]:
+        assert config.splitlines()[proof["line"] - 1] == proof["excerpt"]
+
+
+def test_issue72_unresolved_allowed_list_is_not_a_trunk():
+    finding = row(audit("vlan 445,545,2449\ninterface Gi0/1\n switchport trunk allowed vlan 445,545,2449", "C3750X"), "Gi0/1")
+    assert finding["status"] == "unable_to_assess"
+    assert finding["configuration_health"] == "wrong_configuration"
+    assert "UNRESOLVED_SWITCHPORT_MODE" in codes(finding)
+    assert finding["observed"]["valid_interface_vlans"] == []
+
+
+@pytest.mark.parametrize("parent", ["", " description transport", " undo portswitch", " shutdown", " mtu 9000"])
+def test_issue72_five_ne05e_parents_without_trunk(parent):
+    config = f"vsi service999 static\n#\ninterface GE0/1\n{parent}\n#\n"
+    for suffix, vlan in [(10, 445), (20, 545), (30, 2449)]:
+        config += f"interface GE0/1.{suffix}\n dot1q termination vid {vlan}\n l2 binding vsi service999\n#\n"
+    findings = audit(config, "NE05E")
+    finding = row(findings, "GE0/1")
+    assert finding["observed"]["valid_interface_vlans"] == [445, 545, 2449]
+    assert findings[0]["observed"]["valid_database_vlans"] == [445, 545, 2449]
+    assert finding["status"] == "non_compliant"
+    assert finding["configuration_health"] == "healthy"
+    assert "PARENT_INTERFACE_NOT_TRUNK" not in codes(finding)
+    assert len(finding["observed"]["child_interfaces"]) == 3
+    assert finding["missing_vlans"] == [*range(2400, 2445), 4001]
+    for proof in finding["evidence"]["sources"]:
+        assert config.splitlines()[proof["line"] - 1] == proof["excerpt"]
+
+
+@pytest.mark.parametrize("commands,code", [
+    ("dot1q termination vid 445\n l2 binding vsi absent", "VSI_REFERENCE_NOT_FOUND"),
+    ("dot1q termination vid 445\n l2 binding vsi first\n l2 binding vsi second", "CONFLICTING_VSI_BINDING"),
+    ("l2 binding vsi first", "L2_SUBINTERFACE_WITHOUT_TERMINATION"),
+])
+def test_issue72_invalid_huawei_bindings_do_not_contribute(commands, code):
+    findings = audit("vsi first static\n#\nvsi second static\n#\ninterface GE0/1\n#\n"
+                     f"interface GE0/1.4001\n {commands}\n#", "NE05E")
+    finding = row(findings, "GE0/1")
+    assert code in codes(finding)
+    assert finding["configuration_health"] == "wrong_configuration"
+    assert finding["observed"]["valid_interface_vlans"] == []
+    assert findings[0]["observed"]["valid_database_vlans"] == []
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_issue72_configuration_health_survives_spool_excel(tmp_path, legacy):
+    from openpyxl import load_workbook
+    from orbitflow.compliance_report import export_compliance_spool
+    from orbitflow.execution import DeviceOutcome
+    from orbitflow.result_spool import ResultSpool
+
+    findings = audit("vlan 445,545,2449\ninterface Gi0/1\n switchport mode trunk\n"
+                     " switchport access vlan 100\n switchport trunk allowed vlan 445,545,2449", "C3750X")
+    assert findings[0]["configuration_health"] == "healthy"
+    assert findings[1]["configuration_health"] == "wrong_configuration"
+    if legacy:
+        for finding in findings:
+            del finding["configuration_health"]
+    spool = ResultSpool.create(tmp_path / "runs", "vlan_compliance", 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload={"findings": findings, "errors": []})
+    workbook = load_workbook(export_compliance_spool(spool.path, tmp_path / "audit.xlsx"))
+    try:
+        for name, expected in [("Interface Results", "wrong_configuration"), ("Database Results", "healthy")]:
+            cells = dict(zip(*list(workbook[name].values)))
+            assert cells["Configuration Health"] == ("unable_to_assess" if legacy else expected)
+            assert cells["Status"] == "non_compliant"
+        interface_cells = dict(zip(*list(workbook["Interface Results"].values)))
+        assert "CONFLICTING_SWITCHPORT_INTENT" in interface_cells["Configuration Findings"]
+        assert "switchport access vlan 100" in interface_cells["Configuration Evidence"]
+    finally:
+        workbook.close()
 
 
 @pytest.mark.parametrize("name", ["0/1", "lag 1"])

@@ -210,7 +210,7 @@ Issue #70 is ready for operator live validation on the six previously failing
 devices; remediation has not been live validated. `10.121.9.3` still needs its
 actual CLI output checked because its layout was not captured. Evidence:
 `docs/operations/edgeswitch-interface-status-observations-2026-10-08.md`.
-VLAN resolver/wrong-configuration work remains a separate future issue.
+VLAN resolver/configuration-health behavior is described in the audit section below.
 
 Implemented reusable read-only `VlanService` for Cisco IOS, IOS-XE, IOS-XR,
 Huawei VRP, and Ubiquiti EdgeSwitch. It uses each platform's approved full
@@ -522,3 +522,13 @@ validation; except uses the validated device database minus exclusions. Existing
 family database intersection, access inference and aggregate ownership remain.
 Ordered excerpts survive JSON spool/Excel recovery; malformed operations require
 review. This revision has deterministic coverage; live retesting is pending.
+
+Issue #72 separates normalized `configuration_health` from VLAN compliance
+`status`, with an appended Excel column and conservative legacy-spool fallback.
+C3750X/ME3600X explicit switchport mode preserves trustworthy compliance facts
+despite conflicting access/trunk statements, while retaining wrong-configuration
+findings. Unresolved mode remains unable to assess. NE05E valid VSI-bound dot1q
+children consolidate into existing parents without requiring parent trunk mode;
+missing parents, explicit access conflicts and invalid VSI bindings remain
+visible. Synthetic regressions include 13 Cisco conflicts, five NE05E parents,
+one unresolved Cisco case and invalid relationships. No live testing was run.

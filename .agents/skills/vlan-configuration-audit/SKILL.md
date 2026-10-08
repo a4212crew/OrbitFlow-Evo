@@ -68,6 +68,22 @@ Access interfaces are excluded from interface compliance.
 
 Configuration problems are reported independently of trigger/compliance status.
 
+Normalized findings expose `configuration_health` separately from compliance
+`status`: `healthy` means no configuration defects were found;
+`wrong_configuration` means configuration findings exist; `unable_to_assess`
+means configuration evidence/family resolution is unavailable. Identity-only
+findings (`CONFIG_ONLY_INTERFACE`, `INTERFACE_NOT_IN_CONFIG`) are informational.
+Health never overrides compliance. Excel appends Configuration Health after
+existing columns. Older spools without the field export `unable_to_assess`.
+
+C3750X and ME3600X explicit access/trunk mode is authoritative over contradictory
+access-VLAN/allowed-list statements. Retain `CONFLICTING_SWITCHPORT_INTENT` and
+`wrong_configuration`, while evaluating trustworthy mode-specific facts normally
+(including access exclusion). Routed conflicts remain ambiguous. Unresolved mode
+retains `UNRESOLVED_SWITCHPORT_MODE`, `unable_to_assess` compliance and
+`wrong_configuration`; allowed-list syntax alone never establishes trunk mode.
+C3850 retains existing conflict behavior.
+
 ## Common Parsing and Evidence Rules
 
 - Parse comma/space lists and inclusive ranges; Huawei also supports `to`.
@@ -231,7 +247,9 @@ switchport trunk allowed vlan all
 switchport trunk allowed vlan none
 ```
 
-Do not implement `add`, `remove`, or `except`.
+Replay `add`, `remove`, and `except` in source order with replace/all/none.
+Preserve family-specific All-VLAN validation and database rules. Malformed
+operations require review.
 
 Findings include:
 
@@ -438,6 +456,14 @@ valid_interface_vlans =
 ```
 
 Consolidate valid child service subinterfaces into the physical parent and mark as consolidated subinterface.
+
+NE05E dot1q termination bound to exactly one existing VSI is a tagged L2 child
+service without requiring a parent trunk declaration. Union numeric tags into
+the existing parent, preserving trunk/hybrid type or classifying it as EVC.
+Missing parents and explicit parent access conflicts remain findings. Multiple
+distinct VSI bindings, missing VSI references and bound children without
+termination are invalid; retain evidence without contributing numeric VLANs.
+Repeated identical bindings are valid. NE05 retains parent-trunk validation.
 
 Preserve:
 

@@ -31,11 +31,17 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
     findings = []
 
     def emit(rule, expected, observed, status, reason, *, interface=None, missing=(), source=(), recommendation=""):
+        # Identity correlation is informational, not a configuration defect.
+        problems = (observed or {}).get("configuration_findings", ())
+        health = ("unable_to_assess" if observed is None else
+                  "wrong_configuration" if any(p["code"] not in {"CONFIG_ONLY_INTERFACE", "INTERFACE_NOT_IN_CONFIG"}
+                                               for p in problems) else "healthy")
         findings.append(dict(policy_id=policy.policy_id, rule_id=rule, device=device,
                              interface=interface, expected=expected, observed=observed,
                              missing_vlans=list(missing),
                              missing_objects=[str(v) for v in missing] if rule == policy.database_rule else [],
-                             status=status, reason=reason, explanation=reason.replace("_", " "),
+                             status=status, configuration_health=health,
+                             reason=reason, explanation=reason.replace("_", " "),
                              recommendation=recommendation, evidence=dict(sources=list(source))))
 
     resolver = resolver_for(context) if context else None
