@@ -27,17 +27,21 @@ def main(argv=None):
                             ("spool-root", "outputs/runs/vlan_compliance"), ("log-root", "outputs/logs")):
         run.add_argument(f"--{option}", type=Path, default=Path(default))
     run.add_argument("--keep-spool", action="store_true")
+    run.add_argument("--methodology-report", action="store_true", help="Also export separate methodology review workbook")
     export = commands.add_parser("export", help="Recover a report without device connections")
     export.add_argument("spool_path", type=Path)
     export.add_argument("output_path", type=Path)
     export.add_argument("--log-root", type=Path, default=Path("outputs/logs"))
     export.add_argument("--keep-spool", action="store_true")
     export.add_argument("--allow-partial", action="store_true")
+    export.add_argument("--methodology-report", action="store_true", help="Export methodology review instead of compliance")
     args = parser.parse_args(argv)
     try:
         if args.command == "export":
-            path = export_compliance_spool(args.spool_path, args.output_path,
-                                          cleanup=not args.keep_spool, allow_partial=args.allow_partial)
+            from orbitflow.methodology_report import export_methodology_spool
+            exporter = export_methodology_spool if args.methodology_report else export_compliance_spool
+            path = exporter(args.spool_path, args.output_path,
+                            cleanup=not args.keep_spool, allow_partial=args.allow_partial)
         else:
             config = TransportConfig(proxy=args.proxy, cluster=args.cluster,
                                      bastion_host=args.bastion_host, bastion_user=args.bastion_user,
@@ -47,13 +51,15 @@ def main(argv=None):
                                   policy_provider=JsonPolicyProvider(args.policy),
                                   inventory_path=args.inventory_path, reports_dir=args.reports_dir,
                                   spool_root=args.spool_root, log_root=args.log_root,
-                                  execution_config=load_execution_config(args.config), cleanup=not args.keep_spool)
+                                  execution_config=load_execution_config(args.config), cleanup=not args.keep_spool,
+                                  methodology_report=args.methodology_report)
     except Exception as exc:
         if not log_run_failure(exc, log_root=args.log_root):
             print("Run-level diagnostics could not be written.", flush=True)
         raise SystemExit("VLAN compliance failed. Check policy/input paths, application/compliance logs, "
                          "and the retained run spool; export can retry without device connections.") from None
-    print("Compliance workbook saved. Review Findings and Run_Errors.", flush=True)
+    print("Workbook saved. Review methodology results and Run Errors." if args.methodology_report else
+          "Compliance workbook saved. Review Findings and Run_Errors.", flush=True)
     return path
 
 

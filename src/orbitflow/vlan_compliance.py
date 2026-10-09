@@ -9,6 +9,7 @@ from orbitflow.capabilities.interfaces import InterfaceService
 from orbitflow.capabilities.vlans import VlanService
 from orbitflow.compliance import JsonPolicyProvider, evaluate_vlan_compliance
 from orbitflow.compliance.vlan import safe_data
+from orbitflow.compliance.methodology import resolve_methodologies
 from orbitflow.execution import execute_devices, Progress
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.logging import module_logger, sanitize_text
@@ -98,7 +99,8 @@ def collect_compliance(targets, transport_config, *, policy_provider=None,
                                                 management_ip=ip, clean=clean)
             status(f"[{position}/{len(targets)}]: evaluated")
             return {"schema_version": 1, "policy_id": policy.policy_id,
-                    "findings": findings, "errors": safe_data(errors, clean)}
+                    "findings": findings, "errors": safe_data(errors, clean),
+                    "methodologies": resolve_methodologies(context, interfaces, vlans, management_ip=ip, clean=clean)}
 
         def persist(outcome):
             target = targets[outcome.position - 1]
@@ -128,11 +130,16 @@ def collect_compliance(targets, transport_config, *, policy_provider=None,
 
 
 def run_compliance(targets, transport_config, *, reports_dir="outputs/reports/vlan_compliance",
-                   cleanup=True, **kwargs):
+                   cleanup=True, methodology_report=False, **kwargs):
     """CLI convenience composition. API consumers may call collect_compliance alone."""
     from orbitflow.compliance_report import export_compliance_spool
 
     run = collect_compliance(targets, transport_config, **kwargs)
     path = Path(reports_dir) / f"vlan_compliance_{run.spool_path.name}.xlsx"
+    if methodology_report:
+        from orbitflow.methodology_report import export_methodology_spool
+        export_methodology_spool(run.spool_path,
+                                Path(reports_dir) / f"methodology_resolution_{run.spool_path.name}.xlsx",
+                                cleanup=False)
     export_compliance_spool(run.spool_path, path, cleanup=cleanup)
     return path

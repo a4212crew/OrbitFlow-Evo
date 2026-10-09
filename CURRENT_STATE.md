@@ -477,6 +477,19 @@ The prompt correction awaits operator-controlled live retesting.
 
 ## VLAN Configuration Audit
 
+Issue #79 adds a separate M01–M07 methodology projection through the existing
+family AuditResolver, preserving service/child identities, local/global EVC
+bindings, XR attachments, Huawei VSI and EdgeSwitch ownership. New compliance
+spools retain review records; opt-in `--methodology-report` exports a separate
+streamed Excel workbook with evidence, findings and explicit review outcomes.
+Unknown forwarding syntax carries sanitized line markers. Configuration-facts
+digests cover the sanitized projection, not raw backups or live freshness.
+Compliance outputs remain unchanged: 180 representative pre/post result hashes
+matched and 281 existing audit/compliance/report regressions passed. Focused
+methodology/workbook and VLAN observation tests pass. Validation is synthetic;
+no real backup corpus or live devices were used. Review import, template
+selection, apply and Change Plan v1 changes remain out of scope.
+
 Issue #65 now implements the saved-configuration audit boundary:
 VlanService/vendor observation -> preserved configuration facts/evidence ->
 family-specific AuditResolver -> common external policy -> JSON spool/Excel.

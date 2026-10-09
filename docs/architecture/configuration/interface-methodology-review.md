@@ -1,6 +1,8 @@
 # Interface VLAN Methodology Resolution and Engineer Review — Proposed
 
-Status: approved design direction; **not implemented**. This design extends
+Status: approved design direction; **Gap A implemented in Issue #79** with
+synthetic validation. Engineer decision import and template integration (B/C)
+remain proposed. This design extends
 existing read-only audit and offline Configurator Phases 1–2. It does not
 introduce network device configuration or change the v1 Change Plan contract.
 
@@ -16,8 +18,8 @@ Reuse `src/orbitflow/vendors/configuration_facts.py` and
 existing `VlanService`, inventory, configuration backup, shared reporting and
 execution infrastructure. The resolver already validates conventional Cisco
 switching, EVC local/global binding, XR bridge-domain attachments, Huawei VSI,
-and EdgeSwitch membership. It does **not** yet emit workbook M01–M07 IDs,
-engineer review records or template selections. The current Configurator only
+and EdgeSwitch membership. Issue #79 adds M01–M07 review records and a separate
+Excel export; it does not import engineer decisions or select templates. The current Configurator only
 renders allowlisted Cisco VLAN creation from normalized JSON and requires
 per-plan approval; raw Excel import and pre-approved template policy do not
 exist. Keep audit policy outputs backward compatible.

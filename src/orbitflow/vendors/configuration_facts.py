@@ -153,6 +153,14 @@ def observe_configuration(output, platform, *, source_filename="running-config")
             # reference, never arbitrary unrecognized command text.
             entries.append(("unsupported_allowed", "invalid_allowed_operation"))
             raw = " " * indent + "switchport trunk allowed vlan [unrecognized operation omitted]"
+        if not entries and re.match(
+                r"(?:switchport|encapsulation|service instance|bridge-domain|member|"
+                r"port (?:link-type|default|trunk|hybrid)|dot1q|qinq|l2 binding|"
+                r"vlan (?:participation|tagging|pvid)|vlan-type)(?:\s|$)", line):
+            # Preserve only the location of unsupported forwarding syntax. The
+            # audit resolver excludes these markers from compliance entirely.
+            entries.append(("methodology_unknown", "unsupported_forwarding_syntax"))
+            raw = " " * indent + "[unsupported forwarding statement omitted]"
         for kind, value in entries:
             node = [kind, value, number, _safe_source(raw), []]
             (stack[-1][1][4] if stack else roots).append(node)
