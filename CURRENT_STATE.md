@@ -523,6 +523,11 @@ The seven approved patterns distinguish informational exclusion/database cases,
 known non-standard switchport styles/residual settings, standard ME3600X EVC
 prerequisites, confirmed member/LAG differences and interfaces without L2 service.
 Unknown/incomplete syntax, EVC overlap and ambiguous relationships remain reviewable.
+Member/LAG comparisons retain one-sided configured fields as unknown with
+`LAG_MEMBER_CONFIGURATION_UNRESOLVED` and evidence-backed explanations; omitted
+counterparts do not imply equal/default values or partial inheritance. Entirely
+unconfigured members retain supported aggregate inheritance. Confirmed explicit
+differences still take precedence as wrong configuration.
 Only Interface, Service Instance and Evidence Source leave the main sheet; full
 identity/evidence remains in Details. Safe CLI retains original indentation and
 source lines; disclosure remains fail-closed. Deterministic synthetic fixtures

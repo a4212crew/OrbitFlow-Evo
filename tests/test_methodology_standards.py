@@ -166,10 +166,88 @@ def test_membership_truth_and_absent_member_settings():
     base = 'vlan database\n vlan 445\nexit\ninterface 0/1\n'
     inherited = resolve(base + ' addport 3/1\nexit\n' + aggregate, 'EdgeSwitch')[0]
     assert inherited['mapping']['lag_relationship']['differences'] == {}
+    assert inherited['mapping']['lag_relationship']['unresolved_fields'] == {}
+    assert inherited['mapping']['lag_relationship']['inherited_from'] == 'lag 1'
     assert inherited['configuration_classification'] == 'standard_configuration'
     no_relation = resolve(base + ' description lag 1\nexit\n' + aggregate, 'EdgeSwitch')[0]
     assert no_relation['configuration_classification'] == 'not_applicable'
     assert 'lag_relationship' not in no_relation['mapping']
+
+
+@pytest.mark.parametrize('field,statement,common', [
+    ('tagging', ' vlan tagging 545', ' vlan participation include 445,545'),
+    ('pvid', ' vlan pvid 445', ' vlan participation include 445,545'),
+    ('participation', ' vlan participation include 445,545', ' vlan tagging 545'),
+])
+@pytest.mark.parametrize('configured_side', ['member', 'aggregate'])
+def test_edge_one_sided_lag_fields_are_unknown(field, statement, common, configured_side):
+    member = common + ('\n' + statement if configured_side == 'member' else '')
+    aggregate = common + ('\n' + statement if configured_side == 'aggregate' else '')
+    config = (EDGE + member + '\n addport 3/1\nexit\ninterface lag 1\n' + aggregate + '\nexit')
+    ctx, state = snapshot(config, 'EdgeSwitch')
+    before = evaluate_vlan_compliance(ctx, [], state, POLICY)
+    row = resolve_methodologies(ctx, [], state)[0]
+    assert evaluate_vlan_compliance(ctx, [], state, POLICY) == before
+    assert row['configuration_classification'] == 'review_needed'
+    assert row['standard_finding'] == 'LAG_MEMBER_CONFIGURATION_UNRESOLVED'
+    assert row['finding_severity'] == 'warning'
+    assert row['engineering_review_decision'] == 'not_reviewed'
+    relation = row['mapping']['lag_relationship']
+    assert relation['differences'] == {}
+    assert relation['inherited_from'] == ''
+    missing = 'aggregate' if configured_side == 'member' else 'member'
+    unresolved = relation['unresolved_fields'][field]
+    assert unresolved[missing] is None
+    assert unresolved[configured_side] == {'tagging': [545], 'pvid': [445],
+                                         'participation': [445, 545]}[field]
+    assert f'{missing} stanza omits {field}' in unresolved['explanation']
+    excerpts = [e['excerpt'] for e in relation['evidence']]
+    assert all(line in excerpts for line in ('interface 0/1', 'interface lag 1', ' addport 3/1', statement))
+    for proof in relation['evidence']:
+        assert proof['excerpt'] == config.splitlines()[proof['line'] - 1]
+        assert proof['source_filename'] == 'fixture.cfg'
+
+
+def test_edge_unknown_lag_owner_does_not_imply_equality_or_reverse_inheritance():
+    for member in ('', ' vlan participation include 445\n vlan tagging 445\n'):
+        config = EDGE + member + ' addport 3/1\nexit\ninterface lag 1\n description trunk\nexit'
+        row = resolve(config, 'EdgeSwitch')[0]
+        assert row['configuration_classification'] == 'review_needed'
+        relation = row['mapping']['lag_relationship']
+        assert relation['unresolved_fields']
+        assert relation['differences'] == {}
+        assert relation['inherited_from'] == ''
+
+
+def test_edge_confirmed_difference_wins_over_one_sided_unknown():
+    config = (EDGE + ' vlan participation include 445,545\n vlan tagging 545\n vlan pvid 445\n'
+              ' addport 3/1\nexit\ninterface lag 1\n vlan participation include 445,545\n'
+              ' vlan tagging 445\nexit')
+    row = resolve(config, 'EdgeSwitch')[0]
+    assert row['configuration_classification'] == 'wrong_configuration'
+    assert row['standard_finding'] == 'LAG_MEMBER_CONFIGURATION_MISMATCH'
+    relation = row['mapping']['lag_relationship']
+    assert relation['differences'] == {'tagging': {'member': [545], 'aggregate': [445]}}
+    assert relation['unresolved_fields']['pvid']['aggregate'] is None
+
+
+def test_edge_explicit_empty_tagging_is_a_demonstrable_difference():
+    config = (EDGE + ' vlan participation include 445\n vlan tagging 445\n addport 3/1\nexit\n'
+              'interface lag 1\n vlan participation include 445\n vlan tagging 445 disable\nexit')
+    row = resolve(config, 'EdgeSwitch')[0]
+    assert row['configuration_classification'] == 'wrong_configuration'
+    assert row['mapping']['lag_relationship']['differences'] == {
+        'tagging': {'member': [445], 'aggregate': []}}
+
+
+def test_edge_explicit_matched_lag_fields_remain_standard():
+    settings = ' vlan participation include 445,545\n vlan tagging 545\n vlan pvid 445\n'
+    row = resolve(EDGE + settings + ' addport 3/1\nexit\ninterface lag 1\n' + settings + 'exit',
+                  'EdgeSwitch')[0]
+    assert row['configuration_classification'] == 'standard_configuration'
+    relation = row['mapping']['lag_relationship']
+    assert relation['differences'] == relation['unresolved_fields'] == {}
+    assert relation['inherited_from'] == ''
 
 
 def test_ambiguous_lag_membership_is_reviewable():

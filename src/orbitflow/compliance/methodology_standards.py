@@ -74,10 +74,32 @@ def lag_relationship(resolver, node, alternates):
         owner_alternate = alternates.get(resolver.key(owner.value), ())
         member_fields, owner_fields = switch_fields(member_alternate), switch_fields(owner_alternate)
         extra_proof = (*member_alternate, *owner_alternate)
-    diffs = {k: dict(member=member_fields[k], aggregate=owner_fields[k])
-             for k in sorted(member_fields.keys() & owner_fields.keys())
-             if member_fields[k] != owner_fields[k]}
+    # A completely unconfigured member inherits the aggregate in the supported
+    # audit model. Partial member configuration does not establish per-field
+    # inheritance, nor does an omitted command establish a default/empty value.
+    forwarding_kinds = {"mode", "native", "access", "allowed", "allowed_add",
+                        "allowed_remove", "allowed_except", "unsupported_allowed",
+                        "include", "exclude", "tagged", "untagged_vlans", "pvid"}
+    inherited = bool(owner_fields) and not member_fields and not any(
+        n.kind in forwarding_kinds for n in (*node.children, *alternates.get(resolver.key(node.value), ())))
+    diffs, unresolved = {}, {}
+    for field in sorted(member_fields.keys() | owner_fields.keys()):
+        if inherited:
+            continue
+        comparison = dict(member=member_fields.get(field), aggregate=owner_fields.get(field))
+        if field not in member_fields or field not in owner_fields:
+            missing = "member" if field not in member_fields else "aggregate"
+            unresolved[field] = dict(**comparison, explanation=(
+                f"The {missing} stanza omits {field}; its effective value is unknown. "
+                "Partial configuration does not establish inheritance or a default."))
+        elif member_fields[field] != owner_fields[field]:
+            diffs[field] = comparison
+    if not member_fields and not owner_fields:
+        unresolved["configuration"] = dict(member=None, aggregate=None, explanation=(
+            "Neither stanza establishes supported VLAN forwarding values; membership alone "
+            "does not establish their effective configuration."))
     return dict(member=node.value, aggregate=owner.value, differences=diffs,
+                unresolved_fields=unresolved, inherited_from=owner.value if inherited else "",
                 member_configuration=member_fields, aggregate_configuration=owner_fields,
                 evidence=evidence((node, owner, *extra_proof)))
 
@@ -183,6 +205,9 @@ def classify_records(resolver, records):
                 finding("LAG_MEMBER_CONFIGURATION_MISMATCH", "wrong_configuration", "error",
                         relationship["evidence"], relationship=relationship)
                 ignored.update({"AGGREGATE_CONFIG_CONFLICT", "PORT_CHANNEL_CONFIG_CONFLICT"})
+            if relationship["unresolved_fields"]:
+                finding("LAG_MEMBER_CONFIGURATION_UNRESOLVED", "review_needed", "warning",
+                        relationship["evidence"], relationship=relationship)
 
         for problem in record.get("configuration_findings", []):
             code = problem["code"]
