@@ -124,7 +124,9 @@ def test_unknown_rewrites_review_only_and_sanitized(tail):
     second = next(r for r in rows if r['service_instance_id'] == '2245')
     assert first['review_needed'] and not second['review_needed']
     assert 'UNSUPPORTED_FORWARDING_SYNTAX' in json.dumps(first)
-    assert 'hiddenvalue' not in json.dumps(rows) and 'arbitrary-value' not in json.dumps(rows)
+    assert 'hiddenvalue' not in json.dumps(rows)
+    if 'arbitrary-value' in tail:
+        assert 'rewrite ingress tag ' + tail in json.dumps(rows)
 
 
 @pytest.mark.parametrize('family,config', [

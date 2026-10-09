@@ -1,6 +1,6 @@
 """Syntax-preserving VLAN evidence shared by the existing observation adapters.
 
-Recognized VLAN/interface statements and bounded sanitized forwarding exceptions
+Recognized VLAN/interface statements and sanitized forwarding exceptions
 enter the snapshot. No full config, credentials or arbitrary unknown CLI is retained. This is
 observation, not relationship validation or compliance policy.
 """
@@ -81,7 +81,7 @@ _PATTERNS = {platform: tuple((kind, re.compile(pattern), conversion)
                                         ("cisco_xr", _XR), ("huawei_vrp", _VRP),
                                         ("ubiquiti_edgeswitch", _EDGE))}
 _CONTAINERS = {"interface", "l2_interface", "service_instance", "l2vpn", "bridge_group",
-               "bridge_domain", "vsi", "vlan_database", "vlan", "methodology_interface"}
+               "bridge_domain", "vsi", "vlan_database", "vlan", "methodology_interface", "methodology_context"}
 # Tolerant Huawei spellings are review-only: never widen compliance facts.
 _VRP_REVIEW_ENCAPSULATION = re.compile(
     next(pattern for kind, pattern, _ in _VRP if kind == "encapsulation").replace(" ", r"\s+"),
@@ -125,44 +125,69 @@ def _tag_rewrite(line):
                       parameters, output_tags, translation)
 
 
-def _safe_source(text):
+def _safe_source(text, platform=None):
     # Description/evidence are the only arbitrary source strings retained.
     # Also cover CLI-style secret labels separated by whitespace, not just '='.
-    return re.sub(r"(?i)\b(password|passwd|secret|token|otp|private_key|authorization)\b[\s:=]+.*",
-                  r"\1 [REDACTED]", sanitize_text(text))
+    text = sanitize_text(text)
+    if any(ord(c) < 32 and c not in "\t\n\r" for c in text) or "\x7f" in text:
+        return "[configuration evidence omitted: unsafe control characters]"
+    match = _CREDENTIAL.search(text)
+    if platform:
+        vendor = re.search(rf"(?i)(?<![\w./:-]){_VENDOR_CREDENTIAL[platform]}(?![\w./:-])", text)
+        if vendor and (not match or vendor.start() < match.start()):
+            match = vendor
+    return (text[:match.end()] + " [REDACTED]"
+            if match and text[match.end():].lstrip(" \t:=") else text)
 
 
-# Disclosure vocabulary only: these words do not establish supported semantics.
-# Unknown operands may be arbitrary secrets, even without credential labels.
-_REVIEW_WORDS = frozenset("""switchport encapsulation dot1q second-dot1q untagged
- default priority-tagged exact any all none vlan vlans bridge-domain member mode
- service instance ethernet rewrite ingress tag pop push translate symmetric
- split-horizon group port link-type trunk hybrid access allow-pass tagged
- qinq termination vid pe-vid ce-vid l2 binding vsi vlan-type participation
- tagging pvid include exclude enable disable allowed add remove except
- native tunnel protocol ieee dot1ad egress 1-to-1 1-to-2 2-to-1 2-to-2""".split())
-_REVIEW_OMITTED = "[unsupported forwarding statement omitted: unsafe or oversized evidence]"
+# Disclosure policy is independent of forwarding recognition. Credential command
+# tokens are matched as tokens, not substrings of innocuous interface/domain IDs.
+_CREDENTIAL = re.compile(
+    r"(?i)(?<![\w./:-])(?:password|passwd|secret|token|credential[s]?|community|"
+    r"key|key-string|key-chain|private-key|private_key|pkey|authentication-key|"
+    r"authentication|authorization|auth|otp|username|user-name)(?![\w./-])")
+_VENDOR_CREDENTIAL = {
+    "cisco_ios": r"(?:isakmp|pre-shared|radius-server|tacacs-server|snmp-server)",
+    "cisco_xe": r"(?:isakmp|pre-shared|radius-server|tacacs-server|snmp-server)",
+    "cisco_xr": r"(?:keychain|key-string|encrypted|cleartext|snmp-server)",
+    "huawei_vrp": r"(?:cipher|irreversible-cipher|simple|local-user|snmp-agent)",
+    "ubiquiti_edgeswitch": r"(?:encrypted|radius-server|tacacs-server|snmp-server)",
+}
 
 
-def _review_excerpt(raw):
-    """Bounded, fail-closed disclosure; never retain unknown free-form values."""
-    if len(raw) > 512 or any(ord(c) < 32 and c != "\t" for c in raw):
-        return _REVIEW_OMITTED
-    words = raw.split()
-    if len(words) > 64:
-        return _REVIEW_OMITTED
-    if re.search(r"(?i)password|passwd|secret|token|credential|community|key|auth|otp", raw):
-        return _REVIEW_OMITTED
-    def disclose(match):
-        value = match[0]
-        return value if value in _REVIEW_WORDS or re.fullmatch(r"[0-9]{1,4}(?:[,-][0-9]{1,4})*", value) else "[REDACTED]"
-    return re.sub(r"\S+", disclose, raw)
+def _review_excerpt(raw, platform):
+    """Disclose CLI-shaped forwarding text, never free-form/encoded payloads.
+
+    Called only for relevant forwarding command heads in known containers.
+    Unknown words do not imply unknown secrets: identifiers and new modifiers
+    are preserved. Credential constructs, quoted expressions, shell/control
+    characters and opaque operands fail closed with a source-located marker.
+    This is disclosure permission only, never support for forwarding semantics.
+    """
+    reason = ""
+    if _CREDENTIAL.search(raw) or re.search(
+            rf"(?i)(?<![\w./:-]){_VENDOR_CREDENTIAL[platform]}(?![\w./:-])", raw):
+        reason = "credential-bearing syntax"
+    elif not re.fullmatch(r"[\w ./,:\t-]+", raw, flags=re.ASCII):
+        reason = "unsafe characters or free-form payload"
+    elif "://" in raw or any(
+            (len(word) > 256 and not re.fullmatch(r"[\d,-]+", word))
+            or re.fullmatch(r"[a-fA-F0-9]{32,}", word)
+            or re.fullmatch(r"eyJ[\w-]+\.[\w-]+(?:\.[\w-]+)?", word)
+            or (len(word) >= 24 and re.fullmatch(r"[A-Za-z0-9]+", word)
+                and re.search(r"[A-Z]", word) and re.search(r"[a-z]", word)
+                and re.search(r"[0-9]", word))
+            for word in raw.split()):
+        reason = "opaque operand"
+    if reason:
+        return f"[unsupported forwarding statement omitted: {reason}]"
+    return raw
 
 
 def _review_candidate(line, stack):
     # Limit unknown capture to forwarding contexts, never arbitrary global CLI.
     kinds = {item[1][0] for item in stack}
-    if not kinds.intersection({"interface", "methodology_interface", "l2_interface", "service_instance", "bridge_domain", "vsi"}):
+    if not kinds.intersection({"interface", "methodology_interface", "l2_interface", "service_instance", "bridge_domain", "vsi", "methodology_context"}):
         return False
     return bool(re.match(
         r"(?:switchport(?: (?:mode|access|trunk|voice|vlan))?|encapsulation|"
@@ -181,8 +206,9 @@ def observe_configuration(output, platform, *, source_filename="running-config")
     """
     roots, stack = [], []
     banner_end = None
-    review_count = 0
-    for number, raw in enumerate(output.splitlines(), 1):
+    for number, raw in enumerate(output.split("\n"), 1):
+        raw = raw.removesuffix("\r")  # CRLF, without treating control payloads as new CLI lines.
+        original_raw = raw
         line = raw.strip()
         if banner_end is not None:
             if banner_end in line:
@@ -208,6 +234,8 @@ def observe_configuration(output, platform, *, source_filename="running-config")
             while stack and stack[-1][0] >= indent:
                 stack.pop()
         entries = []
+        if platform.startswith("cisco_") and re.fullmatch(rf"pseudowire-class {_NAME}", line):
+            entries.append(("methodology_context", "pseudowire_class"))
         interface = re.fullmatch(rf"interface ({_NAME}|lag \d+)(?: (l2transport))?", line)
         # XR interface statements nested under L2VPN are references only.
         if interface and not any(n[1][0] == "l2vpn" for n in stack):
@@ -274,24 +302,41 @@ def observe_configuration(output, platform, *, source_filename="running-config")
             if rewrite is not None:
                 entries.append(("tag_rewrite", rewrite))
         review_line = " ".join(line.lower().split()) if platform == "huawei_vrp" else line
+        # Additional supporting statements have no effect on existing resolution
+        # or standards decisions. Retain them as evidence, not validated facts.
+        supporting = {
+            "cisco_ios": r"split-horizon|xconnect|neighbor|pw-class|pseudowire",
+            "cisco_xe": r"split-horizon|xconnect|neighbor|pw-class|pseudowire",
+            "cisco_xr": r"split-horizon|neighbor|pw-class|pseudowire|vfi",
+            "huawei_vrp": r"vsi-id|pwsignal|peer|static-vc|mpls l2vc",
+            "ubiquiti_edgeswitch": r"vlan protocol|vlan association",
+        }
+        pseudowire_encapsulation = (
+            platform.startswith("cisco_") and line == "encapsulation mpls" and stack
+            and stack[-1][1][:2] == ["methodology_context", "pseudowire_class"])
+        if (not entries and stack and (pseudowire_encapsulation or
+                re.match(rf"(?:{supporting[platform]})(?:\s|$)", review_line))):
+            entries.append(("methodology_evidence", "supporting_forwarding_source"))
+            raw = _review_excerpt(raw, platform)
         if not entries and _review_candidate(review_line, stack):
             # Review-only nodes are stripped before audit resolution.
-            review_count += 1
-            if review_count <= 256:
-                entries.append(("methodology_unknown", "unsupported_forwarding_syntax"))
-                raw = _review_excerpt(raw)
-            elif review_count == 257:
-                entries.append(("methodology_unknown", "review_evidence_limit"))
-                raw = "[further unsupported forwarding evidence omitted: storage limit]"
+            entries.append(("methodology_unknown", "unsupported_forwarding_syntax"))
+            raw = _review_excerpt(raw, platform)
         for kind, value in entries:
-            node = [kind, value, number, _safe_source(raw), []]
+            node = [kind, value, number, _safe_source(raw, platform), []]
             (stack[-1][1][4] if stack else roots).append(node)
             if kind in _CONTAINERS and (platform != "ubiquiti_edgeswitch" or kind in {"interface", "vlan_database"}):
                 stack.append((indent, node))
+        if raw != original_raw and any(kind == "unsupported_allowed" for kind, _ in entries):
+            # Preserve the audit's existing safe marker while exposing the actual
+            # safe command in review only. This must not introduce new findings.
+            node = ["methodology_evidence", "unsupported_allowed_source", number,
+                    _review_excerpt(original_raw, platform), []]
+            (stack[-1][1][4] if stack else roots).append(node)
 
     def freeze(node):
         kind, value, number, excerpt, children = node
-        return ConfigFact(kind, _safe_source(value) if isinstance(value, str) else value,
+        return ConfigFact(kind, _safe_source(value, platform) if isinstance(value, str) else value,
                           sanitize_text(source_filename), number, excerpt,
                           tuple(freeze(child) for child in children))
     return tuple(freeze(node) for node in roots)

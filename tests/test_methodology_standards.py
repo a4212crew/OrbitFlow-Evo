@@ -118,7 +118,7 @@ def test_evc_distinct_qinq_and_service_evidence():
 
 @pytest.mark.parametrize('tail', [
     ' vlan pvid 545',  # Still excluded: real independent conflict.
-    ' encapsulation unknown arbitrary-private-value',
+    ' encapsulation unknown token arbitrary-private-value',
 ])
 def test_excluded_tagging_does_not_hide_other_findings(tail):
     config = PATTERNS[0][1].removesuffix('exit') + tail + '\nexit'

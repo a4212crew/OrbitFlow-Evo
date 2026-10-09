@@ -346,7 +346,7 @@ No live-device compliance validation has been performed.
 
 Add `--methodology-report` to the compliance `run` command to also write
 `methodology_resolution_<run-id>.xlsx` alongside the unchanged compliance report.
-The separate workbook contains Methodology Resolution, Run Errors and Details;
+The separate workbook contains Methodology Resolution, Run Errors, Details and Evidence Details;
 it retains per-device/interface/service identity, M01–M08 resolution, binding
 status, findings, source lines, outer/inner tags and explicit Review Needed values.
 Equivalent local/global EVC bindings still require review. A classification does
@@ -364,8 +364,9 @@ and does not change compliance findings, required VLANs or pass/fail results.
 The main sheet omits only Interface, Service Instance and Evidence Source;
 Config Interface, Evidence Lines and Configuration Facts Digest remain. Full
 service/source identity and all standards findings remain in Details. Safe CLI
-evidence preserves indentation and source lines; unsupported operands remain
-redacted. See the [approved standards rules](docs/architecture/configuration/interface-methodology-review.md#approved-standards-review-issue-81).
+evidence preserves indentation and source lines, including unfamiliar forwarding
+modifiers and interface/service/domain identifiers. Disclosure does not establish
+supported forwarding semantics or change methodology/standards classification. See the [approved standards rules](docs/architecture/configuration/interface-methodology-review.md#approved-standards-review-issue-81).
 
 To recover this report without device access:
 
@@ -383,10 +384,48 @@ produce an explicit unavailable-evidence review row rather than guessing from
 compliance summaries. `orbitflow.compliance.methodology.resolve_methodologies()`
 accepts the existing DeviceContext, interface records and VlanState for offline
 use. Its configuration-facts digest identifies the sanitized fact projection,
-not a raw backup or a guarantee of current live state. Unsupported forwarding
-syntax retains a safe omission marker and line number; arbitrary unknown CLI
-text is not exported. Full structured records and oversized text are preserved
-in numbered Details fragments. No review import or Change Plan integration exists.
+not a raw backup or a guarantee of current live state.
+
+Evidence capture is limited to the forwarding statements and contexts inspected
+by the vendor observation adapter; this workbook is not a full configuration
+backup. Safe unknown forwarding syntax is retained verbatim, without a word
+allowlist. Credential command tokens (including Cisco key/authentication,
+Huawei cipher/simple and EdgeSwitch community constructs), quoted/free-form
+payloads, terminal controls, URLs and opaque encoded-looking operands are withheld
+with a source-located omission reason. Non-numeric unknown operands longer than
+256 characters are also treated as ambiguous and omitted; numeric VLAN lists are
+not subject to that limit. Known credential labels in descriptions are redacted.
+An omission is incomplete evidence requiring operator review, never proof of
+absence. Operators must not place credentials in ordinary interface/domain IDs
+or unlabeled descriptions: arbitrary text cannot be reliably identified as a
+secret by syntax alone. Existing runtime-supplied credential masking still applies.
+Raw secret-bearing configuration is never used as an export/recovery workaround.
+
+Supporting-only CLI without a matching methodology record is retained as
+`service_context` / `supporting_evidence`, classified `not_applicable` with no
+review requirement. This includes standalone pseudowire-class `encapsulation
+mpls` evidence; it does not establish a validated forwarding relationship.
+Unknown forwarding syntax remains reviewable. Source lines and CLI for both
+remain recoverable in Details and Evidence Details.
+
+There is no unsupported-statement count cutoff. Main-sheet values above 30,000
+characters contain an explicit Input Position/Record continuation reference.
+`Details` holds the full structured record in numbered JSON fragments: concatenate
+parts for the same Input Position/Record before JSON decoding. `Evidence Details`
+holds readable CLI fragments keyed by Input Position, Record, Source Filename,
+one-based Line and Part. Concatenate parts without adding whitespace to recover
+an original line. Both include omission markers where disclosure was unsafe.
+Sheets continue as numbered tabs at Excel's 1,048,576-row limit; search all tabs
+with the corresponding name prefix. The approved main-sheet columns are unchanged
+and all cells are literal text, including formula-looking content.
+
+Export consumes one target outcome at a time from the shared spool and writes
+streaming worksheets; memory still scales with the largest individual target,
+not the full run. Disk/Excel practical capacity remains finite. An export failure
+retains the spool for retry; do not delete it until the workbook is reviewed.
+Old spools cannot recover text omitted by older capture code: recollect/offline
+re-observe the source configuration to refresh that evidence. No review import,
+new classification rule, automatic remediation or Change Plan integration exists.
 
 ## Tests
 

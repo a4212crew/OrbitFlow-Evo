@@ -485,10 +485,16 @@ streamed Excel workbook with evidence, findings and explicit review outcomes.
 Compliance-only runs skip methodology resolution. Projection failures are stored
 separately and exported as review-needed failures; compliance findings, health,
 ordinary errors, device failure counts and normal reports remain unchanged.
-Unknown forwarding syntax retains bounded, sanitized statement evidence and source
-context in the methodology workbook/Details. A disclosure vocabulary redacts
-arbitrary operands; unsafe/oversized statements and evidence beyond the capture
-limit have explicit omission markers. XR routed/BVI and pseudowire attachments
+Issue #83 preserves safe forwarding CLI verbatim, including unfamiliar syntax and
+identifiers, with source filenames/one-based lines and explicit unsafe-disclosure
+omission reasons. Vendor credential constructs and ambiguous free-form/opaque
+payloads fail closed; the word allowlist and 256-statement cutoff are removed.
+Methodology export adds readable Evidence Details and keyed continuation references
+for oversized main-sheet fields, streamed JSON fragments and numbered continuation
+sheets at Excel's row limit. Shared spool recovery and the approved main columns
+remain unchanged. Memory is bounded by the largest target outcome, not the run;
+old capture omissions require re-observation. Classification/policy semantics
+remain unchanged; validation is deterministic and synthetic only. XR routed/BVI and pseudowire attachments
 are separate service context, not M04 Ethernet L2 transport; empty parent
 interfaces and out-of-scope switchport controls no longer create noisy review rows.
 These revisions have synthetic regression coverage only. Configuration-facts

@@ -172,10 +172,29 @@ def resolved_records(resolver):
                             review_needed=True, configuration_findings=[problem], evidence=problem["evidence"],
                             mapping={k: v for k, v in problem.items() if k not in {"code", "evidence"}}))
 
+    unknown_contexts = {}
+
     def unknowns(nodes, interface="", service="", ancestors=()):
         for node in nodes:
             owner = node.value if node.kind in {"interface", "l2_interface"} else interface
             service_id = node.value if node.kind == "service_instance" else service
+            if node.kind == "methodology_evidence":
+                attached = False
+                locations = {(n.source_filename, n.line) for n in ancestors}
+                for record in records:
+                    if ((owner and resolver.key(record["config_interface_name"]) == resolver.key(owner)
+                         and (not service_id or record.get("service_instance_id") == service_id))
+                            or (not owner and any((p["source_filename"], p["line"]) in locations
+                                                  for p in record["evidence"]))):
+                        record["evidence"] += evidence((node,))
+                        attached = True
+                if not attached:
+                    # Supporting CLI is context, not an unresolved forwarding
+                    # relationship. Unknown syntax still adds findings below.
+                    records.append(dict(record_kind="service_context", config_interface_name=owner,
+                                        service_instance_id=service_id, methodology=[], subtype="supporting_evidence",
+                                        status="out_of_scope", review_needed=False, mapping={}, configuration_findings=[],
+                                        evidence=evidence((*ancestors, node))))
             if node.kind == "methodology_switchport_enabled" and family != "EdgeSwitch":
                 for record in records:
                     if owner and resolver.key(record["config_interface_name"]) == resolver.key(owner):
@@ -212,8 +231,10 @@ def resolved_records(resolver):
                         record.update(status="review_needed", review_needed=True)
                         record["configuration_findings"].append(dict(code=code, evidence=[e for p in profiles for e in p["evidence"]]))
             if node.kind == "methodology_unknown":
-                matching = [r for r in records if owner and resolver.key(r["config_interface_name"]) == resolver.key(owner)
-                            and (not service_id or r.get("service_instance_id") == service_id)]
+                context_key = tuple((n.source_filename, n.line) for n in ancestors)
+                matching = ([r for r in records if resolver.key(r["config_interface_name"]) == resolver.key(owner)
+                             and (not service_id or r.get("service_instance_id") == service_id)] if owner else
+                            [unknown_contexts[context_key]] if context_key in unknown_contexts else [])
                 for record in matching:
                     record.update(status="review_needed", review_needed=True)
                     record["configuration_findings"].append(dict(code="UNSUPPORTED_FORWARDING_SYNTAX", evidence=evidence((node,))))
@@ -222,6 +243,8 @@ def resolved_records(resolver):
                     records.append(dict(record_kind="syntax_exception", config_interface_name=owner, service_instance_id=service_id, methodology=[],
                                         subtype="unknown", status="unresolved", review_needed=True,
                                         configuration_findings=[dict(code="UNSUPPORTED_FORWARDING_SYNTAX", evidence=evidence((node,)))], evidence=evidence((*ancestors, node))))
+                    if not owner:
+                        unknown_contexts[context_key] = records[-1]
             unknowns(node.children, owner, service_id, (*ancestors, replace(node, children=())))
     unknowns(resolver.review_roots)
     classify_records(resolver, records)
