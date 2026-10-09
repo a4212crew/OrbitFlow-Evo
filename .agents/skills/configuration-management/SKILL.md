@@ -38,9 +38,11 @@ Run `python -m pytest tests/test_configuration_plans.py -q` and appropriate shar
 inventory/vendor regressions. Cover identity, mutation, expiry, tampering,
 credential rejection and no device side effects for changes.
 
-## Future Engineer-Reviewed Templates and Bulk Input (Not Yet Implemented)
+## Future Guided Bulk Configuration Planning — Approved C1–C4 Design (Not Yet Implemented)
 
-Follow `docs/architecture/configuration/interface-methodology-review.md`.
+Follow `docs/architecture/configuration/guided-bulk-planning.md` for the approved integrated C1–C4 intent-driven Excel workflow and deferred Gap B boundary. Engineers provide device/interface/action, not methodology or template IDs; generate required action-specific fields from a versioned, profile-gated template catalogue. Unique compatible matches may be proposed, ambiguity requires engineer selection, and no compatible template fails closed. Preserve exact per-device order for multiple templates and advanced manual CLI on one interface, validate known effects/conflicts and block any unknown manual-CLI effect from execution authorization. Use a versioned extension to the immutable offline Change Plan contract; never weaken existing v1 allowlists, digest checks or authority rules. C1–C4 do not connect to devices or execute configuration.
+
+Follow `docs/architecture/configuration/interface-methodology-review.md` for methodology facts.
 Existing AuditResolver observations feed an engineer-reviewed resolution report;
 engineers select approved, versioned templates to **update existing** interfaces
 or **configure new** interfaces. No automatic template choice solely by model or
