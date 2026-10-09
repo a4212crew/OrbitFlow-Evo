@@ -32,8 +32,14 @@ def resolved_records(resolver):
     def emit(key, methods, subtype, *, mapping=None, proof=None, status="resolved", extra=()):
         row = resolver.rows[key]
         problems = list(row["configuration_findings"])
+        service_id = (mapping or {}).get("service_instance_id", "")
+        if service_id:
+            # Audit rows aggregate all services on the parent. Project only
+            # this service's defects, retaining interface-wide findings.
+            problems = [p for p in problems
+                        if not p.get("service_instance_id") or p["service_instance_id"] == service_id]
         problems.extend(dict(code=code, evidence=[]) for code in extra)
-        if status == "resolved" and (row["review"] or problems):
+        if status == "resolved" and (problems or (row["review"] and not service_id)):
             status = "review_needed"
         record = dict(record_kind="interface_service", config_interface_name=row["config_interface_name"],
                       parent_interface=parent_name(row["config_interface_name"]) or "",

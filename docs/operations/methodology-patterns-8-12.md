@@ -18,6 +18,14 @@ untagged/BVI context. Consequently the separate compliance workbook can still
 show its existing numeric-mapping/non-l2transport findings. Methodology standards
 do not override policy, validate live forwarding or approve configuration.
 
+ASR920 services on the same parent are classified independently: a valid local
+BD remains standard M03 (global-only M02; matching local/global M02 and M03)
+when a sibling service is unbound, conflicting or lacks usable encapsulation.
+Only that sibling carries its service-specific review findings and exact CLI
+evidence. Interface-wide ambiguity, such as multiple untagged services, still
+requires review. The compliance workbook retains its existing parent-level
+aggregation and findings.
+
 ## Operator post-PR run
 
 From the installed project environment, use the existing read-only command,
@@ -47,6 +55,11 @@ the command requires no new credential arguments. Reports default to
    configuration, policy and identities. Database/interface memberships, health,
    trigger applicability and missing VLANs must remain unchanged. Account for
    actual device/configuration changes between collections.
+   For PR #86 revalidation, include an ASR920 parent with both a valid local-BD
+   service and an unbound sibling. Verify the valid service is standard M03 and
+   only the unbound service shows `UNRESOLVED_SERVICE_INSTANCE`, with its own SI
+   header/encapsulation evidence. Include shutdown parents and global bindings
+   where available; retain checks for Patterns 8, 10 and 11.
 5. Record the run ID, tested families/patterns, report outcomes and unresolved
    exceptions for engineer review. Engineering Review Decision remains
    `not_reviewed`; automated classification does not constitute sign-off.

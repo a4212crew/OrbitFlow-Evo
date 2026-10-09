@@ -546,6 +546,9 @@ and untagged attachments, and local/global EVC bindings including split-horizon
 modifiers. Real interface identity, exact evidence and unresolved references
 remain visible; equivalent local/global bindings are standard. Compliance
 semantics and Pattern 9 are unchanged, with frozen baseline-equivalence tests.
+PR #86 revision scopes EVC service-specific methodology findings to their own
+service-instance IDs, so valid ASR920 bindings remain standard beside unresolved
+siblings. Interface-wide findings and parent-level compliance remain unchanged.
 Synthetic validation is implemented; operator live report validation remains
 required before completion/merge approval. See
 `docs/operations/methodology-patterns-8-12.md` for the command and expected outcomes.

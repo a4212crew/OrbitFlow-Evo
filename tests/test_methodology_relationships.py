@@ -134,6 +134,62 @@ def test_asr_policy_range_does_not_invalidate_the_binding():
     assert rows[0]['mapping']['resolved_bridge_domain'] == ['4094']
 
 
+@pytest.mark.parametrize('binding', ['local', 'global', 'both'])
+@pytest.mark.parametrize('shutdown', [False, True])
+@pytest.mark.parametrize('bad_first', [False, True])
+@pytest.mark.parametrize('bad_body,code', [
+    ('  encapsulation dot1q 545\n', 'UNRESOLVED_SERVICE_INSTANCE'),
+    ('  encapsulation dot1q 545\n  bridge-domain 545\n  bridge-domain 2449\n',
+     'CONFLICTING_BRIDGE_DOMAIN_BINDING'),
+    ('  bridge-domain 545\n', 'UNCLEAR_EVC_CLASSIFICATION'),
+])
+def test_asr_services_are_classified_independently(binding, shutdown, bad_first, bad_body, code):
+    good = (' service instance 7 ethernet\n  encapsulation dot1q 3999\n'
+            + ('  bridge-domain 445\n' if binding in {'local', 'both'} else ''))
+    bad = ' service instance 8 ethernet\n' + bad_body
+    config = ('interface Gi0/1\n' + (' shutdown\n' if shutdown else '')
+              + (bad + good if bad_first else good + bad)
+              + ('!\nbridge-domain 445\n member Gi0/1 service-instance 7\n'
+                 if binding in {'global', 'both'} else ''))
+    ctx, state = snapshot(config, 'ASR920')
+    before = evaluate_vlan_compliance(ctx, [], state, POLICY)
+    rows = resolve_methodologies(ctx, [], state)
+    assert evaluate_vlan_compliance(ctx, [], state, POLICY) == before
+    services = {r['service_instance_id']: r for r in rows}
+    assert set(services) == {'7', '8'}
+    valid, invalid = services['7'], services['8']
+    assert valid['configuration_classification'] == 'standard_configuration'
+    assert valid['status'] == 'resolved' and not valid['review_needed']
+    assert valid['configuration_findings'] == []
+    assert valid['mapping']['resolved_bridge_domain'] == ['445']
+    assert valid['mapping']['outer_vlan'] == [3999]
+    assert valid['methodology'] == (['M02'] if binding == 'global' else
+                                    ['M03'] if binding == 'local' else ['M02', 'M03'])
+    assert invalid['review_needed']
+    assert invalid['configuration_classification'] == 'review_needed'
+    problem = next(p for p in invalid['configuration_findings'] if p['code'] == code)
+    assert problem['service_instance_id'] == '8'
+    assert code in {p['code'] for p in invalid['standard_findings']}
+    assert ' service instance 8 ethernet' in {p['excerpt'] for p in problem['evidence']}
+    assert ' service instance 8 ethernet' not in {p['excerpt'] for p in valid['evidence']}
+    for row in rows:
+        for proof in row['evidence']:
+            assert proof['source_filename'] == 'fixture.cfg'
+            assert proof['excerpt'] == config.splitlines()[proof['line'] - 1]
+
+
+def test_asr_interface_wide_ambiguity_is_not_filtered_as_a_sibling_defect():
+    config = ('interface Gi0/1\n service instance 7 ethernet\n'
+              '  encapsulation untagged\n  bridge-domain 445\n'
+              ' service instance 8 ethernet\n  encapsulation untagged\n  bridge-domain 545')
+    rows = resolve(config, 'ASR920')
+    assert len(rows) == 2
+    for row in rows:
+        assert row['review_needed']
+        assert 'MULTIPLE_UNTAGGED_SERVICE_INSTANCES' in {
+            p['code'] for p in row['standard_findings']}
+
+
 def test_pseudowire_attachment_validation_is_out_of_scope():
     config = ('interface PW-Ether7 l2transport\n!\nl2vpn\n bridge group G\n'
               '  bridge-domain A\n   interface PW-Ether7\n'
