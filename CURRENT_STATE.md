@@ -477,7 +477,7 @@ The prompt correction awaits operator-controlled live retesting.
 
 ## VLAN Configuration Audit
 
-Issue #79 adds a separate M01–M07 methodology projection through the existing
+Issue #79 adds a separate M01–M08 methodology projection through the existing
 family AuditResolver, preserving service/child identities, local/global EVC
 bindings, XR attachments, Huawei VSI and EdgeSwitch ownership. Opt-in
 `--methodology-report` collects and retains review records, then exports a separate
@@ -503,6 +503,14 @@ by deterministic tests; existing missing-parent findings remain visible.
 Revision validation: 285 audit/compliance/report regressions and 134 focused
 methodology/observation/validation tests passed; all 1,723 captured pre/post
 compliance result hashes matched (compared as a multiset for concurrent runs).
+The NE05E revision adds M08 `vlan_tagged_subinterface` for explicit
+`vlan-type dot1q` on logical subinterfaces, preserving exact identities, tags and
+source evidence in the existing methodology workbook mapping. Encapsulation
+alone leaves role `not_determined` without requiring review; genuine conflicts
+and missing parents remain reviewable. No L2/VSI/database membership or template
+eligibility is inferred. Case/whitespace variants are review-only facts excluded
+from compliance; existing canonical invalid-tag errors remain unchanged.
+Operator-supplied NE05E examples have deterministic offline coverage only.
 Compliance outputs remain unchanged: 180 representative pre/post result hashes
 matched and 281 existing audit/compliance/report regressions passed. Focused
 methodology/workbook and VLAN observation tests pass. Validation is synthetic;

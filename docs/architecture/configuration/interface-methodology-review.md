@@ -18,7 +18,7 @@ Reuse `src/orbitflow/vendors/configuration_facts.py` and
 existing `VlanService`, inventory, configuration backup, shared reporting and
 execution infrastructure. The resolver already validates conventional Cisco
 switching, EVC local/global binding, XR bridge-domain attachments, Huawei VSI,
-and EdgeSwitch membership. Issue #79 adds M01–M07 review records and a separate
+and EdgeSwitch membership. Issue #79 adds M01–M08 review records and a separate
 Excel export; it does not import engineer decisions or select templates. The current Configurator only
 renders allowlisted Cisco VLAN creation from normalized JSON and requires
 per-plan approval; raw Excel import and pre-approved template policy do not
@@ -35,6 +35,7 @@ exist. Keep audit policy outputs backward compatible.
 | M05 | EdgeSwitch explicit VLAN participation, tagging, PVID | Interface/LAG member owner |
 | M06 | Huawei conventional access/trunk/hybrid | Interface and switchport mode |
 | M07 | Huawei VLAN termination bound to VSI | Termination/subinterface and VSI relation |
+| M08 | Huawei NE05E VLAN-tagged subinterface | Logical interface with explicit `vlan-type dot1q <VID>` |
 
 The methodology is a classification of observed configuration, **not** an
 automatic template selection. A single device, and even a single physical
@@ -44,6 +45,31 @@ flatten QinQ or convert unrelated domain IDs into VLANs. A global and local EVC
 binding on the same service must be reported with both sources; distinguish an
 equivalent duplicate from a conflict and require review rather than selecting
 one silently. Preserve unresolved references and unknown syntax explicitly.
+
+### Huawei VLAN-tagged subinterfaces (Issue #79 revision)
+
+M08 is independent of M06 switching and M07 termination/VSI. A configured NE05E
+logical subinterface with `vlan-type dot1q <VID>` has subtype
+`vlan_tagged_subinterface`. Its workbook Mapping retains `outer_vlan`, an empty
+`inner_vlan`, `encapsulation_type=vlan-type-dot1q` and `role=not_determined`.
+The interface, parent and source evidence preserve the configured spelling and
+line numbers. Neither a subinterface suffix nor a description establishes a tag
+or forwarding role. Encapsulation alone does not establish L2 forwarding, VSI
+binding, audit/database membership or template eligibility.
+
+Valid encapsulation resolves without review solely for an undetermined role.
+Missing parents, distinct conflicting tags, mixed switching/termination/VSI
+constructs and unsupported syntax retain source-backed review findings.
+Repeated identical tags are not a conflict. Absent/malformed encapsulation never
+establishes M08. The existing numeric syntax range (1–4094) and canonical invalid
+numeric tag `ValueError` behavior are unchanged; this is separate from the audit
+policy range. Case/whitespace variants of Huawei interface declarations and
+encapsulation are observed as review-only facts and promoted only for methodology
+resolution through the same family resolver. Compliance excludes these facts.
+
+The existing workbook columns and Details JSON carry M08 without schema changes.
+Operator-provided NE05E examples are covered by offline deterministic fixtures;
+no deployment or live-device validation is implied.
 
 ### Observed tag-rewrite attributes (Issue #79 revision)
 
@@ -109,7 +135,7 @@ raw configurations in Excel, logs, issues or committed fixtures.
   original evidence and parent/subinterface associations; EVC inline/global
   binding facts; XR and Huawei/VSI resolution; EdgeSwitch tagged/PVID mapping;
   synthetic regression tests in `tests/test_vlan_configuration_audit.py`.
-- **Gap A — Methodology readout:** M01–M07/subtype fields and evidence-backed
+- **Gap A — Methodology readout:** M01–M08/subtype fields and evidence-backed
   service-scoped rows, accurate mixed/conflict flags, backward-compatible audit
   output and workbook export. Keep parsers/resolver owned by existing modules.
 - **Gap B — Engineer review:** source-bound review decisions, stable row IDs,

@@ -126,6 +126,20 @@ def resolved_records(resolver):
                  mapping=dict(mapping, vsi_bindings=bindings, outer_vlan=configured_values(lines, "termination"),
                               inner_vlan=configured_values(lines, "inner_vlan")),
                  status="resolved" if mapping.get("binding_status") == "valid" else "unresolved")
+        if family == "NE05E" and parent_name(node.value) and children(lines, "encapsulation"):
+            # VRP encapsulation facts here are vlan-type dot1q, not termination.
+            # Neither the audit row's default routed type nor a tag proves role.
+            outer = configured_values(lines, "encapsulation")
+            mixed = any(n.kind in switching | {"termination", "vsi_binding", "control_vid"} for n in lines)
+            record = emit(key, ["M08"], "vlan_tagged_subinterface",
+                          mapping=dict(outer_vlan=outer, inner_vlan=[],
+                                       encapsulation_type="vlan-type-dot1q", role="not_determined"))
+            for code, nodes in (
+                    ("CONFLICTING_VLAN_TAGS", children(lines, "encapsulation") if len(outer) > 1 else []),
+                    ("MIXED_INTERFACE_CONSTRUCTS", list(lines) if mixed else [])):
+                if nodes:
+                    record.update(status="review_needed", review_needed=True)
+                    record["configuration_findings"].append(dict(code=code, evidence=evidence(nodes)))
         if family == "EdgeSwitch" and (any(n.kind in {"include", "exclude", "tagged", "pvid", "untagged_vlans"}
                                            for n in lines) or row.get("inherited_from")):
             emit(key, ["M05"], row["interface_type"], mapping={k: row.get(k, []) for k in

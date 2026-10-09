@@ -81,7 +81,11 @@ _PATTERNS = {platform: tuple((kind, re.compile(pattern), conversion)
                                         ("cisco_xr", _XR), ("huawei_vrp", _VRP),
                                         ("ubiquiti_edgeswitch", _EDGE))}
 _CONTAINERS = {"interface", "l2_interface", "service_instance", "l2vpn", "bridge_group",
-               "bridge_domain", "vsi", "vlan_database", "vlan"}
+               "bridge_domain", "vsi", "vlan_database", "vlan", "methodology_interface"}
+# Tolerant Huawei spellings are review-only: never widen compliance facts.
+_VRP_REVIEW_ENCAPSULATION = re.compile(
+    next(pattern for kind, pattern, _ in _VRP if kind == "encapsulation").replace(" ", r"\s+"),
+    re.IGNORECASE)
 
 
 def _tag_rewrite(line):
@@ -158,7 +162,7 @@ def _review_excerpt(raw):
 def _review_candidate(line, stack):
     # Limit unknown capture to forwarding contexts, never arbitrary global CLI.
     kinds = {item[1][0] for item in stack}
-    if not kinds.intersection({"interface", "l2_interface", "service_instance", "bridge_domain", "vsi"}):
+    if not kinds.intersection({"interface", "methodology_interface", "l2_interface", "service_instance", "bridge_domain", "vsi"}):
         return False
     return bool(re.match(
         r"(?:switchport(?: (?:mode|access|trunk|voice|vlan))?|encapsulation|"
@@ -231,11 +235,24 @@ def observe_configuration(output, platform, *, source_filename="running-config")
             # reference, never arbitrary unrecognized command text.
             entries.append(("unsupported_allowed", "invalid_allowed_operation"))
             raw = " " * indent + "switchport trunk allowed vlan [unrecognized operation omitted]"
+        if not entries and platform == "huawei_vrp":
+            review_interface = re.fullmatch(rf"interface\s+({_NAME})", line, re.IGNORECASE)
+            review_encapsulation = _VRP_REVIEW_ENCAPSULATION.fullmatch(line)
+            if review_interface:
+                entries.append(("methodology_interface", review_interface[1]))
+            elif review_encapsulation:
+                try:
+                    tags = parse_vlan_list(review_encapsulation[1])
+                except ValueError:
+                    pass  # Preserve existing malformed-variant review behavior.
+                else:
+                    entries.append(("methodology_encapsulation", tags))
         if not entries and platform in {"cisco_ios", "cisco_xe", "cisco_xr"} and stack:
             rewrite = _tag_rewrite(line)
             if rewrite is not None:
                 entries.append(("tag_rewrite", rewrite))
-        if not entries and _review_candidate(line, stack):
+        review_line = " ".join(line.lower().split()) if platform == "huawei_vrp" else line
+        if not entries and _review_candidate(review_line, stack):
             # Review-only nodes are stripped before audit resolution.
             review_count += 1
             if review_count <= 256:
