@@ -97,6 +97,46 @@ coexistence. Other switching conflicts, unresolved bindings and missing parents
 remain visible. No compliance facts, workbook contracts or template decisions
 change.
 
+## Approved standards review (Issue #81)
+
+`methodology_standards.py` classifies the methodology projection independently
+of authoritative audit findings, health and compliance. It consumes typed
+configuration facts and exact relationships; reporting never interprets CLI.
+Each record retains its resolution, original audit findings, a separate
+`standard_findings` list and a primary `standard_finding`. The primary finding
+prioritizes confirmed wrong configuration, then review, non-standard and standard
+configuration; severity breaks ties. `wrong_configuration` uses `error`, review
+and working non-standard use `warning`, and informational exceptions use
+`informational`. `critical` is reserved; no current rule assigns it.
+
+| Pattern | Standards outcome |
+|---|---|
+| EdgeSwitch final explicit exclusion with retained tagging | `standard_configuration` / informational `EXCLUDED_VLAN_TAGGING_INACTIVE`; independent PVID, membership and syntax conflicts still require review. |
+| Allowed trunk VLAN absent from database | `standard_configuration` / informational `ALLOWED_VLAN_NOT_IN_DATABASE`; required-VLAN compliance remains unchanged. |
+| Known EdgeSwitch switchport style with selected access/trunk mode | `working_non_standard` / `EDGESWITCH_SWITCHPORT_STYLE`; unknown, incomplete or mixed native/alternative syntax requires review. |
+| IOS/IOS-XE selected access/trunk mode with residual settings | `working_non_standard` / `RESIDUAL_SWITCHPORT_SETTINGS`; competing modes, routed intent and unsupported allowed operations remain reviewable. |
+| ME3600X trunk mode, allowed VLAN none and valid distinct EVC services | `standard_configuration` / `ME3600X_STANDARD_EVC_TRUNK`; absent prerequisites, unresolved bindings and overlapping ingress tags require review. QinQ inner tags remain distinct. |
+| Confirmed physical-member/LAG VLAN differences | `wrong_configuration` / error `LAG_MEMBER_CONFIGURATION_MISMATCH`; retain the explicit membership reference, both original stanzas and exact field differences before inherited/database-filtered facts. Compare every configured field: an omitted counterpart with unknown effective value yields `review_needed` / warning `LAG_MEMBER_CONFIGURATION_UNRESOLVED`, with per-field explanation and a null unknown value, never assumed equality. Entirely unconfigured members may inherit supported aggregate ownership; partial settings do not prove field-level inheritance. Confirmed differences take precedence over simultaneous unknowns. Missing or ambiguous membership requires review. |
+| No relevant L2 evidence | `not_applicable` / `NO_RELEVANT_L2_SERVICE`; incomplete or unsupported L2 constructs remain reviewable. Empty consolidated parent rows remain suppressed. |
+
+Known alternate EdgeSwitch statements and bare Cisco `switchport` are review-only
+facts excluded from audit inputs. Unknown forwarding evidence still uses bounded,
+fail-closed disclosure. The vocabulary includes the safe `mode` keyword; it does
+not authorize arbitrary operands. Original safe evidence retains indentation,
+source lines and service context; shared workbook writing protects formula cells.
+
+The main sheet adds Configuration Classification, Finding Severity, Standard
+Finding and Engineering Review Decision. Only Interface, Service Instance and
+Evidence Source are removed; Config Interface, Evidence Lines and Configuration
+Facts Digest remain. Internal records and streamed Details retain all identities,
+sources, digests and secondary findings. Run Errors and spool recovery remain.
+Legacy records without standards fields export an unavailable-assessment warning.
+
+Every generated record defaults to `not_reviewed`. `accepted`,
+`accepted_exception`, `remediation_required` and `deferred` are reserved for actual
+durable engineer decisions. No review import, operational verification,
+remediation, executable template selection or approval is implied.
+
 ## Proposed bulk workflow
 
 1. Accept a typed Excel target list: stable row ID, device, physical/logical

@@ -9,9 +9,10 @@ from orbitflow.result_spool import ResultSpool
 
 
 COLUMNS = ("Input Position", "Record", "Device ID", "Device IP", "Device Name", "Family",
-           "Record Kind", "Interface", "Config Interface", "Interface Match", "Parent Interface",
-           "Configuration Owner", "Service Instance", "Methodology", "Subtype", "Status", "Review Needed",
-           "Mapping", "Configuration Findings", "Configuration Evidence", "Evidence Source", "Evidence Lines",
+           "Record Kind", "Config Interface", "Interface Match", "Parent Interface",
+           "Configuration Owner", "Methodology", "Subtype", "Status", "Review Needed",
+           "Configuration Classification", "Finding Severity", "Standard Finding", "Engineering Review Decision",
+           "Mapping", "Configuration Findings", "Configuration Evidence", "Evidence Lines",
            "Configuration Facts Digest")
 
 
@@ -31,17 +32,24 @@ def export_methodology_spool(spool_path, path, *, cleanup=False, allow_partial=F
                     configuration_findings=[dict(code=("METHODOLOGY_RESOLUTION_FAILED"
                         if payload.get("methodology_errors") else "METHODOLOGY_EVIDENCE_UNAVAILABLE"))])]
                 for index, row in enumerate(rows, 1):
+                    # Legacy spools have no standards assessment or durable decision.
+                    row = dict(row)
+                    row.setdefault("configuration_classification", "review_needed")
+                    row.setdefault("finding_severity", "warning")
+                    row.setdefault("standard_finding", "STANDARDS_ASSESSMENT_UNAVAILABLE")
+                    row.setdefault("engineering_review_decision", "not_reviewed")
                     yield envelope["input_position"], index, row
 
         def values(row):
             device = row.get("device", {})
             excerpt, source, lines = configuration_evidence(dict(evidence=dict(sources=row.get("evidence", []))))
             return [device.get(k, "") for k in ("device_id", "management_ip", "hostname", "family")] + [
-                row.get(k, "") for k in ("record_kind", "interface_name", "config_interface_name", "interface_match_status",
-                                        "parent_interface", "configuration_owner", "service_instance_id")] + [
+                row.get(k, "") for k in ("record_kind", "config_interface_name", "interface_match_status",
+                                        "parent_interface", "configuration_owner")] + [
                 ", ".join(row.get("methodology", [])), row.get("subtype", ""), row.get("status", ""),
-                str(row.get("review_needed", True)), json.dumps(row.get("mapping", {}), sort_keys=True),
-                ", ".join(p["code"] for p in row.get("configuration_findings", [])), excerpt, source, lines,
+                str(row.get("review_needed", True)), row["configuration_classification"], row["finding_severity"],
+                row["standard_finding"], row["engineering_review_decision"], json.dumps(row.get("mapping", {}), sort_keys=True),
+                ", ".join(p["code"] for p in row.get("configuration_findings", [])), excerpt, lines,
                 row.get("configuration_facts_digest", "")]
 
         def summary():

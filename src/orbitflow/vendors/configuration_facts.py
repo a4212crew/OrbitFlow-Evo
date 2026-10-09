@@ -135,7 +135,7 @@ def _safe_source(text):
 # Disclosure vocabulary only: these words do not establish supported semantics.
 # Unknown operands may be arbitrary secrets, even without credential labels.
 _REVIEW_WORDS = frozenset("""switchport encapsulation dot1q second-dot1q untagged
- default priority-tagged exact any all none vlan vlans bridge-domain member
+ default priority-tagged exact any all none vlan vlans bridge-domain member mode
  service instance ethernet rewrite ingress tag pop push translate symmetric
  split-horizon group port link-type trunk hybrid access allow-pass tagged
  qinq termination vid pe-vid ce-vid l2 binding vsi vlan-type participation
@@ -247,6 +247,28 @@ def observe_configuration(output, platform, *, source_filename="running-config")
                     pass  # Preserve existing malformed-variant review behavior.
                 else:
                     entries.append(("methodology_encapsulation", tags))
+        if not entries and line == "switchport" and platform in {"cisco_ios", "cisco_xe", "ubiquiti_edgeswitch"}:
+            entries.append(("methodology_switchport_enabled", "enabled"))
+        if not entries and platform == "ubiquiti_edgeswitch":
+            # Known alternative syntax is review-only, never audit membership.
+            for kind, pattern, conversion in _PATTERNS["cisco_ios"]:
+                if kind not in {"mode", "access", "allowed", "allowed_add", "allowed_remove",
+                                "allowed_except", "native", "trunk_encapsulation"}:
+                    continue
+                match = pattern.fullmatch(line)
+                if not match:
+                    continue
+                value = match[1]
+                if kind == "mode" and value not in {"access", "trunk"}:
+                    continue
+                if kind == "trunk_encapsulation" and value != "dot1q":
+                    continue
+                if conversion == "list":
+                    try:
+                        value = value.upper() if value in {"all", "none"} else parse_vlan_list(value)
+                    except ValueError:
+                        continue
+                entries.append(("methodology_switchport_" + kind, value))
         if not entries and platform in {"cisco_ios", "cisco_xe", "cisco_xr"} and stack:
             rewrite = _tag_rewrite(line)
             if rewrite is not None:

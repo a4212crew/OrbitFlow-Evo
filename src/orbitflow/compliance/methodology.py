@@ -12,6 +12,7 @@ from orbitflow.compliance.resolvers import children, evidence, last, parent_name
 from orbitflow.compliance.vlan import safe_data
 from orbitflow.logging import sanitize_text
 from orbitflow.vendors.configuration_facts import _safe_source
+from orbitflow.compliance.methodology_standards import classify_records
 
 
 def configured_values(nodes, kind):
@@ -145,10 +146,22 @@ def resolved_records(resolver):
             emit(key, ["M05"], row["interface_type"], mapping={k: row.get(k, []) for k in
                  ("configured_membership_vlans", "configured_tagged_vlans", "configured_pvid", "tagged", "untagged")},
                  status="unresolved" if row["interface_type"] in {"routed", "no_membership"} else "resolved")
+        if family == "EdgeSwitch":
+            alternate = [c for root in resolver.review_roots
+                         if root.kind == "interface" and resolver.key(root.value) == key
+                         for c in root.children if c.kind.startswith("methodology_switchport_")]
+            if alternate:
+                record = (records[-1] if len(records) > count else
+                          emit(key, ["M05"], "switchport_style"))
+                record["mapping"]["configured_switchport"] = [asdict(n) for n in alternate]
+                record["evidence"] += evidence(alternate)
         if count == len(records) and any(n.kind not in {"description", "shutdown", "routed"} for n in lines) and not row["child_interfaces"]:
             if re.match(r"(?i)(?:pw-ether|pw-iw|pseudowire|bvi|bdi|loopback|mgmt)", node.value):
                 continue
             emit(key, [], "unclassified", status="unresolved", extra=("NO_SUPPORTED_METHODOLOGY_EVIDENCE",))
+        if count == len(records) and not row["child_interfaces"]:
+            emit(key, [], "unclassified" if node.kind == "l2_interface" else "no_l2_service",
+                 status="unresolved" if node.kind == "l2_interface" else "not_applicable")
 
     # Missing references are exceptions, never fabricated configured interfaces.
     for problem in resolver.problems:
@@ -163,6 +176,12 @@ def resolved_records(resolver):
         for node in nodes:
             owner = node.value if node.kind in {"interface", "l2_interface"} else interface
             service_id = node.value if node.kind == "service_instance" else service
+            if node.kind == "methodology_switchport_enabled" and family != "EdgeSwitch":
+                for record in records:
+                    if owner and resolver.key(record["config_interface_name"]) == resolver.key(owner):
+                        record["evidence"] += evidence((node,))
+                        if not record["methodology"]:
+                            record.update(subtype="unclassified", status="unresolved", review_needed=True)
             if node.kind == "tag_rewrite":
                 matching = [r for r in records if owner and resolver.key(r["config_interface_name"]) == resolver.key(owner)
                             and r.get("service_instance_id", "") == service_id]
@@ -205,6 +224,7 @@ def resolved_records(resolver):
                                         configuration_findings=[dict(code="UNSUPPORTED_FORWARDING_SYNTAX", evidence=evidence((node,)))], evidence=evidence((*ancestors, node))))
             unknowns(node.children, owner, service_id, (*ancestors, replace(node, children=())))
     unknowns(resolver.review_roots)
+    classify_records(resolver, records)
     return records
 
 
@@ -231,6 +251,10 @@ def resolve_methodologies(context, interfaces, vlans, *, management_ip="", clean
                             status="unresolved", review_needed=True, evidence=[], configuration_findings=[])]
     for record in records:
         record["device"] = device
+        record.setdefault("configuration_classification", "review_needed")
+        record.setdefault("finding_severity", "warning")
+        record.setdefault("standard_finding", "METHODOLOGY_EVIDENCE_UNAVAILABLE")
+        record["engineering_review_decision"] = "not_reviewed"
     sanitize = lambda value: clean(_safe_source(value))
     # Digest of the sanitized fact projection, explicitly not a raw backup hash.
     snapshot = safe_data([asdict(n) for n in vlans.configuration], sanitize) if vlans and vlans.configuration is not None else None

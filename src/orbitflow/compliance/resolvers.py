@@ -52,7 +52,8 @@ class AuditResolver:
         # Review-only syntax markers must never alter established audit facts.
         def audit_nodes(nodes):
             return tuple(replace(n, children=audit_nodes(n.children)) for n in nodes
-                         if n.kind not in {"methodology_unknown", "tag_rewrite",
+                         if not n.kind.startswith("methodology_switchport_")
+                         and n.kind not in {"methodology_unknown", "tag_rewrite",
                                            "methodology_interface", "methodology_encapsulation"})
         self.roots = audit_nodes(state.configuration)
         self.config, sources = {}, {}
