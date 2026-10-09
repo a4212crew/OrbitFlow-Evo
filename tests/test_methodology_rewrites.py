@@ -168,7 +168,8 @@ def test_rewrite_workbook_roundtrip_no_secret_and_determinism(tmp_path):
     book = load_workbook(path)
     first = [list(tab.values) for tab in book]
     headers, *values = book['Methodology Resolution'].values
-    service = next(dict(zip(headers, row)) for row in values if row[headers.index('Service Instance')] == '2244')
+    service = next(dict(zip(headers, row)) for row in values
+                   if json.loads(row[headers.index('Mapping')]).get('service_instance_id') == '2244')
     assert json.loads(service['Mapping'])['rewrite_profiles'][0]['operation'] == 'pop'
     assert 'rewrite ingress tag pop 1 symmetric' in service['Configuration Evidence']
     assert all(c.data_type != 'f' for tab in book for row in tab for c in row)

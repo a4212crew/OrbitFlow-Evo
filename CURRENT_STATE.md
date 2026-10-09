@@ -517,6 +517,19 @@ methodology/workbook and VLAN observation tests pass. Validation is synthetic;
 no real backup corpus or live devices were used. Review import, template
 selection, apply and Change Plan v1 changes remain out of scope.
 
+Issue #81 adds independent standards classification, severity, normalized finding
+codes and default `not_reviewed` engineer decisions to the methodology workbook.
+The seven approved patterns distinguish informational exclusion/database cases,
+known non-standard switchport styles/residual settings, standard ME3600X EVC
+prerequisites, confirmed member/LAG differences and interfaces without L2 service.
+Unknown/incomplete syntax, EVC overlap and ambiguous relationships remain reviewable.
+Only Interface, Service Instance and Evidence Source leave the main sheet; full
+identity/evidence remains in Details. Safe CLI retains original indentation and
+source lines; disclosure remains fail-closed. Deterministic synthetic fixtures
+include complete compliance-output hashes captured from the pre-Issue #81 baseline.
+Audit health, policy and pass/fail remain unchanged; no live-device validation or
+durable engineer approval is claimed.
+
 Issue #65 now implements the saved-configuration audit boundary:
 VlanService/vendor observation -> preserved configuration facts/evidence ->
 family-specific AuditResolver -> common external policy -> JSON spool/Excel.

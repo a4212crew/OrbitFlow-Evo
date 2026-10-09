@@ -342,15 +342,30 @@ The report preserves the ordered source statements. Malformed operations require
 review. ASR920 service-instance handling is unchanged.
 No live-device compliance validation has been performed.
 
-### Methodology review (Issue #79)
+### Methodology review (Issues #79 and #81)
 
 Add `--methodology-report` to the compliance `run` command to also write
 `methodology_resolution_<run-id>.xlsx` alongside the unchanged compliance report.
 The separate workbook contains Methodology Resolution, Run Errors and Details;
-it retains per-device/interface/service identity, M01–M07 classification, binding
+it retains per-device/interface/service identity, M01–M08 resolution, binding
 status, findings, source lines, outer/inner tags and explicit Review Needed values.
 Equivalent local/global EVC bindings still require review. A classification does
 not select a template or authorize configuration.
+
+The main sheet separates resolution from **Configuration Classification**
+(`standard_configuration`, `working_non_standard`, `wrong_configuration`,
+`review_needed`, `not_applicable`), **Finding Severity** and a normalized
+**Standard Finding**. **Engineering Review Decision** defaults to `not_reviewed`.
+The reserved decisions `accepted`, `accepted_exception`, `remediation_required`
+and `deferred` require an actual durable engineer decision; this exporter does
+not generate them. Standards classification is not verified operational health
+and does not change compliance findings, required VLANs or pass/fail results.
+
+The main sheet omits only Interface, Service Instance and Evidence Source;
+Config Interface, Evidence Lines and Configuration Facts Digest remain. Full
+service/source identity and all standards findings remain in Details. Safe CLI
+evidence preserves indentation and source lines; unsupported operands remain
+redacted. See the [approved standards rules](docs/architecture/configuration/interface-methodology-review.md#approved-standards-review-issue-81).
 
 To recover this report without device access:
 
