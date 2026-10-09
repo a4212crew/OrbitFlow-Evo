@@ -537,7 +537,8 @@ def test_evc_bridge_domain_rejects_unknown_or_malformed_modifiers(suffix):
     assert result[0]["observed"]["valid_database_vlans"] == []
     assert result[1]["observed"]["valid_interface_vlans"] == []
     assert "UNRESOLVED_SERVICE_INSTANCE" in codes(result[1])
-    assert suffix not in json.dumps([asdict(f) for f in observe_configuration(config, "cisco_xe")])
+    # Unsupported text is review-only evidence; never enters policy facts.
+    assert suffix not in json.dumps(result)
 
 
 def test_interface_states_and_missing_vlans_survive_spool_export(tmp_path):

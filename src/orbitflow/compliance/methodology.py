@@ -6,6 +6,7 @@ No template decisions, CLI parsing, execution or modification of compliance fact
 from dataclasses import asdict, replace
 import hashlib
 import json
+import re
 
 from orbitflow.compliance.resolvers import children, evidence, last, parent_name, resolver_for
 from orbitflow.compliance.vlan import safe_data
@@ -86,14 +87,21 @@ def resolved_records(resolver):
                 for domain in children(resolver.roots, "bridge_domain"):
                     if domain.value in global_:
                         records[-1]["evidence"] += evidence((replace(domain, children=()),))
-        if family == "NCS540" and (node.kind == "l2_interface" or key in xr_references):
+        if family == "NCS540" and (node.kind == "l2_interface" or key in xr_references or children(lines, "encapsulation")):
             # Use this child's own mapping, never a parent's consolidated list.
             mapping = row["numeric_mappings"][0]
             outer, inner = configured_values(lines, "encapsulation"), configured_values(lines, "inner_vlan")
-            emit(key, ["M04"], "l2transport_attachment", mapping=dict(mapping,
+            is_pw = bool(re.match(r"(?i)(?:pw-ether|pw-iw|pseudowire)", node.value))
+            is_l2 = node.kind == "l2_interface" and not is_pw and not re.match(r"(?i)(?:bvi|bdi)", node.value)
+            record = emit(key, ["M04"] if is_l2 else [],
+                 "pseudowire_attachment" if is_pw else "l2transport_attachment" if is_l2 else "routed_attachment",
+                 mapping=dict(mapping,
                  outer_vlan=outer, inner_vlan=inner,
                  encapsulation_type="dot1q" if outer else "untagged" if children(lines, "untagged") else "unknown"),
                  proof=mapping["evidence"], status="resolved" if not row["configuration_findings"] else "review_needed")
+            if not is_l2:
+                record.update(record_kind="service_context", parent_interface="",
+                              status="out_of_scope", review_needed=False)
             for root in children(resolver.roots, "l2vpn"):
                 for group in children(root.children, "bridge_group"):
                     for domain in children(group.children, "bridge_domain"):
@@ -112,7 +120,9 @@ def resolved_records(resolver):
             emit(key, ["M05"], row["interface_type"], mapping={k: row.get(k, []) for k in
                  ("configured_membership_vlans", "configured_tagged_vlans", "configured_pvid", "tagged", "untagged")},
                  status="unresolved" if row["interface_type"] in {"routed", "no_membership"} else "resolved")
-        if count == len(records):
+        if count == len(records) and any(n.kind not in {"description", "shutdown", "routed"} for n in lines) and not row["child_interfaces"]:
+            if re.match(r"(?i)(?:pw-ether|pw-iw|pseudowire|bvi|bdi|loopback|mgmt)", node.value):
+                continue
             emit(key, [], "unclassified", status="unresolved", extra=("NO_SUPPORTED_METHODOLOGY_EVIDENCE",))
 
     # Missing references are exceptions, never fabricated configured interfaces.
@@ -124,20 +134,22 @@ def resolved_records(resolver):
                             review_needed=True, configuration_findings=[problem], evidence=problem["evidence"],
                             mapping={k: v for k, v in problem.items() if k not in {"code", "evidence"}}))
 
-    def unknowns(nodes, interface=""):
+    def unknowns(nodes, interface="", service="", ancestors=()):
         for node in nodes:
             owner = node.value if node.kind in {"interface", "l2_interface"} else interface
+            service_id = node.value if node.kind == "service_instance" else service
             if node.kind == "methodology_unknown":
-                matching = [r for r in records if owner and resolver.key(r["config_interface_name"]) == resolver.key(owner)]
+                matching = [r for r in records if owner and resolver.key(r["config_interface_name"]) == resolver.key(owner)
+                            and (not service_id or r.get("service_instance_id") == service_id)]
                 for record in matching:
                     record.update(status="review_needed", review_needed=True)
                     record["configuration_findings"].append(dict(code="UNSUPPORTED_FORWARDING_SYNTAX", evidence=evidence((node,))))
                     record["evidence"] += evidence((node,))
                 if not matching:
-                    records.append(dict(record_kind="syntax_exception", config_interface_name="", methodology=[],
+                    records.append(dict(record_kind="syntax_exception", config_interface_name=owner, service_instance_id=service_id, methodology=[],
                                         subtype="unknown", status="unresolved", review_needed=True,
-                                        configuration_findings=[dict(code="UNSUPPORTED_FORWARDING_SYNTAX")], evidence=evidence((node,))))
-            unknowns(node.children, owner)
+                                        configuration_findings=[dict(code="UNSUPPORTED_FORWARDING_SYNTAX", evidence=evidence((node,)))], evidence=evidence((*ancestors, node))))
+            unknowns(node.children, owner, service_id, (*ancestors, replace(node, children=())))
     unknowns(resolver.review_roots)
     return records
 

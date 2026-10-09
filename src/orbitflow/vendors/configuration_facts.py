@@ -1,7 +1,7 @@
 """Syntax-preserving VLAN evidence shared by the existing observation adapters.
 
-Only recognized VLAN/interface statements enter the snapshot. No full config,
-credentials, command output, or arbitrary unknown lines are retained. This is
+Recognized VLAN/interface statements and bounded sanitized forwarding exceptions
+enter the snapshot. No full config, credentials or arbitrary unknown CLI is retained. This is
 observation, not relationship validation or compliance policy.
 """
 
@@ -91,6 +91,46 @@ def _safe_source(text):
                   r"\1 [REDACTED]", sanitize_text(text))
 
 
+# Disclosure vocabulary only: these words do not establish supported semantics.
+# Unknown operands may be arbitrary secrets, even without credential labels.
+_REVIEW_WORDS = frozenset("""switchport encapsulation dot1q second-dot1q untagged
+ default priority-tagged exact any all none vlan vlans bridge-domain member
+ service instance ethernet rewrite ingress tag pop push translate symmetric
+ split-horizon group port link-type trunk hybrid access allow-pass tagged
+ qinq termination vid pe-vid ce-vid l2 binding vsi vlan-type participation
+ tagging pvid include exclude enable disable allowed add remove except
+ native tunnel protocol ieee dot1ad""".split())
+_REVIEW_OMITTED = "[unsupported forwarding statement omitted: unsafe or oversized evidence]"
+
+
+def _review_excerpt(raw):
+    """Bounded, fail-closed disclosure; never retain unknown free-form values."""
+    if len(raw) > 512 or any(ord(c) < 32 and c != "\t" for c in raw):
+        return _REVIEW_OMITTED
+    words = raw.split()
+    if len(words) > 64:
+        return _REVIEW_OMITTED
+    if re.search(r"(?i)password|passwd|secret|token|credential|community|key|auth|otp", raw):
+        return _REVIEW_OMITTED
+    def disclose(match):
+        value = match[0]
+        return value if value in _REVIEW_WORDS or re.fullmatch(r"[0-9]{1,4}(?:[,-][0-9]{1,4})*", value) else "[REDACTED]"
+    return re.sub(r"\S+", disclose, raw)
+
+
+def _review_candidate(line, stack):
+    # Limit unknown capture to forwarding contexts, never arbitrary global CLI.
+    kinds = {item[1][0] for item in stack}
+    if not kinds.intersection({"interface", "l2_interface", "service_instance", "bridge_domain", "vsi"}):
+        return False
+    return bool(re.match(
+        r"(?:switchport(?: (?:mode|access|trunk|voice|vlan))?|encapsulation|"
+        r"service instance|bridge-domain|member|rewrite ingress tag|"
+        r"port (?:link-type|default|trunk|hybrid)|dot1q|qinq|l2 binding|"
+        r"vlan (?:participation|tagging|pvid)|vlan-type)(?:\s|$)", line)) and not line.startswith(
+            ("switchport nonegotiate", "switchport port-security", "switchport block", "switchport protected"))
+
+
 def observe_configuration(output, platform, *, source_filename="running-config"):
     """Preserve known statements with one-based lines and actual source excerpts.
 
@@ -100,6 +140,7 @@ def observe_configuration(output, platform, *, source_filename="running-config")
     """
     roots, stack = [], []
     banner_end = None
+    review_count = 0
     for number, raw in enumerate(output.splitlines(), 1):
         line = raw.strip()
         if banner_end is not None:
@@ -153,14 +194,15 @@ def observe_configuration(output, platform, *, source_filename="running-config")
             # reference, never arbitrary unrecognized command text.
             entries.append(("unsupported_allowed", "invalid_allowed_operation"))
             raw = " " * indent + "switchport trunk allowed vlan [unrecognized operation omitted]"
-        if not entries and re.match(
-                r"(?:switchport|encapsulation|service instance|bridge-domain|member|"
-                r"port (?:link-type|default|trunk|hybrid)|dot1q|qinq|l2 binding|"
-                r"vlan (?:participation|tagging|pvid)|vlan-type)(?:\s|$)", line):
-            # Preserve only the location of unsupported forwarding syntax. The
-            # audit resolver excludes these markers from compliance entirely.
-            entries.append(("methodology_unknown", "unsupported_forwarding_syntax"))
-            raw = " " * indent + "[unsupported forwarding statement omitted]"
+        if not entries and _review_candidate(line, stack):
+            # Review-only nodes are stripped before audit resolution.
+            review_count += 1
+            if review_count <= 256:
+                entries.append(("methodology_unknown", "unsupported_forwarding_syntax"))
+                raw = _review_excerpt(raw)
+            elif review_count == 257:
+                entries.append(("methodology_unknown", "review_evidence_limit"))
+                raw = "[further unsupported forwarding evidence omitted: storage limit]"
         for kind, value in entries:
             node = [kind, value, number, _safe_source(raw), []]
             (stack[-1][1][4] if stack else roots).append(node)

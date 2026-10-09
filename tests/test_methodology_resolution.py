@@ -72,7 +72,7 @@ def test_child_identity_qinq_and_no_inference():
     assert child['mapping']['inner_vlan'] == [17]
     assert child['mapping']['audit_vlan'] == [445]
     assert child['mapping']['bridge_domains'] == [['G', '4001']]
-    assert rows[0]['methodology'] == []
+    assert len(rows) == 1
 
 
 def test_unknown_partial_secret_and_missing_reference():
@@ -179,3 +179,67 @@ def test_run_exports_both_reports_before_cleanup(tmp_path, monkeypatch):
     assert path.exists()
     assert (tmp_path / ('methodology_resolution_' + spool.path.name + '.xlsx')).exists()
     assert not spool.path.exists()
+
+
+@pytest.mark.parametrize('statement,expected', [
+    ('encapsulation dot1q 445 exact', ' encapsulation dot1q 445 exact'),
+    ('encapsulation mystery arbitrary-sensitive-value', ' encapsulation [REDACTED] [REDACTED]'),
+    ('encapsulation dot1q 445 token confidential', '[unsupported forwarding statement omitted: unsafe or oversized evidence]'),
+    ('encapsulation dot1q 445 community confidential', '[unsupported forwarding statement omitted: unsafe or oversized evidence]'),
+    ('encapsulation =HYPERLINK("sensitive")', ' encapsulation [REDACTED]'),
+    ('encapsulation ' + 'z' * 600, '[unsupported forwarding statement omitted: unsafe or oversized evidence]'),
+])
+def test_unknown_disclosure_workbook_and_policy(tmp_path, statement, expected):
+    base = 'interface Gi0/1\n switchport mode trunk\n'
+    ctx, state = snapshot(base + ' ' + statement, 'C3850')
+    _, clean = snapshot(base, 'C3850')
+    assert evaluate_vlan_compliance(ctx, [], state, POLICY) == evaluate_vlan_compliance(ctx, [], clean, POLICY)
+    rows = resolve_methodologies(ctx, [], state)
+    proof = rows[0]['configuration_findings'][-1]['evidence'][0]
+    assert proof == dict(source_filename='fixture.cfg', line=3, excerpt=expected)
+    assert rows[0]['review_needed']
+    spool = ResultSpool.create(tmp_path / 'runs', 'vlan_compliance', 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload={'methodologies': rows})
+    book = load_workbook(export_methodology_spool(spool.path, tmp_path / 'review.xlsx'))
+    summary = str(list(book.worksheets[0].values))
+    details = ''.join(str(row[-1]) for row in list(book['Details'].values)[1:])
+    assert expected in summary
+    assert expected == json.loads(details)['configuration_findings'][-1]['evidence'][0]['excerpt']
+    assert 'confidential' not in details and 'sensitive' not in details
+    assert all(cell.data_type != 'f' for tab in book for row in tab for cell in row)
+    book.close()
+
+
+def test_unknown_service_context_and_bounded_capture():
+    config = ('interface Gi0/1\n service instance 7 ethernet\n  encapsulation dot1q 445 exact\n'
+              '  bridge-domain 445\n service instance 8 ethernet\n  encapsulation dot1q 545\n  bridge-domain 545')
+    rows = resolve(config, 'ASR920')
+    assert 'UNSUPPORTED_FORWARDING_SYNTAX' in json.dumps(rows[0])
+    assert 'UNSUPPORTED_FORWARDING_SYNTAX' not in json.dumps(rows[1])
+    rows = resolve('interface Gi0/1\n' + ' encapsulation dot1q 445 exact\n' * 1000)
+    assert len(rows) == 1
+    assert len(rows[0]["configuration_findings"]) == 257
+    assert rows[-1]['config_interface_name'] == 'Gi0/1'
+    assert 'storage limit' in json.dumps(rows[-1])
+
+
+def test_out_of_scope_noise_and_xr_attachment_identity():
+    config = ('interface TenGigE0/0/0/1\n description transit\n!\n'
+              'interface BVI445\n ipv4 address 192.0.2.1/24\n!\n'
+              'interface PW-Ether7\n!\n'
+              'interface TenGigE0/0/0/1.445 l2transport\n encapsulation dot1q 445\n!\n'
+              'l2vpn\n bridge group G\n  bridge-domain B\n'
+              '   routed interface BVI445\n   interface PW-Ether7\n   interface TenGigE0/0/0/1.445')
+    rows = resolve(config, 'NCS540')
+    assert len(rows) == 3
+    by_name = {r['config_interface_name']: r for r in rows}
+    for name, subtype in [('BVI445', 'routed_attachment'), ('PW-Ether7', 'pseudowire_attachment')]:
+        assert by_name[name]['subtype'] == subtype
+        assert by_name[name]['methodology'] == []
+        assert by_name[name]['record_kind'] == 'service_context'
+        assert by_name[name]['parent_interface'] == ''
+    assert by_name['TenGigE0/0/0/1.445']['methodology'] == ['M04']
+    noise = ('member arbitrary-global-value\ninterface Gi0/1\n switchport nonegotiate\n'
+             ' switchport port-security maximum 2\n ip address 192.0.2.1 255.255.255.0')
+    assert 'UNSUPPORTED_FORWARDING_SYNTAX' not in json.dumps(resolve(noise))

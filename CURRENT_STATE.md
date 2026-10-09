@@ -485,7 +485,13 @@ streamed Excel workbook with evidence, findings and explicit review outcomes.
 Compliance-only runs skip methodology resolution. Projection failures are stored
 separately and exported as review-needed failures; compliance findings, health,
 ordinary errors, device failure counts and normal reports remain unchanged.
-Unknown forwarding syntax carries sanitized line markers. Configuration-facts
+Unknown forwarding syntax retains bounded, sanitized statement evidence and source
+context in the methodology workbook/Details. A disclosure vocabulary redacts
+arbitrary operands; unsafe/oversized statements and evidence beyond the capture
+limit have explicit omission markers. XR routed/BVI and pseudowire attachments
+are separate service context, not M04 Ethernet L2 transport; empty parent
+interfaces and out-of-scope switchport controls no longer create noisy review rows.
+These revisions have synthetic regression coverage only. Configuration-facts
 digests cover the sanitized projection, not raw backups or live freshness.
 Compliance outputs remain unchanged: 180 representative pre/post result hashes
 matched and 281 existing audit/compliance/report regressions passed. Focused
