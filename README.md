@@ -349,8 +349,11 @@ Add `--methodology-report` to the compliance `run` command to also write
 The separate workbook contains Methodology Resolution, Run Errors, Details and Evidence Details;
 it retains per-device/interface/service identity, M01–M08 resolution, binding
 status, findings, source lines, outer/inner tags and explicit Review Needed values.
-Equivalent local/global EVC bindings still require review. A classification does
+Equivalent validated local/global EVC bindings are standard. A classification does
 not select a template or authorize configuration.
+
+Issue #85 refines pseudowire, routed BVI, untagged XR and EVC binding review.
+See [expected outcomes and required post-PR live validation](docs/operations/methodology-patterns-8-12.md).
 
 The main sheet separates resolution from **Configuration Classification**
 (`standard_configuration`, `working_non_standard`, `wrong_configuration`,

@@ -43,8 +43,9 @@ interface, can host multiple service constructs/methods. Preserve service IDs,
 outer/inner tags, encapsulation, domain/VSI ownership and source lines; do not
 flatten QinQ or convert unrelated domain IDs into VLANs. A global and local EVC
 binding on the same service must be reported with both sources; distinguish an
-equivalent duplicate from a conflict and require review rather than selecting
-one silently. Preserve unresolved references and unknown syntax explicitly.
+equivalent duplicate from a conflict. Issue #85 classifies proven equivalent
+bindings as standard while retaining both sources; conflicts require review.
+Preserve unresolved references and unknown syntax explicitly.
 
 ### Huawei VLAN-tagged subinterfaces (Issue #79 revision)
 

@@ -5,6 +5,7 @@ projection; audit findings remain intact even when standards assign less severit
 """
 
 from dataclasses import replace
+import re
 
 from orbitflow.compliance.resolvers import children, evidence, last
 
@@ -131,6 +132,16 @@ def classify_records(resolver, records):
     family = resolver.context.device_family
     evc_codes, relationships = {}, {}
     alternates = {}
+    xr_bindings = {}
+    for root in children(resolver.review_roots, "l2vpn"):
+        for group in children(root.children, "bridge_group"):
+            for domain in children(group.children, "bridge_domain"):
+                routed = {(n.source_filename, n.line) for n in
+                          children(domain.children, "methodology_routed_attachment")}
+                for attachment in children(domain.children, "attachment"):
+                    xr_bindings.setdefault(resolver.key(attachment.value), []).append(
+                        ((group.value, domain.value),
+                         (attachment.source_filename, attachment.line) in routed))
     for root in resolver.review_roots:
         if root.kind == "interface":
             alternates.setdefault(resolver.key(root.value), []).extend(
@@ -147,6 +158,34 @@ def classify_records(resolver, records):
                                  severity=severity, evidence=list(proof), **details))
 
         ignored = set()
+        if record["subtype"] == "pseudowire_attachment":
+            # Real configured interface identity is retained. PW forwarding and
+            # attachment validation are outside M01-M08, not missing L2 intent.
+            ignored.update({"NON_L2TRANSPORT_BRIDGE_DOMAIN_ATTACHMENT", "UNBOUND_L2TRANSPORT_SUBINTERFACE",
+                            "CONFLICTING_BRIDGE_DOMAIN_ATTACHMENTS", "L2TRANSPORT_WITHOUT_ENCAPSULATION",
+                            "UNTAGGED_BRIDGE_DOMAIN_MAPPING_UNRESOLVED", "PARENT_INTERFACE_NOT_FOUND"})
+            finding("PSEUDOWIRE_SERVICE_CONTEXT", "not_applicable", "none", record["evidence"])
+        if family == "NCS540" and node and record["subtype"] != "pseudowire_attachment":
+            bindings = xr_bindings.get(key, [])
+            single = len({domain for domain, _ in bindings}) == 1
+            if (single and all(routed for _, routed in bindings)
+                    and re.fullmatch(r"BVI\d+", node.value, re.IGNORECASE)
+                    and node.kind == "interface"):
+                ignored.add("NON_L2TRANSPORT_BRIDGE_DOMAIN_ATTACHMENT")
+                finding("VALID_ROUTED_BVI_ATTACHMENT", "standard_configuration", "none", record["evidence"])
+            if (single and all(not routed for _, routed in bindings) and node.kind == "l2_interface"
+                    and children(lines, "untagged") and not children(lines, "encapsulation")):
+                ignored.add("UNTAGGED_BRIDGE_DOMAIN_MAPPING_UNRESOLVED")
+                finding("VALID_UNTAGGED_BRIDGE_DOMAIN_ATTACHMENT", "standard_configuration", "none", record["evidence"])
+            if bindings and any(routed for _, routed in bindings) and not (
+                    re.fullmatch(r"BVI\d+", node.value, re.IGNORECASE) and node.kind == "interface"
+                    and all(routed for _, routed in bindings)):
+                finding("INVALID_ROUTED_BRIDGE_DOMAIN_ATTACHMENT", "review_needed", "warning", record["evidence"])
+        if record["subtype"].startswith("evc_"):
+            mapping = record["mapping"]
+            if mapping["binding_status"] == "valid" and not all(
+                    v.isdecimal() for v in mapping["resolved_bridge_domain"]):
+                finding("INVALID_EVC_BRIDGE_DOMAIN", "review_needed", "warning", record["evidence"])
         if family == "EdgeSwitch" and node:
             excluded = set()
             for fact in lines:

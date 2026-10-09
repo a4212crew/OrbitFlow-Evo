@@ -257,6 +257,17 @@ def observe_configuration(output, platform, *, source_filename="running-config")
                                 raise
                             kind, value = "unsupported_allowed", "invalid_allowed_operation"
                     entries.append((kind, value))
+        # Preserve additional relationship syntax for methodology review only.
+        # Existing compliance facts and their evidence projection stay unchanged.
+        if (platform in {"cisco_ios", "cisco_xe"} and not entries and stack
+                and stack[-1][1][0] == "bridge_domain"
+                and not any(n[1][0] in {"interface", "l2_interface", "service_instance"} for n in stack)):
+            member = re.fullmatch(rf"member ({_NAME} service-instance \d+) split-horizon group [0-9]+", line)
+            if member:
+                entries.append(("methodology_member", member[1]))
+        if platform == "cisco_xr" and any(kind == "attachment" for kind, _ in entries):
+            if line.startswith("routed interface "):
+                entries.append(("methodology_routed_attachment", entries[0][1]))
         if (platform in {"cisco_ios", "cisco_xe"}
                 and re.match(r"switchport trunk allowed vlan(?:\s|$)", line) and not entries):
             # Unknown tails can contain secrets. Retain a safe marker and line
@@ -313,7 +324,9 @@ def observe_configuration(output, platform, *, source_filename="running-config")
         }
         pseudowire_encapsulation = (
             platform.startswith("cisco_") and line == "encapsulation mpls" and stack
-            and stack[-1][1][:2] == ["methodology_context", "pseudowire_class"])
+            and (stack[-1][1][:2] == ["methodology_context", "pseudowire_class"]
+                 or (stack[-1][1][0] in {"interface", "l2_interface"}
+                     and re.match(r"(?i)(?:pseudowire|pw-ether|pw-iw)", stack[-1][1][1]))))
         if (not entries and stack and (pseudowire_encapsulation or
                 re.match(rf"(?:{supporting[platform]})(?:\s|$)", review_line))):
             entries.append(("methodology_evidence", "supporting_forwarding_source"))

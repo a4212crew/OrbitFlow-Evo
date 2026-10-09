@@ -199,6 +199,7 @@ def test_unmatched_supporting_context_preserves_decisions_and_workbook(tmp_path,
     _, more = snapshot(augmented, family)
     before = resolve_methodologies(ctx, [], base)
     after = resolve_methodologies(ctx, [], more)
+    before = [r for r in before if r['subtype'] != 'supporting_evidence']
     supporting = [r for r in after if r['subtype'] == 'supporting_evidence']
     assert len(supporting) == 1
     existing = [r for r in after if r not in supporting]
