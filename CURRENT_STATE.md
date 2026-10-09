@@ -493,6 +493,16 @@ are separate service context, not M04 Ethernet L2 transport; empty parent
 interfaces and out-of-scope switchport controls no longer create noisy review rows.
 These revisions have synthetic regression coverage only. Configuration-facts
 digests cover the sanitized projection, not raw backups or live freshness.
+The Issue #79 revision observes service-scoped Cisco tag rewrites (POP 1/2,
+strict PUSH/TRANSLATE forms) as separate methodology attributes with sanitized
+source evidence. Model/release support remains unassessed. Malformed syntax,
+unsupported scope and conflicting profiles require review. ME3600X empty trunks
+(`allowed vlan none`) can coexist with distinct M03 EVC records without a false
+mixed-construct finding. Operator-provided ME3600X/NCS540 excerpts are covered
+by deterministic tests; existing missing-parent findings remain visible.
+Revision validation: 285 audit/compliance/report regressions and 134 focused
+methodology/observation/validation tests passed; all 1,723 captured pre/post
+compliance result hashes matched (compared as a multiset for concurrent runs).
 Compliance outputs remain unchanged: 180 representative pre/post result hashes
 matched and 281 existing audit/compliance/report regressions passed. Focused
 methodology/workbook and VLAN observation tests pass. Validation is synthetic;

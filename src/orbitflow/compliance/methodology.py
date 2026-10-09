@@ -53,6 +53,17 @@ def resolved_records(resolver):
                 any(n.kind in switching for n in lines) or row.get("inherited_from")):
             mixed = bool(row["child_interfaces"]) or any(
                 n.kind in {"service_instance", "termination", "vsi_binding"} for n in lines)
+            # ME3600X may retain an empty conventional trunk alongside EVCs.
+            # Keep service membership out of the M01 projection even here.
+            empty_evc_trunk = (
+                family == "ME3600X" and bool(children(lines, "service_instance"))
+                and not row["child_interfaces"]
+                and {n.value for n in children(lines, "mode")} == {"trunk"}
+                and bool(children(lines, "allowed"))
+                and all(n.value == "NONE" for n in children(lines, "allowed"))
+                and not any(n.kind in {"access", "routed", "allowed_add", "allowed_remove",
+                                       "allowed_except", "unsupported_allowed", "termination", "vsi_binding"}
+                            for n in lines))
             membership = {k: row[k] for k in ("tagged", "untagged", "native", "pvid", "all_vlan")}
             if mixed:
                 # The audit row may contain service memberships/consolidation;
@@ -61,7 +72,7 @@ def resolved_records(resolver):
             membership["configured_switching"] = [asdict(n) for n in lines if n.kind in switching]
             emit(key, ["M06" if family in {"NE05", "NE05E"} else "M01"],
                  last(lines, "mode") or row["interface_type"],
-                 mapping=membership, extra=("MIXED_INTERFACE_CONSTRUCTS",) if mixed else ())
+                 mapping=membership, extra=("MIXED_INTERFACE_CONSTRUCTS",) if mixed and not empty_evc_trunk else ())
         if family in {"ASR920", "ME3600X"}:
             for mapping in row["numeric_mappings"]:
                 local, global_ = mapping["inline_bridge_domain"], mapping["global_bridge_domain"]
@@ -138,6 +149,35 @@ def resolved_records(resolver):
         for node in nodes:
             owner = node.value if node.kind in {"interface", "l2_interface"} else interface
             service_id = node.value if node.kind == "service_instance" else service
+            if node.kind == "tag_rewrite":
+                matching = [r for r in records if owner and resolver.key(r["config_interface_name"]) == resolver.key(owner)
+                            and r.get("service_instance_id", "") == service_id]
+                supported_scope = (
+                    (family in {"ME3600X", "ASR920"} and bool(service_id)) or
+                    (family == "NCS540" and not service_id and parent_name(owner)
+                     and resolver.config.get(resolver.key(owner)) is not None
+                     and resolver.config[resolver.key(owner)].kind == "l2_interface"))
+                if not matching:
+                    matching = [dict(record_kind="syntax_exception", config_interface_name=owner,
+                                     service_instance_id=service_id, methodology=[], subtype="rewrite_context",
+                                     status="review_needed", review_needed=True, mapping={},
+                                     configuration_findings=[], evidence=evidence(ancestors))]
+                    records.extend(matching)
+                for record in matching:
+                    profiles = record.setdefault("mapping", {}).setdefault("rewrite_profiles", [])
+                    profile = dict(asdict(node.value), config_interface_name=owner,
+                                   service_instance_id=service_id, evidence=evidence((node,)),
+                                   syntax_status="recognized", platform_support="not_assessed")
+                    conflicting = any(any(p[k] != profile[k] for k in
+                                          ("direction", "operation", "parameters", "symmetric")) for p in profiles)
+                    profiles.append(profile)
+                    record["evidence"] += evidence((node,))
+                    in_scope = supported_scope and (record["subtype"].startswith("evc_")
+                                                     or record["subtype"] == "l2transport_attachment")
+                    code = "REWRITE_SCOPE_UNSUPPORTED" if not in_scope else "CONFLICTING_TAG_REWRITES" if conflicting else ""
+                    if code:
+                        record.update(status="review_needed", review_needed=True)
+                        record["configuration_findings"].append(dict(code=code, evidence=[e for p in profiles for e in p["evidence"]]))
             if node.kind == "methodology_unknown":
                 matching = [r for r in records if owner and resolver.key(r["config_interface_name"]) == resolver.key(owner)
                             and (not service_id or r.get("service_instance_id") == service_id)]

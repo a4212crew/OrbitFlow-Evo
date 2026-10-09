@@ -45,6 +45,32 @@ binding on the same service must be reported with both sources; distinguish an
 equivalent duplicate from a conflict and require review rather than selecting
 one silently. Preserve unresolved references and unknown syntax explicitly.
 
+### Observed tag-rewrite attributes (Issue #79 revision)
+
+The existing configuration-fact observer retains `TagRewrite` facts separately
+from encapsulation and forwarding-domain binding. Methodology mappings expose
+`rewrite_profiles` with direction, operation, tag count, symmetric flag, exact
+parameters, ordered output tags, interface/service identity and sanitized source
+evidence. Tag count means removed tags for POP, added tags for PUSH and input
+tags for TRANSLATE. These review facts are excluded from compliance resolution.
+
+Strict recognized syntax includes ingress POP 1/2, PUSH dot1q (optionally
+second-dot1q) or dot1ad/dot1q stacks, and TRANSLATE 1-to-1, 1-to-2, 2-to-1,
+2-to-2 with an explicit matching output stack. Optional `symmetric` is retained.
+Unknown modifiers, malformed stacks and other spellings go to sanitized review.
+Recognition follows [Cisco's Ethernet interface command grammar](https://www.cisco.com/c/en/us/td/docs/routers/asr9000/software/lxvpn/command/reference/b-lxvpn-cr-asr9000/ethernet-interfaces-commands.html);
+it does not establish model/release support or template eligibility. Every
+profile records `platform_support=not_assessed`. Family projection supports
+ME3600X/ASR920 EVC services and NCS540 L2 transport subinterfaces; other scopes
+require review. Distinct profiles on the same service remain conflicting evidence.
+
+ME3600X explicit trunk mode plus `allowed vlan none` may coexist with EVC service
+instances. The M01 context retains configured switching statements separately
+from M03 service mappings, without a mixed-construct warning solely for that
+coexistence. Other switching conflicts, unresolved bindings and missing parents
+remain visible. No compliance facts, workbook contracts or template decisions
+change.
+
 ## Proposed bulk workflow
 
 1. Accept a typed Excel target list: stable row ID, device, physical/logical

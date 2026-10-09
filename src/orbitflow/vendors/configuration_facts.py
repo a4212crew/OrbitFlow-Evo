@@ -8,7 +8,7 @@ observation, not relationship validation or compliance policy.
 import re
 
 from orbitflow.logging import sanitize_text
-from orbitflow.models import ConfigFact
+from orbitflow.models import ConfigFact, TagRewrite
 from orbitflow.vendors.vlan_types import parse_vlan_list
 
 
@@ -84,6 +84,43 @@ _CONTAINERS = {"interface", "l2_interface", "service_instance", "l2vpn", "bridge
                "bridge_domain", "vsi", "vlan_database", "vlan"}
 
 
+def _tag_rewrite(line):
+    """Strict Cisco rewrite grammar; unknown combinations use review capture.
+
+    Recognition is deliberately independent of model/release support. Preserve
+    replacement tags separately from ingress encapsulation and domain binding.
+    """
+    match = re.fullmatch(r"rewrite ingress tag (pop|push|translate) (.+?)( symmetric)?", line)
+    if not match:
+        return None
+    operation, parameters, symmetric = match.groups()
+    if operation == "pop":
+        return (TagRewrite("ingress", operation, int(parameters), bool(symmetric), parameters)
+                if parameters in {"1", "2"} else None)
+    tags = parameters
+    translation = ""
+    count = 0
+    if operation == "translate":
+        variant = re.fullmatch(r"([12])-to-([12]) (.+)", parameters)
+        if not variant:
+            return None
+        count, output_count = int(variant[1]), int(variant[2])
+        translation, tags = parameters.split(" ", 1)
+    tag_match = re.fullmatch(r"(dot1q|dot1ad) ([0-9]{1,4})(?: (second-dot1q|dot1q) ([0-9]{1,4}))?", tags)
+    if not tag_match:
+        return None
+    outer, outer_id, inner, inner_id = tag_match.groups()
+    if inner and (outer, inner) not in {("dot1q", "second-dot1q"), ("dot1ad", "dot1q")}:
+        return None
+    output_tags = ((outer, int(outer_id)),) + (((inner, int(inner_id)),) if inner else ())
+    if any(not 1 <= value <= 4094 for _, value in output_tags):
+        return None
+    if operation == "translate" and len(output_tags) != output_count:
+        return None
+    return TagRewrite("ingress", operation, count or len(output_tags), bool(symmetric),
+                      parameters, output_tags, translation)
+
+
 def _safe_source(text):
     # Description/evidence are the only arbitrary source strings retained.
     # Also cover CLI-style secret labels separated by whitespace, not just '='.
@@ -99,7 +136,7 @@ _REVIEW_WORDS = frozenset("""switchport encapsulation dot1q second-dot1q untagge
  split-horizon group port link-type trunk hybrid access allow-pass tagged
  qinq termination vid pe-vid ce-vid l2 binding vsi vlan-type participation
  tagging pvid include exclude enable disable allowed add remove except
- native tunnel protocol ieee dot1ad""".split())
+ native tunnel protocol ieee dot1ad egress 1-to-1 1-to-2 2-to-1 2-to-2""".split())
 _REVIEW_OMITTED = "[unsupported forwarding statement omitted: unsafe or oversized evidence]"
 
 
@@ -125,7 +162,7 @@ def _review_candidate(line, stack):
         return False
     return bool(re.match(
         r"(?:switchport(?: (?:mode|access|trunk|voice|vlan))?|encapsulation|"
-        r"service instance|bridge-domain|member|rewrite ingress tag|"
+        r"service instance|bridge-domain|member|rewrite|"
         r"port (?:link-type|default|trunk|hybrid)|dot1q|qinq|l2 binding|"
         r"vlan (?:participation|tagging|pvid)|vlan-type)(?:\s|$)", line)) and not line.startswith(
             ("switchport nonegotiate", "switchport port-security", "switchport block", "switchport protected"))
@@ -194,6 +231,10 @@ def observe_configuration(output, platform, *, source_filename="running-config")
             # reference, never arbitrary unrecognized command text.
             entries.append(("unsupported_allowed", "invalid_allowed_operation"))
             raw = " " * indent + "switchport trunk allowed vlan [unrecognized operation omitted]"
+        if not entries and platform in {"cisco_ios", "cisco_xe", "cisco_xr"} and stack:
+            rewrite = _tag_rewrite(line)
+            if rewrite is not None:
+                entries.append(("tag_rewrite", rewrite))
         if not entries and _review_candidate(line, stack):
             # Review-only nodes are stripped before audit resolution.
             review_count += 1
