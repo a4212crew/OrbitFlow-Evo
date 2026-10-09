@@ -739,3 +739,24 @@ Update the existing PR and deterministic tests. Do not merge.
 ```
 
 Do not duplicate this skill's platform rules into an Issue comment or Codex prompt unless a specific revision needs one narrow clarification.
+
+## Planned Methodology Resolution Extension (Not Yet Implemented)
+
+For a future engineer-reviewed bulk configuration workflow, reuse the existing
+vendor configuration-fact parsers and family-specific `AuditResolver`; do not
+introduce a competing CLI parser or silently reinterpret syntax in reporting.
+See `docs/architecture/configuration/interface-methodology-review.md`.
+
+- Extend structured audit output with evidence-backed methodology M01–M07 and
+  configuration subtype at interface/service granularity. Preserve global versus
+  inline EVC bindings, XR bridge group/domain/attachment, Huawei termination/VSI,
+  EdgeSwitch membership and conventional access/trunk semantics.
+- Preserve original CLI evidence/source lines, service IDs, outer/inner VLANs,
+  bridge/VSI ownership, ambiguities and configuration findings; do not infer
+  successful resolution from an OS or device family alone.
+- Retain audit/compliance meaning and existing outputs; put engineer review,
+  template decisions and Change Plans in the configuration-management boundary.
+- Fail unresolved, mixed/conflicting or unsupported records into explicit human
+  review; never auto-select a template or treat review as operational approval.
+- Use documented methodology examples as candidate fixtures, then validate
+  against available real backups without disclosing secrets.

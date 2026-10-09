@@ -22,3 +22,11 @@ The shared device-execution layer owns concurrency and device-scoped resources; 
 No device apply, remote approval service, rollback automation, or desired-state
 datastore is implemented. Later phases require separately scoped issues,
 deterministic tests, and operator-controlled live testing.
+
+## Next proposed increment: engineer-reviewed interface methodology
+
+[Interface methodology resolution and template review](interface-methodology-review.md)
+records the agreed bulk workflow and a gap assessment against the existing
+`AuditResolver`. It is a proposed extension only: no M01–M07 method IDs,
+engineer review import, template registry or bulk Change Plan workflow is
+implemented by offline Phases 1–2.

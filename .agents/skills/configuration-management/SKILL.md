@@ -37,3 +37,24 @@ for the v1 contract. Live execution and additional adapters are future work.
 Run `python -m pytest tests/test_configuration_plans.py -q` and appropriate shared
 inventory/vendor regressions. Cover identity, mutation, expiry, tampering,
 credential rejection and no device side effects for changes.
+
+## Future Engineer-Reviewed Templates and Bulk Input (Not Yet Implemented)
+
+Follow `docs/architecture/configuration/interface-methodology-review.md`.
+Existing AuditResolver observations feed an engineer-reviewed resolution report;
+engineers select approved, versioned templates to **update existing** interfaces
+or **configure new** interfaces. No automatic template choice solely by model or
+methodology. An approved template version plus its bounded parameters, target,
+source snapshot and generated commands form an auditable Change Plan.
+
+- Standard changes may use pre-approved template policy only when target,
+  parameters, batch size and constraints match; explicit operator execution
+  intent, fresh prechecks and audit remain mandatory.
+- Advanced free-form CLI, including Excel-supplied ordered commands, is for
+  authorised engineers and needs separately authenticated elevated approval;
+  current actor labels alone are insufficient for this future workflow.
+- Bulk Excel is a review/input surface, not the authoritative executable plan.
+  Preserve row IDs, per-target evidence, exceptions, explicit exclusions,
+  stable command order, individual plan digests and parent-batch provenance.
+- Do not weaken the current allowlisted v1 CLI/approval gates or imply that
+  template import, pre-approval or advanced CLI execution is already available.
