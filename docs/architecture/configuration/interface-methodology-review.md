@@ -46,7 +46,7 @@ one silently. Preserve unresolved references and unknown syntax explicitly.
 ## Proposed bulk workflow
 
 1. Accept a typed Excel target list: stable row ID, device, physical/logical
-   interface, action (update or create), service identifiers and intended change.
+   interface, action (create, update, detach, remove or retire), service identifiers and intended change.
 2. Resolve device identity and inspect captured configuration; attach a source
    snapshot digest, original CLI evidence and detailed method/subtype per
    interface or service. Missing/stale/ambiguous evidence goes to review.
@@ -98,3 +98,7 @@ Implement Gap A first as a dedicated Codex Issue, verify against synthetic and
 accessible real backup fixtures (the workbook references a backup corpus but
 is not itself that corpus), then tackle B/C separately. No implementation,
 GitHub Issue, or PR is created by this document.
+
+## Addition: creation and removal evidence
+
+The operator-provided `VLAN Configuration Methodologies - Creation and Removal.xlsx` complements the original workbook with method-specific creation and removal examples, `Removal Templates` (RM-series), `Removal Workflow` (D-series), and `Removal Acceptance Cases` (T-series). Treat these as candidate specifications, not production-proven adapters. See [configuration removal](configuration-removal.md). Existing read-only compliance outputs and policy decisions must not be changed by adding removal/dependency evidence.

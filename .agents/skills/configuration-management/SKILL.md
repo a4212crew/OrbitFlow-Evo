@@ -58,3 +58,14 @@ source snapshot and generated commands form an auditable Change Plan.
   stable command order, individual plan digests and parent-batch provenance.
 - Do not weaken the current allowlisted v1 CLI/approval gates or imply that
   template import, pre-approval or advanced CLI execution is already available.
+
+## Future creation/removal lifecycle guidance (proposed only)
+
+Read `docs/architecture/configuration/configuration-removal.md` when scoping
+removal/retirement planning. Distinguish detach vs delete and link-level changes
+vs shared VLAN, bridge-domain, VSI or service-object destruction. Do not treat
+pre-approved create/update templates as pre-approved deletion. Demand complete
+reverse-reference evidence, default/implicit VLAN semantics, preserved unrelated
+service state, narrowly scoped command rendering, and explicit recovery/unknown
+outcome gates. Imported RM-series workbook sketches are **not** authorised CLI.
+No new destructive operation is supported by current offline v1 or Phase 3.

@@ -30,3 +30,5 @@ records the agreed bulk workflow and a gap assessment against the existing
 `AuditResolver`. It is a proposed extension only: no M01–M07 method IDs,
 engineer review import, template registry or bulk Change Plan workflow is
 implemented by offline Phases 1–2.
+
+- [Configuration removal and service retirement](configuration-removal.md): proposed removal scopes, dependency checks, platform risk gates and test obligations. No destructive executor is implemented.

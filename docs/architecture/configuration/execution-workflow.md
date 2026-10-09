@@ -27,3 +27,7 @@ Use the established filesystem convention: `outputs/runs/<task>/<run-id>/` for c
 ## Tests and rollout
 
 First test plan validation and adapters with fixtures/fakes, then controlled single-device lab tests, then canary production changes only with explicit operator consent. Do not mark an adapter safe without verification of its specific platform and device family.
+
+## Future removal/retirement safety gates
+
+Before issuing destructive commands, resolve exact method, current effective and stored configuration, downstream forwarding references and shared object owners using fresh device evidence. Validate a narrowly scoped removal plan and simulate preservation of unrelated memberships, interface roles, native/PVID/voice settings, bridge-domain/VSI attachments and management access. Require a specific maintenance/recovery strategy for changes that can disrupt active services. For compound removal, dependency ordering and per-step verification must be explicitly platform-tested; partial success, lost reachability or ambiguous state stops further changes and is reported as unknown when appropriate. A configuration backup is evidence, not proof of automatic rollback. Existing audit/compliance validation and device execution remain independent. See [configuration removal](configuration-removal.md).
