@@ -105,12 +105,12 @@ def test_workbook_recovery_literal_cells_legacy_and_long_evidence(tmp_path):
     path = export_methodology_spool(spool.path, tmp_path / 'review.xlsx')
     assert spool.path.exists()
     workbook = load_workbook(path)
-    assert workbook.sheetnames == ['Methodology Resolution', 'Run Errors', 'Details']
+    assert workbook.sheetnames == ['Methodology Resolution', 'Run Errors', 'Details', 'Evidence Details']
     sheet = workbook.worksheets[0]
     assert sheet.freeze_panes == 'A2' and sheet.auto_filter.ref
     headers = [c.value for c in sheet[1]]
     result = dict(zip(headers, [c.value for c in sheet[2]]))
-    assert result['Methodology'] == 'M01' and result['Mapping'] == 'See Details'
+    assert result['Methodology'] == 'M01' and result['Mapping'].startswith('See Details / Evidence Details: Input Position 1, Record 1')
     assert sheet.cell(3, headers.index('Status') + 1).value == 'unable_to_assess'
     for tab in workbook:
         assert all(c.data_type != 'f' for row in tab for c in row)
@@ -183,11 +183,11 @@ def test_run_exports_both_reports_before_cleanup(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('statement,expected', [
     ('encapsulation dot1q 445 exact', ' encapsulation dot1q 445 exact'),
-    ('encapsulation mystery arbitrary-sensitive-value', ' encapsulation [REDACTED] [REDACTED]'),
-    ('encapsulation dot1q 445 token confidential', '[unsupported forwarding statement omitted: unsafe or oversized evidence]'),
-    ('encapsulation dot1q 445 community confidential', '[unsupported forwarding statement omitted: unsafe or oversized evidence]'),
-    ('encapsulation =HYPERLINK("sensitive")', ' encapsulation [REDACTED]'),
-    ('encapsulation ' + 'z' * 600, '[unsupported forwarding statement omitted: unsafe or oversized evidence]'),
+    ('encapsulation mystery future-modifier', ' encapsulation mystery future-modifier'),
+    ('encapsulation dot1q 445 token confidential', '[unsupported forwarding statement omitted: credential-bearing syntax]'),
+    ('encapsulation dot1q 445 community confidential', '[unsupported forwarding statement omitted: credential-bearing syntax]'),
+    ('encapsulation =HYPERLINK("sensitive")', '[unsupported forwarding statement omitted: unsafe characters or free-form payload]'),
+    ('encapsulation ' + 'z' * 600, '[unsupported forwarding statement omitted: opaque operand]'),
 ])
 def test_unknown_disclosure_workbook_and_policy(tmp_path, statement, expected):
     base = 'interface Gi0/1\n switchport mode trunk\n'
@@ -211,7 +211,7 @@ def test_unknown_disclosure_workbook_and_policy(tmp_path, statement, expected):
     book.close()
 
 
-def test_unknown_service_context_and_bounded_capture():
+def test_unknown_service_context_and_complete_capture():
     config = ('interface Gi0/1\n service instance 7 ethernet\n  encapsulation dot1q 445 exact\n'
               '  bridge-domain 445\n service instance 8 ethernet\n  encapsulation dot1q 545\n  bridge-domain 545')
     rows = resolve(config, 'ASR920')
@@ -219,9 +219,10 @@ def test_unknown_service_context_and_bounded_capture():
     assert 'UNSUPPORTED_FORWARDING_SYNTAX' not in json.dumps(rows[1])
     rows = resolve('interface Gi0/1\n' + ' encapsulation dot1q 445 exact\n' * 1000)
     assert len(rows) == 1
-    assert len(rows[0]["configuration_findings"]) == 257
+    assert len(rows[0]["configuration_findings"]) == 1000
     assert rows[-1]['config_interface_name'] == 'Gi0/1'
-    assert 'storage limit' in json.dumps(rows[-1])
+    assert 'storage limit' not in json.dumps(rows[-1])
+    assert rows[0]['evidence'][-1]['line'] == 1001
 
 
 def test_out_of_scope_noise_and_xr_attachment_identity():
