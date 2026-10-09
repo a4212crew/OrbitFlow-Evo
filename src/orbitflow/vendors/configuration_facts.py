@@ -1,14 +1,14 @@
 """Syntax-preserving VLAN evidence shared by the existing observation adapters.
 
-Only recognized VLAN/interface statements enter the snapshot. No full config,
-credentials, command output, or arbitrary unknown lines are retained. This is
+Recognized VLAN/interface statements and bounded sanitized forwarding exceptions
+enter the snapshot. No full config, credentials or arbitrary unknown CLI is retained. This is
 observation, not relationship validation or compliance policy.
 """
 
 import re
 
 from orbitflow.logging import sanitize_text
-from orbitflow.models import ConfigFact
+from orbitflow.models import ConfigFact, TagRewrite
 from orbitflow.vendors.vlan_types import parse_vlan_list
 
 
@@ -81,7 +81,48 @@ _PATTERNS = {platform: tuple((kind, re.compile(pattern), conversion)
                                         ("cisco_xr", _XR), ("huawei_vrp", _VRP),
                                         ("ubiquiti_edgeswitch", _EDGE))}
 _CONTAINERS = {"interface", "l2_interface", "service_instance", "l2vpn", "bridge_group",
-               "bridge_domain", "vsi", "vlan_database", "vlan"}
+               "bridge_domain", "vsi", "vlan_database", "vlan", "methodology_interface"}
+# Tolerant Huawei spellings are review-only: never widen compliance facts.
+_VRP_REVIEW_ENCAPSULATION = re.compile(
+    next(pattern for kind, pattern, _ in _VRP if kind == "encapsulation").replace(" ", r"\s+"),
+    re.IGNORECASE)
+
+
+def _tag_rewrite(line):
+    """Strict Cisco rewrite grammar; unknown combinations use review capture.
+
+    Recognition is deliberately independent of model/release support. Preserve
+    replacement tags separately from ingress encapsulation and domain binding.
+    """
+    match = re.fullmatch(r"rewrite ingress tag (pop|push|translate) (.+?)( symmetric)?", line)
+    if not match:
+        return None
+    operation, parameters, symmetric = match.groups()
+    if operation == "pop":
+        return (TagRewrite("ingress", operation, int(parameters), bool(symmetric), parameters)
+                if parameters in {"1", "2"} else None)
+    tags = parameters
+    translation = ""
+    count = 0
+    if operation == "translate":
+        variant = re.fullmatch(r"([12])-to-([12]) (.+)", parameters)
+        if not variant:
+            return None
+        count, output_count = int(variant[1]), int(variant[2])
+        translation, tags = parameters.split(" ", 1)
+    tag_match = re.fullmatch(r"(dot1q|dot1ad) ([0-9]{1,4})(?: (second-dot1q|dot1q) ([0-9]{1,4}))?", tags)
+    if not tag_match:
+        return None
+    outer, outer_id, inner, inner_id = tag_match.groups()
+    if inner and (outer, inner) not in {("dot1q", "second-dot1q"), ("dot1ad", "dot1q")}:
+        return None
+    output_tags = ((outer, int(outer_id)),) + (((inner, int(inner_id)),) if inner else ())
+    if any(not 1 <= value <= 4094 for _, value in output_tags):
+        return None
+    if operation == "translate" and len(output_tags) != output_count:
+        return None
+    return TagRewrite("ingress", operation, count or len(output_tags), bool(symmetric),
+                      parameters, output_tags, translation)
 
 
 def _safe_source(text):
@@ -89,6 +130,46 @@ def _safe_source(text):
     # Also cover CLI-style secret labels separated by whitespace, not just '='.
     return re.sub(r"(?i)\b(password|passwd|secret|token|otp|private_key|authorization)\b[\s:=]+.*",
                   r"\1 [REDACTED]", sanitize_text(text))
+
+
+# Disclosure vocabulary only: these words do not establish supported semantics.
+# Unknown operands may be arbitrary secrets, even without credential labels.
+_REVIEW_WORDS = frozenset("""switchport encapsulation dot1q second-dot1q untagged
+ default priority-tagged exact any all none vlan vlans bridge-domain member
+ service instance ethernet rewrite ingress tag pop push translate symmetric
+ split-horizon group port link-type trunk hybrid access allow-pass tagged
+ qinq termination vid pe-vid ce-vid l2 binding vsi vlan-type participation
+ tagging pvid include exclude enable disable allowed add remove except
+ native tunnel protocol ieee dot1ad egress 1-to-1 1-to-2 2-to-1 2-to-2""".split())
+_REVIEW_OMITTED = "[unsupported forwarding statement omitted: unsafe or oversized evidence]"
+
+
+def _review_excerpt(raw):
+    """Bounded, fail-closed disclosure; never retain unknown free-form values."""
+    if len(raw) > 512 or any(ord(c) < 32 and c != "\t" for c in raw):
+        return _REVIEW_OMITTED
+    words = raw.split()
+    if len(words) > 64:
+        return _REVIEW_OMITTED
+    if re.search(r"(?i)password|passwd|secret|token|credential|community|key|auth|otp", raw):
+        return _REVIEW_OMITTED
+    def disclose(match):
+        value = match[0]
+        return value if value in _REVIEW_WORDS or re.fullmatch(r"[0-9]{1,4}(?:[,-][0-9]{1,4})*", value) else "[REDACTED]"
+    return re.sub(r"\S+", disclose, raw)
+
+
+def _review_candidate(line, stack):
+    # Limit unknown capture to forwarding contexts, never arbitrary global CLI.
+    kinds = {item[1][0] for item in stack}
+    if not kinds.intersection({"interface", "methodology_interface", "l2_interface", "service_instance", "bridge_domain", "vsi"}):
+        return False
+    return bool(re.match(
+        r"(?:switchport(?: (?:mode|access|trunk|voice|vlan))?|encapsulation|"
+        r"service instance|bridge-domain|member|rewrite|"
+        r"port (?:link-type|default|trunk|hybrid)|dot1q|qinq|l2 binding|"
+        r"vlan (?:participation|tagging|pvid)|vlan-type)(?:\s|$)", line)) and not line.startswith(
+            ("switchport nonegotiate", "switchport port-security", "switchport block", "switchport protected"))
 
 
 def observe_configuration(output, platform, *, source_filename="running-config"):
@@ -100,6 +181,7 @@ def observe_configuration(output, platform, *, source_filename="running-config")
     """
     roots, stack = [], []
     banner_end = None
+    review_count = 0
     for number, raw in enumerate(output.splitlines(), 1):
         line = raw.strip()
         if banner_end is not None:
@@ -153,6 +235,32 @@ def observe_configuration(output, platform, *, source_filename="running-config")
             # reference, never arbitrary unrecognized command text.
             entries.append(("unsupported_allowed", "invalid_allowed_operation"))
             raw = " " * indent + "switchport trunk allowed vlan [unrecognized operation omitted]"
+        if not entries and platform == "huawei_vrp":
+            review_interface = re.fullmatch(rf"interface\s+({_NAME})", line, re.IGNORECASE)
+            review_encapsulation = _VRP_REVIEW_ENCAPSULATION.fullmatch(line)
+            if review_interface:
+                entries.append(("methodology_interface", review_interface[1]))
+            elif review_encapsulation:
+                try:
+                    tags = parse_vlan_list(review_encapsulation[1])
+                except ValueError:
+                    pass  # Preserve existing malformed-variant review behavior.
+                else:
+                    entries.append(("methodology_encapsulation", tags))
+        if not entries and platform in {"cisco_ios", "cisco_xe", "cisco_xr"} and stack:
+            rewrite = _tag_rewrite(line)
+            if rewrite is not None:
+                entries.append(("tag_rewrite", rewrite))
+        review_line = " ".join(line.lower().split()) if platform == "huawei_vrp" else line
+        if not entries and _review_candidate(review_line, stack):
+            # Review-only nodes are stripped before audit resolution.
+            review_count += 1
+            if review_count <= 256:
+                entries.append(("methodology_unknown", "unsupported_forwarding_syntax"))
+                raw = _review_excerpt(raw)
+            elif review_count == 257:
+                entries.append(("methodology_unknown", "review_evidence_limit"))
+                raw = "[further unsupported forwarding evidence omitted: storage limit]"
         for kind, value in entries:
             node = [kind, value, number, _safe_source(raw), []]
             (stack[-1][1][4] if stack else roots).append(node)

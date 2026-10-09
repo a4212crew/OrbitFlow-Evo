@@ -477,6 +477,46 @@ The prompt correction awaits operator-controlled live retesting.
 
 ## VLAN Configuration Audit
 
+Issue #79 adds a separate M01–M08 methodology projection through the existing
+family AuditResolver, preserving service/child identities, local/global EVC
+bindings, XR attachments, Huawei VSI and EdgeSwitch ownership. Opt-in
+`--methodology-report` collects and retains review records, then exports a separate
+streamed Excel workbook with evidence, findings and explicit review outcomes.
+Compliance-only runs skip methodology resolution. Projection failures are stored
+separately and exported as review-needed failures; compliance findings, health,
+ordinary errors, device failure counts and normal reports remain unchanged.
+Unknown forwarding syntax retains bounded, sanitized statement evidence and source
+context in the methodology workbook/Details. A disclosure vocabulary redacts
+arbitrary operands; unsafe/oversized statements and evidence beyond the capture
+limit have explicit omission markers. XR routed/BVI and pseudowire attachments
+are separate service context, not M04 Ethernet L2 transport; empty parent
+interfaces and out-of-scope switchport controls no longer create noisy review rows.
+These revisions have synthetic regression coverage only. Configuration-facts
+digests cover the sanitized projection, not raw backups or live freshness.
+The Issue #79 revision observes service-scoped Cisco tag rewrites (POP 1/2,
+strict PUSH/TRANSLATE forms) as separate methodology attributes with sanitized
+source evidence. Model/release support remains unassessed. Malformed syntax,
+unsupported scope and conflicting profiles require review. ME3600X empty trunks
+(`allowed vlan none`) can coexist with distinct M03 EVC records without a false
+mixed-construct finding. Operator-provided ME3600X/NCS540 excerpts are covered
+by deterministic tests; existing missing-parent findings remain visible.
+Revision validation: 285 audit/compliance/report regressions and 134 focused
+methodology/observation/validation tests passed; all 1,723 captured pre/post
+compliance result hashes matched (compared as a multiset for concurrent runs).
+The NE05E revision adds M08 `vlan_tagged_subinterface` for explicit
+`vlan-type dot1q` on logical subinterfaces, preserving exact identities, tags and
+source evidence in the existing methodology workbook mapping. Encapsulation
+alone leaves role `not_determined` without requiring review; genuine conflicts
+and missing parents remain reviewable. No L2/VSI/database membership or template
+eligibility is inferred. Case/whitespace variants are review-only facts excluded
+from compliance; existing canonical invalid-tag errors remain unchanged.
+Operator-supplied NE05E examples have deterministic offline coverage only.
+Compliance outputs remain unchanged: 180 representative pre/post result hashes
+matched and 281 existing audit/compliance/report regressions passed. Focused
+methodology/workbook and VLAN observation tests pass. Validation is synthetic;
+no real backup corpus or live devices were used. Review import, template
+selection, apply and Change Plan v1 changes remain out of scope.
+
 Issue #65 now implements the saved-configuration audit boundary:
 VlanService/vendor observation -> preserved configuration facts/evidence ->
 family-specific AuditResolver -> common external policy -> JSON spool/Excel.

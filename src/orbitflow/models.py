@@ -88,6 +88,23 @@ class VlanState:
 
 
 @dataclass(frozen=True)
+class TagRewrite:
+    """Observed syntax only; does not assert hardware or template eligibility.
+
+    tag_count is the removed count for pop, added count for push, and input
+    count for translate. output_tags retains the ordered replacement stack.
+    """
+
+    direction: str
+    operation: str
+    tag_count: int
+    symmetric: bool
+    parameters: str
+    output_tags: tuple[tuple[str, int], ...] = ()
+    translation: str = ""
+
+
+@dataclass(frozen=True)
 class ConfigFact:
     """Allowlisted saved-configuration fact with exact, sanitized source evidence.
 
@@ -96,7 +113,7 @@ class ConfigFact:
     """
 
     kind: str
-    value: str | tuple[int, ...]
+    value: str | tuple[int, ...] | TagRewrite
     source_filename: str
     line: int
     excerpt: str

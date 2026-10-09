@@ -48,7 +48,13 @@ class AuditResolver:
         self.context, self.state = context, state
         self.key = lambda name: canonical_interface_name(context.platform, name)
         self.routed = {self.key(p.interface_name) for p in state.interfaces if p.port_type == "routed"}
-        self.roots = state.configuration
+        self.review_roots = state.configuration
+        # Review-only syntax markers must never alter established audit facts.
+        def audit_nodes(nodes):
+            return tuple(replace(n, children=audit_nodes(n.children)) for n in nodes
+                         if n.kind not in {"methodology_unknown", "tag_rewrite",
+                                           "methodology_interface", "methodology_encapsulation"})
+        self.roots = audit_nodes(state.configuration)
         self.config, sources = {}, {}
         for node in self.roots:
             if node.kind in {"interface", "l2_interface"}:
@@ -171,6 +177,19 @@ class AuditResolver:
                                              domain_id=o.domain_id, name=o.name) for o in self.state.objects],
                     numeric_mappings=self.mappings, configuration_findings=self.problems,
                     evidence=self.database_evidence(), interfaces=self.rows)
+
+    def methodology_result(self):
+        """Separate read-only projection; callers use a fresh per-device resolver."""
+        from orbitflow.compliance.methodology import resolved_records
+        # Reuse the family resolver for tolerant review-only Huawei spellings.
+        # Ordinary result() never promotes these into compliance input facts.
+        kinds = {"methodology_interface": "interface", "methodology_encapsulation": "encapsulation"}
+        def review_nodes(nodes):
+            return tuple(replace(n, kind=kinds.get(n.kind, n.kind), children=review_nodes(n.children))
+                         for n in nodes)
+        projection = type(self)(self.context, replace(self.state, configuration=review_nodes(self.review_roots)))
+        projection.result()
+        return resolved_records(projection)
 
 
 class CatalystAuditResolver(AuditResolver):

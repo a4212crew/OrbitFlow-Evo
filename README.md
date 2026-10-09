@@ -342,6 +342,37 @@ The report preserves the ordered source statements. Malformed operations require
 review. ASR920 service-instance handling is unchanged.
 No live-device compliance validation has been performed.
 
+### Methodology review (Issue #79)
+
+Add `--methodology-report` to the compliance `run` command to also write
+`methodology_resolution_<run-id>.xlsx` alongside the unchanged compliance report.
+The separate workbook contains Methodology Resolution, Run Errors and Details;
+it retains per-device/interface/service identity, M01–M07 classification, binding
+status, findings, source lines, outer/inner tags and explicit Review Needed values.
+Equivalent local/global EVC bindings still require review. A classification does
+not select a template or authorize configuration.
+
+To recover this report without device access:
+
+```bash
+python scripts/device_vlan_compliance.py export <spool-path> review.xlsx --methodology-report --keep-spool
+```
+
+Collection with `--methodology-report` (or `collect_compliance(...,
+methodology_report=True)`) retains a separate `methodologies` payload for recovery.
+Default compliance-only runs skip methodology resolution. Resolution failures
+are retained separately as `methodology_errors` and exported as explicit
+review-needed failures, without changing compliance findings or device error counts.
+Spools collected without methodology review and legacy spools
+produce an explicit unavailable-evidence review row rather than guessing from
+compliance summaries. `orbitflow.compliance.methodology.resolve_methodologies()`
+accepts the existing DeviceContext, interface records and VlanState for offline
+use. Its configuration-facts digest identifies the sanitized fact projection,
+not a raw backup or a guarantee of current live state. Unsupported forwarding
+syntax retains a safe omission marker and line number; arbitrary unknown CLI
+text is not exported. Full structured records and oversized text are preserved
+in numbered Details fragments. No review import or Change Plan integration exists.
+
 ## Tests
 
 The suite uses mocks and does not contact Teleport or network devices:

@@ -1,6 +1,8 @@
 # Interface VLAN Methodology Resolution and Engineer Review — Proposed
 
-Status: approved design direction; **not implemented**. This design extends
+Status: approved design direction; **Gap A implemented in Issue #79** with
+synthetic validation. Engineer decision import and template integration (B/C)
+remain proposed. This design extends
 existing read-only audit and offline Configurator Phases 1–2. It does not
 introduce network device configuration or change the v1 Change Plan contract.
 
@@ -16,8 +18,8 @@ Reuse `src/orbitflow/vendors/configuration_facts.py` and
 existing `VlanService`, inventory, configuration backup, shared reporting and
 execution infrastructure. The resolver already validates conventional Cisco
 switching, EVC local/global binding, XR bridge-domain attachments, Huawei VSI,
-and EdgeSwitch membership. It does **not** yet emit workbook M01–M07 IDs,
-engineer review records or template selections. The current Configurator only
+and EdgeSwitch membership. Issue #79 adds M01–M08 review records and a separate
+Excel export; it does not import engineer decisions or select templates. The current Configurator only
 renders allowlisted Cisco VLAN creation from normalized JSON and requires
 per-plan approval; raw Excel import and pre-approved template policy do not
 exist. Keep audit policy outputs backward compatible.
@@ -33,6 +35,7 @@ exist. Keep audit policy outputs backward compatible.
 | M05 | EdgeSwitch explicit VLAN participation, tagging, PVID | Interface/LAG member owner |
 | M06 | Huawei conventional access/trunk/hybrid | Interface and switchport mode |
 | M07 | Huawei VLAN termination bound to VSI | Termination/subinterface and VSI relation |
+| M08 | Huawei NE05E VLAN-tagged subinterface | Logical interface with explicit `vlan-type dot1q <VID>` |
 
 The methodology is a classification of observed configuration, **not** an
 automatic template selection. A single device, and even a single physical
@@ -42,6 +45,57 @@ flatten QinQ or convert unrelated domain IDs into VLANs. A global and local EVC
 binding on the same service must be reported with both sources; distinguish an
 equivalent duplicate from a conflict and require review rather than selecting
 one silently. Preserve unresolved references and unknown syntax explicitly.
+
+### Huawei VLAN-tagged subinterfaces (Issue #79 revision)
+
+M08 is independent of M06 switching and M07 termination/VSI. A configured NE05E
+logical subinterface with `vlan-type dot1q <VID>` has subtype
+`vlan_tagged_subinterface`. Its workbook Mapping retains `outer_vlan`, an empty
+`inner_vlan`, `encapsulation_type=vlan-type-dot1q` and `role=not_determined`.
+The interface, parent and source evidence preserve the configured spelling and
+line numbers. Neither a subinterface suffix nor a description establishes a tag
+or forwarding role. Encapsulation alone does not establish L2 forwarding, VSI
+binding, audit/database membership or template eligibility.
+
+Valid encapsulation resolves without review solely for an undetermined role.
+Missing parents, distinct conflicting tags, mixed switching/termination/VSI
+constructs and unsupported syntax retain source-backed review findings.
+Repeated identical tags are not a conflict. Absent/malformed encapsulation never
+establishes M08. The existing numeric syntax range (1–4094) and canonical invalid
+numeric tag `ValueError` behavior are unchanged; this is separate from the audit
+policy range. Case/whitespace variants of Huawei interface declarations and
+encapsulation are observed as review-only facts and promoted only for methodology
+resolution through the same family resolver. Compliance excludes these facts.
+
+The existing workbook columns and Details JSON carry M08 without schema changes.
+Operator-provided NE05E examples are covered by offline deterministic fixtures;
+no deployment or live-device validation is implied.
+
+### Observed tag-rewrite attributes (Issue #79 revision)
+
+The existing configuration-fact observer retains `TagRewrite` facts separately
+from encapsulation and forwarding-domain binding. Methodology mappings expose
+`rewrite_profiles` with direction, operation, tag count, symmetric flag, exact
+parameters, ordered output tags, interface/service identity and sanitized source
+evidence. Tag count means removed tags for POP, added tags for PUSH and input
+tags for TRANSLATE. These review facts are excluded from compliance resolution.
+
+Strict recognized syntax includes ingress POP 1/2, PUSH dot1q (optionally
+second-dot1q) or dot1ad/dot1q stacks, and TRANSLATE 1-to-1, 1-to-2, 2-to-1,
+2-to-2 with an explicit matching output stack. Optional `symmetric` is retained.
+Unknown modifiers, malformed stacks and other spellings go to sanitized review.
+Recognition follows [Cisco's Ethernet interface command grammar](https://www.cisco.com/c/en/us/td/docs/routers/asr9000/software/lxvpn/command/reference/b-lxvpn-cr-asr9000/ethernet-interfaces-commands.html);
+it does not establish model/release support or template eligibility. Every
+profile records `platform_support=not_assessed`. Family projection supports
+ME3600X/ASR920 EVC services and NCS540 L2 transport subinterfaces; other scopes
+require review. Distinct profiles on the same service remain conflicting evidence.
+
+ME3600X explicit trunk mode plus `allowed vlan none` may coexist with EVC service
+instances. The M01 context retains configured switching statements separately
+from M03 service mappings, without a mixed-construct warning solely for that
+coexistence. Other switching conflicts, unresolved bindings and missing parents
+remain visible. No compliance facts, workbook contracts or template decisions
+change.
 
 ## Proposed bulk workflow
 
@@ -81,7 +135,7 @@ raw configurations in Excel, logs, issues or committed fixtures.
   original evidence and parent/subinterface associations; EVC inline/global
   binding facts; XR and Huawei/VSI resolution; EdgeSwitch tagged/PVID mapping;
   synthetic regression tests in `tests/test_vlan_configuration_audit.py`.
-- **Gap A — Methodology readout:** M01–M07/subtype fields and evidence-backed
+- **Gap A — Methodology readout:** M01–M08/subtype fields and evidence-backed
   service-scoped rows, accurate mixed/conflict flags, backward-compatible audit
   output and workbook export. Keep parsers/resolver owned by existing modules.
 - **Gap B — Engineer review:** source-bound review decisions, stable row IDs,

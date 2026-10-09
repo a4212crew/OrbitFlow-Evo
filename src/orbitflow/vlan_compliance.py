@@ -9,6 +9,7 @@ from orbitflow.capabilities.interfaces import InterfaceService
 from orbitflow.capabilities.vlans import VlanService
 from orbitflow.compliance import JsonPolicyProvider, evaluate_vlan_compliance
 from orbitflow.compliance.vlan import safe_data
+from orbitflow.compliance.methodology import resolve_methodologies
 from orbitflow.execution import execute_devices, Progress
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.logging import module_logger, sanitize_text
@@ -32,11 +33,12 @@ class ComplianceRun:
 def collect_compliance(targets, transport_config, *, policy_provider=None,
                        inventory_path="data/inventory/inventory.json",
                        spool_root="outputs/runs/vlan_compliance", log_root="outputs/logs",
-                       execution_config=None, output=None):
+                       execution_config=None, output=None, methodology_report=False):
     """Return a recoverable JSON result handle, independent of Excel or any UI.
 
     A provider is loaded once before connecting. One worker owns each target's
     context, session and CLI. Only the executor completion sink writes the spool.
+    Methodology review is opt-in and its failures never affect compliance results.
     """
     policy = (policy_provider or JsonPolicyProvider(DEFAULT_POLICY)).load()
     targets = list(targets)
@@ -97,8 +99,21 @@ def collect_compliance(targets, transport_config, *, policy_provider=None,
             findings = evaluate_vlan_compliance(context, interfaces, vlans, policy,
                                                 management_ip=ip, clean=clean)
             status(f"[{position}/{len(targets)}]: evaluated")
-            return {"schema_version": 1, "policy_id": policy.policy_id,
-                    "findings": findings, "errors": safe_data(errors, clean)}
+            payload = {"schema_version": 1, "policy_id": policy.policy_id,
+                       "findings": findings, "errors": safe_data(errors, clean)}
+            if methodology_report:
+                try:
+                    payload["methodologies"] = resolve_methodologies(
+                        context, interfaces, vlans, management_ip=ip, clean=clean)
+                except Exception:
+                    # Optional projection must not invalidate authoritative compliance.
+                    # Do not retain exception text, class names, or source configuration.
+                    payload["methodology_errors"] = [{
+                        "management_ip": clean(ip), "stage": "methodology",
+                        "error_category": "METHODOLOGY_RESOLUTION_FAILED"}]
+                    logger.warning("Methodology resolution failed; engineer review required")
+                    status(f"[{position}/{len(targets)}]: methodology review required")
+            return payload
 
         def persist(outcome):
             target = targets[outcome.position - 1]
@@ -128,11 +143,16 @@ def collect_compliance(targets, transport_config, *, policy_provider=None,
 
 
 def run_compliance(targets, transport_config, *, reports_dir="outputs/reports/vlan_compliance",
-                   cleanup=True, **kwargs):
+                   cleanup=True, methodology_report=False, **kwargs):
     """CLI convenience composition. API consumers may call collect_compliance alone."""
     from orbitflow.compliance_report import export_compliance_spool
 
-    run = collect_compliance(targets, transport_config, **kwargs)
+    run = collect_compliance(targets, transport_config, methodology_report=methodology_report, **kwargs)
     path = Path(reports_dir) / f"vlan_compliance_{run.spool_path.name}.xlsx"
+    if methodology_report:
+        from orbitflow.methodology_report import export_methodology_spool
+        export_methodology_spool(run.spool_path,
+                                Path(reports_dir) / f"methodology_resolution_{run.spool_path.name}.xlsx",
+                                cleanup=False)
     export_compliance_spool(run.spool_path, path, cleanup=cleanup)
     return path
