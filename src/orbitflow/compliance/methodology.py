@@ -189,9 +189,11 @@ def resolved_records(resolver):
                         record["evidence"] += evidence((node,))
                         attached = True
                 if not attached:
-                    records.append(dict(record_kind="syntax_exception", config_interface_name=owner,
+                    # Supporting CLI is context, not an unresolved forwarding
+                    # relationship. Unknown syntax still adds findings below.
+                    records.append(dict(record_kind="service_context", config_interface_name=owner,
                                         service_instance_id=service_id, methodology=[], subtype="supporting_evidence",
-                                        status="unresolved", review_needed=True, mapping={}, configuration_findings=[],
+                                        status="out_of_scope", review_needed=False, mapping={}, configuration_findings=[],
                                         evidence=evidence((*ancestors, node))))
             if node.kind == "methodology_switchport_enabled" and family != "EdgeSwitch":
                 for record in records:

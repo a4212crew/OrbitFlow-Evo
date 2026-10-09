@@ -181,3 +181,73 @@ def test_large_domain_context_is_complete_without_one_record_per_line():
     assert len(rows) == 1
     assert {p['line'] for p in rows[0]['evidence']} == set(range(1, 602))
     assert rows[0]['methodology'] == [] and rows[0]['review_needed']
+
+
+@pytest.mark.parametrize('family,context,support', [
+    ('ME3600X', 'pseudowire-class future-pw', [' encapsulation mpls', ' pw-class other-pw']),
+    ('ASR920', 'pseudowire-class future-pw', [' encapsulation mpls']),
+    ('NCS540', 'pseudowire-class future-pw', [' encapsulation mpls']),
+    ('ASR920', 'bridge-domain 445', [' split-horizon group 2']),
+    ('NE05E', 'vsi future-vsi', [' pwsignal ldp', '  peer 192.0.2.1 static']),
+])
+def test_unmatched_supporting_context_preserves_decisions_and_workbook(tmp_path, family, context, support):
+    from collections import Counter
+
+    config = 'interface Gi0/1\n!\n' + context
+    ctx, base = snapshot(config, family)
+    augmented = config + '\n' + '\n'.join(support)
+    _, more = snapshot(augmented, family)
+    before = resolve_methodologies(ctx, [], base)
+    after = resolve_methodologies(ctx, [], more)
+    supporting = [r for r in after if r['subtype'] == 'supporting_evidence']
+    assert len(supporting) == 1
+    existing = [r for r in after if r not in supporting]
+    fields = ('record_kind', 'methodology', 'status', 'configuration_classification',
+              'finding_severity', 'standard_finding', 'configuration_findings', 'standard_findings')
+    assert [{k: r[k] for k in fields} for r in existing] == [{k: r[k] for k in fields} for r in before]
+    for field in ('configuration_classification', 'standard_finding'):
+        assert Counter(r[field] for r in existing) == Counter(r[field] for r in before)
+    assert sum(r['review_needed'] for r in after) == sum(r['review_needed'] for r in before)
+    assert sum(len(r['configuration_findings']) for r in after) == sum(len(r['configuration_findings']) for r in before)
+    row = supporting[0]
+    assert row['record_kind'] == 'service_context'
+    assert row['configuration_classification'] == 'not_applicable'
+    assert row['finding_severity'] == 'none'
+    assert not row['review_needed'] and not row['configuration_findings']
+    assert evaluate_vlan_compliance(ctx, [], base, POLICY) == evaluate_vlan_compliance(ctx, [], more, POLICY)
+    expected = {line: text for line, text in enumerate(augmented.splitlines(), 1) if line >= 3}
+    assert {p['line']: p['excerpt'] for p in row['evidence']} == expected
+    assert all(p['source_filename'] == 'fixture.cfg' for p in row['evidence'])
+
+    spool = ResultSpool.create(tmp_path / 'runs', 'vlan_compliance', 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload={'methodologies': after})
+    path = report.export_methodology_spool(spool.path, tmp_path / 'support.xlsx')
+    book = load_workbook(path, read_only=True)
+    try:
+        assert tuple(next(book['Methodology Resolution'].values)) == report.COLUMNS
+        record = str(after.index(row) + 1)
+        summary = next(dict(zip(report.COLUMNS, values)) for values in
+                       list(book['Methodology Resolution'].values)[1:] if values[1] == record)
+        assert summary['Configuration Classification'] == 'not_applicable'
+        assert summary['Review Needed'] == 'False'
+        assert all(text in summary['Configuration Evidence'] for text in support)
+        fragments = [(int(part), text) for pos, rec, part, text in
+                     list(book['Details'].values)[1:] if rec == record]
+        assert json.loads(''.join(text for _, text in sorted(fragments))) == row
+        cli = {int(line): text for pos, rec, source, line, part, text in
+               list(book['Evidence Details'].values)[1:] if rec == record and source == 'fixture.cfg'}
+        assert cli == expected
+    finally:
+        book.close()
+
+
+@pytest.mark.parametrize('tail', [' encapsulation future-mode', ' encapsulation mpls future-mode'])
+def test_unknown_pseudowire_syntax_still_requires_review(tail):
+    ctx, state = snapshot('pseudowire-class future-pw\n encapsulation mpls\n' + tail, 'ME3600X')
+    rows = resolve_methodologies(ctx, [], state)
+    problems = [r for r in rows if r['review_needed']]
+    assert problems
+    assert any(p['code'] == 'UNSUPPORTED_FORWARDING_SYNTAX'
+               for r in problems for p in r['configuration_findings'])
+    assert any(p['line'] == 3 and p['excerpt'] == tail for r in problems for p in r['evidence'])

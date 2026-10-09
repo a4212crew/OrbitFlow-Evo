@@ -401,6 +401,13 @@ or unlabeled descriptions: arbitrary text cannot be reliably identified as a
 secret by syntax alone. Existing runtime-supplied credential masking still applies.
 Raw secret-bearing configuration is never used as an export/recovery workaround.
 
+Supporting-only CLI without a matching methodology record is retained as
+`service_context` / `supporting_evidence`, classified `not_applicable` with no
+review requirement. This includes standalone pseudowire-class `encapsulation
+mpls` evidence; it does not establish a validated forwarding relationship.
+Unknown forwarding syntax remains reviewable. Source lines and CLI for both
+remain recoverable in Details and Evidence Details.
+
 There is no unsupported-statement count cutoff. Main-sheet values above 30,000
 characters contain an explicit Input Position/Record continuation reference.
 `Details` holds the full structured record in numbered JSON fragments: concatenate

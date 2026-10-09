@@ -311,7 +311,11 @@ def observe_configuration(output, platform, *, source_filename="running-config")
             "huawei_vrp": r"vsi-id|pwsignal|peer|static-vc|mpls l2vc",
             "ubiquiti_edgeswitch": r"vlan protocol|vlan association",
         }
-        if (not entries and stack and re.match(rf"(?:{supporting[platform]})(?:\s|$)", review_line)):
+        pseudowire_encapsulation = (
+            platform.startswith("cisco_") and line == "encapsulation mpls" and stack
+            and stack[-1][1][:2] == ["methodology_context", "pseudowire_class"])
+        if (not entries and stack and (pseudowire_encapsulation or
+                re.match(rf"(?:{supporting[platform]})(?:\s|$)", review_line))):
             entries.append(("methodology_evidence", "supporting_forwarding_source"))
             raw = _review_excerpt(raw, platform)
         if not entries and _review_candidate(review_line, stack):
