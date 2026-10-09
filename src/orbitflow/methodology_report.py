@@ -28,7 +28,8 @@ def export_methodology_spool(spool_path, path, *, cleanup=False, allow_partial=F
                 rows = payload.get("methodologies") or [dict(
                     device=dict(management_ip=envelope.get("target", "")), record_kind="target_exception",
                     status="unable_to_assess", review_needed=True,
-                    configuration_findings=[dict(code="METHODOLOGY_EVIDENCE_UNAVAILABLE")])]
+                    configuration_findings=[dict(code=("METHODOLOGY_RESOLUTION_FAILED"
+                        if payload.get("methodology_errors") else "METHODOLOGY_EVIDENCE_UNAVAILABLE"))])]
                 for index, row in enumerate(rows, 1):
                     yield envelope["input_position"], index, row
 
@@ -56,8 +57,9 @@ def export_methodology_spool(spool_path, path, *, cleanup=False, allow_partial=F
 
         def errors():
             for envelope in run.records():
-                for error in envelope["payload"].get("errors", []):
-                    yield [envelope["input_position"], error["management_ip"], error["stage"], error["error_category"]]
+                for key in ("errors", "methodology_errors"):
+                    for error in envelope["payload"].get(key, []):
+                        yield [envelope["input_position"], error["management_ip"], error["stage"], error["error_category"]]
 
         write_tables(path, (("Methodology Resolution", COLUMNS, summary()),
                             ("Run Errors", ERROR_COLUMNS, errors()),

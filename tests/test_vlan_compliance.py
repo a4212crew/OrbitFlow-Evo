@@ -224,6 +224,95 @@ def test_report_failure_recovery_never_recollects(tmp_path, monkeypatch):
     assert not spool_path.exists()
 
 
+@pytest.mark.parametrize("stage", [None, "interfaces"])
+def test_methodology_worker_failure_preserves_compliance(tmp_path, monkeypatch, stage):
+    from orbitflow.methodology_report import export_methodology_spool
+
+    events, _ = install_fakes(monkeypatch, stage)
+    # Include arbitrary source/exception secrets, including in the exception class.
+    error = type("private-class-secret", (RuntimeError,), {})
+    resolver = Mock(side_effect=error("synthetic-password raw-source-secret"))
+    monkeypatch.setattr(app, "resolve_methodologies", resolver)
+    opts = options(tmp_path)
+    baseline = app.collect_compliance(targets(), None, **opts)
+    resolver.assert_not_called()
+    run = app.collect_compliance(targets(), None, methodology_report=True, **opts)
+    assert resolver.call_count == 2
+    assert run.failed_devices == baseline.failed_devices == (1 if stage else 0)
+    assert run.finding_counts == baseline.finding_counts
+    original = list(ResultSpool(baseline.spool_path).records())
+    records = list(ResultSpool(run.spool_path).records())
+    for before, after in zip(original, records):
+        assert after["status"] == before["status"]
+        assert after["payload"]["findings"] == before["payload"]["findings"]
+        assert after["payload"]["errors"] == before["payload"]["errors"]
+        assert all(f["configuration_health"] == "healthy" for f in after["payload"]["findings"])
+        assert "methodologies" not in after["payload"]
+        assert after["payload"]["methodology_errors"] == [{
+            "management_ip": after["target"], "stage": "methodology",
+            "error_category": "METHODOLOGY_RESOLUTION_FAILED"}]
+
+    def workbook_values(path):
+        workbook = load_workbook(path)
+        try:
+            return {sheet.title: list(sheet.values) for sheet in workbook}
+        finally:
+            workbook.close()
+
+    expected = workbook_values(report.export_compliance_spool(
+        baseline.spool_path, tmp_path / "baseline.xlsx", cleanup=False))
+    actual = workbook_values(report.export_compliance_spool(
+        run.spool_path, tmp_path / "actual.xlsx", cleanup=False))
+    assert actual == expected
+    previous = list(events)
+    review = workbook_values(export_methodology_spool(run.spool_path, tmp_path / "review.xlsx"))
+    assert events == previous
+    headers, *rows = review["Methodology Resolution"]
+    for row in rows:
+        fields = dict(zip(headers, row))
+        assert fields["Status"] == "unable_to_assess"
+        assert fields["Review Needed"] == "True"
+        assert fields["Methodology"] is None
+        assert fields["Configuration Findings"] == "METHODOLOGY_RESOLUTION_FAILED"
+        assert fields["Configuration Evidence"] is None
+    assert sum(row[-1] == "METHODOLOGY_RESOLUTION_FAILED" for row in review["Run Errors"][1:]) == 2
+    output = json.dumps(records) + json.dumps(review) + opts["output"].getvalue()
+    output += "".join(p.read_text() for p in (tmp_path / "logs").rglob("*.log"))
+    for secret in ("synthetic-password", "raw-source-secret", "private-class-secret", "secret-output"):
+        assert secret not in output
+
+
+@pytest.mark.parametrize("resolution_fails", [False, True])
+def test_explicit_methodology_report_exports_and_recovers(tmp_path, monkeypatch, resolution_fails):
+    from orbitflow.methodology_report import export_methodology_spool
+
+    events, _ = install_fakes(monkeypatch)
+    resolver = Mock(side_effect=RuntimeError("raw-source-secret")) if resolution_fails else Mock(
+        wraps=app.resolve_methodologies)
+    monkeypatch.setattr(app, "resolve_methodologies", resolver)
+    path = app.run_compliance(targets(1), None, methodology_report=True, cleanup=False,
+                              reports_dir=tmp_path, **options(tmp_path))
+    assert path.exists()
+    resolver.assert_called_once()
+    review_path, = tmp_path.glob("methodology_resolution_*.xlsx")
+    workbook = load_workbook(review_path)
+    try:
+        errors = list(workbook["Run Errors"].values)[1:]
+        if resolution_fails:
+            assert errors[0][-1] == "METHODOLOGY_RESOLUTION_FAILED"
+        else:
+            assert errors == []
+            headers, row = list(workbook["Methodology Resolution"].values)
+            assert dict(zip(headers, row))["Methodology"] == "M01"
+    finally:
+        workbook.close()
+    spool_path, = (tmp_path / "runs").iterdir()
+    previous = list(events)
+    export_methodology_spool(spool_path, tmp_path / "recovered-review.xlsx")
+    assert events == previous
+    resolver.assert_called_once()
+
+
 def test_worker_failure_and_policy_fail_before_connect(tmp_path, monkeypatch):
     install_fakes(monkeypatch)
     evaluate = app.evaluate_vlan_compliance

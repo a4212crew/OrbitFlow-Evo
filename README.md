@@ -358,7 +358,12 @@ To recover this report without device access:
 python scripts/device_vlan_compliance.py export <spool-path> review.xlsx --methodology-report --keep-spool
 ```
 
-New collection spools contain a separate `methodologies` payload. Legacy spools
+Collection with `--methodology-report` (or `collect_compliance(...,
+methodology_report=True)`) retains a separate `methodologies` payload for recovery.
+Default compliance-only runs skip methodology resolution. Resolution failures
+are retained separately as `methodology_errors` and exported as explicit
+review-needed failures, without changing compliance findings or device error counts.
+Spools collected without methodology review and legacy spools
 produce an explicit unavailable-evidence review row rather than guessing from
 compliance summaries. `orbitflow.compliance.methodology.resolve_methodologies()`
 accepts the existing DeviceContext, interface records and VlanState for offline

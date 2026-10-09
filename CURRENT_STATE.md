@@ -479,9 +479,12 @@ The prompt correction awaits operator-controlled live retesting.
 
 Issue #79 adds a separate M01–M07 methodology projection through the existing
 family AuditResolver, preserving service/child identities, local/global EVC
-bindings, XR attachments, Huawei VSI and EdgeSwitch ownership. New compliance
-spools retain review records; opt-in `--methodology-report` exports a separate
+bindings, XR attachments, Huawei VSI and EdgeSwitch ownership. Opt-in
+`--methodology-report` collects and retains review records, then exports a separate
 streamed Excel workbook with evidence, findings and explicit review outcomes.
+Compliance-only runs skip methodology resolution. Projection failures are stored
+separately and exported as review-needed failures; compliance findings, health,
+ordinary errors, device failure counts and normal reports remain unchanged.
 Unknown forwarding syntax carries sanitized line markers. Configuration-facts
 digests cover the sanitized projection, not raw backups or live freshness.
 Compliance outputs remain unchanged: 180 representative pre/post result hashes
