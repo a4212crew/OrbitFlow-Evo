@@ -46,7 +46,7 @@ def test_all_methods_and_compliance_nonmutation(family, config, method):
             assert item['excerpt'] == config.splitlines()[item['line'] - 1]
 
 
-@pytest.mark.parametrize('global_bd,status', [('445', 'mixed_equivalent'), ('545', 'conflict')])
+@pytest.mark.parametrize('global_bd,status', [('445', 'resolved'), ('545', 'conflict')])
 def test_mixed_service_bindings(global_bd, status):
     config = ('interface Gi0/1\n service instance 7 ethernet\n  encapsulation dot1q 445 second-dot1q 17\n'
               '  bridge-domain 445\n service instance 8 ethernet\n  encapsulation untagged\n  bridge-domain 545\n'
@@ -54,7 +54,7 @@ def test_mixed_service_bindings(global_bd, status):
     rows = resolve(config, 'ASR920')
     one, two = rows
     assert one['methodology'] == ['M02', 'M03']
-    assert one['status'] == status and one['review_needed']
+    assert one['status'] == status and one['review_needed'] == (status == 'conflict')
     assert one['mapping']['inner_vlan'] == [17]
     assert one['mapping']['outer_vlan'] == [445]
     assert two['methodology'] == ['M03']

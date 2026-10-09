@@ -32,8 +32,14 @@ def resolved_records(resolver):
     def emit(key, methods, subtype, *, mapping=None, proof=None, status="resolved", extra=()):
         row = resolver.rows[key]
         problems = list(row["configuration_findings"])
+        service_id = (mapping or {}).get("service_instance_id", "")
+        if service_id:
+            # Audit rows aggregate all services on the parent. Project only
+            # this service's defects, retaining interface-wide findings.
+            problems = [p for p in problems
+                        if not p.get("service_instance_id") or p["service_instance_id"] == service_id]
         problems.extend(dict(code=code, evidence=[]) for code in extra)
-        if status == "resolved" and (row["review"] or problems):
+        if status == "resolved" and (problems or (row["review"] and not service_id)):
             status = "review_needed"
         record = dict(record_kind="interface_service", config_interface_name=row["config_interface_name"],
                       parent_interface=parent_name(row["config_interface_name"]) or "",
@@ -81,10 +87,8 @@ def resolved_records(resolver):
                 status = mapping["binding_status"]
                 status = "resolved" if status == "valid" else status
                 extra = []
-                if local and global_:
-                    extra.append("EQUIVALENT_LOCAL_GLOBAL_BINDING" if local == global_ else "MIXED_BINDING_CONFLICT")
-                    if status == "resolved":
-                        status = "mixed_equivalent"
+                if local and global_ and local != global_:
+                    extra.append("MIXED_BINDING_CONFLICT")
                 if mapping["encapsulation_type"] == "unknown" or mapping.get("classification_status") == "ambiguous":
                     status = "ambiguous"
                 service_nodes = [n for n in lines if n.kind == "service_instance"
@@ -96,6 +100,7 @@ def resolved_records(resolver):
                      "evc_global" if global_ else "evc_local" if local else "evc_unbound",
                      mapping=detail, proof=evidence((replace(node, children=()),)), status=status, extra=extra)
                 records[-1]["evidence"] += mapping["evidence"]
+                records[-1]["evidence"] += evidence(tuple(n for n in lines if n.kind in {"description", "shutdown"}))
                 for domain in children(resolver.roots, "bridge_domain"):
                     if domain.value in global_:
                         records[-1]["evidence"] += evidence((replace(domain, children=()),))
@@ -155,6 +160,9 @@ def resolved_records(resolver):
                           emit(key, ["M05"], "switchport_style"))
                 record["mapping"]["configured_switchport"] = [asdict(n) for n in alternate]
                 record["evidence"] += evidence(alternate)
+        if count == len(records) and re.match(r"(?i)(?:pw-ether|pw-iw|pseudowire)", node.value):
+            emit(key, [], "pseudowire_attachment", status="out_of_scope").update(
+                record_kind="service_context", parent_interface="")
         if count == len(records) and any(n.kind not in {"description", "shutdown", "routed"} for n in lines) and not row["child_interfaces"]:
             if re.match(r"(?i)(?:pw-ether|pw-iw|pseudowire|bvi|bdi|loopback|mgmt)", node.value):
                 continue
@@ -178,6 +186,11 @@ def resolved_records(resolver):
         for node in nodes:
             owner = node.value if node.kind in {"interface", "l2_interface"} else interface
             service_id = node.value if node.kind == "service_instance" else service
+            if node.kind == "methodology_context" and node.value == "pseudowire_class":
+                records.append(dict(record_kind="service_context", config_interface_name="",
+                                    service_instance_id="", methodology=[], subtype="supporting_evidence",
+                                    status="out_of_scope", review_needed=False, mapping={}, configuration_findings=[],
+                                    evidence=evidence((replace(node, children=()),))))
             if node.kind == "methodology_evidence":
                 attached = False
                 locations = {(n.source_filename, n.line) for n in ancestors}

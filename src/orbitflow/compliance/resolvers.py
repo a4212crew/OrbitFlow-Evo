@@ -54,7 +54,8 @@ class AuditResolver:
             return tuple(replace(n, children=audit_nodes(n.children)) for n in nodes
                          if not n.kind.startswith("methodology_switchport_")
                          and n.kind not in {"methodology_unknown", "methodology_evidence", "methodology_context", "tag_rewrite",
-                                           "methodology_interface", "methodology_encapsulation"})
+                                           "methodology_interface", "methodology_encapsulation",
+                                           "methodology_member", "methodology_routed_attachment"})
         self.roots = audit_nodes(state.configuration)
         self.config, sources = {}, {}
         for node in self.roots:
@@ -182,9 +183,10 @@ class AuditResolver:
     def methodology_result(self):
         """Separate read-only projection; callers use a fresh per-device resolver."""
         from orbitflow.compliance.methodology import resolved_records
-        # Reuse the family resolver for tolerant review-only Huawei spellings.
+        # Reuse family resolution for review-only Huawei spellings and EVC members.
         # Ordinary result() never promotes these into compliance input facts.
-        kinds = {"methodology_interface": "interface", "methodology_encapsulation": "encapsulation"}
+        kinds = {"methodology_interface": "interface", "methodology_encapsulation": "encapsulation",
+                 "methodology_member": "member"}
         def review_nodes(nodes):
             return tuple(replace(n, kind=kinds.get(n.kind, n.kind), children=review_nodes(n.children))
                          for n in nodes)

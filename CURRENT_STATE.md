@@ -541,6 +541,18 @@ include complete compliance-output hashes captured from the pre-Issue #81 baseli
 Audit health, policy and pass/fail remain unchanged; no live-device validation or
 durable engineer approval is claimed.
 
+Issue #85 refines methodology-only pseudowire context, validated XR routed BVI
+and untagged attachments, and local/global EVC bindings including split-horizon
+modifiers. Real interface identity, exact evidence and unresolved references
+remain visible; equivalent local/global bindings are standard. Compliance
+semantics and Pattern 9 are unchanged, with frozen baseline-equivalence tests.
+PR #86 revision scopes EVC service-specific methodology findings to their own
+service-instance IDs, so valid ASR920 bindings remain standard beside unresolved
+siblings. Interface-wide findings and parent-level compliance remain unchanged.
+Synthetic validation is implemented; operator live report validation remains
+required before completion/merge approval. See
+`docs/operations/methodology-patterns-8-12.md` for the command and expected outcomes.
+
 Issue #65 now implements the saved-configuration audit boundary:
 VlanService/vendor observation -> preserved configuration facts/evidence ->
 family-specific AuditResolver -> common external policy -> JSON spool/Excel.
