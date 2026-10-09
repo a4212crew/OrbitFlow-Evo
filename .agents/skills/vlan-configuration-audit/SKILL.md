@@ -760,3 +760,13 @@ See `docs/architecture/configuration/interface-methodology-review.md`.
   review; never auto-select a template or treat review as operational approval.
 - Use documented methodology examples as candidate fixtures, then validate
   against available real backups without disclosing secrets.
+
+## Future reverse-reference evidence for removal planning (proposed only)
+
+A future Configurator may consume separately derived reverse references from
+preserved configuration facts: interface-to-VLAN, EVC member-to-BD, XR attachment
+to-bridge-domain and Huawei termination-to-VSI. Keep this observational and
+independent of policy/compliance decisions. Do not change compliance trigger,
+required VLAN sets, health or reports merely to support removal planning.
+Ambiguous/unresolved references must not be interpreted as safe absence of a
+consumer. See `docs/architecture/configuration/configuration-removal.md`.

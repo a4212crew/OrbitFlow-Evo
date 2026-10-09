@@ -34,3 +34,7 @@ not automatically choose a template from the device type or detected method.
 - Both paths use the same versioned Change Plan contract and are **offline
   proposals** until separately implemented. See
   [interface methodology review](interface-methodology-review.md).
+
+## Proposed lifecycle-aware template catalogue
+
+Support explicit, non-interchangeable actions: `create`, `update`, `detach`, `remove`, `retire`. Create and update templates should compute a minimal patch from reviewed existing state. **Removal is separately governed** by [configuration removal](configuration-removal.md): per-interface membership withdrawal must not imply removal of VLAN database, bridge-domain or VSI objects; service-instance deletion must not implicitly remove shared forwarding domains. Template identifiers/versions must distinguish operation and scope. The uploaded workbook's RM01+ snippets are candidate rules only, not executable templates or claims of supported vendor syntax. Standard-change pre-approval for a creation template never automatically authorises a destructive removal.

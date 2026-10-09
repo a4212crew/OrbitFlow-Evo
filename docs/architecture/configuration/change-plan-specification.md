@@ -48,3 +48,7 @@ approval:
 - Idempotent operations should detect already-correct state and skip safely; conflicting existing state blocks and requires review.
 - Explicitly represent verification capability, rollback availability and unknown outcome. Never infer rollback commands by blindly reversing arbitrary CLI.
 - Plan schema evolution requires versioning and validation tests. Approval expires or is revoked when target, commands, risk, or state-dependent assumptions materially change.
+
+## Proposed destructive-change contract extension (not in implemented v1)
+
+A future versioned schema should carry an explicit `change_action` and `removal_scope` (target device, interface/service key, specific membership or object identity), source snapshot digest and freshness, full reverse-reference/dependency results including unresolved references, effective versus configured VLAN state, default/implicit membership semantics, and final desired facts. Distinguish detach, membership removal, service-instance deletion and deletion of shared VLAN/BD/VSI objects. The plan must specify preservation invariants, risk/approval class, ordered dependency steps, platform-tested recovery capability and stop conditions. Approval digest covers all of these. Do not trust user-supplied `dependencies_checked` assertions without independent evidence; do not guess rollback as inverse CLI. A missing dependency graph or unknown outcome fails closed.
