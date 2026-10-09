@@ -13,3 +13,24 @@ Example: `ensure_vlan_present(vlan_id, vlan_name)` for a supported switch family
 ## Governance
 
 Preview rendered configuration and intended differences without applying. Approval binds target set, template version, parameter values and produced actions. Keep templates distinct from a future desired-state inventory. Phase 1 should support a small allowlisted set (e.g., VLAN create/allowed-list add), with tests for duplicates, platform variation, unsafe replacements and no-op behavior.
+
+## Agreed engineer-selection model (future)
+
+An engineer first reviews evidence-backed existing interface/VLAN methodology
+resolved by the existing read-only audit machinery, then manually selects an
+approved template. The selected template may update existing configuration or
+create a new interface/service when prerequisite resource checks succeed. Do
+not automatically choose a template from the device type or detected method.
+
+- **Standard change:** pre-approved immutable template version, compatible
+  device/interface profile, bounded parameters, per-row validation and rollout
+  constraints; no additional per-change reviewer only while policy conditions
+  remain satisfied. Operator intent, audit and future live checks remain.
+- **Advanced change:** engineer-authored CLI, including exact ordered commands
+  imported from Excel; separately authorised review and stricter checks.
+- **Bulk:** Excel identifies targets, receives resolved configuration/evidence,
+  records human validation and selected templates; export separate per-device
+  plans with a parent batch manifest, row outcomes and explicit exclusions.
+- Both paths use the same versioned Change Plan contract and are **offline
+  proposals** until separately implemented. See
+  [interface methodology review](interface-methodology-review.md).

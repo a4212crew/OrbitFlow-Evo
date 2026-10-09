@@ -5,6 +5,23 @@ Use this file as the concise source of truth for what is implemented and validat
 
 Keep this document short. Historical implementation detail belongs in `docs/devlog/YYYY-MM.md`.
 
+## Offline Configuration Plans (Phases 1–2)
+
+`orbitflow.configuration` and `scripts/configuration_plan.py` provide immutable
+versioned Change Plans, canonical SHA-256 content digests, inventory snapshot
+resolution, strict offline validation/preview and durable digest-bound
+approve/reject/expire gates. Manual, spreadsheet, template and compliance
+producers share a normalized JSON request; source-specific importers/generators
+remain future work. The initial renderer supports VLAN creation on C3750X IOS
+and C3850 IOS-XE profiles, including no-op and conflicting-state checks.
+SQLite approval history is signed by a separate local key; operator-controlled
+authority storage is required and actor labels are not authentication.
+Deterministic tests cover the lifecycle, expiry, mutations, tampering, secret
+rejection and socket-blocked CLI operation. No apply/live verification or device
+changes are implemented. See `docs/architecture/configuration/offline-plans.md`.
+The configuration-management skill is staged alongside that document pending
+controller installation into the session-protected `.agents/skills/` directory.
+
 ## Project
 
 OrbitFlow-Evo is a multi-vendor ISP network automation platform designed to scale toward approximately 1,500 network devices.
