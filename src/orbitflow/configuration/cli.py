@@ -42,8 +42,10 @@ def main(argv=None):
             elif args.command == "validate":
                 print("Valid offline plan " + plan.digest)
             elif args.command == "verify-approval":
-                ApprovalStore(args.authority).verify(plan)
-                print("Approval verified " + plan.digest)
+                ApprovalStore(args.authority).verify(plan, offline_review=True)
+                prefix = ("Approval verified " if plan.to_dict()["schema_version"] == 1 else
+                          "Offline approval verified (not execution authorization) ")
+                print(prefix + plan.digest)
             else:
                 expiry = None
                 if args.command == "approve":

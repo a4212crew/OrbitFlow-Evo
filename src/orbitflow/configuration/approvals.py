@@ -89,6 +89,7 @@ class ApprovalStore:
         now = now or datetime.now(timezone.utc)
         issued = timestamp(now)
         if status == "approved":
+            require(plan.to_dict().get("status") != "blocked", "blocked plan cannot be approved")
             require(expires_at is not None, "approval expiry required")
             expiry = timestamp(expires_at)
             require(expires_at > now, "approval must expire in the future")
@@ -106,9 +107,11 @@ class ApprovalStore:
             db.execute("INSERT INTO decisions VALUES (?, ?, ?)", (len(records) + 1, body, signature))
         return record
 
-    def verify(self, plan, *, now=None):
+    def verify(self, plan, *, now=None, offline_review=False):
         """Fail closed; time expiry is effective even without an explicit expire event."""
         plan = ChangePlan(plan.content)
+        require(offline_review or plan.to_dict()["schema_version"] == 1,
+                "v2 approval is offline review only; execution is forbidden")
         current = timestamp(now or datetime.now(timezone.utc))
         require((self.root / "approvals.sqlite3").is_file(), "plan is unapproved")
         try:

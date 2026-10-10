@@ -11,8 +11,8 @@ Keep this document short. Historical implementation detail belongs in `docs/devl
 versioned Change Plans, canonical SHA-256 content digests, inventory snapshot
 resolution, strict offline validation/preview and durable digest-bound
 approve/reject/expire gates. Manual, spreadsheet, template and compliance
-producers share a normalized JSON request; source-specific importers/generators
-remain future work. The initial renderer supports VLAN creation on C3750X IOS
+producers share the v1 normalized JSON request. The v1 renderer supports VLAN
+creation on C3750X IOS
 and C3850 IOS-XE profiles, including no-op and conflicting-state checks.
 SQLite approval history is signed by a separate local key; operator-controlled
 authority storage is required and actor labels are not authentication.
@@ -21,6 +21,21 @@ rejection and socket-blocked CLI operation. No apply/live verification or device
 changes are implemented. See `docs/architecture/configuration/offline-plans.md`.
 The configuration-management skill is staged alongside that document pending
 controller installation into the session-protected `.agents/skills/` directory.
+
+Issue #88 implements offline guided bulk planning C1–C4 through
+`scripts/configuration_job.py prepare/plan/validate-batch`: a versioned,
+profile-gated catalogue, generated action-specific Excel fields, explicit EVC
+selection, typed ordered operations, conservative conflicts and consolidated
+previews. The initial catalogue covers Catalyst access/trunk add/replace,
+ME3600X/ASR920 local/global EVC and NE05E dot1q subinterfaces. Advanced manual
+CLI remains unknown-effect review evidence, never execution-authorized.
+Immutable v2 per-device plans and batch manifests bind source/snapshot digests,
+row outcomes and template versions; local offline approvals cannot authorize
+v2 execution. v1 allowlists and approvals remain supported. Synthetic regressions
+and a generated mixed-vendor offline CLI exercise are implemented; operator
+Excel validation is pending and required before merge approval. No live-device
+validation, execution, backup, save/commit or resume is included. See
+`docs/operations/guided-configuration-planning.md` for exact commands and samples.
 
 ## Project
 

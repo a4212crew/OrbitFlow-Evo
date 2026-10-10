@@ -91,6 +91,10 @@ def validate_operation(op, target):
 
 
 def validate(data):
+    if type(data) is dict and type(data.get("schema_version")) is int and data["schema_version"] == 2:
+        from .guided_schema import validate as validate_guided
+        validate_guided(data)
+        return
     keys(data, "schema_version change_id source intent targets execution_policy")
     require(type(data["schema_version"]) is int and data["schema_version"] == 1, "unsupported schema version")
     label(data["change_id"])

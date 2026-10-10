@@ -1,6 +1,6 @@
 # Gap C — Guided Bulk Configuration Planning (C1–C4)
 
-Status: **approved target design, not implemented**. Gap B (durable methodology Engineering Review Workflow) is deferred. This document scopes an integrated, **offline-only** C1–C4 implementation. The existing `orbitflow.configuration` v1 supports only allowlisted VLAN creation on C3750X/C3850; it does **not** implement this workflow, arbitrary manual CLI or live apply. See [offline plans](offline-plans.md) and [methodology review](interface-methodology-review.md).
+Status: **C1–C4 offline implementation available; operator workbook validation pending**. See [operator workflow](../../operations/guided-configuration-planning.md) for the bounded shipped catalogue, commands and limitations. Gap B (durable methodology Engineering Review Workflow) is deferred. This document scopes an integrated, **offline-only** C1–C4 implementation. The existing `orbitflow.configuration` v1 supports only allowlisted VLAN creation on C3750X/C3850; v2 adds this offline workflow without changing v1 or adding live apply. See [offline plans](offline-plans.md) and [methodology review](interface-methodology-review.md).
 
 ## Engineer workflow and artifacts
 
@@ -14,7 +14,7 @@ The primary interface is a guided Excel workflow; engineers **do not need to kno
 | 4. Plan | Completed guided workbook | Per-device ordered CLI candidates, conflicts, warnings, preconditions and verification expectations | Deterministic offline validation; unknown manual CLI effects remain review-required and non-executable |
 | 5. Review | Consolidated Excel preview + exact JSON plans/digests | Engineer approves/rejects **exact** immutable Change Plan via offline authority; retained batch manifest and results | Plan changes invalidate approval; local actor labels are not authenticated |
 
-Proposed operator command names, **not currently implemented**:
+Implemented operator commands (see the operator workflow for inventory/output options):
 
 ```powershell
 python .\scripts\configuration_job.py prepare .\requests.xlsx
