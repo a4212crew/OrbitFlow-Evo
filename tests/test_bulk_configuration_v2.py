@@ -244,7 +244,7 @@ def test_shared_live_collection_one_session_and_read_only_commands(tmp_path, mon
             return ("Interface  Status  Protocol  Description\nGi1/0/1  up  up  Before" if command == "show interfaces description" else
                     "vlan 445\n name Existing\n!\ninterface Gi1/0/1\n description Before\n!\nusername hidden password MUST_NOT_PERSIST")
     class Resolver:
-        def __init__(self, store):
+        def __init__(self, store, **kwargs):
             pass
         def resolve(self, supplied, *, management_ip, cli):
             assert supplied is session and management_ip == IP
@@ -421,7 +421,7 @@ def test_manual_cli_operator_commands_offline(tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("no network or credential prompting")
     monkeypatch.setattr(socket, "socket", forbidden)
-    monkeypatch.setattr("orbitflow.configuration.v2.cli.getpass", forbidden)
+    monkeypatch.setattr("orbitflow.targets.load_device_credentials", forbidden)
     source = tmp_path / "source.xlsx"
     main(["input", str(source)])
     book = load_workbook(source)
@@ -467,7 +467,7 @@ def test_mixed_device_workbook_evidence_and_manual_status(tmp_path):
         status = sheet.cell(3, len(t.columns) + EXTRA.index("Live Validation") + 1).value
         evidence = sheet.cell(3, len(t.columns) + EXTRA.index("Existing Evidence") + 1).value
         assert status == ("not_live_validated" if t.family == "All" else "live_read_only")
-        assert not evidence if t.family == "All" else evidence.startswith("interface ")
+        assert not evidence  # fixture has no requested VLAN stanza; unrelated interfaces stay private
     assert len(result.to_dict()["observations"]) == 2
 
 
@@ -692,7 +692,7 @@ def test_revised_options_input_review_roundtrip(case, tmp_path):
     sheet = book[t.sheet]
     for col, field in enumerate(t.columns, 1):
         assert sheet.cell(3, col).value == (str(p[field]) if field in p else None)
-    assert sheet.cell(3, len(t.columns) + EXTRA.index("Existing Evidence") + 1).value == obs["evidence"][0]["excerpt"]
+    assert sheet.cell(3, len(t.columns) + EXTRA.index("Existing Evidence") + 1).value == (None if case == "c3850_name" else obs["evidence"][0]["excerpt"])
     assert sheet.cell(3, len(t.columns) + EXTRA.index("Proposed CLI") + 1).value
     sheet.cell(3, len(t.columns) + len(EXTRA), "Approve")
     book.save(output)
@@ -756,3 +756,177 @@ def test_revised_cli_review_and_digest_invalidation(tmp_path, monkeypatch):
     assert revised.to_dict()["results"][0]["decision"] == "Reject"
     assert "rewrite ingress tag push dot1q 445 symmetric" in revised.to_dict()["results"][0]["commands"]
     assert not revised.to_dict()["results"][0]["deployment_ready"]
+
+
+@pytest.mark.parametrize("kind", ["interface", "l2_interface"])
+@pytest.mark.parametrize("description", ["Before", "Customer Site Alpha"])
+def test_xr_description_uses_observed_declaration(kind, description):
+    t = template("NCS540", "Interface Description")
+    name = "GigabitEthernet0/0/0/1.545"
+    obs = observed(t)
+    obs["interfaces"] = []
+    obs["facts"] = [asdict(ConfigFact(kind, name, "running-config", 7,
+        f"interface {name}" + (" l2transport" if kind == "l2_interface" else ""),
+        (ConfigFact("description", description, "running-config", 8, f" description {description}"),)))]
+    obs = safe_data(obs, lambda value: value)
+    r = request(t.id, {**inputs(t), "interface": name})
+    result = plan([r], {IP: obs}, now=NOW).to_dict()["results"][0]
+    assert "INTERFACE_ABSENT_OR_AMBIGUOUS" not in result["findings"]
+    assert result["no_op"] == (description == "Customer Site Alpha")
+    if not result["no_op"]:
+        assert result["commands"][1] == f"interface {name}" + (" l2transport" if kind == "l2_interface" else "")
+    with pytest.raises(PlanError):
+        request(t.id, {**inputs(t), "interface": name + " l2transport"})
+    for facts in ([], obs["facts"] * 2):
+        invalid = {**obs, "facts": facts}
+        row = plan([r], {IP: invalid}, now=NOW, decisions={r["row_id"]: "Approve"}).to_dict()["results"][0]
+        assert "INTERFACE_DECLARATION_ABSENT_OR_AMBIGUOUS" in row["findings"]
+        assert not row["deployment_ready"]
+
+
+def test_asr_bdi_requires_interface_declaration():
+    t = template("ASR920", "Interface Description")
+    r = request(t.id, {**inputs(t), "interface": "BDI545"})
+    obs = observed(t)
+    obs["interfaces"] = []
+    obs["facts"] = [asdict(ConfigFact("interface", "BDI545", "running-config", 12, "interface BDI545"))]
+    obs = safe_data(obs, lambda value: value)
+    assert "INTERFACE_ABSENT_OR_AMBIGUOUS" not in plan([r], {IP: obs}, now=NOW).to_dict()["results"][0]["findings"]
+    obs["facts"] = [asdict(ConfigFact("bridge_domain", "545", "running-config", 12, "bridge-domain 545"))]
+    obs = safe_data(obs, lambda value: value)
+    assert "INTERFACE_ABSENT_OR_AMBIGUOUS" in plan([r], {IP: obs}, now=NOW).to_dict()["results"][0]["findings"]
+
+
+def test_scoped_evidence_service_dependencies_and_workbook(tmp_path):
+    from orbitflow.configuration.v2.evidence import scoped_evidence
+    t = template("ME3600X", "EVC")
+    r = request(t.id, inputs(t))
+    obs = observed(t)
+    def fact(kind, value, line, children=()):
+        return ConfigFact(kind, value, "running-config", line, f"{kind} {value}", children)
+    obs["facts"] = [asdict(fact("interface", "Gi1/0/1", 10, (
+        fact("service_instance", "10", 11, (fact("bridge_domain", "4002", 12),)),
+        fact("service_instance", "20", 13)))),
+        asdict(fact("interface", "Gi1/0/2", 20)),
+        asdict(fact("vlan", (4002,), 30)), asdict(fact("vlan", (999,), 40))]
+    obs = safe_data(obs, lambda value: value)
+    selected = scoped_evidence(r, obs)
+    assert [e["line"] for e in selected] == [10, 11, 12, 30]
+    result = plan([r], {IP: obs}, now=NOW)
+    output = tmp_path / "scoped.xlsx"
+    export_review(result, output)
+    book = load_workbook(output)
+    assert [book["Evidence Details"].cell(i, 3).value for i in range(2, 6)] == ["10", "11", "12", "30"]
+    assert import_review(result, output, now=NOW).digest == result.digest
+    db = template("ME3600X", "VLAN Database")
+    assert [e["line"] for e in scoped_evidence(request(db.id, inputs(db)), obs)] == [30]
+
+
+def test_shared_excel_per_ip_credentials_and_provider_precedence(tmp_path):
+    from openpyxl import Workbook
+    from orbitflow.targets import load_device_credentials
+    from orbitflow.transport import DeviceCredentials
+    book = Workbook()
+    book.active.append(["management_ip", "username", "password", "secret"])
+    book.active.append([IP, "user-a", "dummy-a", "enable-a"])
+    book.active.append(["192.0.2.11", "user-b", "dummy-b", None])
+    book.active.append(["192.0.2.12", "dup", "dummy", None])
+    book.active.append(["192.0.2.12", "dup", "dummy", None])
+    book.active.append(["192.0.2.13", "missing", None, None])
+    path = tmp_path / "devices.xlsx"
+    book.save(path)
+    ips = [IP, "192.0.2.11", "192.0.2.12", "192.0.2.13", "192.0.2.14"]
+    credentials = load_device_credentials(path, ips)
+    assert set(credentials) == {IP, "192.0.2.11"}
+    assert credentials[IP].secret == "enable-a"
+    assert credentials["192.0.2.11"].username == "user-b"
+    supplied = DeviceCredentials("provider", "provider-value")
+    assert load_device_credentials(path, ips, provider=lambda ip: supplied if ip == IP else None)[IP] is supplied
+
+
+
+def test_cli_devices_credentials_and_shared_sequential_config(tmp_path, monkeypatch):
+    from orbitflow.configuration.v2 import cli, observation
+    from openpyxl import Workbook
+    source = tmp_path / "mixed.xlsx"
+    create_input(source)
+    book = load_workbook(source)
+    families = ["NCS540", "ASR920", "NE05E"]
+    for index, family in enumerate(families):
+        t = template(family, "Interface Description")
+        p = {**inputs(t), "management_ip": f"192.0.2.{10 + index}"}
+        for col, field in enumerate(t.columns, 1):
+            book[t.sheet].cell(3, col, p.get(field))
+    manual = template("All", "Manual CLI")
+    for col, field in enumerate(manual.columns, 1):
+        book[manual.sheet].cell(3, col, {**inputs(manual), "management_ip": "192.0.2.99"}.get(field))
+    book.save(source)
+    devices = Workbook()
+    devices.active.append(["management_ip", "username", "password", "secret"])
+    devices.active.append([IP, "user-a", "dummy-a", "enable-a"])
+    devices.active.append(["192.0.2.11", "user-b", "dummy-b", None])
+    credentials_path = tmp_path / "devices.xlsx"
+    devices.save(credentials_path)
+    captured = {}
+    def collect(rows, credentials, transport, **kwargs):
+        captured.update(credentials=credentials, config=kwargs["execution_config"])
+        return object()
+    monkeypatch.setattr(observation, "collect", collect)
+    monkeypatch.setattr(observation, "bounded_observations", lambda spool: {})
+    output = tmp_path / "plan.json"
+    cli.main(["plan", str(source), str(output), "--devices", str(credentials_path),
+              "--max-concurrent-devices", "1", "--proxy", "example", "--cluster", "example",
+              "--bastion-host", "example", "--bastion-user", "example"])
+    assert captured["config"].max_concurrent_devices == 1
+    assert set(captured["credentials"]) == {IP, "192.0.2.11"}
+    assert captured["credentials"][IP].secret == "enable-a"
+    assert captured["credentials"]["192.0.2.11"].password == "dummy-b"
+    assert "dummy-a" not in output.read_text() and "enable-a" not in output.read_text()
+
+
+def test_missing_credentials_never_connect_and_spool_is_safe(tmp_path, monkeypatch):
+    from orbitflow.configuration.v2 import observation
+    from orbitflow.config import ExecutionConfig
+    def forbidden(*args, **kwargs):
+        raise AssertionError("no credentials means no connection")
+    monkeypatch.setattr(observation, "connect_device", forbidden)
+    t = template("ASR920", "Interface Description")
+    spool = observation.collect([request(t.id, inputs(t))], {}, None,
+        inventory_path=tmp_path / "inventory.json", spool_root=tmp_path / "runs",
+        execution_config=ExecutionConfig(1, 0, 0))
+    assert dict(observation.observations(spool)) == {IP: {"status": "evidence_unavailable"}}
+
+
+
+def test_xr_service_evidence_distinguishes_bridge_groups():
+    from orbitflow.configuration.v2.evidence import scoped_evidence
+    from orbitflow.vendors.configuration_facts import observe_configuration
+    t = template("NCS540", "L2VPN")
+    r = request(t.id, inputs(t))
+    configuration = """interface Gi1/0/1
+ description parent
+!
+interface Gi1/0/1.10 l2transport
+ encapsulation dot1q 4002
+!
+interface Gi1/0/2.20 l2transport
+ encapsulation dot1q 999
+!
+l2vpn
+ bridge group CUSTOMER
+  bridge-domain BLUE
+   interface Gi1/0/1.10
+  !
+ !
+ bridge group OTHER
+  bridge-domain BLUE
+   interface Gi1/0/2.20
+  !
+ !
+!
+"""
+    obs = observed(t)
+    obs["facts"] = safe_data([asdict(n) for n in observe_configuration(configuration, "cisco_xr")], lambda value: value)
+    excerpts = "\n".join(e["excerpt"] for e in scoped_evidence(r, obs))
+    assert "bridge group CUSTOMER" in excerpts and "Gi1/0/1.10" in excerpts
+    assert "OTHER" not in excerpts and "Gi1/0/2" not in excerpts

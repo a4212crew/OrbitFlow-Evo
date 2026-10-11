@@ -78,6 +78,13 @@ def _row(r, observation, prior, decision, now, max_age):
         if not obs.get("evidence"):
             findings.append("CONFIGURATION_EVIDENCE_UNAVAILABLE")
     actual = [i for i in obs.get("interfaces", []) if key(i["port_name"]) == key(p.get("interface", ""))]
+    declarations = [n for n in obs.get("facts", [])
+                    if n["kind"] in {"interface", "l2_interface"}
+                    and key(n["value"]) == key(p.get("interface", ""))]
+    # Configuration declarations prove existence; service references never do.
+    if not actual and len(declarations) == 1:
+        descriptions = [n["value"] for n in declarations[0]["children"] if n["kind"] == "description"]
+        actual = [dict(port_description=descriptions[-1] if descriptions else "")]
     existing = next((i for i in obs.get("vlans", []) if key(i["interface_name"]) == key(p.get("interface", ""))), None)
     if "interface" in p and len(actual) != 1:
         findings.append("INTERFACE_ABSENT_OR_AMBIGUOUS")
@@ -176,6 +183,11 @@ def _row(r, observation, prior, decision, now, max_age):
             findings.append("PVID_TAGGING_CONFLICT")
         if p.get("replace_untagged") == "Yes":
             findings.append("UNTAGGED_REPLACEMENT_IMPACT")
+    if t.family == "NCS540" and t.function == "Interface Description":
+        if len(declarations) != 1:
+            findings.append("INTERFACE_DECLARATION_ABSENT_OR_AMBIGUOUS")
+        else:
+            existing = {**(existing or {}), "l2transport": declarations[0]["kind"] == "l2_interface"}
     renderer = huawei if t.family == "NE05E" else edge if t.family == "EdgeSwitch" else cisco
     out["commands"] = [] if out["no_op"] else renderer(t, p, existing)
     out["findings"] = sorted(set(findings))

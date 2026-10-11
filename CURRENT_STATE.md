@@ -35,6 +35,13 @@ tagged membership/PVID with untagged preservation, and C3850X names with spaces.
 Deterministic review fixtures cover these options, no-ops and conflicts.
 EdgeSwitch PVID-only proposals include missing participation while preserving
 existing memberships; participating targets require only the PVID command.
+NCS540 descriptions preserve observed L2transport/L3 declarations with clean
+interface inputs; evidenced ASR920 BDI declarations support logical targets.
+Review XLSX evidence is request-scoped with source/line references; internal
+device-wide facts remain available for consistency checks. Shared devices.xlsx
+loading supports distinct per-IP credentials and isolated missing/duplicate
+failures. Operators can select shared sequential execution with a limit of 1.
+Manual Scope is metadata; literal CLI supplies its own hierarchy.
 V1 plan/approval behavior is unchanged. Audit defaults retain existing policy
 bounds; an explicit planning projection uses platform numeric bounds and NE05E
 single-tag VSI relationships without changing compliance outputs.

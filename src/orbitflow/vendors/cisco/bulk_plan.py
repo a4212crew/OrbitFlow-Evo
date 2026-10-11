@@ -80,7 +80,7 @@ def render(template, p, existing=None):
     name = p["interface"]
     if function == "L2VPN":
         name += f".{p['subinterface']}"
-    lines.append(f"interface {name}" + (" l2transport" if function == "L2VPN" else ""))
+    lines.append(f"interface {name}" + (" l2transport" if function == "L2VPN" or (template.family == "NCS540" and function == "Interface Description" and existing and existing.get("l2transport")) else ""))
     if p.get("description"):
         lines.append(f"description {p['description']}")
     if function == "Access Port":

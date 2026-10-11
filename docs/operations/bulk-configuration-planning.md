@@ -28,14 +28,27 @@ actions, encapsulation and modes. Optional blank descriptions preserve text.
 Credentials must never be entered into this workbook.
 
 ```powershell
-python -m orbitflow.configuration.v2.cli plan bulk-input.xlsx outputs/runs/configuration/example/plan.json --username OPERATOR --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER
+python -m orbitflow.configuration.v2.cli plan bulk-input.xlsx outputs/runs/configuration/example/plan.json --devices devices.xlsx --max-concurrent-devices 1 --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER
 ```
 
-The command prompts privately for the device password and optional enable
-secret. Optional arguments are `--config`, `--inventory-path`,
-`--teleport-key-path` and `--teleport-cert-path`. API callers may supply separate
-in-memory `DeviceCredentials` per IP. Manual-only workbooks need none of these
-connection arguments and trigger no password prompts or target connections.
+The shared Excel target loader reads `devices.xlsx` (override with `--devices`).
+Its columns are `management_ip`, `username`, `password`, and optional `secret`.
+The template workbook supplies management IP only. Each live IP requires exactly
+one complete credential row; missing or duplicate matches produce isolated
+unavailable evidence without a connection. API callers can use the shared
+`load_device_credentials` provider hook, which takes precedence over Excel,
+or supply their existing in-memory credentials directly. Credentials are never
+included in the plan or review workbook.
+
+Use `--max-concurrent-devices 1` for sequential processing through the shared
+execution layer, or set `[execution] max_concurrent_devices = 1` in the TOML
+selected by `--config`. Teleport routing, optional key/certificate paths and
+inventory options retain the existing transport contract. Manual-only workbooks
+need no connection arguments and perform no credential lookup.
+
+Manual CLI Scope identifies affected resources for review/conflict metadata.
+Scope and mode never add a CLI wrapper: literal commands must contain the
+required configuration hierarchy.
 
 Outputs are an exclusively created immutable JSON plan and an adjacent XLSX
 review workbook. The workbook retains input columns, original entered values,
@@ -45,7 +58,9 @@ findings, no-op status and Pending/Approve/Reject. Summary includes invalid row
 locations; unsafe invalid input text is deliberately omitted. Correct those rows
 in the source workbook and plan again. Other valid rows continue.
 
-Evidence Details preserves source filenames, one-based line numbers and exact
+Review rows and Evidence Details contain only requested interface/service/global
+objects and required dependency stanzas. Internal sanitized device-wide facts
+remain digest-bound for consistency checks. Evidence Details preserves source filenames, one-based line numbers and exact
 sanitized excerpts; oversized main-sheet evidence refers there. The plan digest
 binds the sanitized observation, facts, device identities, original inputs,
 source-workbook SHA-256, catalogue version, ordering, proposals and decisions.

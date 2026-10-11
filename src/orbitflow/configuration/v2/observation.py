@@ -63,9 +63,10 @@ def collect(requests, credentials, transport_config, *, inventory_path="data/inv
     store = JsonInventoryStore(inventory_path)
 
     def worker(ip):
+        require(ip in credentials, "target credentials unavailable or ambiguous")
         with connect_device(ip, credentials[ip], transport_config) as session:
             with DeviceCLI(session) as cli:
-                context = DeviceInventoryResolver(store).resolve(session, management_ip=ip, cli=cli)
+                context = DeviceInventoryResolver(store, sanitize_fact=clean).resolve(session, management_ip=ip, cli=cli)
                 interfaces = InterfaceService().collect(session, context, cli=cli)
                 vlans = VlanService().collect(session, context, cli=cli)
                 return snapshot(context, interfaces, vlans, clean=clean)

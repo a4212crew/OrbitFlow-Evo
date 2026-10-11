@@ -1,7 +1,6 @@
 """Operator adapters for v2 input, live read-only planning and offline review."""
 import argparse
 from datetime import datetime, timedelta, timezone
-from getpass import getpass
 from pathlib import Path
 
 from orbitflow.configuration.plans import PlanError, require
@@ -19,7 +18,8 @@ def main(argv=None):
     generate = sub.add_parser("plan")
     generate.add_argument("workbook", type=Path)
     generate.add_argument("output", type=Path)
-    generate.add_argument("--username")
+    generate.add_argument("--devices", type=Path, default=Path("devices.xlsx"))
+    generate.add_argument("--max-concurrent-devices", type=int)
     for name in ("proxy", "cluster", "bastion-host", "bastion-user"):
         generate.add_argument("--" + name)
     generate.add_argument("--inventory-path", default="data/inventory/inventory.json")
@@ -45,17 +45,21 @@ def main(argv=None):
             ips = {r["inputs"]["management_ip"] for r in requests if BY_ID[r["template_id"]].family != "All"}
             observations = {}
             if ips:
-                require(all(getattr(args, k) for k in ("username", "proxy", "cluster", "bastion_host", "bastion_user")), "live routing and username required")
-                from orbitflow.transport import DeviceCredentials, TransportConfig
+                require(all(getattr(args, k) for k in ("proxy", "cluster", "bastion_host", "bastion_user")), "live routing required")
+                from orbitflow.transport import TransportConfig
                 from orbitflow.config import load_execution_config
                 from .observation import collect, bounded_observations
-                password = getpass("Device password: ")
-                secret = getpass("Enable secret (blank if unnecessary): ") or None
-                credentials = {ip: DeviceCredentials(args.username, password, secret=secret) for ip in ips}
+                from orbitflow.targets import load_device_credentials
+                from dataclasses import replace
+                credentials = load_device_credentials(args.devices, sorted(ips))
+                execution = load_execution_config(args.config)
+                if args.max_concurrent_devices is not None:
+                    require(args.max_concurrent_devices >= 1, "invalid concurrency limit")
+                    execution = replace(execution, max_concurrent_devices=args.max_concurrent_devices)
                 config = TransportConfig(args.proxy, args.cluster, args.bastion_host, args.bastion_user,
                                          teleport_key_path=args.teleport_key_path, teleport_cert_path=args.teleport_cert_path)
                 spool = collect(requests, credentials, config, inventory_path=args.inventory_path,
-                                execution_config=load_execution_config(args.config))
+                                execution_config=execution)
                 observations = bounded_observations(spool)
             result = plan(requests, observations, source="workbook-sha256:" + requests.source_digest)
         else:

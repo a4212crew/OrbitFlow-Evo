@@ -10,6 +10,7 @@ from openpyxl.comments import Comment
 from orbitflow.configuration.plans import require, PlanError
 from .catalogue import CATALOGUE, BY_ID, BY_SHEET, normalize_display_inputs
 from .planning import request, review, MAX_ROWS
+from .evidence import scoped_evidence
 
 EXTRA = ("Row ID", "Existing Evidence", "Proposed CLI", "Live Validation", "Consistency",
          "Dependencies", "Observed At", "Findings", "No-op", "Engineer Decision")
@@ -64,7 +65,7 @@ def _base():
                         "replace_untagged": "No preserves unrelated untagged membership; Yes explicitly replaces it",
                         "pvid": "Independent PVID; for PVID-only leave action, mode and vlans blank",
                         "subinterface": "10", "vsi": "existing-VSI", "bridge_group": "CUSTOMER",
-                        "scope": "GigabitEthernet0/1", "commands": "Literal multiline CLI; no credentials",
+                        "scope": "Affected resource metadata only; no CLI wrapper. Literal commands must include required hierarchy", "commands": "Literal multiline CLI; no credentials",
                         "interface": "Existing physical/aggregate interface; descriptions also permit existing subinterfaces"}
             if col in examples:
                 cell.comment.text += "; " + examples[col]
@@ -143,21 +144,19 @@ def export_review(plan, path):
     for error in data["input_errors"]:
         summary.append([error["sheet"], error["row"], error["reason"]])
         literal(book[error["sheet"]].cell(error["row"], 1), "Invalid input omitted; correct source workbook and re-plan")
-    references = {}
-    for ip, obs in data["observations"].items():
-        references[ip] = f"Evidence Details: {ip}"
-        for e in obs.get("evidence", []):
-            row = details.max_row + 1
-            for col, v in enumerate((ip, e["source_filename"], e["line"], e["excerpt"]), 1):
-                literal(details.cell(row, col), v)
     for r in data["requests"]:
         t, p, result = BY_ID[r["template_id"]], r["inputs"], results[r["row_id"]]
         sheet = book[t.sheet]
         summary.append([t.sheet, r["row"], "No-op" if result["no_op"] else result["decision"]])
         obs = data["observations"].get(p["management_ip"], {}) if t.family != "All" else {}
-        evidence = "\n".join(e["excerpt"] for e in obs.get("evidence", []))
+        excerpts = scoped_evidence(r, obs)
+        for e in excerpts:
+            row = details.max_row + 1
+            for col, v in enumerate((r["row_id"], e["source_filename"], e["line"], e["excerpt"]), 1):
+                literal(details.cell(row, col), v)
+        evidence = "\n".join(e["excerpt"] for e in excerpts)
         if len(evidence) > 30000:
-            evidence = references[p["management_ip"]]
+            evidence = "Evidence Details: " + r["row_id"]
         commands = result["commands"]
         original = r["source_inputs"]
         values = [(",".join(map(str, original[k])) if isinstance(original.get(k), list) else original.get(k, "")) for k in t.columns]

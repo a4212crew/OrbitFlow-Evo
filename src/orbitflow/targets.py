@@ -52,3 +52,39 @@ def load_targets(path: str | Path, *, isolate_invalid: bool = False) -> list[dic
     finally:
         workbook.close()
 
+
+
+def load_device_credentials(path, management_ips, *, provider=None):
+    """Resolve requested IPs with provider precedence and isolated Excel failures.
+
+    The provider returns DeviceCredentials or None. Duplicate Excel targets are
+    ambiguous even when their values agree. Never expose input values in errors.
+    """
+    from orbitflow.transport import DeviceCredentials
+    ips = list(dict.fromkeys(management_ips))
+    resolved = {}
+    pending = []
+    for ip in ips:
+        try:
+            supplied = provider(ip) if provider else None
+        except Exception:
+            continue  # Provider failure is isolated; never downgrade authority.
+        if supplied is not None:
+            resolved[ip] = supplied
+        else:
+            pending.append(ip)
+    if not pending:
+        return resolved
+    try:
+        rows = load_targets(path, isolate_invalid=True)
+    except Exception:
+        return resolved
+    by_ip = {}
+    for row in rows:
+        by_ip.setdefault(row.get("management_ip", ""), []).append(row)
+    for ip in pending:
+        matches = by_ip.get(ip, [])
+        if len(matches) == 1 and all(matches[0].get(k) for k in REQUIRED_COLUMNS):
+            row = matches[0]
+            resolved[ip] = DeviceCredentials(row["username"], row["password"], secret=row.get("secret") or None)
+    return resolved
