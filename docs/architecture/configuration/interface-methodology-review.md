@@ -197,3 +197,7 @@ GitHub Issue, or PR is created by this document.
 ## Addition: creation and removal evidence
 
 The operator-provided `VLAN Configuration Methodologies - Creation and Removal.xlsx` complements the original workbook with method-specific creation and removal examples, `Removal Templates` (RM-series), `Removal Workflow` (D-series), and `Removal Acceptance Cases` (T-series). Treat these as candidate specifications, not production-proven adapters. See [configuration removal](configuration-removal.md). Existing read-only compliance outputs and policy decisions must not be changed by adding removal/dependency evidence.
+
+## 2026-10-11 approved workflow supersession
+
+The earlier speculative bulk workflow, methodology-based template recommendation, elevated authenticated Manual CLI reviewer, and offline-only Gap C discussion in this historical document are **superseded** by [approved template-based configuration planning](guided-bulk-planning.md). Methodology observation remains valid as read-only reusable facts, not an engineer input worksheet or automatic template selection. Approved future input uses a single workbook with per-platform/function sheets; predefined templates perform live read-only observation and retain exact sanitized configuration evidence; Manual CLI does not connect and follows the same ordinary offline engineer decision flow. Neither design authorizes device application. Retain historical methodology findings without redefining them.
