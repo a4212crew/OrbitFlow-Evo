@@ -8,7 +8,7 @@ OrbitFlow will accept operator-authored CLI, tabular bulk input, reusable templa
 
 ## Documents
 
-- [Guided bulk configuration planning (Gap C, C1–C4)](guided-bulk-planning.md): approved intent-driven Excel input, versioned template matching, mixed template/manual CLI, offline Change Plans, and future pause/resume policy. **Design only; not implemented.**
+- [Approved template-based configuration planning (Gap C target)](guided-bulk-planning.md): 22 function-specific worksheets, live read-only validation for predefined templates, offline Manual CLI, evidence-rich per-row review and future apply boundary. **Not implemented.**
 
 - [Configuration management](configuration-management.md): responsibilities, boundaries and lifecycle.
 - [Change Plan specification](change-plan-specification.md): canonical intent and provenance model.
@@ -29,6 +29,6 @@ deterministic tests, and operator-controlled live testing.
 
 [Interface methodology resolution and template review](interface-methodology-review.md)
 records the agreed bulk workflow and a gap assessment against the existing
-`AuditResolver`. M01–M08 read-only methodology resolution is implemented separately from the offline Change Plan v1. Gap B engineer review import is deferred; the approved next development direction is guided Gap C C1–C4, documented above. The template registry and bulk Change Plan workflow remain unimplemented.
+`AuditResolver`. M01–M08 read-only methodology resolution is implemented separately from the offline Change Plan v1. Gap B engineer review import is deferred; the approved replacement Gap C design is documented above (Issue #88 / PR #89 superseded). The template registry and bulk Change Plan workflow remain unimplemented.
 
 - [Configuration removal and service retirement](configuration-removal.md): proposed removal scopes, dependency checks, platform risk gates and test obligations. No destructive executor is implemented.
