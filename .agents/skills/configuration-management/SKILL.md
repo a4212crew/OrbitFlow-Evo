@@ -38,36 +38,20 @@ Run `python -m pytest tests/test_configuration_plans.py -q` and appropriate shar
 inventory/vendor regressions. Cover identity, mutation, expiry, tampering,
 credential rejection and no device side effects for changes.
 
-## Future Guided Bulk Configuration Planning — Approved C1–C4 Design (Not Yet Implemented)
+## Approved replacement configuration workflow — design only, not implemented
 
-Follow `docs/architecture/configuration/guided-bulk-planning.md` for the approved integrated C1–C4 intent-driven Excel workflow and deferred Gap B boundary. Engineers provide device/interface/action, not methodology or template IDs; generate required action-specific fields from a versioned, profile-gated template catalogue. Unique compatible matches may be proposed, ambiguity requires engineer selection, and no compatible template fails closed. Preserve exact per-device order for multiple templates and advanced manual CLI on one interface, validate known effects/conflicts and block any unknown manual-CLI effect from execution authorization. Use a versioned extension to the immutable offline Change Plan contract; never weaken existing v1 allowlists, digest checks or authority rules. C1–C4 do not connect to devices or execute configuration.
+The authoritative approved target is `docs/architecture/configuration/guided-bulk-planning.md` (22 function-specific templates). The previous two-stage guided Requests/Parameters workbook, offline-only Gap C, auto methodology matching and special elevated Manual CLI approver design are **superseded**. Issue #88 was closed as not planned and PR #89 was closed unmerged. Do not implement superseded material.
 
-Follow `docs/architecture/configuration/interface-methodology-review.md` for methodology facts.
-Existing AuditResolver observations feed an engineer-reviewed resolution report;
-engineers select approved, versioned templates to **update existing** interfaces
-or **configure new** interfaces. No automatic template choice solely by model or
-methodology. An approved template version plus its bounded parameters, target,
-source snapshot and generated commands form an auditable Change Plan.
+The existing v1 `orbitflow.configuration` behaviour and protections above remain implemented and unchanged. Extend it through a **versioned** API-first planning contract; do not weaken v1 validation, digest/authority or secret controls.
 
-- Standard changes may use pre-approved template policy only when target,
-  parameters, batch size and constraints match; explicit operator execution
-  intent, fresh prechecks and audit remain mandatory.
-- Advanced free-form CLI, including Excel-supplied ordered commands, is for
-  authorised engineers and needs separately authenticated elevated approval;
-  current actor labels alone are insufficient for this future workflow.
-- Bulk Excel is a review/input surface, not the authoritative executable plan.
-  Preserve row IDs, per-target evidence, exceptions, explicit exclusions,
-  stable command order, individual plan digests and parent-batch provenance.
-- Do not weaken the current allowlisted v1 CLI/approval gates or imply that
-  template import, pre-approval or advanced CLI execution is already available.
+For **predefined templates**: use shared DeviceContext, DeviceSession, device-execution, InterfaceService, VlanService, vendor configuration facts and family audit resolvers for **live, read-only** observation, exact sanitized CLI evidence, timestamps, current VLAN/service/ownership consistency and dependencies. Do not create another SSH, vendor parser, compliance policy or thread pool. Planning produces deterministic CLI with explicit differences, no-ops and reviewable conflicts. Current observation does not authorize later deployment; future apply requires fresh preflight and explicit user intent.
+
+For **Manual CLI only**: no device connection, no live observation, no claim of semantic validation. Engineer supplies platform, management IP, scope/CLI mode and literal commands. Label impact unknown/not-live-validated. Both predefined and Manual CLI use the same simple offline Pending/Approve/Reject review, **without a special elevated role in this design**. Offline approval never implies future apply authorization.
+
+Excel is a thin adapter: Introduction sheet navigation, one sheet per platform/function, per-row input + evidence + generated CLI + decisions, sheet-left-to-right then row-top-to-bottom same-device order; internal row IDs and a digest-bound immutable Change Plan. Template catalogue, service planner, reviewer and vendor renderer must be reusable through future REST/web interfaces independently of XLSX.
+
+The approved catalogue and exact vendor exceptions (ASR920 inline-only; ME3600X BD global-VLAN prerequisite; EdgeSwitch tagging removal; NE05E existing VSI; platform-specific configuration-mode commands and numeric ranges) are in the authoritative design document. Update deterministic tests; do not mutate equipment in this phase.
 
 ## Future creation/removal lifecycle guidance (proposed only)
 
-Read `docs/architecture/configuration/configuration-removal.md` when scoping
-removal/retirement planning. Distinguish detach vs delete and link-level changes
-vs shared VLAN, bridge-domain, VSI or service-object destruction. Do not treat
-pre-approved create/update templates as pre-approved deletion. Demand complete
-reverse-reference evidence, default/implicit VLAN semantics, preserved unrelated
-service state, narrowly scoped command rendering, and explicit recovery/unknown
-outcome gates. Imported RM-series workbook sketches are **not** authorised CLI.
-No new destructive operation is supported by current offline v1 or Phase 3.
+Read `docs/architecture/configuration/configuration-removal.md` for future removal/retirement planning. Distinguish interface VLAN membership withdrawal from deletion of shared VLAN, bridge-domain or VSI objects. Do not infer removal approval from creation approval; demand reverse-reference evidence and explicit recovery/unknown-state gates. No general destructive executor is implemented.
