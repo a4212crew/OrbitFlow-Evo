@@ -11,8 +11,8 @@ Keep this document short. Historical implementation detail belongs in `docs/devl
 versioned Change Plans, canonical SHA-256 content digests, inventory snapshot
 resolution, strict offline validation/preview and durable digest-bound
 approve/reject/expire gates. Manual, spreadsheet, template and compliance
-producers share a normalized JSON request; source-specific importers/generators
-remain future work. The initial renderer supports VLAN creation on C3750X IOS
+producers share a normalized JSON request; v1 has no source-specific importers.
+The separate v2 workflow is described below. The v1 renderer supports VLAN creation on C3750X IOS
 and C3850 IOS-XE profiles, including no-op and conflicting-state checks.
 SQLite approval history is signed by a separate local key; operator-controlled
 authority storage is required and actor labels are not authentication.
@@ -21,6 +21,28 @@ rejection and socket-blocked CLI operation. No apply/live verification or device
 changes are implemented. See `docs/architecture/configuration/offline-plans.md`.
 The configuration-management skill is staged alongside that document pending
 controller installation into the session-protected `.agents/skills/` directory.
+
+## Bulk Configuration Planning v2
+
+`orbitflow.configuration.v2` adds a separate 22-template catalogue, deterministic
+vendor proposals, input/review XLSX adapters and signed digest-bound offline
+review. The 21 predefined templates use shared per-device execution/session,
+inventory, InterfaceService, VlanService and family audit relationships for
+read-only evidence. Manual CLI is literal/offline-only and never connects.
+V1 plan/approval behavior is unchanged. Audit defaults retain existing policy
+bounds; an explicit planning projection uses platform numeric bounds and NE05E
+single-tag VSI relationships without changing compliance outputs.
+
+Same-device sheet/row order, original inputs, source provenance, observations,
+dependencies, no-ops, impact/conflict findings and Pending/Approve/Reject are
+digest-bound. Review import rejects other edits and re-evaluates prerequisites
+and evidence age. Unresolved evidence/ownership/overlaps and unknown Manual CLI
+effects cannot become deployment-ready. Collection uses recoverable shared
+spools; bounded single-workbook limits are documented. No apply/save/commit or
+execution authorization exists. Deterministic tests cover all 22 templates,
+workbook/authority lifecycle, collection reuse and v1 regressions. No live smoke
+test has been run. Commands and limits:
+`docs/operations/bulk-configuration-planning.md`.
 
 ## Project
 

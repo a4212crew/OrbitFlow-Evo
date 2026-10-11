@@ -620,3 +620,11 @@ Backups contain sensitive configuration. Exact supplied login passwords and enab
 Each backup run also writes `failed_devices.xlsx` in the same dated folder, with one row per failed target and columns Hostname, IP Address, Equipment Type, Platform, Failure Stage, and Failure Reason. Equipment Type uses the resolved hardware model (device family fallback); Platform remains the normalized platform identifier. Before identity resolution, identity fields remain blank and the supplied management IP is retained. Reasons are fixed, sanitized exception-category descriptions with a stage fallback; exception text and configuration contents are excluded. Runs with no failures produce a header-only workbook.
 
 Backup failure reporting distinguishes missing enable secrets, failed enable authentication, exhausted transient connection retries, and failed connection cleanup using fixed safe reasons. Neither the enable exchange nor raw exception text enters logs, inventory, spools, or `failed_devices.xlsx`.
+
+
+### Bulk configuration planning v2
+
+Create the approved 22-template workbook with `python -m orbitflow.configuration.v2.cli input bulk-input.xlsx`.
+Predefined templates use live read-only evidence; Manual CLI remains offline.
+See [operator commands and review semantics](docs/operations/bulk-configuration-planning.md).
+No device apply/save/commit is implemented. The existing v1 CLI remains unchanged.

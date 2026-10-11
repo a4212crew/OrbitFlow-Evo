@@ -44,7 +44,21 @@ def parent_name(name):
 class AuditResolver:
     """Per-device resolver state; never shared across execution workers."""
 
-    def __init__(self, context, state):
+    def numeric(self, value):
+        """Planning explicitly uses hardware bounds; audit defaults stay unchanged."""
+        if not self.planning:
+            return numeric(value)
+        if isinstance(value, str):
+            value = (int(value),) if value.isdigit() else ()
+        upper = 4093 if self.context.device_family == "EdgeSwitch" else 4094
+        reserved = range(1002, 1006) if self.context.device_family in {"C3750X", "C3850", "ME3600X"} else ()
+        return {v for v in value if type(v) is int and 1 <= v <= upper and v not in reserved}
+
+    def values(self, nodes, kind):
+        return set().union(*(self.numeric(n.value) for n in children(nodes, kind)))
+
+    def __init__(self, context, state, *, planning=False):
+        self.planning = planning
         self.context, self.state = context, state
         self.key = lambda name: canonical_interface_name(context.platform, name)
         self.routed = {self.key(p.interface_name) for p in state.interfaces if p.port_type == "routed"}
@@ -74,9 +88,9 @@ class AuditResolver:
                               configuration_findings=[], evidence=evidence(sources[key]),
                               review=False, all_vlan=False, configuration_owner=node.value)
                      for key, node in self.config.items()}
-        self.database = values(self.roots, "vlan")
+        self.database = self.values(self.roots, "vlan")
         self.database_proof = set()
-        self.prove([n for n in children(self.roots, "vlan") if numeric(n.value)])
+        self.prove([n for n in children(self.roots, "vlan") if self.numeric(n.value)])
         self.problems = []
         self.mappings = []
 
@@ -190,7 +204,7 @@ class AuditResolver:
         def review_nodes(nodes):
             return tuple(replace(n, kind=kinds.get(n.kind, n.kind), children=review_nodes(n.children))
                          for n in nodes)
-        projection = type(self)(self.context, replace(self.state, configuration=review_nodes(self.review_roots)))
+        projection = type(self)(self.context, replace(self.state, configuration=review_nodes(self.review_roots)), planning=self.planning)
         projection.result()
         return resolved_records(projection)
 
@@ -200,7 +214,7 @@ class CatalystAuditResolver(AuditResolver):
         node, row = self.config[key], self.rows[key]
         lines = node.children
         mode = last(lines, "mode")
-        row["native"] = sorted(numeric(last(lines, "native", ())))
+        row["native"] = sorted(self.numeric(last(lines, "native", ())))
         access = bool(children(lines, "access"))
         contradictory = access and (mode not in {"", "access"}
                                     or any(n.kind in {"routed", "allowed", "allowed_add", "allowed_remove", "allowed_except", "unsupported_allowed"} for n in lines))
@@ -216,7 +230,7 @@ class CatalystAuditResolver(AuditResolver):
                 row.update(interface_type="review", review=True)
                 return
         if mode == "access" or (not mode and access):
-            self.membership(key, untagged=numeric(last(lines, "access", ())), kind="access")
+            self.membership(key, untagged=self.numeric(last(lines, "access", ())), kind="access")
             return
         if mode != "trunk":
             has_switching = any(n.kind in {"mode", "allowed", "allowed_add", "allowed_remove", "allowed_except", "access", "native", "trunk_encapsulation", "unsupported_allowed"} for n in lines)
@@ -235,14 +249,14 @@ class CatalystAuditResolver(AuditResolver):
             if operation.kind == "allowed":
                 allowed = operation.value
             elif operation.kind == "allowed_except":
-                allowed = tuple(sorted(self.database - numeric(operation.value)))
+                allowed = tuple(sorted(self.database - self.numeric(operation.value)))
             else:
                 if allowed == "ALL" and self.context.device_family == "C3750X" and last(lines, "trunk_encapsulation") != "dot1q":
                     self.problem("INVALID_ALL_VLAN_TRUNK", key, operations)
                     row.update(interface_type="review", review=True)
                     return
-                current = self.database.copy() if allowed == "ALL" else numeric(allowed)
-                operand = numeric(operation.value)
+                current = self.database.copy() if allowed == "ALL" else self.numeric(allowed)
+                operand = self.numeric(operation.value)
                 allowed = tuple(sorted(current | operand if operation.kind == "allowed_add" else current - operand))
         row["configured_membership_vlans"] = allowed
         if allowed == "ALL":
@@ -253,7 +267,7 @@ class CatalystAuditResolver(AuditResolver):
                 return
             tags = self.database
         else:
-            tags = numeric(allowed)
+            tags = self.numeric(allowed)
             missing = tags - self.database if validate_database else set()
             if missing:
                 self.problem("ALLOWED_VLAN_NOT_IN_DATABASE", key, operations, vlans=sorted(missing))
@@ -280,12 +294,12 @@ class EVCAuditResolver(CatalystAuditResolver):
                 if key not in self.config or sid not in {n.value for n in children(self.config[key].children, "service_instance")}:
                     self.problem("INVALID_BRIDGE_DOMAIN_MEMBER_REFERENCE", nodes=(bd, member),
                                  interface=interface, service_instance_id=sid, bridge_domain=bd.value)
-            if not asr and children(bd.children, "member") and numeric(bd.value) - self.database:
-                self.problem("BRIDGE_DOMAIN_MISSING_GLOBAL_VLAN", nodes=(bd,), vlans=sorted(numeric(bd.value) - self.database))
+            if not asr and children(bd.children, "member") and self.numeric(bd.value) - self.database:
+                self.problem("BRIDGE_DOMAIN_MISSING_GLOBAL_VLAN", nodes=(bd,), vlans=sorted(self.numeric(bd.value) - self.database))
         if asr:
             self.database_proof.clear()
-            self.prove([bd for bd in bridges if numeric(bd.value)])
-            self.database = set().union(*(numeric(bd.value) for bd in bridges))
+            self.prove([bd for bd in bridges if self.numeric(bd.value)])
+            self.database = set().union(*(self.numeric(bd.value) for bd in bridges))
         for key, node in self.config.items():
             services = {}
             for service in children(node.children, "service_instance"):
@@ -303,17 +317,17 @@ class EVCAuditResolver(CatalystAuditResolver):
                 global_ids = {b for b, _ in global_bindings}
                 resolved = inline | global_ids
                 if asr:
-                    self.database.update(set().union(*(numeric(v) for v in inline)))
-                    self.prove([n for n in children(service.children, "bridge_domain") if numeric(n.value)])
+                    self.database.update(set().union(*(self.numeric(v) for v in inline)))
+                    self.prove([n for n in children(service.children, "bridge_domain") if self.numeric(n.value)])
                 status = "valid" if len(resolved) == 1 else "conflict" if resolved else "unresolved"
                 nodes = (service, *(n for _, n in global_bindings))
                 if status != "valid":
                     self.problem("CONFLICTING_BRIDGE_DOMAIN_BINDING" if resolved else "UNRESOLVED_SERVICE_INSTANCE",
                                  key, nodes, service_instance_id=sid)
                 is_untagged = bool(children(service.children, "untagged"))
-                outer = values(service.children, "encapsulation")
+                outer = self.values(service.children, "encapsulation")
                 untagged_count += is_untagged
-                audit = set().union(*(numeric(v) for v in resolved)) if status == "valid" else set()
+                audit = set().union(*(self.numeric(v) for v in resolved)) if status == "valid" else set()
                 if asr and audit:
                     self.prove(children(service.children, "encapsulation") + children(service.children, "untagged")
                                + [n for _, n in global_bindings])
@@ -324,7 +338,7 @@ class EVCAuditResolver(CatalystAuditResolver):
                 mapping = dict(interface_name=node.value, service_instance_id=sid,
                                description=last(service.children, "description"),
                                encapsulation_type="untagged" if is_untagged else "dot1q" if outer else "unknown",
-                               outer_vlan=sorted(outer), inner_vlan=sorted(values(service.children, "inner_vlan")),
+                               outer_vlan=sorted(outer), inner_vlan=sorted(self.values(service.children, "inner_vlan")),
                                inline_bridge_domain=sorted(inline), global_bridge_domain=sorted(global_ids),
                                resolved_bridge_domain=sorted(resolved) if status == "valid" else [],
                                binding_status=status, tagging_role="untagged" if is_untagged else "tagged",
@@ -355,16 +369,25 @@ class HuaweiAuditResolver(AuditResolver):
         for key, node in self.config.items():
             lines, row = node.children, self.rows[key]
             mode = last(lines, "mode")
-            pvid = values(lines, "trunk_pvid") | values(lines, "hybrid_pvid")
+            pvid = self.values(lines, "trunk_pvid") | self.values(lines, "hybrid_pvid")
             row["pvid"] = sorted(pvid)
             if children(lines, "access"):
-                self.membership(key, untagged=values(lines, "access"), kind="access")
+                self.membership(key, untagged=self.values(lines, "access"), kind="access")
             elif mode in {"trunk", "hybrid"} or children(lines, "allowed") or children(lines, "tagged"):
-                tags = self.database.copy() if last(lines, "allowed") == "ALL" or last(lines, "tagged") == "ALL" else values(lines, "allowed") | values(lines, "tagged")
-                self.membership(key, tags, values(lines, "untagged_vlans"), "hybrid" if mode == "hybrid" else "trunk")
+                tags = self.database.copy() if last(lines, "allowed") == "ALL" or last(lines, "tagged") == "ALL" else self.values(lines, "allowed") | self.values(lines, "tagged")
+                self.membership(key, tags, self.values(lines, "untagged_vlans"), "hybrid" if mode == "hybrid" else "trunk")
             vsi = last(lines, "vsi_binding")
             bindings = {n.value for n in children(lines, "vsi_binding")}
-            termination = values(lines, "termination")
+            termination = self.values(lines, "termination")
+            # The planning catalogue explicitly supports existing NE05E VSI
+            # bindings with either single-tag syntax. Ordinary audit retains
+            # its established termination-only numeric semantics.
+            if self.planning and self.context.device_family == "NE05E" and vsi:
+                tagged = self.values(lines, "encapsulation")
+                if termination and tagged:
+                    self.problem("CONFLICTING_SUBINTERFACE_ENCAPSULATION", key, (node,))
+                elif tagged:
+                    termination = tagged
             if vsi:
                 valid = vsi in vsis and len(bindings) == 1
                 if len(bindings) > 1:
@@ -383,16 +406,16 @@ class HuaweiAuditResolver(AuditResolver):
                 self.membership(key, tags, kind="service" if parent_name(key) else "access")
                 row["forwarding_domains"] = [vsi]
                 row["numeric_mappings"].append(dict(termination_vlan=sorted(termination),
-                                                   control_vid=sorted(values(lines, "control_vid")),
+                                                   control_vid=sorted(self.values(lines, "control_vid")),
                                                    vsi=vsi, binding_status="valid" if valid else "invalid_reference",
                                                    audit_vlan=sorted(tags), untagged=not termination and not parent_name(key),
                                                    evidence=evidence((node, *((vsis[vsi],) if valid else ())))))
                 self.mappings.extend(row["numeric_mappings"])
-            elif termination or values(lines, "encapsulation") or values(lines, "control_vid"):
+            elif termination or self.values(lines, "encapsulation") or self.values(lines, "control_vid"):
                 # Retain routed/control detail without making an L2 mapping.
                 row["numeric_mappings"].append(dict(termination_vlan=sorted(termination),
-                    encapsulation=sorted(values(lines, "encapsulation")),
-                    control_vid=sorted(values(lines, "control_vid")), vsi="",
+                    encapsulation=sorted(self.values(lines, "encapsulation")),
+                    control_vid=sorted(self.values(lines, "control_vid")), vsi="",
                     binding_status="routed_detail", audit_vlan=[], evidence=evidence((node,))))
                 self.mappings.extend(row["numeric_mappings"])
             # Unbound dot1q is routed detail, never inferred L2 membership.
@@ -436,7 +459,7 @@ class XRAuditResolver(AuditResolver):
                 self.problem("UNBOUND_L2TRANSPORT_SUBINTERFACE", key, (node,))
             if len(domains) > 1:
                 self.problem("CONFLICTING_BRIDGE_DOMAIN_ATTACHMENTS", key, nodes, bridge_domains=domains)
-            tags = values(node.children, "encapsulation")
+            tags = self.values(node.children, "encapsulation")
             if valid and not tags:
                 if children(node.children, "untagged"):
                     if bindings:
@@ -458,23 +481,23 @@ class XRAuditResolver(AuditResolver):
 
 class EdgeSwitchAuditResolver(AuditResolver):
     def resolve(self):
-        self.database = set().union(*(values(n.children, "vlan") for n in children(self.roots, "vlan_database")))
+        self.database = set().union(*(self.values(n.children, "vlan") for n in children(self.roots, "vlan_database")))
         self.database_proof.clear()
         for node in children(self.roots, "vlan_database"):
-            self.prove([n for n in children(node.children, "vlan") if numeric(n.value)])
+            self.prove([n for n in children(node.children, "vlan") if self.numeric(n.value)])
         for key, node in self.config.items():
             members, tagged = set(), set()
             row = self.rows[key]
             for fact in node.children:
                 if fact.kind == "include":
-                    members.update(numeric(fact.value))
+                    members.update(self.numeric(fact.value))
                 elif fact.kind == "exclude":
-                    members.difference_update(numeric(fact.value))
+                    members.difference_update(self.numeric(fact.value))
                 elif fact.kind == "tagged":
-                    tagged.update(numeric(fact.value))
+                    tagged.update(self.numeric(fact.value))
                 elif fact.kind == "untagged_vlans":
-                    tagged.difference_update(numeric(fact.value))
-            pvid = numeric(last(node.children, "pvid", ()))
+                    tagged.difference_update(self.numeric(fact.value))
+            pvid = self.numeric(last(node.children, "pvid", ()))
             valid = members & self.database
             for code, invalid in (("INTERFACE_VLAN_NOT_IN_DATABASE", members - self.database),
                                   ("TAGGED_VLAN_NOT_IN_MEMBERSHIP", tagged - valid),
