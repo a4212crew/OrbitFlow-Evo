@@ -24,6 +24,12 @@ controller installation into the session-protected `.agents/skills/` directory.
 
 ## Bulk Configuration Planning v2
 
+Bulk planning v2 now emits flushed per-device read-only collection progress and
+sanitized rotating configuration module logs. Description-only requests retain
+recognized existing VLAN membership/tagging defects as non-blocking warnings;
+material evidence/identity/ownership conflicts and service-change blockers remain.
+Validated with deterministic fixtures only; no live smoke testing in this revision.
+
 `orbitflow.configuration.v2` adds a separate 22-template catalogue, deterministic
 vendor proposals, input/review XLSX adapters and signed digest-bound offline
 review. The 21 predefined templates use shared per-device execution/session,

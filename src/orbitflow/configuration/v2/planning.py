@@ -54,6 +54,17 @@ def _row(r, observation, prior, decision, now, max_age):
         out["findings"] = ["MANUAL_EFFECTS_UNKNOWN"]
         return out
     findings, dependencies = out["findings"], out["dependencies"]
+    warning_codes = set()
+    unrelated_vlan_codes = {"TAGGED_VLAN_NOT_IN_MEMBERSHIP", "PVID_NOT_IN_MEMBERSHIP",
+                            "INTERFACE_VLAN_NOT_IN_DATABASE", "ALLOWED_VLAN_NOT_IN_DATABASE"}
+    def unrelated(items):
+        return (t.function == "Interface Description" and bool(items)
+                and all(i.get("code") in unrelated_vlan_codes for i in items))
+    def retain_warning(items):
+        for item in items:
+            detail = "EXISTING_VLAN_WARNING: " + canonical(item)
+            findings.append(detail)
+            warning_codes.add(detail)
     obs = observation or {}
     ident = obs.get("identity", {})
     platform = FAMILIES[t.family][0]
@@ -95,15 +106,25 @@ def _row(r, observation, prior, decision, now, max_age):
     for item in audit:
         if key(item.get("configuration_owner", "")) != key(p["interface"]):
             findings.append("OWNERSHIP_REQUIRES_REVIEW")
-        if item.get("configuration_findings") or item.get("review"):
+        defects = item.get("configuration_findings", [])
+        if unrelated(defects) and not item.get("review"):
+            retain_warning(defects)
+        elif defects or item.get("review"):
             findings.append("OBSERVED_CONSISTENCY_CONFLICT")
         if t.family == "ASR920" and any(m.get("global_bridge_domain") for m in item.get("numeric_mappings", [])):
             findings.append("ASR920_GLOBAL_BINDING_CONFLICT")
     for method in obs.get("methodologies", []):
         if key(method.get("config_interface_name", "")) == key(p.get("interface", "")) and method.get("review_needed"):
-            findings.append("UNRESOLVED_CONFIGURATION")
+            if (unrelated(method.get("configuration_findings", []))
+                    and method.get("subtype") in {"access", "trunk", "hybrid", "no_membership"}):
+                retain_warning(method["configuration_findings"])
+            else:
+                findings.append("UNRESOLVED_CONFIGURATION")
     if obs.get("problems"):
-        findings.append("DEVICE_CONSISTENCY_CONFLICT")
+        if unrelated(obs["problems"]):
+            retain_warning(obs["problems"])
+        else:
+            findings.append("DEVICE_CONSISTENCY_CONFLICT")
     database = {int(o["object_id"]): o.get("name", "") for o in obs.get("objects", [])
                 if o["object_type"] == "vlan" and str(o["object_id"]).isdigit()}
     needed = set()
@@ -192,7 +213,7 @@ def _row(r, observation, prior, decision, now, max_age):
     out["commands"] = [] if out["no_op"] else renderer(t, p, existing)
     out["findings"] = sorted(set(findings))
     warnings = {"VLAN_RENAME_IMPACT", "SERVICE_IMPACT_REVIEW", "ACCESS_CONVERSION_IMPACT", "UNTAGGED_REPLACEMENT_IMPACT"}
-    blockers = set(findings) - warnings
+    blockers = set(findings) - warnings - warning_codes
     out.update(consistency="unresolved" if blockers else "consistent", impact="none" if out["no_op"] else "review_required",
                deployment_ready=not blockers and decision == "Approve")
     return out

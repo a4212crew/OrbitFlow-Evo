@@ -1,16 +1,19 @@
 """Operator adapters for v2 input, live read-only planning and offline review."""
 import argparse
+import sys
+from orbitflow.execution import Progress
+from orbitflow.logging import module_logger
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from orbitflow.configuration.plans import PlanError, require
+from orbitflow.configuration.plans import require
 from .catalogue import BY_ID
 from .planning import plan, save, load
 from .workbook import create_input, read_input, export_review, import_review
 from .approvals import ReviewStore
 
 
-def main(argv=None):
+def _main(argv, logger, progress):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     template = sub.add_parser("input")
@@ -41,6 +44,8 @@ def main(argv=None):
         require(not args.output.exists() and not args.output.with_suffix(".xlsx").exists(), "output already exists")
         require(args.output.suffix == ".json", "plan output must use .json")
         if args.command == "plan":
+            progress("Planning run start; reading input workbook")
+            logger.info("Planning run start")
             requests = read_input(args.workbook)
             ips = {r["inputs"]["management_ip"] for r in requests if BY_ID[r["template_id"]].family != "All"}
             observations = {}
@@ -59,21 +64,35 @@ def main(argv=None):
                 config = TransportConfig(args.proxy, args.cluster, args.bastion_host, args.bastion_user,
                                          teleport_key_path=args.teleport_key_path, teleport_cert_path=args.teleport_cert_path)
                 spool = collect(requests, credentials, config, inventory_path=args.inventory_path,
-                                execution_config=execution)
+                                execution_config=execution, progress=progress)
                 observations = bounded_observations(spool)
+            progress(f"Planning proposals; rows={len(requests)}; live targets={len(ips)}")
+            logger.info("Planning proposals")
             result = plan(requests, observations, source="workbook-sha256:" + requests.source_digest)
         else:
             require(1 <= args.expires_hours <= 168, "invalid review expiry")
             result = import_review(load(args.plan), args.workbook)
+        progress("Exporting immutable plan and review workbook")
+        logger.info("Export start: " + str(args.output))
         save(result, args.output)
         export_review(result, args.output.with_suffix(".xlsx"))
         if args.command == "review":
             status = "pending" if any(r["decision"] == "Pending" for r in result.to_dict()["results"]) else "approved"
             ReviewStore(args.authority).decide(result, status, args.actor,
                 expires_at=datetime.now(timezone.utc) + timedelta(hours=args.expires_hours))
-        print(f"Plan {result.digest}; offline review only; device execution is not authorized.")
-    except PlanError as exc:
-        parser.exit(2, f"Planning failed: {exc}\n")
+        logger.info("Export completed: " + str(args.output) + "; review=" + str(args.output.with_suffix(".xlsx")))
+        progress(f"Plan {result.digest}; offline review only; device execution is not authorized.")
+    except Exception:
+        logger.error("Planning/export failed", extra={"error_category": "PlanningExportError"})
+        parser.exit(2, "Planning failed (PlanningExportError); see configuration module logs.\n")
+
+
+def main(argv=None):
+    with module_logger("configuration", "bulk_planning") as (logger, _):
+        try:
+            return _main(argv, logger, Progress(sys.stdout))
+        finally:
+            logger.info("Planning command ended")
 
 
 if __name__ == "__main__":

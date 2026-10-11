@@ -208,10 +208,12 @@ def test_manual_secret_rejection(text):
         request(t.id, {**inputs(t), "commands": text})
 
 
-def test_shared_live_collection_one_session_and_read_only_commands(tmp_path, monkeypatch):
+def test_shared_live_collection_one_session_and_read_only_commands(tmp_path, monkeypatch, capsys):
     from orbitflow.configuration.v2 import observation
     from orbitflow.transport import DeviceCredentials
     from orbitflow.config import ExecutionConfig
+    from orbitflow.execution import Progress
+    import sys
     t = template("C3750X", "VLAN Database")
     context = DeviceContext("one", IP, (IP,), "example", "Cisco", "cisco_ios", "C3750X", "C3750X",
                             "c3750x_switching", (), "EXAMPLE", "1", "", NOW, NOW)
@@ -253,11 +255,14 @@ def test_shared_live_collection_one_session_and_read_only_commands(tmp_path, mon
     monkeypatch.setattr(observation, "connect_device", connect)
     monkeypatch.setattr(observation, "DeviceCLI", CLI)
     monkeypatch.setattr(observation, "DeviceInventoryResolver", Resolver)
+    from functools import partial
+    from orbitflow.logging import module_logger
+    monkeypatch.setattr(observation, "module_logger", partial(module_logger, log_root=tmp_path / "logs"))
     rows = [request(t.id, inputs(t)), request(t.id, {**inputs(t), "vlan_id": 445}, row=4),
             request(t.id, {**inputs(t), "management_ip": "192.0.2.11"}, row=5)]
     creds = {ip: DeviceCredentials("synthetic-user", "MUST_NOT_PERSIST") for ip in (IP, "192.0.2.11")}
     spool = observation.collect(rows, creds, None, inventory_path=tmp_path / "inv.json", spool_root=tmp_path / "runs",
-                                execution_config=ExecutionConfig(1, 0, 0))
+                                execution_config=ExecutionConfig(1, 0, 0), progress=Progress(sys.stdout))
     records = dict(observation.observations(spool))
     assert records[IP]["status"] == "live_read_only"
     assert records[IP]["identity"]["inventory_id"] == "one"
@@ -267,6 +272,20 @@ def test_shared_live_collection_one_session_and_read_only_commands(tmp_path, mon
     assert calls.count(("connect", IP)) == calls.count(("resolve", IP)) == calls.count(("close", IP)) == 1
     assert "MUST_NOT_PERSIST" not in canonical(records)
     assert "must never persist" not in canonical(records)
+    output = capsys.readouterr().out
+    stages = ["run start", "connect", "identify", "interface collection", "VLAN/config collection",
+              "audit/snapshot", "completed", "failed", "run end"]
+    positions = [output.index(stage) for stage in stages]
+    assert positions == sorted(positions)
+    assert "MUST_NOT_PERSIST" not in output and "must never persist" not in output
+    assert "completed=1; failed=1" in output
+    import json
+    logs = "".join(p.read_text() for p in (tmp_path / "logs").rglob("bulk_planning.log"))
+    events = [json.loads(line) for line in logs.splitlines()]
+    assert any(e["error_category"] == "EvidenceCollectionError" for e in events)
+    assert all("exception_chain" not in e for e in events)
+    assert "MUST_NOT_PERSIST" not in logs and "must never persist" not in logs
+    assert spool.path.name in logs
 
 
 def test_workbook_order_and_invalid_row_isolation(tmp_path):
@@ -930,3 +949,116 @@ l2vpn
     excerpts = "\n".join(e["excerpt"] for e in scoped_evidence(r, obs))
     assert "bridge group CUSTOMER" in excerpts and "Gi1/0/1.10" in excerpts
     assert "OTHER" not in excerpts and "Gi1/0/2" not in excerpts
+
+
+@pytest.mark.parametrize("extra", [None, "OWNERSHIP", "STALE", "UNKNOWN", "MISSING"])
+def test_description_existing_vlan_warning_keeps_material_blockers(extra):
+    from copy import deepcopy
+    t = template("EdgeSwitch", "Interface Description")
+    r = request(t.id, inputs(t))
+    obs = observed(t)
+    defect = dict(code="TAGGED_VLAN_NOT_IN_MEMBERSHIP", vlans=[4002], evidence=deepcopy(obs["evidence"]))
+    obs["audit"][0]["configuration_findings"] = [defect]
+    obs["methodologies"] = [dict(config_interface_name=inputs(t)["interface"], review_needed=True,
+                                subtype="trunk", configuration_findings=[defect])]
+    if extra == "OWNERSHIP":
+        obs["audit"][0]["configuration_owner"] = "other"
+    elif extra == "STALE":
+        obs["observed_at"] = (NOW - timedelta(hours=2)).isoformat()
+    elif extra == "UNKNOWN":
+        obs["methodologies"][0]["configuration_findings"].append(dict(code="UNKNOWN_L2_DECLARATION"))
+    elif extra == "MISSING":
+        obs["evidence"] = []
+    original = deepcopy(obs)
+    draft = plan([r], {IP: obs}, now=NOW)
+    approved = review(draft, {r["row_id"]: "Approve"}, expected_digest=draft.digest, now=NOW)
+    result = approved.to_dict()["results"][0]
+    assert result["deployment_ready"] == (extra is None)
+    assert any("TAGGED_VLAN_NOT_IN_MEMBERSHIP" in f and "4002" in f for f in result["findings"])
+    assert obs == original
+    assert draft.digest != approved.digest
+    change = template("EdgeSwitch", "VLAN Port")
+    change_result = plan([request(change.id, {**inputs(change), "interface": inputs(t)["interface"]})],
+                         {IP: obs}, now=NOW).to_dict()["results"][0]
+    assert "OBSERVED_CONSISTENCY_CONFLICT" in change_result["findings"]
+
+
+def test_plan_export_failure_logs_safe_category(tmp_path, monkeypatch, capsys):
+    from orbitflow.configuration.v2 import cli
+    from orbitflow.logging import module_logger
+    source = tmp_path / "input.xlsx"
+    create_input(source)
+    book = load_workbook(source)
+    t = template("All", "Manual CLI")
+    for k, v in inputs(t).items():
+        book[t.sheet].cell(3, t.columns.index(k) + 1, v)
+    book.save(source)
+    monkeypatch.setattr(cli, "export_review", lambda *a: (_ for _ in ()).throw(OSError("password=NEVER_ECHO")))
+    with module_logger("test", log_root=tmp_path / "logs"):
+        with pytest.raises(SystemExit):
+            cli.main(["plan", str(source), str(tmp_path / "plan.json")])
+    output = capsys.readouterr()
+    logs = "".join(p.read_text() for p in (tmp_path / "logs").rglob("*.log"))
+    assert "PlanningExportError" in logs and "Export start" in logs
+    assert "NEVER_ECHO" not in logs + output.out + output.err
+
+
+def test_real_edgeswitch_audit_warning_description_only():
+    t = template("EdgeSwitch", "Interface Description")
+    context = DeviceContext("one", IP, (IP,), "example", "Ubiquiti", "ubiquiti_edgeswitch",
+                            "EdgeSwitch", "EdgeSwitch", FAMILIES[t.family][1], (), "EXAMPLE", "1", "", NOW, NOW)
+    interface = InterfaceRecord("example", IP, context.platform, "Gi1/0/1", "Before", "up", "up", NOW)
+    def fact(kind, value, line, text, children=()):
+        return ConfigFact(kind, value, "running-config", line, text, children)
+    facts = (fact("vlan_database", "", 1, "vlan database", (
+                fact("vlan", (445,), 2, "vlan 445"),)),
+             fact("interface", interface.port_name, 3, "interface Gi1/0/1", (
+                fact("include", (445,), 4, "vlan participation include 445"),
+                fact("tagged", (445, 446), 5, "vlan tagging 445,446"))))
+    state = VlanState("example", IP, context.platform, (), (), NOW, facts)
+    obs = snapshot(context, (interface,), state)
+    assert obs["audit"][0]["configuration_findings"][0]["code"] == "TAGGED_VLAN_NOT_IN_MEMBERSHIP"
+    r = request(t.id, inputs(t))
+    draft = plan([r], {IP: obs}, now=NOW)
+    approved = review(draft, {r["row_id"]: "Approve"}, expected_digest=draft.digest, now=NOW)
+    assert approved.to_dict()["results"][0]["deployment_ready"]
+    assert "446" in canonical(approved.to_dict()["results"][0]["findings"])
+    obs["interfaces"][0]["port_description"] = inputs(t)["description"]
+    noop = plan([r], {IP: obs}, now=NOW)
+    result = review(noop, {r["row_id"]: "Approve"}, expected_digest=noop.digest, now=NOW).to_dict()["results"][0]
+    assert result["no_op"] and result["commands"] == [] and result["deployment_ready"]
+
+
+def test_progress_flushes_each_increment():
+    from orbitflow.execution import Progress
+    class Output:
+        def __init__(self):
+            self.flushes = 0
+            self.text = ""
+        def write(self, value):
+            self.text += value
+        def flush(self):
+            self.flushes += 1
+    output = Output()
+    progress = Progress(output)
+    progress("connect")
+    assert output.flushes == 1 and output.text == "connect\n"
+    progress("identify")
+    assert output.flushes == 2
+
+
+def test_observation_run_failure_is_logged_and_safe(tmp_path, monkeypatch):
+    from functools import partial
+    from orbitflow.configuration.v2 import observation
+    from orbitflow.logging import module_logger
+    monkeypatch.setattr(observation, "module_logger", partial(module_logger, log_root=tmp_path / "logs"))
+    def fail(*a, **kw):
+        raise OSError("token=DO_NOT_OUTPUT")
+    monkeypatch.setattr(observation, "execute_devices", fail)
+    t = template("C3750X", "VLAN Database")
+    with pytest.raises(OSError):
+        observation.collect([request(t.id, inputs(t))], {}, None,
+                            inventory_path=tmp_path / "inv.json", spool_root=tmp_path / "spools")
+    logs = "".join(p.read_text() for p in (tmp_path / "logs").rglob("*.log"))
+    assert "ObservationRunError" in logs and "run end" in logs
+    assert "DO_NOT_OUTPUT" not in logs

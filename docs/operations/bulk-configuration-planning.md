@@ -187,3 +187,46 @@ signed authority and v1 regressions. Live smoke tests have **not** been run.
 Hardware/release-specific operational validation remains operator-controlled.
 Conservative conflicts require revised input/re-observation; approval does not
 override unknown evidence or migrate existing services automatically.
+
+## Planning progress and diagnostics
+
+The `plan` command flushes each progress line immediately. With
+`--max-concurrent-devices 1`, each target completes before the next starts:
+
+```text
+Planning run start; reading input workbook
+-: run start; targets=2; run_id=<run-id>; spool=<path>; identity=-
+192.0.2.10: connect; identity=-
+192.0.2.10: identify; identity=-
+192.0.2.10: interface collection; identity=<device-id>
+192.0.2.10: VLAN/config collection; identity=<device-id>
+192.0.2.10: audit/snapshot; identity=<device-id>
+192.0.2.10: completed; identity=<device-id>
+192.0.2.11: connect; identity=-
+192.0.2.11: failed; identity=- (EvidenceCollectionError)
+-: run end; completed=1; failed=1; run_id=<run-id>; identity=-
+Planning proposals; rows=2; live targets=2
+Exporting immutable plan and review workbook
+```
+
+Concurrent runs may interleave device stages; complete console lines use shared
+execution progress serialization. Device failure leaves unavailable evidence and
+continues safe peers. Manual-only runs show planning/export progress without
+connecting. No raw CLI, configurations, credentials or exception messages appear
+in progress. Planning/export failures report `PlanningExportError`.
+
+Matching sanitized JSON operational logs use the shared bounded rotating logger:
+`outputs/logs/configuration/YYYY-MM-DD/bulk_planning.log` (UTC date, 2 MiB per
+file, three backups). Events include run IDs, spool paths, stage lifecycle,
+completion counts and export paths/outcomes. Transport owns detailed connection
+diagnostics under `outputs/logs/transport/YYYY-MM-DD/transport.log`; planning
+logs report safe categories without duplicating lower-layer tracebacks. Failed
+exports retain observation spools for diagnosis/recovery.
+
+Interface Description rows retain recognized existing VLAN membership/tagging
+inconsistencies as `EXISTING_VLAN_WARNING` findings with original sanitized
+finding detail. They permit ordinary offline approval when no material blockers
+remain. VLAN/EVC/L2VPN/service requests retain their consistency blockers.
+Missing/stale evidence, unknown declarations, identity/interface ambiguity and
+ownership conflicts still block description readiness. Audited facts, evidence,
+no-op handling and digest-bound review remain unchanged.
