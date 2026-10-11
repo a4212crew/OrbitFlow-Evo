@@ -33,3 +33,7 @@ Architecture: [docs/architecture/configuration/](docs/architecture/configuration
 6. Add desired-state storage, drift detection and approval-gated reconciliation after implementation maturity.
 
 Automated rollback must remain conditional on vendor capability and field-tested recovery. Configuration concurrency requires its own conservative, explicitly approved policy.
+
+## Approved documentation baseline: template-based configuration planning (2026-10-11)
+
+The earlier generic ordering above is exploratory, not a current implementation plan. Approved future target: [22-template Gap C configuration planning](docs/architecture/configuration/guided-bulk-planning.md). It uses one input worksheet per family/function; live read-only observation and existing-CLI evidence for predefined templates; offline-only Manual CLI; common engineer review and digest-bound immutable plans; reusable service APIs. **Not yet implemented**. Issue #88 is obsolete (closed not planned); PR #89 was closed unmerged. A replacement implementation task will follow review/merge of the documentation baseline. C5/C6 live apply remains separately gated.
