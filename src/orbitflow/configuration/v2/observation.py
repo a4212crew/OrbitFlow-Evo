@@ -90,7 +90,7 @@ def collect(requests, credentials, transport_config, *, inventory_path="data/inv
         spool.append(outcome, target=ip, payload=payload, failed=bool(outcome.error_category))
         counts[bool(outcome.error_category)] += 1
         event("failed" if outcome.error_category else "completed", ip,
-              category="EvidenceCollectionError" if outcome.error_category else "-",
+              category=clean(outcome.error_category) if outcome.error_category else "-",
               identity=payload.get("identity", {}).get("inventory_id", "-"))
 
     counts = [0, 0]

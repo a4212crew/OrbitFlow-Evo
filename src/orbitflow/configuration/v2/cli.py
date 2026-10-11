@@ -37,6 +37,7 @@ def _main(argv, logger, progress):
     review.add_argument("--authority", default="data/configuration/v2")
     review.add_argument("--expires-hours", type=int, default=24)
     args = parser.parse_args(argv)
+    stage = "input" if args.command == "input" else "validation"
     try:
         if args.command == "input":
             create_input(args.path)
@@ -46,6 +47,7 @@ def _main(argv, logger, progress):
         if args.command == "plan":
             progress("Planning run start; reading input workbook")
             logger.info("Planning run start")
+            stage = "workbook input"
             requests = read_input(args.workbook)
             ips = {r["inputs"]["management_ip"] for r in requests if BY_ID[r["template_id"]].family != "All"}
             observations = {}
@@ -56,6 +58,7 @@ def _main(argv, logger, progress):
                 from .observation import collect, bounded_observations
                 from orbitflow.targets import load_device_credentials
                 from dataclasses import replace
+                stage = "observation setup"
                 credentials = load_device_credentials(args.devices, sorted(ips))
                 execution = load_execution_config(args.config)
                 if args.max_concurrent_devices is not None:
@@ -63,28 +66,37 @@ def _main(argv, logger, progress):
                     execution = replace(execution, max_concurrent_devices=args.max_concurrent_devices)
                 config = TransportConfig(args.proxy, args.cluster, args.bastion_host, args.bastion_user,
                                          teleport_key_path=args.teleport_key_path, teleport_cert_path=args.teleport_cert_path)
+                stage = "observation"
                 spool = collect(requests, credentials, config, inventory_path=args.inventory_path,
                                 execution_config=execution, progress=progress)
                 observations = bounded_observations(spool)
             progress(f"Planning proposals; rows={len(requests)}; live targets={len(ips)}")
             logger.info("Planning proposals")
+            stage = "planning"
             result = plan(requests, observations, source="workbook-sha256:" + requests.source_digest)
         else:
             require(1 <= args.expires_hours <= 168, "invalid review expiry")
+            stage = "review import"
             result = import_review(load(args.plan), args.workbook)
         progress("Exporting immutable plan and review workbook")
         logger.info("Export start: " + str(args.output))
+        stage = "plan export"
         save(result, args.output)
+        stage = "workbook export"
         export_review(result, args.output.with_suffix(".xlsx"))
         if args.command == "review":
             status = "pending" if any(r["decision"] == "Pending" for r in result.to_dict()["results"]) else "approved"
+            stage = "review authority"
             ReviewStore(args.authority).decide(result, status, args.actor,
                 expires_at=datetime.now(timezone.utc) + timedelta(hours=args.expires_hours))
         logger.info("Export completed: " + str(args.output) + "; review=" + str(args.output.with_suffix(".xlsx")))
         progress(f"Plan {result.digest}; offline review only; device execution is not authorized.")
-    except Exception:
-        logger.error("Planning/export failed", extra={"error_category": "PlanningExportError"})
-        parser.exit(2, "Planning failed (PlanningExportError); see configuration module logs.\n")
+    except Exception as exc:
+        # Class categories only: exception messages/tracebacks may contain secrets.
+        from orbitflow.logging import sanitize_text
+        category = sanitize_text(type(exc).__name__)
+        logger.error(f"Planning command failed; stage={stage}", extra={"error_category": category})
+        parser.exit(2, f"Planning failed ({category}); see configuration module logs.\n")
 
 
 def main(argv=None):

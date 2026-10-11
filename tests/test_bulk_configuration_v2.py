@@ -282,7 +282,7 @@ def test_shared_live_collection_one_session_and_read_only_commands(tmp_path, mon
     import json
     logs = "".join(p.read_text() for p in (tmp_path / "logs").rglob("bulk_planning.log"))
     events = [json.loads(line) for line in logs.splitlines()]
-    assert any(e["error_category"] == "EvidenceCollectionError" for e in events)
+    assert any(e["error_category"] == "ValueError" for e in events)
     assert all("exception_chain" not in e for e in events)
     assert "MUST_NOT_PERSIST" not in logs and "must never persist" not in logs
     assert spool.path.name in logs
@@ -999,7 +999,8 @@ def test_plan_export_failure_logs_safe_category(tmp_path, monkeypatch, capsys):
             cli.main(["plan", str(source), str(tmp_path / "plan.json")])
     output = capsys.readouterr()
     logs = "".join(p.read_text() for p in (tmp_path / "logs").rglob("*.log"))
-    assert "PlanningExportError" in logs and "Export start" in logs
+    assert "OSError" in logs and "stage=workbook export" in logs and "Export start" in logs
+    assert "Planning failed (OSError)" in output.err
     assert "NEVER_ECHO" not in logs + output.out + output.err
 
 
@@ -1062,3 +1063,73 @@ def test_observation_run_failure_is_logged_and_safe(tmp_path, monkeypatch):
     logs = "".join(p.read_text() for p in (tmp_path / "logs").rglob("*.log"))
     assert "ObservationRunError" in logs and "run end" in logs
     assert "DO_NOT_OUTPUT" not in logs
+
+@pytest.mark.parametrize("operation,category,stage", [
+    ("read_input", ValueError, "workbook input"),
+    ("plan", PlanError, "planning"),
+    ("save", PermissionError, "plan export"),
+    ("export_review", OSError, "workbook export"),
+])
+def test_cli_failure_stage_and_class_without_exception_text(tmp_path, monkeypatch, capsys, operation, category, stage):
+    from functools import partial
+    from orbitflow.configuration.v2 import cli
+    from orbitflow.logging import module_logger
+    source = tmp_path / "input.xlsx"
+    create_input(source)
+    book = load_workbook(source)
+    t = template("All", "Manual CLI")
+    for k, v in inputs(t).items():
+        book[t.sheet].cell(3, t.columns.index(k) + 1, v)
+    book.save(source)
+    def fail(*args, **kwargs):
+        raise category("password=NEVER_ECHO /private/token=SECRET_PATH raw-device-output")
+    monkeypatch.setattr(cli, operation, fail)
+    monkeypatch.setattr(cli, "module_logger", partial(module_logger, log_root=tmp_path / "logs"))
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["plan", str(source), str(tmp_path / "plan.json")])
+    assert caught.value.code == 2
+    output = capsys.readouterr()
+    logs = "".join(p.read_text() for p in (tmp_path / "logs").rglob("*.log"))
+    assert f"stage={stage}" in logs and category.__name__ in logs
+    assert f"Planning failed ({category.__name__})" in output.err
+    for sensitive in ("NEVER_ECHO", "SECRET_PATH", "raw-device-output", "exception_chain"):
+        assert sensitive not in logs + output.out + output.err
+
+
+def test_observation_preserves_distinct_shared_failure_categories(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from functools import partial
+    import json
+    from orbitflow.configuration.v2 import observation
+    from orbitflow.config import ExecutionConfig
+    from orbitflow.logging import module_logger
+    class DeviceConnectionError(Exception):
+        pass
+    class InventoryCollectionError(Exception):
+        pass
+    errors = {IP: DeviceConnectionError, "192.0.2.11": InventoryCollectionError}
+    @contextmanager
+    def connect(ip, *args):
+        raise errors[ip]("password=NEVER_ECHO /private/token=SECRET_PATH raw-device-output")
+        yield  # pragma: no cover
+    monkeypatch.setattr(observation, "connect_device", connect)
+    monkeypatch.setattr(observation, "module_logger", partial(module_logger, log_root=tmp_path / "logs"))
+    t = template("C3750X", "VLAN Database")
+    rows = [request(t.id, {**inputs(t), "management_ip": ip}, row=3 + i) for i, ip in enumerate(errors)]
+    output = []
+    from orbitflow.transport import DeviceCredentials
+    spool = observation.collect(rows, {ip: DeviceCredentials("test", "synthetic") for ip in errors}, None,
+        inventory_path=tmp_path / "inventory.json", spool_root=tmp_path / "runs",
+        execution_config=ExecutionConfig(1, 0, 0), progress=output.append)
+    records = list(spool.records())
+    assert [r["target"] for r in records] == list(errors)
+    assert [r["error_category"] for r in records] == [e.__name__ for e in errors.values()]
+    assert all(r["payload"]["status"] == "evidence_unavailable" for r in records)
+    logs = "".join(p.read_text() for p in (tmp_path / "logs").rglob("*.log"))
+    events = [json.loads(line) for line in logs.splitlines()]
+    for ip, error in errors.items():
+        assert any(e["error_category"] == error.__name__ and e["management_ip"] == ip for e in events)
+        assert any(f"{ip}: failed" in line and error.__name__ in line for line in output)
+    assert "completed=0; failed=2" in output[-1]
+    for sensitive in ("NEVER_ECHO", "SECRET_PATH", "raw-device-output", "exception_chain"):
+        assert sensitive not in logs + "".join(output) + canonical(records)
