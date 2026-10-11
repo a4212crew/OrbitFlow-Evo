@@ -14,7 +14,7 @@ Example: `ensure_vlan_present(vlan_id, vlan_name)` for a supported switch family
 
 Preview rendered configuration and intended differences without applying. Approval binds target set, template version, parameter values and produced actions. Keep templates distinct from a future desired-state inventory. Phase 1 should support a small allowlisted set (e.g., VLAN create/allowed-list add), with tests for duplicates, platform variation, unsafe replacements and no-op behavior.
 
-## Agreed engineer-selection model (future)
+## Superseded exploratory engineer-selection model (historical)
 
 An engineer first reviews evidence-backed existing interface/VLAN methodology
 resolved by the existing read-only audit machinery, then manually selects an
@@ -22,10 +22,7 @@ approved template. The selected template may update existing configuration or
 create a new interface/service when prerequisite resource checks succeed. Do
 not automatically choose a template from the device type or detected method.
 
-- **Standard change:** pre-approved immutable template version, compatible
-  device/interface profile, bounded parameters, per-row validation and rollout
-  constraints; no additional per-change reviewer only while policy conditions
-  remain satisfied. Operator intent, audit and future live checks remain.
+- **Predefined template:** versioned per-family/function schema and renderer with live read-only observation, evidence and consistency review. Operator intent, audit and fresh future apply preflight remain mandatory.
 - **Advanced change:** engineer-authored CLI, including exact ordered commands
   imported from Excel; separately authorised review and stricter checks.
 - **Bulk:** Excel identifies targets, receives resolved configuration/evidence,
@@ -38,3 +35,7 @@ not automatically choose a template from the device type or detected method.
 ## Proposed lifecycle-aware template catalogue
 
 Support explicit, non-interchangeable actions: `create`, `update`, `detach`, `remove`, `retire`. Create and update templates should compute a minimal patch from reviewed existing state. **Removal is separately governed** by [configuration removal](configuration-removal.md): per-interface membership withdrawal must not imply removal of VLAN database, bridge-domain or VSI objects; service-instance deletion must not implicitly remove shared forwarding domains. Template identifiers/versions must distinguish operation and scope. The uploaded workbook's RM01+ snippets are candidate rules only, not executable templates or claims of supported vendor syntax. Standard-change pre-approval for a creation template never automatically authorises a destructive removal.
+
+## Approved 22-template target catalogue
+
+The engineer-approved, platform-specific catalogue and Excel workbook structure are specified in [approved bulk planning](guided-bulk-planning.md). **That document supersedes this page's exploratory selection and approval examples wherever they differ.** 21 device-function templates plus one cross-vendor Manual CLI template are approved *as design*, not implemented. The template catalogue and renderers are reusable platform-agnostic service APIs; Excel is an adapter. ASR920 EVC renders inline BD only; no standalone VLAN database template. Manual CLI is offline-only. Source v1 Change Plan behaviour remains unchanged.

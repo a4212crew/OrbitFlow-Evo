@@ -1,52 +1,65 @@
-# Gap C — Guided Bulk Configuration Planning (C1–C4)
+# Gap C — Approved Template-Based Configuration Planning (Target Design)
 
-Status: **approved target design, not implemented**. Gap B (durable methodology Engineering Review Workflow) is deferred. This document scopes an integrated, **offline-only** C1–C4 implementation. The existing `orbitflow.configuration` v1 supports only allowlisted VLAN creation on C3750X/C3850; it does **not** implement this workflow, arbitrary manual CLI or live apply. See [offline plans](offline-plans.md) and [methodology review](interface-methodology-review.md).
+**Status:** Engineer-approved target design, **not implemented**. Supersedes the earlier two-stage Requests/Parameters workbook and offline-only C1–C4 proposal from Issue #88 (closed, not planned; PR #89 closed unmerged). Existing `orbitflow.configuration` v1 remains as documented in [offline-plans.md](offline-plans.md). This document is the authoritative target for the replacement implementation issue; it does not claim live apply exists.
 
-## Engineer workflow and artifacts
+## Operator journey
 
-The primary interface is a guided Excel workflow; engineers **do not need to know M01–M08 or template IDs**.
+1. Engineer opens a single **input workbook** with an **Introduction** sheet linking to each template worksheet. Each template links back to Introduction. No template IDs, methodology IDs (M01–M08), row-order numbers, separate Requests/Parameters/Choices workbooks or change-order fields are required from the engineer.
+2. Engineer fills function-specific rows on **one worksheet per device family and operation**. Required columns include management IP and operation parameters. Inline examples, validation and dropdowns should make requirements obvious. Template metadata and stable internal row IDs belong to the application, not the engineer's input.
+3. For **predefined templates**, OrbitFlow connects read-only to each targeted device using shared DeviceContext, DeviceSession, device-execution and observation capabilities. Retrieve **current** configuration, normalized facts, exact sanitized source excerpts, evidence references, and observation timestamps; do not treat historical inventory snapshots as proof of live state. Reuse InterfaceService, VlanService, saved-configuration facts, and family AuditResolver where appropriate. Do not duplicate vendor parsing or change fixed compliance policies to serve planning. Failed/unavailable/ambiguous checks are explicit, not fabricated absence.
+4. The **Manual CLI** worksheet is different: **offline-only**, with **no target connection or existing configuration collection**. Engineer explicitly supplies device IP, platform, scope/mode and multiline CLI. Preserve user-authored command text; perform bounded input and structural checks, label **Not Live Validated / Impact Unknown**, and never claim semantic safety. Inventory snapshot lookup may be optional but is not live evidence.
+5. Planning service deterministically compares requests with observed facts and creates proposed CLI, no-ops, conflicts, dependencies and impact findings. Generate **reviewable CLI even for known changes/conflicts** (e.g. differing VLAN name), but never treat unresolved prerequisites, unknown outcomes or inconsistent ownership as deployment-ready.
+6. Output a **review workbook retaining function-specific sheets and original input columns**, adding existing configuration evidence (for predefined templates), proposed multiline CLI, live-validation result, consistency and dependencies, observation timestamp, and **Engineer Decision = Pending / Approve / Reject**, plus summary/findings. No-op rows are visible. Rejected dependencies trigger re-planning/revalidation and invalidate affected digests.
+7. Approvals bind exact immutable, versioned Change Plans, commands, target, provenance and collected evidence via canonical digest. Ordering for the **same device** is **worksheets left-to-right, then rows top-to-bottom**; detect cross-sheet/interface/shared-resource overlap and do not silently resolve it. Expose that rule prominently in Introduction. CLI and Excel are thin adapters; a future API/web adapter invokes the same catalogue, observation, planning and review services.
 
-| Step | Engineer input | OrbitFlow output | Decision / constraint |
-|---|---|---|---|
-| 1. Request | Simple list: device identity, interface, desired action, optional manual CLI reference | Normalized request with stable row IDs and validation errors | Preserve row provenance; no guessed identity |
-| 2. Prepare | Request workbook + inventory snapshot | **Generated guided workbook** listing applicable required/optional fields, examples, defaults, and any candidate methodology choice | Choose only from compatible, versioned approved templates; multiple matches require selection |
-| 3. Complete | Engineer fills required values; optionally specifies method, version, advanced parameters, ordered manual CLI | Typed per-operation requests with source attribution | Unknown/missing parameters block rendering; approved defaults only |
-| 4. Plan | Completed guided workbook | Per-device ordered CLI candidates, conflicts, warnings, preconditions and verification expectations | Deterministic offline validation; unknown manual CLI effects remain review-required and non-executable |
-| 5. Review | Consolidated Excel preview + exact JSON plans/digests | Engineer approves/rejects **exact** immutable Change Plan via offline authority; retained batch manifest and results | Plan changes invalidate approval; local actor labels are not authenticated |
+This phase **does not apply, save, commit, back up, roll back or modify devices**. Connections for predefined templates are strictly read-only. Manual CLI has the **same ordinary offline engineer approval workflow** as predefined templates, with no special second approver/SSO requirement in this phase; its unknown effects stay explicit. An offline approval never authorizes future live application.
 
-Proposed operator command names, **not currently implemented**:
+## Approved catalogue — 22 templates
 
-```powershell
-python .\scripts\configuration_job.py prepare .\requests.xlsx
-python .\scripts\configuration_job.py plan .\prepared_requests.xlsx
-```
+| Family | Input worksheet/function | Notes |
+|---|---|---|
+| C3750X | VLAN Database | Required VLAN ID + name; live evidence; missing=create; matching=no-op; differing name=rename proposal + warning |
+| C3750X | Access Port | Required interface + access VLAN; optional description; live access/trunk/ownership checks |
+| C3750X | Trunk Port | Add/Remove/Replace allowed VLANs; optional native VLAN/description; explicit trunk mode for new/conversion, encapsulation dot1q where required |
+| C3750X | Interface Description | Required nonempty description including spaces; existing interfaces/port-channels only |
+| C3850X | VLAN Database | Same VLAN name and conflict review semantics |
+| C3850X | Access Port | Explicit access-mode setup; live VLAN and ownership validation |
+| C3850X | Trunk Port | Add/Remove/Replace; new trunk uses `switchport mode trunk`, without C3750X encapsulation selector |
+| C3850X | Interface Description | Supports spaces; no implicit deletion |
+| ME3600X | VLAN Database | Explicit global VLAN objects, required name |
+| ME3600X | EVC | Tagged/untagged and QinQ; service instance, bridge-domain, symmetric pop tag rewrite; bridge-domain's **global VLAN must exist** or have an earlier approved creation dependency; generate draft on missing prerequisite |
+| ME3600X | Interface Description | Physical or supported aggregate target |
+| ASR920 | EVC | **Inline binding only** under interface service instance; dot1q/QinQ/untagged and qualified rewrite. Existing global binding is an observed consistency conflict, not an automatically migrated change |
+| ASR920 | Interface Description | Preserve EVC config |
+| NCS540 | L2VPN | L2transport subinterface, encapsulation and bridge-group/domain attachment. Numeric VLAN validity comes from valid BD→existing L2 subinterface→dot1q relationship, not BD name |
+| NCS540 | Interface Description | Physical and existing routed/L2transport subinterfaces |
+| EdgeSwitch | VLAN Database | Explicit VLAN DB, required name, quoted when rendering names with spaces |
+| EdgeSwitch | VLAN Port | Participation/tagging/PVID; Add/Remove/Replace. Access uses `vlan participation include X` + `vlan pvid X` (no tagging-disable command). Remove tagged VLAN uses `no vlan tagging X` then `vlan participation exclude X` |
+| EdgeSwitch | Interface Description | Quoted description supporting spaces |
+| NE05E | VLAN Database | Explicit `vlan` / `vlan batch` existence, required VLAN description; VSI references not substitutes |
+| NE05E | Subinterface VSI | Single-tag dot1q termination or vlan-type dot1q; existing VSI mandatory for deployment-ready plan; QinQ and VSI creation out of v1 |
+| NE05E | Interface Description | Physical, existing subinterface, Eth-Trunk |
+| All families | Manual CLI | Offline-only, no device connection, explicit platform and CLI mode/scope; unknown effects retained |
 
-Proposed input: a minimal `Requests` sheet with `row_id`, `inventory_id/device`, `interface`, `action`, and optional `manual_cli_ref`; downstream `Parameters` rows are **generated by OrbitFlow**, not memorized by the engineer. Example actions include access port, trunk VLAN add/replace, EVC, tagged EdgeSwitch port, IOS-XR L2VPN attachment, and manual CLI. Actions available for actual planning are strictly limited to templates explicitly implemented and qualified in the versioned catalogue.
+ASR920 deliberately has **no VLAN database/standalone BD creation template**: a valid forwarding VLAN requires at least one valid interface service-instance attachment, whether inline or globally observed. The ASR920 template **renders inline only** and identifies existing global bindings as consistency findings.
 
-EVC may require service-instance ID, outer VLAN, optional inner VLAN, bridge-domain identity, and choice of **local (M03)** versus **global (M02)** binding. IOS-XR may require bridge group/domain, attachment and encapsulation; Huawei VSI requires VSI/termination parameters; access/trunk/EdgeSwitch require different VLAN/PVID/mode fields. These are examples, **not a promise that all methods ship in C1**. Show only fields appropriate to the approved action/profile. Defaults like SI=VLAN=BD are permitted only when explicitly declared safe by that specific template. M01–M08 are *observed methodologies*, **not authorization** to generate or choose configuration. Where several compatible templates remain, request engineer choice; when no approved match exists, fail closed or route to advanced review.
+For all Cisco families, render configuration-mode entry as `configure terminal`; EdgeSwitch uses `configure`; Huawei VRP uses `system-view`. Separate IOS-XR future commit from planning. Do not use compliance policy's numeric **2–4001** range to restrict configuration inputs: validate actual vendor/platform supported VLAN ID/range and reserved-ID rules. Interface descriptions preserve spaces and case; missing required descriptions are invalid. Blank **optional** descriptions preserve existing text. For ME3600X EVC use the bridge-domain VLAN as the global-database prerequisite, not the outer ingress tag.
 
-A proposed consolidated `configuration_preview_<run-id>.xlsx` should show batch summary, device plans, operation order, selected method/template version, command source (template vs manual), full ordered preview, validation findings, approval requirements, run/input errors and JSON plan references/digests. A canonical JSON batch manifest binds membership and per-device plan digests. Batch rows must not silently disappear on input/inventory failure. Use `data/` for durable state and `outputs/` for generated reports/runs, in the existing convention.
+## Services, evidence, consistency and plan semantics
 
-## C1–C4 internal boundaries
+- Catalogue lives in versioned repository definitions with stable IDs, typed schemas, capability gates, renderers and conflict/dependency rules, independent of Excel.
+- Shared live-observation orchestrator performs read-only per-device collection and stores sanitized exact command output/evidence plus normalized facts, source references and time; avoid duplicate SSH sessions and redundant collections for rows targeting the same device.
+- Planning uses the original device snapshot and projects preceding approved row effects in declared worksheet/row order, without claiming those effects already exist on device. Recompute dependencies when engineer rejects a row.
+- Retain original CLI and **proposed commands** for conflicting-but-understood changes, including VLAN name/description changes, access/trunk conversions, VLAN removals, and changed EVC settings. Mark service impact and warnings clearly.
+- Block deployment-readiness (not necessarily CLI rendering) for unresolved parent/port-channel ownership, ambiguous interface or service bindings, absent necessary global VLAN/VSI, unreviewed migrations, or stale evidence. Known global-vs-inline ASR920 EVC conflicts are reported, never silently rewritten.
+- Manual CLI input remains literal and offline. Its consistency is `not_evaluated`; detect obvious overlaps without pretending full command-effect understanding. Approve/Reject/Pending alone does not make unsafe/unknown changes execution-authorized.
+- Keep raw credential/secret-bearing output and user commands out of unprotected workbooks, artifacts, spools and logs. Sanitize evidence consistently. Preserve evidence references and hashes/digests securely; immutable plan changes invalidate approval.
+- Existing v1 Change Plan allowlists, authority and digest protections remain unchanged until an explicitly versioned backwards-compatible extension is implemented and tested. The existing v1 operation `ensure_vlan_present` need not silently acquire rename semantics: use an explicit rename-aware planned action.
 
-- **C1 — Template catalogue:** deterministic, versioned, vendor/profile/capability-gated template definitions, parameter schemas, allowed defaults and supported intent/operation types; expose user-friendly action names and compatible candidate choices. Start with a narrow qualified catalogue; extend M01–M08 incrementally rather than assuming every observed methodology is safely writable.
-- **C2 — Guided bulk input and jobs:** import/generate Excel workbooks, stable row IDs and source references; permit multiple devices, interfaces, operations and templates per interface plus advanced manual CLI on the **same interface**, with explicit intra-device order and dependencies. Keep manual CLI as literal engineer-authored evidence/commands, not an LLM-selected template.
-- **C3 — Deterministic conflict checking and preview:** validate device/profile, typed parameters, duplicate identities, semantic effects, service IDs, parent/shared resources, ordering, add-versus-replace intent, independent versus conflicting operations, and template/manual collisions. Detect known conflicts (e.g. add VLAN versus remove VLAN, duplicate SI with incompatible encapsulation); **unknown manual CLI effect is not proof of safety**. Never silently let a manual command override a template.
-- **C4 — Offline Change Plan integration:** extend the existing v1 contract **with explicit versioning**, preserving previous allowlists, validations and approval behaviour. Generate immutable per-device plans, canonical digest-bound provenance and batch manifest, plus consolidated preview and offline approval/rejection. Advanced CLI requires **separate authenticated elevated approval before any future live application**; current local `ApprovalStore` actor labels alone cannot provide that authority. A plan containing unresolved/unknown CLI effects must not become execution-authorized merely because a local offline approval entry exists.
+## Future apply policy — out of scope
 
-All C1–C4 operations are **offline**: no new SSH, Teleport, backup, live preflight, apply, commit/save, rollback or recovery engine. Existing inventory snapshots are latest-known, **not** proof of present configuration. Live C5 preflight and C6 execution need independent qualification, approval and operator validation.
+C5/C6 require separate approvals and lab/live testing. Shared per-device execution, up to five concurrent devices by default, sequential ordered operations per device, and fresh preflight just before applying. Connection/unreachable/identification failure **before commands could be sent** may skip/continue. Unsafe preflight, command/commit failure, verification failure or unknown outcome **after send may have begun** pauses further dispatch after safe current-wave handling; explicitly reconcile and authorize resume. Never blind-retry config or auto-rollback. A separate explicit execution authorization is required even for an approved plan.
 
-## Approved future execution policy (C5/C6 only; not part of C1–C4)
+## Acceptance for replacement implementation issue
 
-Configuration application will use the shared per-device execution boundary. A batch may run **up to five devices concurrently** by default (configurable and independently safety-gated); within each device operations follow the approved order. This is not a five-device atomic transaction.
-
-- **Skip and continue:** unreachable, unable to connect, or unable to identify inventory **before any configuration command may have been sent**. Record explicit skipped results.
-- **Pause further dispatch, engineer intervention required:** unsafe identifiable-device preflight, command/commit failure, post-change verification failure, or **unknown outcome** (including lost connection after commands may have been sent). Already started workers reconcile/stop at a safe boundary; do not blindly cancel or replay uncertain operations.
-- **Resume:** preserve completed devices; inspect/reconcile affected device state, revalidate preconditions and unchanged plan/digest; obtain explicit engineer authorization before resuming pending/failed operations. Skipped devices are retried only if explicitly selected. No automatic rollback or automatic retry of configuration commands.
-- Capture durable checkpoints and separate completed/skipped/failed/unknown/pending statuses. A failure may occur while several concurrent devices complete; report the actual outcome, not a fabricated atomic result.
-
-This execution policy is design guidance only until C5/C6 are implemented and lab/live validated.
-
-## Validation/acceptance for integrated C1–C4 development
-
-An engineer can submit mixed-device *intent* without knowing template names; OrbitFlow generates methodology-specific required inputs, receives completed values, detects candidate ambiguity, builds ordered multi-template/manual plans, and produces **one preview workbook** plus versioned immutable JSON plans and batch manifest. Deterministic tests must cover incompatible models, required fields/defaults, local/global EVC ambiguity, mixed commands on one interface, unknown manual CLI effects, ordering and dependencies, VLAN additive versus replacement changes, cross-row conflicts, duplicate identities, safe secret rejection, provenance, digest invalidation, approval gates, v1 regression compatibility, and no network side effects. Operator validation is an offline end-to-end exercise with representative input workbooks; do **not** describe it as live device validation.
+Deterministic fixtures for all 22 template schemas, correct vendor CLI/context, live collector/audit reuse, missing or ambiguous evidence, evidence freshness, mismatched name review, VLAN creation/dependencies, ASR920 global-binding consistency, EdgeSwitch tagged removal syntax, input navigation/ordering, mixed same-device rows, row rejection, no-op results, plan digest invalidation, manual offline no-network guarantee, secret redaction and no device mutations. Include offline fake-session validation of live-observation orchestration, and user-controlled live read-only smoke tests before claiming operational validation.

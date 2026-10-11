@@ -11,12 +11,12 @@ Support **new configuration** and **compliance remediation** through one control
 3. Templates: reviewed, versioned templates plus typed values generate vendor-specific intended changes.
 4. Compliance: remediation proposals derived from validated audit findings, not from ad-hoc re-parsing of raw CLI.
 
-All sources produce a **Change Plan**, not device commands executed immediately. Planning is side-effect-free. The shared configuration orchestrator handles approval, change-specific preflight, execution policy, recording and verification. Platform adapters implement platform-dependent apply/commit/recovery. Shared DeviceContext, session, device-execution and logging layers remain authoritative for target identity, transport, device-scoped concurrency, and diagnostics.
+All sources produce a **Change Plan**, not device commands executed immediately. Under the approved future Gap C design, predefined templates first obtain **live, read-only** observed configuration and exact sanitized evidence; **Manual CLI stays offline-only with no device connection**. See [approved planning](guided-bulk-planning.md). Planning does not modify device configuration; predefined template observation does use read-only network sessions. The shared configuration orchestrator handles approval, change-specific preflight, execution policy, recording and verification. Platform adapters implement platform-dependent apply/commit/recovery. Shared DeviceContext, session, device-execution and logging layers remain authoritative for target identity, transport, device-scoped concurrency, and diagnostics.
 
 ## Lifecycle
 
 ```text
-Source -> normalize -> Change Plan -> offline validation -> explicit approval
+Source -> normalize -> read-only live observation for predefined templates -> Change Plan -> engineer review/approval
        -> refresh live state/prechecks -> backup -> controlled apply
        -> post-change verification -> persist/save where supported
        -> record outcome or controlled recovery / escalation
