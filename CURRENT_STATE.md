@@ -33,6 +33,8 @@ Catalogue 2.1 adds NCS540 dot1q/QinQ/untagged selection, explicit EVC
 None/Pop1/Pop2 and ASR920 untagged Push rewrite, independent EdgeSwitch
 tagged membership/PVID with untagged preservation, and C3850X names with spaces.
 Deterministic review fixtures cover these options, no-ops and conflicts.
+EdgeSwitch PVID-only proposals include missing participation while preserving
+existing memberships; participating targets require only the PVID command.
 V1 plan/approval behavior is unchanged. Audit defaults retain existing policy
 bounds; an explicit planning projection uses platform numeric bounds and NE05E
 single-tag VSI relationships without changing compliance outputs.

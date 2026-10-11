@@ -595,12 +595,44 @@ def edge_observation():
     return obs
 
 
+@pytest.mark.parametrize("participates", [False, True])
+def test_edge_pvid_only_membership_and_review_readiness(participates):
+    t = template("EdgeSwitch", "VLAN Port")
+    obs = edge_observation()
+    if participates:
+        obs["audit"][0]["configured_membership_vlans"].append(645)
+    r = request(t.id, dict(management_ip=IP, interface="0/1", pvid=645))
+    pending = plan([r], {IP: obs}, now=NOW)
+    row = pending.to_dict()["results"][0]
+    expected = ["configure", "interface 0/1"]
+    if not participates:
+        expected.append("vlan participation include 645")
+    expected += ["vlan pvid 645", "exit", "exit"]
+    assert row["commands"] == expected
+    assert row["consistency"] == "consistent" and not row["deployment_ready"]
+    for decision in ("Approve", "Reject"):
+        reviewed = review(pending, {r["row_id"]: decision}, expected_digest=pending.digest, now=NOW)
+        result = reviewed.to_dict()["results"][0]
+        assert result["deployment_ready"] == (decision == "Approve")
+        assert result["commands"] == expected
+
+
+def test_edge_pvid_without_membership_is_not_noop():
+    t = template("EdgeSwitch", "VLAN Port")
+    obs = edge_observation()
+    obs["vlans"][0]["pvid"] = 645
+    r = request(t.id, dict(management_ip=IP, interface="0/1", pvid=645))
+    row = plan([r], {IP: obs}, now=NOW).to_dict()["results"][0]
+    assert not row["no_op"]
+    assert "vlan participation include 645" in row["commands"]
+
+
 def test_edge_independent_pvid_replace_and_conflicts():
     t = template("EdgeSwitch", "VLAN Port")
     p = dict(management_ip=IP, interface="0/1", pvid=645)
     r = request(t.id, p)
     row = plan([r], {IP: edge_observation()}, now=NOW).to_dict()["results"][0]
-    assert row["commands"] == ["configure", "interface 0/1", "vlan pvid 645", "exit", "exit"]
+    assert row["commands"] == ["configure", "interface 0/1", "vlan participation include 645", "vlan pvid 645", "exit", "exit"]
     r = request(t.id, {**p, "pvid": 445})
     assert plan([r], {IP: edge_observation()}, now=NOW).to_dict()["results"][0]["no_op"]
     p.update(action="Replace", vlans=[645])

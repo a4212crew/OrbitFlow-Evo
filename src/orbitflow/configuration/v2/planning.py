@@ -148,7 +148,7 @@ def _row(r, observation, prior, decision, now, max_age):
             same = wanted <= tagged if p.get("action") == "Add" else wanted == tagged if p.get("action") == "Replace" else True
             if p.get("replace_untagged") == "Yes":
                 same &= current <= wanted | {p.get("pvid")}
-        out["no_op"] = bool(same and ("pvid" not in p or existing.get("pvid") == p["pvid"]) and (not p.get("description") or existing.get("description") == p["description"]))
+        out["no_op"] = bool(same and ("pvid" not in p or (existing.get("pvid") == p["pvid"] and p["pvid"] in current)) and (not p.get("description") or existing.get("description") == p["description"]))
     elif t.function in {"EVC", "L2VPN", "Subinterface VSI"}:
         out["no_op"], conflicts = (assess_huawei if t.family == "NE05E" else assess_cisco)(t, p, obs)
         findings.extend(conflicts)

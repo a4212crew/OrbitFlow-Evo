@@ -23,5 +23,10 @@ def render(template, p, existing=None):
                     lines += [f"vlan tagging {vid}"]
         if p.get("mode", "Tagged") == "Access" or "pvid" in p:
             vid = p["pvid"] if "pvid" in p else p["vlans"][0]
+            # PVID does not establish membership; preserve other participants.
+            included = desired if p.get("action") != "Remove" else set()
+            current = set(existing.get("referenced_vlans", [])) if existing else set()
+            if vid not in included and (vid not in current or vid in remove):
+                lines += [f"vlan participation include {vid}"]
             lines += [f"vlan pvid {vid}"]
     return lines + ["exit", "exit"]
