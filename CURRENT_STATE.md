@@ -31,8 +31,12 @@ material evidence/identity/ownership conflicts and service-change blockers remai
 Validated with deterministic fixtures only; no live smoke testing in this revision.
 
 `orbitflow.configuration.v2` adds a separate 22-template catalogue, deterministic
-vendor proposals, input/review XLSX adapters and signed digest-bound offline
-review. The 21 predefined templates use shared per-device execution/session,
+vendor proposals and input/plan XLSX adapters. The plan workbook is the single
+Pending/Approve/Reject surface; no separate v2 review command or signing store remains.
+Default artifacts use outputs/runs/configuration/<plan-digest>/plan.json and plan.xlsx.
+Digest-pinned decision consumption validates protected cells and returns unauthenticated
+in-memory intent without mutating the plan or authorizing execution.
+The 21 predefined templates use shared per-device execution/session,
 inventory, InterfaceService, VlanService and family audit relationships for
 read-only evidence. Manual CLI is literal/offline-only and never connects.
 Catalogue 2.1 adds NCS540 dot1q/QinQ/untagged selection, explicit EVC
@@ -53,13 +57,13 @@ bounds; an explicit planning projection uses platform numeric bounds and NE05E
 single-tag VSI relationships without changing compliance outputs.
 
 Same-device sheet/row order, original inputs, source provenance, observations,
-dependencies, no-ops, impact/conflict findings and Pending/Approve/Reject are
-digest-bound. Review import rejects other edits and re-evaluates prerequisites
+dependencies, no-ops and impact/conflict findings are digest-bound. Workbook
+decisions remain separate unauthenticated intent pinned to that source digest. Decision consumption rejects other edits and re-evaluates prerequisites
 and evidence age. Unresolved evidence/ownership/overlaps and unknown Manual CLI
 effects cannot become deployment-ready. Collection uses recoverable shared
 spools; bounded single-workbook limits are documented. No apply/save/commit or
 execution authorization exists. Deterministic tests cover all 22 templates,
-workbook/authority lifecycle, collection reuse and v1 regressions. No live smoke
+workbook integrity lifecycle, collection reuse and v1 regressions. No live smoke
 test has been run. Commands and limits:
 `docs/operations/bulk-configuration-planning.md`.
 

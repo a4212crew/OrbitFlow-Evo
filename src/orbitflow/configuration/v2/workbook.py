@@ -1,4 +1,4 @@
-"""Thin XLSX adapter. Only the decision cells may change during review import."""
+"""Thin XLSX adapter. Only the decision cells may change during decision consumption."""
 from pathlib import Path
 import hashlib
 from openpyxl import Workbook, load_workbook
@@ -9,7 +9,7 @@ from openpyxl.comments import Comment
 
 from orbitflow.configuration.plans import require, PlanError
 from .catalogue import CATALOGUE, BY_ID, BY_SHEET, normalize_display_inputs
-from .planning import request, review, MAX_ROWS
+from .planning import request, evaluate_decisions, MAX_ROWS
 from .evidence import scoped_evidence
 
 EXTRA = ("Row ID", "Existing Evidence", "Proposed CLI", "Live Validation", "Consistency",
@@ -84,7 +84,8 @@ def _base():
 
 def create_input(path):
     require(not Path(path).exists(), "output already exists")
-    _base().save(path)
+    with Path(path).open("xb") as stream:
+        _base().save(stream)
 
 
 def read_input(path):
@@ -120,7 +121,7 @@ def read_input(path):
         book.close()
 
 
-def export_review(plan, path):
+def export_plan(plan, path):
     require(not Path(path).exists(), "output already exists")
     book = _base()
     data = plan.to_dict()
@@ -168,10 +169,17 @@ def export_review(plan, path):
         sheet.row_dimensions[r["row"]].height = 90
     for c in ("A", "B", "C", "D"):
         details.column_dimensions[c].width = 70 if c == "D" else 28
-    book.save(path)
+    with Path(path).open("xb") as stream:
+        book.save(stream)
 
 
-def import_review(original, path, *, now=None):
+def consume_decisions(original, path, *, expected_digest, now=None):
+    """Future preflight adapter: caller pins a trusted plan digest; no authority.
+
+    Validates protected values, then evaluates untrusted decision intent in memory.
+    Never persists, re-signs or modifies the source plan.
+    """
+    require(original.digest == expected_digest, "source plan digest mismatch")
     # Regenerate the exact expected workbook in memory; compare every populated
     # cell and physical sheet order except ordinary engineer decision cells.
     from tempfile import TemporaryDirectory
@@ -179,7 +187,7 @@ def import_review(original, path, *, now=None):
     decisions = {}
     with TemporaryDirectory() as directory:
         expected_path = Path(directory) / "expected.xlsx"
-        export_review(original, expected_path)
+        export_plan(original, expected_path)
         expected = load_workbook(expected_path, data_only=False)
         try:
             require(book.sheetnames == expected.sheetnames, "review worksheet order changed")
@@ -202,4 +210,4 @@ def import_review(original, path, *, now=None):
         finally:
             expected.close()
             book.close()
-    return review(original, decisions, expected_digest=original.digest, now=now)
+    return evaluate_decisions(original, decisions, expected_digest=expected_digest, now=now)

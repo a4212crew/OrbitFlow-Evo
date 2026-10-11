@@ -28,7 +28,7 @@ actions, encapsulation and modes. Optional blank descriptions preserve text.
 Credentials must never be entered into this workbook.
 
 ```powershell
-python -m orbitflow.configuration.v2.cli plan bulk-input.xlsx outputs/runs/configuration/example/plan.json --devices devices.xlsx --max-concurrent-devices 1 --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER
+python -m orbitflow.configuration.v2.cli plan bulk-input.xlsx --devices devices.xlsx --max-concurrent-devices 1 --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER
 ```
 
 The shared Excel target loader reads `devices.xlsx` (override with `--devices`).
@@ -63,28 +63,35 @@ objects and required dependency stanzas. Internal sanitized device-wide facts
 remain digest-bound for consistency checks. Evidence Details preserves source filenames, one-based line numbers and exact
 sanitized excerpts; oversized main-sheet evidence refers there. The plan digest
 binds the sanitized observation, facts, device identities, original inputs,
-source-workbook SHA-256, catalogue version, ordering, proposals and decisions.
+source-workbook SHA-256, catalogue version, ordering, proposals and initial decisions. Edited decisions are separate intent.
 It is not a hash of a raw device backup.
 
-Edit only Engineer Decision cells, then import into a **new** output path:
+Edit only Engineer Decision cells in this same plan workbook and save it. There
+is no standalone review command, second workbook, reviewed JSON or v2 signing
+store. These cells record unauthenticated engineer intent, not execution authority.
 
-```powershell
-python -m orbitflow.configuration.v2.cli review outputs/runs/configuration/example/plan.json outputs/runs/configuration/example/plan.xlsx outputs/runs/configuration/example/reviewed.json --actor ENGINEER
-```
+A future preflight caller loads the immutable JSON with `planning.load` and calls
+`workbook.consume_decisions(plan, workbook_path, expected_digest=trusted_digest)`.
+The digest must be pinned independently by that caller, not trusted solely from
+an editable workbook. The consumer checks the matching source digest, every cell
+value, sheet order, dimensions and formulas, allowing only valid decision edits.
+It returns an in-memory `DecisionEvaluation` with `source_digest`, decisions,
+re-evaluated results, timestamp, `authenticated=False` and
+`execution_authorized=False`. It never changes, saves or re-signs a plan.
+Rejecting prerequisites blocks dependent requests; stale evidence remains blocked.
+Changes to protected content require re-planning. Even a matching SHA-256 proves
+content integrity only, not who approved it: future apply must independently
+establish authenticated authorization and perform fresh live preflight.
 
-All populated cells and sheet order are checked against the original plan.
-Changing input, evidence or proposed CLI requires a new planning run. Review
-re-evaluates evidence age and dependencies from the original snapshot. Rejecting
-a prerequisite blocks dependent rows and changes the digest. Pending rows may
-remain in a saved revision; the authority records that revision as pending.
-Resolved review revisions get a signed digest-bound record, including retained
-rejected rows. A record of completed review does not mean every row was approved
-or that conflicts were resolved.
-
-Authority defaults to `data/configuration/v2`, separately from v1. Use
-`--authority` and `--expires-hours` (1–168, default 24) to override. Protect its
-SQLite database and signing key with OS access controls. Actor labels are audit
-metadata, not authenticated identities. Whole-store rollback is not prevented.
+Omit the positional JSON destination to use
+`outputs/runs/configuration/<full-plan-sha256>/plan.json` and adjacent `plan.xlsx`.
+The digest includes the evaluation timestamp, so naming is deterministic for a
+particular immutable plan, not identical across new observations. Existing JSON
+or companion XLSX causes failure, with no overwrite or automatic suffix. The
+optional positional destination remains compatible: relative paths resolve from
+the working directory and absolute paths are honored exactly. Missing parents
+are created. Files use exclusive creation; a failed workbook export may leave
+the JSON for diagnosis, and retry must use a new path or operator cleanup.
 
 ## Ordering and readiness
 
@@ -152,7 +159,7 @@ evidence and commands; Approve cannot override missing or unverified evidence.
 ## API and bounded persistence
 
 The catalogue and typed validation live in `v2.catalogue`. `planning.request`,
-`plan`, `review`, `save` and `load` are independent of XLSX and transport.
+`plan`, `evaluate_decisions`, `save` and `load` are independent of XLSX and transport.
 `observation.collect` uses shared per-device execution, one DeviceSession/CLI,
 inventory resolution, InterfaceService, VlanService and family AuditResolver.
 The resolver's explicit planning mode uses platform numeric bounds; default
@@ -183,7 +190,7 @@ and [NCS540 interface guide](https://www.cisco.com/c/en/us/td/docs/iosxr/ncs5xx/
 Deterministic fixtures cover all 22 schemas and representative CLI, read-only
 collection reuse/cleanup/failure isolation, Manual CLI no-network behavior,
 ordering/dependencies, decisions/digests, secret rejection, workbook round trips,
-signed authority and v1 regressions. Live smoke tests have **not** been run.
+workbook integrity and v1 regressions. Live smoke tests have **not** been run.
 Hardware/release-specific operational validation remains operator-controlled.
 Conservative conflicts require revised input/re-observation; approval does not
 override unknown evidence or migrate existing services automatically.
@@ -206,7 +213,7 @@ Planning run start; reading input workbook
 192.0.2.11: failed; identity=- (EvidenceCollectionError)
 -: run end; completed=1; failed=1; run_id=<run-id>; identity=-
 Planning proposals; rows=2; live targets=2
-Exporting immutable plan and review workbook
+Exporting immutable plan and decision workbook
 ```
 
 Concurrent runs may interleave device stages; complete console lines use shared

@@ -1,16 +1,14 @@
-"""Operator adapters for v2 input, live read-only planning and offline review."""
+"""Operator adapters for v2 input, live read-only planning and workbook decisions."""
 import argparse
 import sys
 from orbitflow.execution import Progress
 from orbitflow.logging import module_logger
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from orbitflow.configuration.plans import require
 from .catalogue import BY_ID
-from .planning import plan, save, load
-from .workbook import create_input, read_input, export_review, import_review
-from .approvals import ReviewStore
+from .planning import plan, save
+from .workbook import create_input, read_input, export_plan
 
 
 def _main(argv, logger, progress):
@@ -20,7 +18,7 @@ def _main(argv, logger, progress):
     template.add_argument("path", type=Path)
     generate = sub.add_parser("plan")
     generate.add_argument("workbook", type=Path)
-    generate.add_argument("output", type=Path)
+    generate.add_argument("output", type=Path, nargs="?", help="JSON destination; default outputs/runs/configuration/<plan-digest>/plan.json; never overwrite")
     generate.add_argument("--devices", type=Path, default=Path("devices.xlsx"))
     generate.add_argument("--max-concurrent-devices", type=int)
     for name in ("proxy", "cluster", "bastion-host", "bastion-user"):
@@ -29,21 +27,15 @@ def _main(argv, logger, progress):
     generate.add_argument("--config", default="orbitflow.toml")
     generate.add_argument("--teleport-key-path", type=Path)
     generate.add_argument("--teleport-cert-path", type=Path)
-    review = sub.add_parser("review")
-    review.add_argument("plan", type=Path)
-    review.add_argument("workbook", type=Path)
-    review.add_argument("output", type=Path)
-    review.add_argument("--actor", required=True)
-    review.add_argument("--authority", default="data/configuration/v2")
-    review.add_argument("--expires-hours", type=int, default=24)
     args = parser.parse_args(argv)
     stage = "input" if args.command == "input" else "validation"
     try:
         if args.command == "input":
             create_input(args.path)
             return
-        require(not args.output.exists() and not args.output.with_suffix(".xlsx").exists(), "output already exists")
-        require(args.output.suffix == ".json", "plan output must use .json")
+        if args.output is not None:
+            require(args.output.suffix == ".json", "plan output must use .json")
+            require(not args.output.exists() and not args.output.with_suffix(".xlsx").exists(), "output already exists")
         if args.command == "plan":
             progress("Planning run start; reading input workbook")
             logger.info("Planning run start")
@@ -74,21 +66,14 @@ def _main(argv, logger, progress):
             logger.info("Planning proposals")
             stage = "planning"
             result = plan(requests, observations, source="workbook-sha256:" + requests.source_digest)
-        else:
-            require(1 <= args.expires_hours <= 168, "invalid review expiry")
-            stage = "review import"
-            result = import_review(load(args.plan), args.workbook)
-        progress("Exporting immutable plan and review workbook")
+        args.output = args.output or Path("outputs/runs/configuration") / result.digest / "plan.json"
+        require(not args.output.exists() and not args.output.with_suffix(".xlsx").exists(), "output already exists")
+        progress("Exporting immutable plan and decision workbook")
         logger.info("Export start: " + str(args.output))
         stage = "plan export"
         save(result, args.output)
         stage = "workbook export"
-        export_review(result, args.output.with_suffix(".xlsx"))
-        if args.command == "review":
-            status = "pending" if any(r["decision"] == "Pending" for r in result.to_dict()["results"]) else "approved"
-            stage = "review authority"
-            ReviewStore(args.authority).decide(result, status, args.actor,
-                expires_at=datetime.now(timezone.utc) + timedelta(hours=args.expires_hours))
+        export_plan(result, args.output.with_suffix(".xlsx"))
         logger.info("Export completed: " + str(args.output) + "; review=" + str(args.output.with_suffix(".xlsx")))
         progress(f"Plan {result.digest}; offline review only; device execution is not authorized.")
     except Exception as exc:

@@ -336,11 +336,31 @@ def plan(requests, observations=None, *, decisions=None, source="api", now=None,
         results=_build(requests, observations, decisions, now, max_evidence_age), execution_authorized=False)))
 
 
-def review(original, decisions, *, expected_digest, now=None):
-    require(original.digest == expected_digest, "review digest mismatch")
+@dataclass(frozen=True)
+class DecisionEvaluation:
+    """Unauthenticated decision intent bound to an unchanged source plan."""
+    source_digest: str
+    content: str
+
+    @property
+    def digest(self):
+        """Matching source digest only; decision intent is not signed content."""
+        return self.source_digest
+
+    def to_dict(self):
+        return decode(self.content)
+
+
+def evaluate_decisions(original, decisions, *, expected_digest, now=None):
+    original = BulkPlan(original.content)
+    require(original.digest == expected_digest, "decision source digest mismatch")
     d = original.to_dict()
-    return plan(d["requests"], d["observations"], decisions={**d["decisions"], **decisions}, source=d["source"],
-                now=now, max_evidence_age=d["max_evidence_age"], layout=d["layout"], input_errors=d["input_errors"])
+    now = now or datetime.now(timezone.utc)
+    intent = {**d["decisions"], **decisions}
+    results = _build(d["requests"], d["observations"], intent, now, d["max_evidence_age"])
+    return DecisionEvaluation(original.digest, canonical(dict(
+        source_digest=original.digest, decisions=intent, results=results,
+        evaluated_at=timestamp(now), authenticated=False, execution_authorized=False)))
 
 
 def save(plan, path):

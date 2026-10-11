@@ -3,15 +3,17 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 import socket
+from pathlib import Path
 
 import pytest
 from openpyxl import load_workbook
 
 from orbitflow.configuration.plans import PlanError, canonical
 from orbitflow.configuration.v2.catalogue import CATALOGUE, FAMILIES
-from orbitflow.configuration.v2.planning import request, plan, review, BulkPlan, save, load
-from orbitflow.configuration.v2.workbook import create_input, read_input, export_review, import_review, EXTRA
-from orbitflow.configuration.v2.approvals import ReviewStore
+from orbitflow.configuration.v2.planning import request, plan, evaluate_decisions as review, BulkPlan, save, load
+from orbitflow.configuration.v2.workbook import create_input, read_input, export_plan as export_review, consume_decisions, EXTRA
+def import_review(original, path, **kwargs):
+    return consume_decisions(original, path, expected_digest=original.digest, **kwargs)
 from orbitflow.configuration.v2.observation import snapshot
 from orbitflow.models import DeviceContext, InterfaceRecord, VlanObject, VlanState, ConfigFact
 from orbitflow.compliance.vlan import safe_data
@@ -102,11 +104,11 @@ def test_dependency_order_rejection_and_digest():
     assert original.to_dict()["results"][1]["dependencies"] == [a["row_id"]]
     approved = review(original, {a["row_id"]: "Approve", b["row_id"]: "Approve"}, expected_digest=original.digest, now=NOW)
     assert all(r["deployment_ready"] for r in approved.to_dict()["results"])
-    rejected = review(approved, {a["row_id"]: "Reject"}, expected_digest=approved.digest, now=NOW)
+    rejected = review(original, {a["row_id"]: "Reject", b["row_id"]: "Approve"}, expected_digest=original.digest, now=NOW)
     assert not rejected.to_dict()["results"][1]["deployment_ready"]
-    assert len({original.digest, approved.digest, rejected.digest}) == 3
+    assert original.digest == approved.digest == rejected.digest
     with pytest.raises(PlanError):
-        review(rejected, {}, expected_digest=original.digest)
+        review(original, {}, expected_digest="0" * 64)
 
 
 @pytest.mark.parametrize("family", ["C3750X", "C3850X", "ME3600X", "EdgeSwitch", "NE05E"])
@@ -188,13 +190,9 @@ def test_manual_no_network_workbook_and_signed_review(tmp_path, monkeypatch):
     approved = import_review(original, output, now=NOW)
     assert approved.to_dict()["results"][0]["commands"] == inputs(t)["commands"]
     assert not approved.to_dict()["results"][0]["deployment_ready"]
-    store = ReviewStore(tmp_path / "authority")
-    store.decide(approved, "approved", "engineer", now=NOW, expires_at=NOW + timedelta(hours=1))
-    assert store.verify(approved, now=NOW)["digest"] == approved.digest
-    with pytest.raises(PlanError):
-        store.verify(original, now=NOW)
-    with pytest.raises(PlanError):
-        store.verify(approved, now=NOW + timedelta(hours=2))
+    assert approved.digest == original.digest
+    assert approved.to_dict()["authenticated"] is False
+    assert original.to_dict()["results"][0]["decision"] == "Pending"
     wb[t.sheet].cell(3, 1, "192.0.2.99")
     wb.save(output)
     with pytest.raises(PlanError):
@@ -397,22 +395,6 @@ def test_ne_tagged_vsi_planning_relationship_preserves_audit():
     assert factory(context, state).result() == before
 
 
-def test_review_authority_tamper_and_rejection(tmp_path):
-    import sqlite3
-    t = template("All", "Manual CLI")
-    r = request(t.id, inputs(t))
-    result = plan([r], decisions={r["row_id"]: "Approve"}, now=NOW)
-    store = ReviewStore(tmp_path / "authority")
-    store.decide(result, "approved", "engineer", now=NOW, expires_at=NOW + timedelta(hours=1))
-    store.decide(result, "rejected", "engineer", now=NOW)
-    with pytest.raises(PlanError):
-        store.verify(result, now=NOW)
-    with sqlite3.connect(store.root / "approvals.sqlite3") as db:
-        db.execute("UPDATE decisions SET signature = 'bad' WHERE sequence = 2")
-    with pytest.raises(PlanError):
-        store.verify(result, now=NOW)
-
-
 def test_all_template_workbook_roundtrip_preserves_input_values(tmp_path):
     path = tmp_path / "mixed.xlsx"
     create_input(path)
@@ -455,10 +437,11 @@ def test_manual_cli_operator_commands_offline(tmp_path, monkeypatch):
     book = load_workbook(output.with_suffix(".xlsx"))
     book[t.sheet].cell(3, len(t.columns) + len(EXTRA), "Approve")
     book.save(output.with_suffix(".xlsx"))
-    reviewed = tmp_path / "reviewed.json"
-    authority = tmp_path / "authority"
-    main(["review", str(output), str(output.with_suffix(".xlsx")), str(reviewed), "--actor", "engineer", "--authority", str(authority)])
-    assert ReviewStore(authority).verify(load(reviewed))["execution_authorized"] is False
+    evaluation = import_review(original, output.with_suffix(".xlsx"))
+    assert evaluation.to_dict()["execution_authorized"] is False
+    assert load(output).digest == original.digest
+    with pytest.raises(SystemExit):
+        main(["review"])
 
 
 def test_mixed_device_workbook_evidence_and_manual_status(tmp_path):
@@ -716,7 +699,7 @@ def test_revised_options_input_review_roundtrip(case, tmp_path):
     sheet.cell(3, len(t.columns) + len(EXTRA), "Approve")
     book.save(output)
     approved = import_review(result, output, now=NOW)
-    assert approved.digest != result.digest
+    assert approved.digest == result.digest
     assert not approved.to_dict()["results"][0]["execution_authorized"]
     # Approval cannot turn failed evidence into readiness, even for valid inputs.
     unavailable = plan(rows, now=NOW)
@@ -769,9 +752,9 @@ def test_revised_cli_review_and_digest_invalidation(tmp_path, monkeypatch):
     book = load_workbook(workbook)
     book[t.sheet].cell(3, len(t.columns) + len(EXTRA), "Reject")
     book.save(workbook)
-    main(["review", str(source), str(workbook), str(output), "--actor", "engineer", "--authority", str(tmp_path / "authority")])
-    revised = load(output)
-    assert revised.digest != result.digest
+    revised = import_review(load(source), workbook, now=NOW)
+    assert revised.digest == result.digest
+    assert not output.exists()
     assert revised.to_dict()["results"][0]["decision"] == "Reject"
     assert "rewrite ingress tag push dot1q 445 symmetric" in revised.to_dict()["results"][0]["commands"]
     assert not revised.to_dict()["results"][0]["deployment_ready"]
@@ -976,7 +959,7 @@ def test_description_existing_vlan_warning_keeps_material_blockers(extra):
     assert result["deployment_ready"] == (extra is None)
     assert any("TAGGED_VLAN_NOT_IN_MEMBERSHIP" in f and "4002" in f for f in result["findings"])
     assert obs == original
-    assert draft.digest != approved.digest
+    assert draft.digest == approved.digest
     change = template("EdgeSwitch", "VLAN Port")
     change_result = plan([request(change.id, {**inputs(change), "interface": inputs(t)["interface"]})],
                          {IP: obs}, now=NOW).to_dict()["results"][0]
@@ -993,7 +976,7 @@ def test_plan_export_failure_logs_safe_category(tmp_path, monkeypatch, capsys):
     for k, v in inputs(t).items():
         book[t.sheet].cell(3, t.columns.index(k) + 1, v)
     book.save(source)
-    monkeypatch.setattr(cli, "export_review", lambda *a: (_ for _ in ()).throw(OSError("password=NEVER_ECHO")))
+    monkeypatch.setattr(cli, "export_plan", lambda *a: (_ for _ in ()).throw(OSError("password=NEVER_ECHO")))
     with module_logger("test", log_root=tmp_path / "logs"):
         with pytest.raises(SystemExit):
             cli.main(["plan", str(source), str(tmp_path / "plan.json")])
@@ -1068,7 +1051,7 @@ def test_observation_run_failure_is_logged_and_safe(tmp_path, monkeypatch):
     ("read_input", ValueError, "workbook input"),
     ("plan", PlanError, "planning"),
     ("save", PermissionError, "plan export"),
-    ("export_review", OSError, "workbook export"),
+    ("export_plan", OSError, "workbook export"),
 ])
 def test_cli_failure_stage_and_class_without_exception_text(tmp_path, monkeypatch, capsys, operation, category, stage):
     from functools import partial
@@ -1133,3 +1116,59 @@ def test_observation_preserves_distinct_shared_failure_categories(tmp_path, monk
     assert "completed=0; failed=2" in output[-1]
     for sensitive in ("NEVER_ECHO", "SECRET_PATH", "raw-device-output", "exception_chain"):
         assert sensitive not in logs + "".join(output) + canonical(records)
+
+
+@pytest.mark.parametrize("destination", ["default", "relative", "absolute"])
+def test_plan_output_resolution_and_no_overwrite(tmp_path, monkeypatch, destination):
+    from orbitflow.configuration.v2.cli import main
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(socket, "socket", lambda *a, **kw: pytest.fail("network forbidden"))
+    source = tmp_path / "input.xlsx"
+    create_input(source)
+    book = load_workbook(source)
+    t = template("All", "Manual CLI")
+    for col, field in enumerate(t.columns, 1):
+        book[t.sheet].cell(3, col, inputs(t)[field])
+    book.save(source)
+    argv = ["plan", str(source)]
+    if destination != "default":
+        output = Path("chosen/plan.json") if destination == "relative" else tmp_path / "absolute/plan.json"
+        argv.append(str(output))
+    main(argv)
+    if destination == "default":
+        output, = Path("outputs/runs/configuration").glob("*/plan.json")
+        assert output.parent.name == load(output).digest
+    before = output.read_bytes()
+    workbook = output.with_suffix(".xlsx")
+    assert workbook.is_file()
+    with pytest.raises(SystemExit):
+        main(["plan", str(source), str(output)])
+    assert output.read_bytes() == before
+    output.unlink()
+    with pytest.raises(SystemExit):
+        main(["plan", str(source), str(output)])
+    assert not output.exists()  # Companion collision also blocks JSON creation.
+
+
+@pytest.mark.parametrize("edit", ["digest", "cli", "evidence", "order", "formula", "invalid_decision"])
+def test_workbook_decision_integrity(tmp_path, edit):
+    t = template("C3750X", "VLAN Database")
+    original = plan([request(t.id, inputs(t))], {IP: observed(t)}, now=NOW)
+    path = tmp_path / "plan.xlsx"
+    export_review(original, path)
+    book = load_workbook(path)
+    sheet = book[t.sheet]
+    if edit == "digest":
+        book["Introduction"]["B1"] = "0" * 64
+    elif edit == "order":
+        book.move_sheet(sheet, offset=-1)
+    else:
+        field = {"cli": "Proposed CLI", "evidence": "Existing Evidence",
+                 "formula": "Engineer Decision", "invalid_decision": "Engineer Decision"}[edit]
+        sheet.cell(3, len(t.columns) + EXTRA.index(field) + 1,
+                   "=1+1" if edit == "formula" else "changed")
+    book.save(path)
+    with pytest.raises(PlanError):
+        consume_decisions(original, path, expected_digest=original.digest, now=NOW)
+    with pytest.raises(PlanError):
+        consume_decisions(original, path, expected_digest="0" * 64, now=NOW)
