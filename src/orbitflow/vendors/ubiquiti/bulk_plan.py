@@ -8,17 +8,20 @@ def render(template, p, existing=None):
     if p.get("description"):
         lines += [f"description \"{p['description']}\""]
     if template.function == "VLAN Port":
-        desired = set(p["vlans"])
-        remove = desired if p["action"] == "Remove" else set()
-        if p["action"] == "Replace" and existing is not None:
-            remove = set(existing.get("referenced_vlans", [])) - desired
+        desired = set(p.get("vlans", []))
+        remove = desired if p.get("action") == "Remove" else set()
+        if p.get("action") == "Replace" and existing is not None:
+            remove = set(existing.get("tagged_vlans", [])) - desired
+            if p.get("replace_untagged") == "Yes":
+                remove |= set(existing.get("referenced_vlans", [])) - desired - {p.get("pvid")}
         for vid in sorted(remove):
             lines += [f"no vlan tagging {vid}", f"vlan participation exclude {vid}"]
-        if p["action"] != "Remove":
+        if p.get("action") != "Remove":
             for vid in sorted(desired):
                 lines += [f"vlan participation include {vid}"]
-                if p["mode"] == "Tagged":
+                if p.get("mode", "Tagged") == "Tagged":
                     lines += [f"vlan tagging {vid}"]
-            if p["mode"] == "Access" or "pvid" in p:
-                lines += [f"vlan pvid {p.get('pvid', p['vlans'][0])}"]
+        if p.get("mode", "Tagged") == "Access" or "pvid" in p:
+            vid = p["pvid"] if "pvid" in p else p["vlans"][0]
+            lines += [f"vlan pvid {vid}"]
     return lines + ["exit", "exit"]

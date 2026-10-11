@@ -29,6 +29,10 @@ vendor proposals, input/review XLSX adapters and signed digest-bound offline
 review. The 21 predefined templates use shared per-device execution/session,
 inventory, InterfaceService, VlanService and family audit relationships for
 read-only evidence. Manual CLI is literal/offline-only and never connects.
+Catalogue 2.1 adds NCS540 dot1q/QinQ/untagged selection, explicit EVC
+None/Pop1/Pop2 and ASR920 untagged Push rewrite, independent EdgeSwitch
+tagged membership/PVID with untagged preservation, and C3850X names with spaces.
+Deterministic review fixtures cover these options, no-ops and conflicts.
 V1 plan/approval behavior is unchanged. Audit defaults retain existing policy
 bounds; an explicit planning projection uses platform numeric bounds and NE05E
 single-tag VSI relationships without changing compliance outputs.

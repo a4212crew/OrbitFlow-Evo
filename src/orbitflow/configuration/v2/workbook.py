@@ -58,7 +58,11 @@ def _base():
             examples = {"management_ip": "192.0.2.10", "vlan_id": "445", "name": "Customer",
                         "description": "Customer Site Alpha", "service_instance": "10 (1-4000)",
                         "bridge_domain": "445; independent of ingress tag", "outer_vlan": "445",
-                        "inner_vlan": "545 (QinQ only)", "pop_tags": "1 or 2, symmetric; no pop for untagged",
+                        "inner_vlan": "545 (QinQ only)", "pop_tags": "Legacy Pop1/Pop2; use rewrite instead",
+                        "rewrite": "None removes rewrite; Pop1/Pop2 symmetric; ASR920 Push on untagged only",
+                        "push_vlan": "Required only for Push",
+                        "replace_untagged": "No preserves unrelated untagged membership; Yes explicitly replaces it",
+                        "pvid": "Independent PVID; for PVID-only leave action, mode and vlans blank",
                         "subinterface": "10", "vsi": "existing-VSI", "bridge_group": "CUSTOMER",
                         "scope": "GigabitEthernet0/1", "commands": "Literal multiline CLI; no credentials",
                         "interface": "Existing physical/aggregate interface; descriptions also permit existing subinterfaces"}
@@ -66,7 +70,8 @@ def _base():
                 cell.comment.text += "; " + examples[col]
             sheet.column_dimensions[get_column_letter(index)].width = 25 if col != "commands" else 65
             choices = {"action": "Add,Remove,Replace", "mode": "Access,Tagged" if t.family == "EdgeSwitch" else "configuration,interface,service",
-                       "encapsulation": "dot1q,QinQ,untagged" if t.function == "EVC" else "dot1q termination,vlan-type dot1q",
+                       "encapsulation": "dot1q,QinQ,untagged" if t.function in {"EVC", "L2VPN"} else "dot1q termination,vlan-type dot1q",
+                       "rewrite": "None,Pop1,Pop2,Push", "replace_untagged": "No,Yes",
                        "platform": "cisco_ios,cisco_xe,cisco_xr,huawei_vrp,ubiquiti_edgeswitch"}
             if col in choices:
                 dv = DataValidation(type="list", formula1='"' + choices[col] + '"')

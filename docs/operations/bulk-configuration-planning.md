@@ -99,6 +99,41 @@ database proposals enter `vlan database` from privileged EXEC; its interface
 proposals use `configure`. Cisco proposals use `configure terminal`; Huawei
 uses `system-view`. None includes save or XR commit.
 
+## Revised input columns (catalogue 2.1)
+
+Regenerate input workbooks with the `input` command for the revised schemas.
+Catalogue 2.0 plans/workbooks must be regenerated and reviewed; old approvals
+cannot authorize changed inputs or CLI. V1 contracts remain unchanged.
+
+- NCS540 L2VPN requires `encapsulation`: `dot1q`, `QinQ` or `untagged`.
+  `outer_vlan` is required for dot1q/QinQ and forbidden for untagged;
+  `inner_vlan` is required only for QinQ. Untagged renders
+  `encapsulation untagged`; attachment names remain independent of tags.
+- EVC offers `rewrite`: `None`, `Pop1`, `Pop2`, `Push`. None explicitly
+  removes an existing rewrite. Pop1 requires tagged ingress; Pop2 requires
+  QinQ. ASR920 Push supports untagged ingress only, requires `push_vlan`, and
+  renders `rewrite ingress tag push dot1q <push_vlan> symmetric`.
+  ME3600X Push is unavailable. Legacy `pop_tags` remains supported but cannot
+  be combined with `rewrite`. Blank rewrite fields never silently accept an
+  existing rewrite: retained operations block readiness pending explicit input.
+- EdgeSwitch VLAN Port requires interface plus membership or PVID intent.
+  `vlans` specifies tagged membership with `action` Add/Remove/Replace;
+  optional `mode` defaults to Tagged. `pvid` is independent, including with
+  Remove. For a PVID-only change leave action, mode and vlans blank. Replace
+  changes tagged membership and preserves unrelated untagged membership.
+  `replace_untagged=Yes` explicitly requests its replacement with Replace;
+  the default is No. Access selects one VLAN and uses inclusion plus PVID,
+  retaining access-conversion impact findings. Existing tagging on the selected
+  access VLAN is a blocking conflict; no tagging-disable command is generated.
+  Proposed tagging of the final PVID is also blocked. Removal retains
+  `no vlan tagging X` before `vlan participation exclude X`.
+- C3850X VLAN names preserve spaces and case (up to 32 characters), including
+  rename proposals and matching-state no-ops. Unsafe delimiters and secret
+  markers remain forbidden; other platform name restrictions are unchanged.
+
+These options are shared by API, XLSX and CLI adapters. Review retains input,
+evidence and commands; Approve cannot override missing or unverified evidence.
+
 ## API and bounded persistence
 
 The catalogue and typed validation live in `v2.catalogue`. `planning.request`,

@@ -102,11 +102,13 @@ def _row(r, observation, prior, decision, now, max_age):
     needed = set()
     if t.function == "Access Port":
         needed.add(p["vlan_id"])
-    elif t.function in {"Trunk Port", "VLAN Port"} and p["action"] != "Remove":
-        needed.update(p["vlans"])
+    elif t.function in {"Trunk Port", "VLAN Port"} and p.get("action") != "Remove":
+        needed.update(p.get("vlans", []))
         needed.update(p[k] for k in ("native_vlan", "pvid") if k in p)
     elif t.family == "ME3600X" and t.function == "EVC":
         needed.add(p["bridge_domain"])
+    if t.function == "VLAN Port" and "pvid" in p:
+        needed.add(p["pvid"])
     for vid in sorted(needed - database.keys()):
         candidates = [(q, result) for q, result in prior if BY_ID[q["template_id"]].function == "VLAN Database"
                       and q["inputs"]["vlan_id"] == vid]
@@ -136,31 +138,48 @@ def _row(r, observation, prior, decision, now, max_age):
             same = wanted <= current if p["action"] == "Add" else not wanted & current if p["action"] == "Remove" else wanted == current
             out["no_op"] = same and ("native_vlan" not in p or existing.get("native_vlan") == p["native_vlan"]) and (not p.get("description") or existing.get("description") == p["description"])
     elif t.function == "VLAN Port" and existing:
-        current, wanted = set(existing.get("referenced_vlans", [])), set(p["vlans"])
+        current, wanted = set(existing.get("referenced_vlans", [])), set(p.get("vlans", []))
         tagged = set(existing.get("tagged_vlans", []))
-        if p["action"] == "Remove":
+        if p.get("action") == "Remove":
             same = not wanted & (current | tagged)
+        elif p.get("mode", "Tagged") == "Access":
+            same = wanted <= current and not wanted & tagged and existing.get("pvid") == p["vlans"][0]
         else:
-            same = wanted <= current if p["action"] == "Add" else wanted == current
-            same &= wanted <= tagged if p["mode"] == "Tagged" else not wanted & tagged and existing.get("pvid") == p["vlans"][0]
+            same = wanted <= tagged if p.get("action") == "Add" else wanted == tagged if p.get("action") == "Replace" else True
+            if p.get("replace_untagged") == "Yes":
+                same &= current <= wanted | {p.get("pvid")}
         out["no_op"] = bool(same and ("pvid" not in p or existing.get("pvid") == p["pvid"]) and (not p.get("description") or existing.get("description") == p["description"]))
     elif t.function in {"EVC", "L2VPN", "Subinterface VSI"}:
         out["no_op"], conflicts = (assess_huawei if t.family == "NE05E" else assess_cisco)(t, p, obs)
         findings.extend(conflicts)
     if t.function in {"Access Port", "Trunk Port", "VLAN Port", "EVC", "L2VPN", "Subinterface VSI"} and not out["no_op"]:
         findings.append("SERVICE_IMPACT_REVIEW")
-    if t.function == "VLAN Port" and p["action"] == "Replace" and existing is None:
+    if t.function == "VLAN Port" and existing is None:
         findings.append("MEMBERSHIP_STATE_UNKNOWN")
     if t.function == "Trunk Port" and p["action"] != "Replace" and existing is None:
         findings.append("MEMBERSHIP_STATE_UNKNOWN")
-    if t.function == "VLAN Port" and p["mode"] == "Access" and existing and p["vlans"][0] in existing.get("tagged_vlans", []):
+    if t.function == "VLAN Port" and p.get("mode") == "Access" and existing and p["vlans"][0] in existing.get("tagged_vlans", []):
         findings.append("ACCESS_TAGGING_CONFLICT")
-    if t.function == "VLAN Port" and existing and p["action"] == "Remove" and existing.get("pvid") in p["vlans"]:
+    if t.function == "VLAN Port" and existing and p.get("action") == "Remove" and existing.get("pvid") in p["vlans"]:
         findings.append("PVID_REMOVAL_REQUIRES_REVIEW")
+    if t.function == "VLAN Port" and existing:
+        if p.get("mode") == "Access" and (existing.get("tagged_vlans") or existing.get("pvid") != p["vlans"][0]):
+            findings.append("ACCESS_CONVERSION_IMPACT")
+        final_pvid = p.get("pvid", p["vlans"][0] if p.get("mode") == "Access" else existing.get("pvid"))
+        final_tagged = set(existing.get("tagged_vlans", []))
+        requested = set(p.get("vlans", []))
+        if p.get("action") == "Remove":
+            final_tagged -= requested
+        elif p.get("mode", "Tagged") == "Tagged":
+            final_tagged = requested if p.get("action") == "Replace" else final_tagged | requested
+        if final_pvid in final_tagged:
+            findings.append("PVID_TAGGING_CONFLICT")
+        if p.get("replace_untagged") == "Yes":
+            findings.append("UNTAGGED_REPLACEMENT_IMPACT")
     renderer = huawei if t.family == "NE05E" else edge if t.family == "EdgeSwitch" else cisco
     out["commands"] = [] if out["no_op"] else renderer(t, p, existing)
     out["findings"] = sorted(set(findings))
-    warnings = {"VLAN_RENAME_IMPACT", "SERVICE_IMPACT_REVIEW"}
+    warnings = {"VLAN_RENAME_IMPACT", "SERVICE_IMPACT_REVIEW", "ACCESS_CONVERSION_IMPACT", "UNTAGGED_REPLACEMENT_IMPACT"}
     blockers = set(findings) - warnings
     out.update(consistency="unresolved" if blockers else "consistent", impact="none" if out["no_op"] else "review_required",
                deployment_ready=not blockers and decision == "Approve")

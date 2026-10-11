@@ -14,7 +14,7 @@ def assess(template, p, observation):
         for sibling in roots:
             if (sibling["kind"] in {"interface", "l2_interface"} and key(sibling["value"]).startswith(key(p["interface"]) + ".")
                     and key(sibling["value"]) != key(name)
-                    and any(n["kind"] == "encapsulation" and n["value"] == [p["outer_vlan"]] for n in sibling["children"])):
+                    and any((n["kind"] == "untagged" if p["encapsulation"] == "untagged" else n["kind"] == "encapsulation" and n["value"] == [p["outer_vlan"]]) for n in sibling["children"])):
                 conflicts.append("INGRESS_TAG_OVERLAP")
     interfaces = [n for n in roots if n["kind"] in {"interface", "l2_interface"} and key(n["value"]) == key(name)]
     if len(interfaces) != 1:
@@ -40,14 +40,22 @@ def assess(template, p, observation):
         return [n["value"] for n in node["children"] if n["kind"] == kind]
     untagged = p.get("encapsulation") == "untagged"
     tags_match = (values("untagged") == ["untagged"] if untagged else values("encapsulation") == [[p["outer_vlan"]]])
+    tags_match &= not values("encapsulation" if untagged else "untagged")
     tags_match &= values("inner_vlan") == ([[p["inner_vlan"]]] if "inner_vlan" in p else [])
     desc_match = not p.get("description") or any(n["kind"] == "description" and n["value"] == p["description"] for n in parent["children"])
     if template.function == "EVC":
         rewrites = values("tag_rewrite")
-        rewrite_match = "pop_tags" not in p or (len(rewrites) == 1 and rewrites[0].get("operation") == "pop"
-                         and rewrites[0].get("tag_count") == p["pop_tags"] and rewrites[0].get("symmetric") is True)
-        # Omitting rewrite preserves it; a changed tag stack needs explicit review.
-        blockers = ["PRESERVED_REWRITE_REQUIRES_REVIEW"] if rewrites and not tags_match and "pop_tags" not in p else []
+        choice = p.get("rewrite")
+        if choice == "None":
+            rewrite_match = not rewrites
+        elif choice == "Push":
+            rewrite_match = len(rewrites) == 1 and rewrites[0].get("operation") == "push" and rewrites[0].get("parameters") == f"dot1q {p['push_vlan']}" and rewrites[0].get("symmetric") is True
+        elif choice in {"Pop1", "Pop2"} or "pop_tags" in p:
+            count = int(choice[-1]) if choice else p["pop_tags"]
+            rewrite_match = len(rewrites) == 1 and rewrites[0].get("operation") == "pop" and rewrites[0].get("tag_count") == count and rewrites[0].get("symmetric") is True
+        else:
+            rewrite_match = not rewrites
+        blockers = ["PRESERVED_REWRITE_REQUIRES_REVIEW"] if rewrites and choice is None and "pop_tags" not in p else []
         return bool(tags_match and desc_match and rewrite_match and values("bridge_domain") == [str(p["bridge_domain"])]), conflicts + blockers
     attachments = []
     for root in roots:
@@ -94,12 +102,17 @@ def render(template, p, existing=None):
         else:
             lines += [f"encapsulation dot1q {p['outer_vlan']}" +
                       (f" second-dot1q {p['inner_vlan']}" if "inner_vlan" in p else "")]
-        if "pop_tags" in p:
-            lines += [f"rewrite ingress tag pop {p['pop_tags']} symmetric"]
+        if p.get("rewrite") == "None":
+            lines += ["no rewrite ingress tag"]
+        elif p.get("rewrite") == "Push":
+            lines += [f"rewrite ingress tag push dot1q {p['push_vlan']} symmetric"]
+        elif p.get("rewrite") in {"Pop1", "Pop2"} or "pop_tags" in p:
+            count = int(p["rewrite"][-1]) if "rewrite" in p else p["pop_tags"]
+            lines += [f"rewrite ingress tag pop {count} symmetric"]
         lines += [f"bridge-domain {p['bridge_domain']}"]
     elif function == "L2VPN":
-        lines += [f"encapsulation dot1q {p['outer_vlan']}" +
-                  (f" second-dot1q {p['inner_vlan']}" if "inner_vlan" in p else ""), "exit",
+        enc = "encapsulation untagged" if p["encapsulation"] == "untagged" else f"encapsulation dot1q {p['outer_vlan']}" + (f" second-dot1q {p['inner_vlan']}" if "inner_vlan" in p else "")
+        lines += [enc, "exit",
                   "l2vpn", f"bridge group {p['bridge_group']}", f"bridge-domain {p['bridge_domain']}",
                   f"interface {name}"]
     return lines + ["end"]
