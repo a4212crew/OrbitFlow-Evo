@@ -2,6 +2,10 @@
 
 **Status:** Engineer-approved target design, **not implemented**. Supersedes the earlier two-stage Requests/Parameters workbook and offline-only C1–C4 proposal from Issue #88 (closed, not planned; PR #89 closed unmerged). Existing `orbitflow.configuration` v1 remains as documented in [offline-plans.md](offline-plans.md). This document is the authoritative target for the replacement implementation issue; it does not claim live apply exists.
 
+> **Current implementation milestone (owner decision, 2026-10-12):** Implement and user-validate **Templates 1–8 (C3750X/C3850X)** first. The detailed signed-off requirements are in [approved-catalyst-templates.md](approved-catalyst-templates.md), and supersede generic statements on those eight templates below. Templates 9–22 remain an **unapproved detailed-design backlog** despite inclusion in this high-level catalogue; do not implement or claim to have validated them in this milestone. Existing Issue #91 and PR #92 carry the revision. No live device modification or automatic merge.
+>
+> **Single-plan decision workflow:** The owner's later revision replaces the standalone v2 review command/module and separate reviewed artifacts. The **generated plan workbook** is the sole per-row Pending/Approve/Reject surface, alongside immutable digest-bound plan JSON under `outputs/runs/configuration/` by default. A spreadsheet decision alone never authorizes execution; future consumption must validate linkage/integrity. Earlier "review workbook", "reviewer" and "approvals/rejections yield reviewed plans" passages below describe the superseded initial design where inconsistent with this paragraph.
+
 ## Operator journey
 
 1. Engineer opens a single **input workbook** with an **Introduction** sheet linking to each template worksheet. Each template links back to Introduction. No template IDs, methodology IDs (M01–M08), row-order numbers, separate Requests/Parameters/Choices workbooks or change-order fields are required from the engineer.
