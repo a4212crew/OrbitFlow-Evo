@@ -52,6 +52,12 @@ Excel is a thin adapter: Introduction sheet navigation, one sheet per platform/f
 
 The approved catalogue and exact vendor exceptions (ASR920 inline-only; ME3600X BD global-VLAN prerequisite; EdgeSwitch tagging removal; NE05E existing VSI; platform-specific configuration-mode commands and numeric ranges) are in the authoritative design document. Update deterministic tests; do not mutate equipment in this phase.
 
+## Approved 2026-10-12 staged Catalyst v2 milestone
+
+For existing Issue #91 / PR #92, **first implement and validate only Templates 1–8** (C3750X and C3850X VLAN Database, Access Port, Trunk Port, Interface Description). Read [approved-catalyst-templates.md](../../../docs/architecture/configuration/approved-catalyst-templates.md) for the complete approved parser, Excel, CLI, warning, Port-channel, fallback, evidence and test contract. That detailed baseline overrides earlier generic catalogue assertions for these eight templates. Templates 9–22 remain awaiting four-stage engineer review and are **not** approved for this staged implementation.
+
+The owner also superseded the separate v2 review command/module: use **one generated plan Excel workbook** with editable Pending/Approve/Reject values matched to an immutable digest-bound plan JSON, both under `outputs/runs/configuration/` by default. Workbook editing is not security-grade execution authorization. Keep v1 protections. Follow the existing PR revision workflow; tests and operator-controlled read-only device validation precede any merge decision. Do not automatically merge.
+
 ## Future creation/removal lifecycle guidance (proposed only)
 
 Read `docs/architecture/configuration/configuration-removal.md` for future removal/retirement planning. Distinguish interface VLAN membership withdrawal from deletion of shared VLAN, bridge-domain or VSI objects. Do not infer removal approval from creation approval; demand reverse-reference evidence and explicit recovery/unknown-state gates. No general destructive executor is implemented.
