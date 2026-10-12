@@ -63,6 +63,15 @@ def evaluate(t, p, obs, out, prior):
         access = last('access')
         operations = [(n['kind'], n['value']) for n in node['children'] if n['kind'].startswith('allowed') or n['kind'] == 'unsupported_allowed']
         unknown = any(n['kind'] == 'methodology_unknown' for n in node['children'])
+        native = last('native', [1])
+        projected = None
+        for q, result in prior:
+            if (key(result.get('resolved_target', '')) == key(target)
+                    and result.get('projected_state') and not result.get('blockers')
+                    and result['decision'] != 'Reject'):
+                projected = result['projected_state']
+        if projected:
+            desc, mode, access, native = (projected[k] for k in ('description', 'mode', 'access', 'native'))
         if t.function == 'Interface Description':
             out['no_op'] = desc == p['description']
             defects = [d for a in obs.get('audit', []) if key(a['config_interface_name']) == key(target) for d in a.get('configuration_findings', [])]
@@ -97,21 +106,25 @@ def evaluate(t, p, obs, out, prior):
             audit = [a for a in obs.get('audit', []) if key(a['config_interface_name']) == key(target)]
             if len(audit) == 1 and 'planning_allowed' in audit[0]:
                 state = audit[0]['planning_allowed']
+            out['observed_allowed_state'] = state
+            if projected and projected.get('allowed') is not None:
+                state = projected['allowed']
             if mode == 'access' or (mode == 'unconfigured' and access) or mode == 'routed':
                 block('TRUNK_CONVERSION_BLOCKED')
             if unknown:
                 block('UNRESOLVED_CONFIGURATION')
             if p['action'] == 'Add' and not state['explicit']:
                 block('ADD_REQUIRES_EXPLICIT_BASELINE')
+                out['prerequisite_details'] = 'Add requires an explicit allowed-list baseline; use Replace. Matching membership/No-op does not waive this blocker.'
             wanted, values = set(p['vlans']), set(state['values'])
             present = wanted - values if state['all'] else wanted & values
             same = (present == wanted if p['action'] == 'Add' else not present if p['action'] == 'Remove' else not state['all'] and wanted == values)
-            out['no_op'] = bool(mode == 'trunk' and same and ('native_vlan' not in p or last('native', [1]) == [p['native_vlan']]) and (not p.get('description') or desc == p['description']))
+            out['no_op'] = bool(mode == 'trunk' and same and ('native_vlan' not in p or native == [p['native_vlan']]) and (not p.get('description') or desc == p['description']))
             if p['action'] in {'Replace', 'Remove'} and not out['no_op']:
                 warn('SERVICE_IMPACT_REVIEW')
-            if 'native_vlan' in p and (last('native', [1]) != [p['native_vlan']] or (p['action'] == 'Remove' and p['native_vlan'] in wanted)):
+            if 'native_vlan' in p and (native != [p['native_vlan']] or (p['action'] == 'Remove' and p['native_vlan'] in wanted)):
                 warn('NATIVE_VLAN_IMPACT')
-            elif p['action'] == 'Remove' and last('native', [1])[0] in wanted:
+            elif p['action'] == 'Remove' and native[0] in wanted:
                 warn('NATIVE_VLAN_IMPACT')
             out['allowed_state'] = state
             operation = 'allowed' if p['action'] == 'Replace' else 'allowed_' + p['action'].lower()
@@ -123,11 +136,16 @@ def evaluate(t, p, obs, out, prior):
             # Optional fields only emit when they differ on existing trunks.
             if p.get('description') == desc:
                 params.pop('description', None)
-            if 'native_vlan' in p and last('native', [1]) == [p['native_vlan']]:
+            if 'native_vlan' in p and native == [p['native_vlan']]:
                 params.pop('native_vlan')
         out['commands'] = [] if out['no_op'] else render(t, params, existing)
         if t.function == 'Trunk Port' and mode == 'trunk' and same:
             out['commands'] = [c for c in out['commands'] if not c.startswith('switchport trunk allowed vlan ')]
+        out['projected_state'] = dict(description=p.get('description') or desc,
+            mode='access' if t.function == 'Access Port' else 'trunk' if t.function == 'Trunk Port' else mode,
+            access=[p['vlan_id']] if t.function == 'Access Port' else access,
+            native=[p['native_vlan']] if 'native_vlan' in p else native,
+            allowed=out.get('desired_allowed_state', projected.get('allowed') if projected else None))
     out['findings'] = sorted(set(findings))
     out['warnings'] = sorted(warnings)
     out['blockers'] = sorted(set(findings) - warnings)

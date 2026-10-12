@@ -67,3 +67,38 @@ C5/C6 require separate approvals and lab/live testing. Shared per-device executi
 ## Acceptance for replacement implementation issue
 
 Deterministic fixtures for all 22 template schemas, correct vendor CLI/context, live collector/audit reuse, missing or ambiguous evidence, evidence freshness, mismatched name review, VLAN creation/dependencies, ASR920 global-binding consistency, EdgeSwitch tagged removal syntax, input navigation/ordering, mixed same-device rows, row rejection, no-op results, plan digest invalidation, manual offline no-network guarantee, secret redaction and no device mutations. Include offline fake-session validation of live-observation orchestration, and user-controlled live read-only smoke tests before claiming operational validation.
+
+## Owner-approved ordered overlap amendment (2026-10-12)
+
+For Templates 1-8, evaluate same-device intent in worksheet left-to-right,
+then exact Excel row top-to-bottom order. Original read-only evidence stays
+unchanged; preceding nonblocked, non-Reject intent supplies projected state for
+later comparison and CLI/No-op generation. Pending is proposed intent, not an
+approval. Rejecting an earlier row re-evaluates later rows against remaining intent.
+
+Compatible Access Port -> Interface Description and Trunk Add -> Add or
+Replace -> Remove pairs carry `ORDERED_RESOURCE_OVERLAP_WARNING` on both rows.
+The later description wins, including when Access emits its own optional
+description in its full approved CLI. Add still requires an explicit baseline;
+Remove uses the preceding Replace result and retains service-impact warnings.
+Identical description requests may sequentially produce a later No-op.
+
+Different description-only values, Access versus Trunk intent, other unapproved
+pairs, unresolved owners or any individual safety blocker retain blocking
+`ORDERED_RESOURCE_OVERLAP`. Physical trunk members are compared after audited
+Port-channel resolution; description targets remain exact. Missing/stale/unreliable
+evidence and conversion/baseline prerequisites are never waived by overlap.
+Warnings alone mean `Consistency=consistent`; blockers mean `unresolved`.
+No-op describes membership/field equality only: `ADD_REQUIRES_EXPLICIT_BASELINE`
+remains independently prohibited even when membership already matches.
+
+Both immutable JSON and the single plan workbook retain overlap classification,
+earlier/later worksheet names and exact row numbers, explanation and chronological
+effective result. Workbook `Ordered Overlap Details` and `Projected State` are
+protected planning output. `observed_allowed_state` retains original audit state;
+`allowed_state` is the evaluation baseline and `desired_allowed_state` is proposed
+membership. Blocked projected output is inspection-only and never feeds successors.
+Digest linkage, Pending/Approve/Reject and no-overwrite outputs under
+`outputs/runs/configuration/` remain unchanged. None of this grants apply authority.
+Owner must repeat read-only planning on C3750X and C3850X and explicitly validate
+revised worksheets before milestone completion. Templates 9-22 remain pending.

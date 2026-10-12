@@ -154,7 +154,7 @@ def test_me_bridge_domain_not_outer_tag_and_ne_existing_vsi():
 
 def test_overlap_and_tampered_commands(tmp_path):
     t = template("C3750X", "Interface Description")
-    a, b = request(t.id, inputs(t)), request(t.id, inputs(t), row=4)
+    a, b = request(t.id, inputs(t)), request(t.id, {**inputs(t), "description": "Different"}, row=4)
     result = plan([a, b], {IP: observed(t)}, now=NOW)
     assert all("ORDERED_RESOURCE_OVERLAP" in r["findings"] for r in result.to_dict()["results"])
     d = result.to_dict()

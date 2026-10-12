@@ -2,7 +2,7 @@
 from dataclasses import asdict
 import pytest
 from openpyxl import load_workbook
-from test_bulk_configuration_v2 import NOW, IP, template, observed
+from test_bulk_configuration_v2 import NOW, IP, template, observed, inputs
 from orbitflow.configuration.v2.planning import request, plan, BulkPlan, load, save
 from orbitflow.configuration.v2.workbook import create_input, read_input, export_plan, EXTRA, consume_decisions
 from orbitflow.configuration.v2.evidence import scoped_evidence
@@ -289,3 +289,122 @@ def test_explicit_unreliable_configuration_cannot_fallback(family):
     obs['configuration_reliable'] = False
     row = plan([r], {IP: obs}, now=NOW).to_dict()['results'][0]
     assert 'VLAN_STATE_UNKNOWN' in row['blockers'] and not row['no_op']
+
+@pytest.mark.parametrize('family', ['C3750X', 'C3850X'])
+@pytest.mark.parametrize('number', [1, 2, 3, 4])
+def test_ordered_access_description_pairs(family, number, tmp_path):
+    access, desc = template(family, 'Access Port'), template(family, 'Interface Description')
+    interface = f'GigabitEthernet1/0/{number}'
+    config = f'vlan 445\n name Customer\n!\ninterface {interface}\n description Original\n switchport mode access\n switchport access vlan 445\n shutdown\n!'
+    obs = observation(family, config)
+    a = request(access.id, dict(management_ip=IP, interface=interface, vlan_id=445, description='Access text'), sheet_order=1, row=number+2)
+    b = request(desc.id, dict(management_ip=IP, interface=interface, description='Final text'), sheet_order=2, row=number+6)
+    original = plan([b, a], {IP: obs}, now=NOW)
+    rows = original.to_dict()['results']
+    assert 'description Access text' in rows[0]['commands']
+    assert 'description Final text' in rows[1]['commands']
+    for row in rows:
+        assert row['consistency'] == 'consistent' and not row['blockers']
+        assert 'ORDERED_RESOURCE_OVERLAP_WARNING' in row['warnings']
+        detail = row['overlaps'][0]
+        assert detail['earlier'] == dict(sheet=access.sheet, row=number+2)
+        assert detail['later'] == dict(sheet=desc.sheet, row=number+6)
+        assert detail['effective_result']['description'] == 'Final text'
+    assert original.digest == plan([a, b], {IP: obs}, now=NOW).digest
+    save(original, tmp_path/'plan.json')
+    assert load(tmp_path/'plan.json').digest == original.digest
+    export_plan(original, tmp_path/'plan.xlsx')
+    book = load_workbook(tmp_path/'plan.xlsx')
+    for t, r in ((access, a), (desc, b)):
+        sheet = book[t.sheet]
+        column = len(t.columns) + EXTRA.index('Ordered Overlap Details') + 1
+        assert 'Final text' in sheet.cell(r['row'], column).value
+        assert 'shutdown' in sheet.cell(r['row'], len(t.columns)+EXTRA.index('Existing Evidence')+1).value
+    assert consume_decisions(original, tmp_path/'plan.xlsx', expected_digest=original.digest, now=NOW).digest == original.digest
+
+
+@pytest.mark.parametrize('family', ['C3750X', 'C3850X'])
+@pytest.mark.parametrize('actions', [('Add', 'Add'), ('Replace', 'Remove')])
+def test_ordered_trunk_projection(family, actions):
+    t = template(family, 'Trunk Port')
+    obs = observation(family, 'interface GigabitEthernet1/0/1\n switchport mode trunk\n switchport trunk allowed vlan 100-102\n!')
+    a = request(t.id, dict(management_ip=IP, interface='GigabitEthernet1/0/1', action=actions[0], vlans=[200,201]), row=3)
+    b = request(t.id, dict(management_ip=IP, interface='GigabitEthernet1/0/1', action=actions[1], vlans=[201,202] if actions[1]=='Add' else [201]), row=4)
+    rows = plan([a,b], {IP:obs}, now=NOW).to_dict()['results']
+    assert rows[1]['allowed_state'] == rows[0]['desired_allowed_state']
+    assert rows[1]['desired_allowed_state']['values'] == ([100,101,102,200,201,202] if actions[1]=='Add' else [200])
+    assert all(r['consistency']=='consistent' for r in rows)
+    assert all('ORDERED_RESOURCE_OVERLAP_WARNING' in r['warnings'] for r in rows)
+    if actions[1]=='Remove':
+        assert all('SERVICE_IMPACT_REVIEW' in r['warnings'] for r in rows)
+
+
+@pytest.mark.parametrize('family', ['C3750X', 'C3850X'])
+@pytest.mark.parametrize('case', ['missing', 'baseline', 'conversion', 'description'])
+def test_overlap_safety_blockers(family, case, tmp_path):
+    function = 'Interface Description' if case=='description' else 'Access Port' if case=='conversion' else 'Trunk Port'
+    t = template(family, function)
+    p = inputs(t)
+    if function=='Trunk Port': p.update(vlans=[445])
+    obs = observation(family, 'interface GigabitEthernet1/0/1\n switchport mode trunk\n!')
+    if case=='missing': obs = dict(status='evidence_unavailable')
+    a = request(t.id,p,row=3)
+    u = template(family,'Trunk Port') if case=='conversion' else t
+    v = inputs(u)
+    if case=='description': v['description']='Different description'
+    b = request(u.id,v,row=4)
+    original = plan([a,b], {IP:obs}, now=NOW)
+    rows = original.to_dict()['results']
+    assert all('ORDERED_RESOURCE_OVERLAP' in r['blockers'] for r in rows)
+    assert all(r['consistency']=='unresolved' for r in rows)
+    if case=='baseline':
+        assert rows[0]['no_op']
+        assert 'ADD_REQUIRES_EXPLICIT_BASELINE' in rows[0]['blockers']
+        assert rows[0]['commands']==[]
+        export_plan(original, tmp_path/'blocked.xlsx')
+        book = load_workbook(tmp_path/'blocked.xlsx')
+        assert 'does not waive' in book[t.sheet].cell(3,len(t.columns)+EXTRA.index('Error Details')+1).value
+
+@pytest.mark.parametrize('family', FAMILIES)
+@pytest.mark.parametrize('baseline', [' switchport trunk allowed vlan 100-102\n', ''])
+def test_sequential_port_channel_and_all(family, baseline, tmp_path):
+    t = template(family, 'Trunk Port')
+    obs = observation(family, f'interface {NAME}\n channel-group 1 mode active\n!\ninterface Port-channel1\n switchport mode trunk\n{baseline}!\n')
+    a = request(t.id, dict(management_ip=IP, interface=NAME, action='Replace', vlans=[200,201]), row=3)
+    b = request(t.id, dict(management_ip=IP, interface='Port-channel1', action='Remove', vlans=[201]), row=4)
+    original = plan([a,b], {IP:obs}, now=NOW)
+    rows = original.to_dict()['results']
+    assert all(r['resolved_target']=='Port-channel1' and not r['blockers'] for r in rows)
+    assert rows[1]['desired_allowed_state']['values']==[200]
+    assert rows[1]['observed_allowed_state']['all'] == (not baseline)
+    assert not rows[1]['allowed_state']['all']
+    assert 'SERVICE_IMPACT_REVIEW' in rows[1]['warnings']
+    export_plan(original,tmp_path/'plan.xlsx')
+    book=load_workbook(tmp_path/'plan.xlsx')
+    assert 'compatible' in book[t.sheet].cell(3,len(t.columns)+EXTRA.index('Ordered Overlap Details')+1).value
+    rejected=consume_decisions(original,tmp_path/'plan.xlsx',expected_digest=original.digest,now=NOW)
+    assert rejected.digest==original.digest
+    # An absent logical owner remains a blocker on both requests.
+    bad=observation(family,f'interface {NAME}\n channel-group 1 mode active\n!\n')
+    failed=plan([a,b],{IP:bad},now=NOW).to_dict()['results']
+    assert 'PORT_CHANNEL_OWNER_UNRESOLVED' in failed[0]['blockers']
+    assert all(r['blockers'] for r in failed)
+
+
+@pytest.mark.parametrize('family', FAMILIES)
+def test_projected_description_noop_and_stale_evidence(family):
+    from datetime import timedelta
+    from orbitflow.configuration.v2.planning import evaluate_decisions
+    access,desc=template(family,'Access Port'),template(family,'Interface Description')
+    obs=observation(family,f'interface {NAME}\n switchport mode access\n switchport access vlan 445\n description Original\n!')
+    a=request(access.id,dict(management_ip=IP,interface=NAME,vlan_id=445,description='Final'),sheet_order=1)
+    b=request(desc.id,dict(management_ip=IP,interface=NAME,description='Final'),sheet_order=2)
+    original=plan([a,b],{IP:obs},now=NOW)
+    assert original.to_dict()['results'][1]['no_op']
+    assert original.to_dict()['results'][1]['commands']==[]
+    stale=plan([a,b],{IP:obs},now=NOW+timedelta(hours=2)).to_dict()['results']
+    assert all('STALE_EVIDENCE' in r['blockers'] for r in stale)
+    assert all('ORDERED_RESOURCE_OVERLAP_WARNING' not in r['warnings'] for r in stale)
+    rejected=evaluate_decisions(original,{a['row_id']:'Reject'},expected_digest=original.digest,now=NOW)
+    assert not rejected.to_dict()['results'][1]['no_op']
+    assert rejected.digest==original.digest

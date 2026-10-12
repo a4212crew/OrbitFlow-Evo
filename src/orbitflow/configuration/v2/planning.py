@@ -224,6 +224,41 @@ def _row(r, observation, prior, decision, now, max_age):
     return out
 
 
+def _classify_overlap(group):
+    index = len(group) - 1
+    r, result = group[index]
+    t, p = BY_ID[r["template_id"]], r["inputs"]
+    for q, other in group[:index]:
+        u, v = BY_ID[q["template_id"]], q["inputs"]
+        platform = p.get("platform", FAMILIES.get(t.family, ("",))[0])
+        same_interface = "interface" in p and "interface" in v and canonical_interface_name(platform, result.get("resolved_target", p["interface"])) == canonical_interface_name(platform, other.get("resolved_target", v["interface"]))
+        same_vlan = t.function == u.function == "VLAN Database" and p["vlan_id"] == v["vlan_id"]
+        same_domain = "bridge_domain" in p and "bridge_domain" in v and p["bridge_domain"] == v["bridge_domain"] and p.get("bridge_group") == v.get("bridge_group")
+        if same_interface or same_vlan or same_domain or t.family == "All" or u.family == "All":
+            compatible = (same_interface and t.family == u.family and t.family in {"C3750X", "C3850X"}
+                and not result.get("blockers") and not other.get("blockers")
+                and ((u.function == "Access Port" and t.function == "Interface Description")
+                     or (u.function == t.function == "Trunk Port" and
+                         (v["action"], p["action"]) in {("Add", "Add"), ("Replace", "Remove")})
+                     or (u.function == t.function == "Interface Description" and v["description"] == p["description"])))
+            code = "ORDERED_RESOURCE_OVERLAP_WARNING" if compatible else "ORDERED_RESOURCE_OVERLAP"
+            detail = dict(classification="compatible" if compatible else "conflict",
+                earlier=dict(sheet=u.sheet, row=q["row"]), later=dict(sheet=t.sheet, row=r["row"]),
+                effective_result=result.get("projected_state") if compatible else None,
+                explanation="Later description wins; projected result follows worksheet/row order." if compatible and t.function == "Interface Description" else
+                            "Sequential membership evaluated against preceding projected state." if compatible else "Conflicting intent or unresolved safety prerequisites.")
+            for item, counterpart in ((result, q), (other, r)):
+                item.setdefault("overlaps", []).append(detail)
+                item["findings"] = sorted(set(item["findings"]) | {code})
+                if compatible:
+                    item["warnings"] = sorted(set(item.get("warnings", [])) | {code})
+                else:
+                    item.setdefault("conflicting_rows", []).append(dict(sheet=BY_ID[counterpart["template_id"]].sheet, row=counterpart["row"]))
+                    item.update(deployment_ready=False, consistency="unresolved" if "blockers" in item or item["live_validation"] != "not_live_validated" else "not_evaluated")
+                    if "blockers" in item:
+                        item["blockers"] = sorted(set(item["blockers"]) | {code})
+
+
 def _build(requests, observations, decisions, now, max_age):
     require(type(requests) is list and 0 <= len(requests) <= MAX_ROWS, "invalid row count")
     require(type(observations) is dict and type(decisions) is dict, "invalid planning inputs")
@@ -268,21 +303,7 @@ def _build(requests, observations, decisions, now, max_age):
         result = _row(r, observations.get(ip), previous, decisions.get(r["row_id"], "Pending"), now, max_age)
         previous.append((r, result))
         rows.append(result)
-    # Detect overlaps independently of decisions; never silently choose a winner.
-    for group in prior.values():
-        for index, (r, result) in enumerate(group):
-            t, p = BY_ID[r["template_id"]], r["inputs"]
-            for q, other in group[:index]:
-                u, v = BY_ID[q["template_id"]], q["inputs"]
-                platform = p.get("platform", FAMILIES.get(t.family, ("",))[0])
-                same_interface = "interface" in p and "interface" in v and canonical_interface_name(platform, result.get("resolved_target", p["interface"])) == canonical_interface_name(platform, other.get("resolved_target", v["interface"]))
-                same_vlan = t.function == u.function == "VLAN Database" and p["vlan_id"] == v["vlan_id"]
-                same_domain = "bridge_domain" in p and "bridge_domain" in v and p["bridge_domain"] == v["bridge_domain"] and p.get("bridge_group") == v.get("bridge_group")
-                if same_interface or same_vlan or same_domain or t.family == "All" or u.family == "All":
-                    for item, counterpart in ((result, q), (other, r)):
-                        item.setdefault("conflicting_rows", []).append(dict(sheet=BY_ID[counterpart["template_id"]].sheet, row=counterpart["row"]))
-                        item["findings"] = sorted(set(item["findings"]) | {"ORDERED_RESOURCE_OVERLAP"})
-                        item.update(deployment_ready=False, consistency="unresolved" if item["live_validation"] != "not_live_validated" else "not_evaluated")
+        _classify_overlap(previous)
     # A later overlap can invalidate an earlier prerequisite.
     by_id = {r["row_id"]: r for r in rows}
     for result in rows:

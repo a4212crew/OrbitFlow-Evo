@@ -36,7 +36,7 @@
 
 ## Templates 3 and 7: Trunk Port — C3750X / C3850X
 
-**Excel:** Required `management_ip`, `interface` (full name), `action` exactly Add/Replace/Remove, `vlans` (comma-separated VLAN IDs/ranges). Optional `native_vlan` and `description` preserve current values when blank. Validate ranges and VLAN IDs using platform limits. Block competing requests whose targets resolve to the same effective interface/Port-channel and report both input rows.
+**Excel:** Required `management_ip`, `interface` (full name), `action` exactly Add/Replace/Remove, `vlans` (comma-separated VLAN IDs/ranges). Optional `native_vlan` and `description` preserve current values when blank. Validate ranges and VLAN IDs using platform limits. Classify ordered requests after resolution to the same effective interface/Port-channel and report both input rows: compatible Add then Add and Replace then Remove are warnings under the overlap amendment below; incompatible intent and safety prerequisites remain blockers.
 
 **Parsing:** Explicit `switchport mode trunk` is authoritative; explicit access with leftover trunk allow commands stays access. Parse **all** `switchport trunk allowed vlan` base, `add`, `remove` (and recognized supported operation variants) in their original sequence. Expand `130-135` into six values; reconstruct the *effective* set after ordered changes rather than trusting the first statement. Missing explicit allowed list on a valid Cisco trunk means effective `ALL`, not empty; preserve ALL/exclusions semantics without pretending no VLANs exist. Native VLAN tracked separately; default VLAN 1 when omitted. Detect `channel-group N`, use logical `Port-channelN` as membership and CLI owner, show both original complete interface stanzas and `TARGET_RESOLVED_TO_PORT_CHANNEL`. Distinguish absent/mismatched Port-channel owner as a genuine blocker, not a fabricated interface. Preserve original declarations, residual commands, description and shutdown.
 
@@ -67,3 +67,38 @@
 ## Notes on implementation vs decisions
 
 Existing configuration v2 work in PR #92 is not proof that each approved scenario passes. The shared Cisco VLAN collector currently reads `show running-config`, not the new `show vlan id` lookup. The simplified normalized trunk membership used by planning needs integration with ordered audit-resolution evidence. The current evidence projection does not guarantee every original interface statement and `!`. Approval and template requirements are independent of live operational validation.
+
+## Owner-approved ordered overlap amendment (2026-10-12)
+
+For Templates 1-8, evaluate same-device intent in worksheet left-to-right,
+then exact Excel row top-to-bottom order. Original read-only evidence stays
+unchanged; preceding nonblocked, non-Reject intent supplies projected state for
+later comparison and CLI/No-op generation. Pending is proposed intent, not an
+approval. Rejecting an earlier row re-evaluates later rows against remaining intent.
+
+Compatible Access Port -> Interface Description and Trunk Add -> Add or
+Replace -> Remove pairs carry `ORDERED_RESOURCE_OVERLAP_WARNING` on both rows.
+The later description wins, including when Access emits its own optional
+description in its full approved CLI. Add still requires an explicit baseline;
+Remove uses the preceding Replace result and retains service-impact warnings.
+Identical description requests may sequentially produce a later No-op.
+
+Different description-only values, Access versus Trunk intent, other unapproved
+pairs, unresolved owners or any individual safety blocker retain blocking
+`ORDERED_RESOURCE_OVERLAP`. Physical trunk members are compared after audited
+Port-channel resolution; description targets remain exact. Missing/stale/unreliable
+evidence and conversion/baseline prerequisites are never waived by overlap.
+Warnings alone mean `Consistency=consistent`; blockers mean `unresolved`.
+No-op describes membership/field equality only: `ADD_REQUIRES_EXPLICIT_BASELINE`
+remains independently prohibited even when membership already matches.
+
+Both immutable JSON and the single plan workbook retain overlap classification,
+earlier/later worksheet names and exact row numbers, explanation and chronological
+effective result. Workbook `Ordered Overlap Details` and `Projected State` are
+protected planning output. `observed_allowed_state` retains original audit state;
+`allowed_state` is the evaluation baseline and `desired_allowed_state` is proposed
+membership. Blocked projected output is inspection-only and never feeds successors.
+Digest linkage, Pending/Approve/Reject and no-overwrite outputs under
+`outputs/runs/configuration/` remain unchanged. None of this grants apply authority.
+Owner must repeat read-only planning on C3750X and C3850X and explicitly validate
+revised worksheets before milestone completion. Templates 9-22 remain pending.

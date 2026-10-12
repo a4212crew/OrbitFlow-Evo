@@ -24,6 +24,13 @@ controller installation into the session-protected `.agents/skills/` directory.
 
 ## Bulk Configuration Planning v2
 
+Catalyst ordered overlap planning now projects preceding safe intent in sheet/row
+order. Access then Description, Trunk Add then Add, and Replace then Remove
+produce explicit compatible-overlap warnings; individual safety prerequisites and
+incompatible intent remain blockers. JSON and the single workbook preserve both
+row references, projected results and original audit evidence. Deterministic tests
+cover both families; owner repeat live read-only validation remains pending.
+
 Catalyst milestone 1 (Templates 1?8, catalogue 2.2) now has shared operational
 VLAN lookup with config fallback, ordered symbolic ALL/exclusion reconstruction,
 physical-member access blocking, audited trunk aggregate resolution, exact
@@ -71,7 +78,7 @@ single-tag VSI relationships without changing compliance outputs.
 Same-device sheet/row order, original inputs, source provenance, observations,
 dependencies, no-ops and impact/conflict findings are digest-bound. Workbook
 decisions remain separate unauthenticated intent pinned to that source digest. Decision consumption rejects other edits and re-evaluates prerequisites
-and evidence age. Unresolved evidence/ownership/overlaps and unknown Manual CLI
+and evidence age. Unresolved evidence/ownership/conflicting overlaps and unknown Manual CLI
 effects cannot become deployment-ready. Collection uses recoverable shared
 spools; bounded single-workbook limits are documented. No apply/save/commit or
 execution authorization exists. Deterministic tests cover all 22 templates,

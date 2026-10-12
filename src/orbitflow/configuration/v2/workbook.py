@@ -7,14 +7,14 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
 from openpyxl.comments import Comment
 
-from orbitflow.configuration.plans import require, PlanError
+from orbitflow.configuration.plans import require, PlanError, canonical
 from orbitflow.vendors.configuration_facts import _safe_source
 from .catalogue import CATALOGUE, BY_ID, BY_SHEET, normalize_display_inputs
 from .planning import request, evaluate_decisions, MAX_ROWS
 from .evidence import scoped_evidence
 
 EXTRA = ("Row ID", "Existing Evidence", "Proposed CLI", "Live Validation", "Consistency",
-         "Dependencies", "Observed At", "Findings", "No-op", "Validation Status", "Error Details", "Resolved Target", "Warnings", "Blockers", "Engineer Decision")
+         "Dependencies", "Observed At", "Findings", "No-op", "Validation Status", "Error Details", "Resolved Target", "Warnings", "Blockers", "Ordered Overlap Details", "Projected State", "Engineer Decision")
 
 
 class WorkbookRequests(list):
@@ -189,8 +189,8 @@ def export_plan(plan, path):
         values = [(",".join(map(str, original[k])) if isinstance(original.get(k), list) else original.get(k, "")) for k in t.columns]
         values += [r["row_id"], evidence, commands if isinstance(commands, str) else "\n".join(commands),
                    result["live_validation"], result["consistency"], ",".join(result["dependencies"]), obs.get("observed_at", ""),
-                   ",".join(result["findings"]), str(result["no_op"]), "Valid", "; ".join(f"conflicts with {q['sheet']} row {q['row']}" for q in result.get("conflicting_rows", [])),
-                   result.get("resolved_target", p.get("interface", "")), ",".join(result.get("warnings", [])), ",".join(result.get("blockers", [])), result["decision"]]
+                   ",".join(result["findings"]), str(result["no_op"]), "Valid", "; ".join(f"conflicts with {q['sheet']} row {q['row']}" for q in result.get("conflicting_rows", [])) + ("; " + result["prerequisite_details"] if result.get("prerequisite_details") else ""),
+                   result.get("resolved_target", p.get("interface", "")), ",".join(result.get("warnings", [])), ",".join(result.get("blockers", [])), canonical(result.get("overlaps", [])), canonical(result.get("projected_state")), result["decision"]]
         for i, v in enumerate(values, 1):
             literal(sheet.cell(r["row"], i), v)
         sheet.row_dimensions[r["row"]].height = 90

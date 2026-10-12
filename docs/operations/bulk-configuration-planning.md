@@ -310,3 +310,56 @@ expected/observed results and owner verdict in an operator-controlled validation
 record. Include a multi-row run with a failed device or invalid row and successful
 peers. Share sanitized evidence only. Explicitly sign off both families before
 marking Milestone 1 complete or proceeding to Template 9.
+
+## Repeat read-only overlap validation (Issue #91)
+
+Create a fresh input workbook in Windows PowerShell (use a new filename if it exists):
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m orbitflow.configuration.v2.cli input overlap-input.xlsx
+python -m orbitflow.configuration.v2.cli plan overlap-input.xlsx --devices devices.xlsx --max-concurrent-devices 1 --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER
+```
+
+Use operator-owned credentials only in the shared devices input. Replace example
+IP `192.0.2.10` with an authorized representative device. Run once for each
+C3750X/C3850X family, filling its sheets with full interface names:
+
+| Earlier worksheet/row | Example inputs | Later worksheet/row | Example inputs |
+|---|---|---|---|
+| Access Port row 3 | management_ip=192.0.2.10; interface=GigabitEthernet1/0/1; vlan_id=445; description=Access text | Description row 3 | same IP/interface; description=Final text |
+| Trunk Port row 3 | same IP; existing trunk interface; action=Add; vlans=445 | Trunk Port row 4 | same IP/interface; action=Add; vlans=445,545 |
+| Trunk Port row 5 | same IP; a different existing trunk; action=Replace; vlans=445,545 | Trunk Port row 6 | same IP/interface as row 5; action=Remove; vlans=545 |
+
+Choose observed safe interfaces and valid VLANs; Add requires an explicit allowed
+baseline. Keep the two trunk scenarios on different resolved resources. To check
+physical ownership, use a member name on the earlier trunk row and its evidenced
+Port-channel on the later row. Repeat the Access/Description example for four
+observed pairs. Sheet order is authoritative; row order applies within each sheet.
+
+Inspect both source rows: `ORDERED_RESOURCE_OVERLAP_WARNING`, `Consistency=consistent`
+when no other blockers exist, and `Ordered Overlap Details` with both exact source
+references. Confirm final description is Final text; Access CLI still includes
+Access text. Compare each row's `Projected State` and CLI with preceding intent.
+Add emits all requested VLANs when needed; Remove is assessed against Replace,
+with service-impact warnings preserved. A later complete match is No-op/empty CLI.
+Existing Evidence remains the original complete sanitized stanza, including `!`.
+
+Also exercise two differing Description rows, Access/Trunk conflict, unavailable
+or stale evidence, missing Port-channel owner, and Add without an explicit baseline.
+These remain blocked with `ORDERED_RESOURCE_OVERLAP` where resources overlap.
+`ADD_REQUIRES_EXPLICIT_BASELINE` stays blocking even if No-op is true; Error Details
+explains that Replace is required. Projected output on a blocked row is an
+inspection-only proposal, not deployable state. An unrelated invalid input row
+must retain its field errors while valid rows continue.
+
+Default output remains `outputs/runs/configuration/<digest>/plan.json` plus
+`plan.xlsx`. Check matching digest and protected source references in both artifacts.
+Edit only Pending/Approve/Reject in this workbook; decisions do not authorize device
+writes. No second review artifacts or review command exist. Rejection re-evaluates
+remaining projected intent in memory and does not alter the immutable JSON.
+
+Record device family, observation time, artifact paths/digest, each tested row and
+owner assessment of evidence, CLI, No-op, warnings/blockers and final projection.
+Explicit owner sign-off after these repeated read-only runs is required before
+milestone 1 completion. Do not send proposed configuration to devices.
