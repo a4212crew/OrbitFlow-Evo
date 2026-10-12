@@ -1,11 +1,11 @@
-# CURRENT_STATE.md — OrbitFlow-Evo Current State
+# CURRENT_STATE.md â€” OrbitFlow-Evo Current State
 
 Use this file as the concise source of truth for what is implemented and validated today.
 
 
 Keep this document short. Historical implementation detail belongs in `docs/devlog/YYYY-MM.md`.
 
-## Offline Configuration Plans (Phases 1–2)
+## Offline Configuration Plans (Phases 1â€“2)
 
 `orbitflow.configuration` and `scripts/configuration_plan.py` provide immutable
 versioned Change Plans, canonical SHA-256 content digests, inventory snapshot
@@ -24,6 +24,18 @@ controller installation into the session-protected `.agents/skills/` directory.
 
 ## Bulk Configuration Planning v2
 
+Catalyst milestone 1 (Templates 1?8, catalogue 2.2) now has shared operational
+VLAN lookup with config fallback, ordered symbolic ALL/exclusion reconstruction,
+physical-member access blocking, audited trunk aggregate resolution, exact
+logical/physical descriptions and full sanitized interface evidence through `!`.
+The single plan workbook retains invalid rows, field errors, conflict references,
+resolved targets and separate warnings/blockers. Both Catalyst VLAN name schemas
+reject spaces and interface inputs require full names. Deterministic validation
+is implemented; owner-controlled live C3750X/C3850X validation and sign-off remain
+pending. Templates 9?22 retain existing catalogue behavior and have no new
+milestone approval or live-validation claim.
+
+
 Bulk planning v2 now emits flushed per-device read-only collection progress and
 sanitized rotating configuration module logs. Description-only requests retain
 recognized existing VLAN membership/tagging defects as non-blocking warnings;
@@ -41,7 +53,7 @@ inventory, InterfaceService, VlanService and family audit relationships for
 read-only evidence. Manual CLI is literal/offline-only and never connects.
 Catalogue 2.1 adds NCS540 dot1q/QinQ/untagged selection, explicit EVC
 None/Pop1/Pop2 and ASR920 untagged Push rewrite, independent EdgeSwitch
-tagged membership/PVID with untagged preservation, and C3850X names with spaces.
+tagged membership/PVID with untagged preservation, and earlier C3850X naming options (superseded by milestone 1 no-spaces rules).
 Deterministic review fixtures cover these options, no-ops and conflicts.
 EdgeSwitch PVID-only proposals include missing participation while preserving
 existing memberships; participating targets require only the PVID command.
@@ -315,15 +327,15 @@ existence does not constitute live validation of the VLAN capability.
 ## Repository Structure
 
 Current major implementation areas:
-- `src/orbitflow/transport/` — shared and OS-specific transport;
-- `src/orbitflow/vendors/cisco/` — Cisco IOS/IOS-XE CLI behaviour;
-- `src/orbitflow/vendors/huawei/` and `src/orbitflow/vendors/ubiquiti/` — vendor interface collection/parsing;
-- `src/orbitflow/capabilities/` and `src/orbitflow/models.py` — reusable interface/VLAN capabilities and normalized records;
-- `src/orbitflow/inventory/` — identification, reconciliation, and latest JSON snapshot storage;
-- `scripts/live_validate_interfaces.py` — single-device interface integration validation;
-- `scripts/live_validate_vlans.py` — single-device VLAN integration validation harness;
-- `tests/` — deterministic mocked/unit tests;
-- `.agents/skills/` — task/vendor-specific implementation guidance.
+- `src/orbitflow/transport/` â€” shared and OS-specific transport;
+- `src/orbitflow/vendors/cisco/` â€” Cisco IOS/IOS-XE CLI behaviour;
+- `src/orbitflow/vendors/huawei/` and `src/orbitflow/vendors/ubiquiti/` â€” vendor interface collection/parsing;
+- `src/orbitflow/capabilities/` and `src/orbitflow/models.py` â€” reusable interface/VLAN capabilities and normalized records;
+- `src/orbitflow/inventory/` â€” identification, reconciliation, and latest JSON snapshot storage;
+- `scripts/live_validate_interfaces.py` â€” single-device interface integration validation;
+- `scripts/live_validate_vlans.py` â€” single-device VLAN integration validation harness;
+- `tests/` â€” deterministic mocked/unit tests;
+- `.agents/skills/` â€” task/vendor-specific implementation guidance.
 
 ## Validation Baseline
 
@@ -371,7 +383,7 @@ Current major implementation areas:
   validation devices; other supported syntax remains covered only by
   deterministic regression tests where previously noted.
 
-## Codex Orchestration — OrbitFlow-Evo
+## Codex Orchestration â€” OrbitFlow-Evo
 
 A local ChatGPT/Atlas-to-Codex orchestration foundation is implemented in OrbitFlow-Evo.
 
@@ -522,7 +534,7 @@ The prompt correction awaits operator-controlled live retesting.
 
 ## VLAN Configuration Audit
 
-Issue #79 adds a separate M01–M08 methodology projection through the existing
+Issue #79 adds a separate M01â€“M08 methodology projection through the existing
 family AuditResolver, preserving service/child identities, local/global EVC
 bindings, XR attachments, Huawei VSI and EdgeSwitch ownership. Opt-in
 `--methodology-report` collects and retains review records, then exports a separate

@@ -39,7 +39,10 @@ def inputs(t):
         "Subinterface VSI": dict(interface="Gi1/0/1", subinterface=10, vlan_id=4002, encapsulation="vlan-type dot1q", vsi="BLUE"),
         "Manual CLI": dict(platform="cisco_ios", mode="interface", scope="Gi1/0/1", commands=" description Customer Site\n exit\n"),
     }
-    return {**p, **examples[t.function]}
+    values = {**p, **examples[t.function]}
+    if t.family in {"C3750X", "C3850X"} and "interface" in values:
+        values['interface'] = 'GigabitEthernet1/0/1'
+    return values
 
 
 def observed(t, *, objects=None):
@@ -60,7 +63,7 @@ def test_all_22_schema_and_representative_cli(t):
     p = inputs(t)
     r = request(t.id, p)
     result = plan([r], {} if t.family == "All" else {IP: observed(t)}, now=NOW).to_dict()["results"][0]
-    cmds = result["commands"]
+    cmds = [c.replace("GigabitEthernet1/0/1", "Gi1/0/1") for c in result["commands"]] if isinstance(result["commands"], list) else result["commands"]
     assert not result["execution_authorized"]
     if t.family == "All":
         assert cmds == p["commands"]
@@ -240,7 +243,7 @@ def test_shared_live_collection_one_session_and_read_only_commands(tmp_path, mon
             assert kwargs["paging_command"] == "terminal length 0"
         def run_command(self, command, **kwargs):
             commands.append(command)
-            assert command in {"show interfaces description", "show running-config"}
+            assert command in {"show interfaces description", "show running-config", "show vlan id 445", "show vlan id 4002"}
             return ("Interface  Status  Protocol  Description\nGi1/0/1  up  up  Before" if command == "show interfaces description" else
                     "vlan 445\n name Existing\n!\ninterface Gi1/0/1\n description Before\n!\nusername hidden password MUST_NOT_PERSIST")
     class Resolver:
@@ -266,7 +269,7 @@ def test_shared_live_collection_one_session_and_read_only_commands(tmp_path, mon
     assert records[IP]["identity"]["inventory_id"] == "one"
     assert records[IP]["evidence"][0]["line"] == 1
     assert records["192.0.2.11"]["status"] == "evidence_unavailable"
-    assert commands == ["show interfaces description", "show running-config"]
+    assert commands == ["show interfaces description", "show running-config", "show vlan id 445", "show vlan id 4002"]
     assert calls.count(("connect", IP)) == calls.count(("resolve", IP)) == calls.count(("close", IP)) == 1
     assert "MUST_NOT_PERSIST" not in canonical(records)
     assert "must never persist" not in canonical(records)
@@ -307,8 +310,8 @@ def test_workbook_order_and_invalid_row_isolation(tmp_path):
     export_review(result, output)
     review_book = load_workbook(output)
     assert review_book.sheetnames[:23] == book.sheetnames
-    assert review_book[db.sheet]["A4"].value.startswith("Invalid input omitted")
-    assert "bad target" not in canonical(result.to_dict())
+    assert review_book[db.sheet]["A4"].value == "bad target"
+    assert "bad target" in canonical(result.to_dict())
     assert import_review(result, output, now=NOW).digest == result.digest
 
 
@@ -481,7 +484,7 @@ def test_trunk_actions(family, action, fragment):
     result = plan([request(t.id, p)], {IP: observed(t)}, now=NOW).to_dict()["results"][0]
     assert f"switchport trunk allowed vlan {fragment}4002" in result["commands"]
     assert "switchport trunk native vlan 445" in result["commands"]
-    assert ("MEMBERSHIP_STATE_UNKNOWN" in result["findings"]) == (action != "Replace")
+    assert ("ADD_REQUIRES_EXPLICIT_BASELINE" in result["findings"]) == (action == "Add")
 
 
 def test_edge_replace_removes_prior_membership():
@@ -677,7 +680,7 @@ def test_revised_options_input_review_roundtrip(case, tmp_path):
             p.update(action="Replace", mode="Tagged", vlans="645")
     else:
         t = template("C3850X", "VLAN Database")
-        p = {**inputs(t), "name": "Customer Site Alpha"}
+        p = {**inputs(t), "name": "Customer_Site_Alpha"}
     source = tmp_path / "input.xlsx"
     create_input(source)
     book = load_workbook(source)
@@ -711,13 +714,13 @@ def test_revised_options_input_review_roundtrip(case, tmp_path):
     assert not import_review(unavailable, output, now=NOW).to_dict()["results"][0]["deployment_ready"]
 
 
-def test_c3850_space_name_rename_and_noop():
+def test_c3850_valid_name_rename_and_noop():
     t = template("C3850X", "VLAN Database")
-    p = {**inputs(t), "name": "Customer Site Alpha"}
+    p = {**inputs(t), "name": "Customer_Site_Alpha"}
     r = request(t.id, p)
     obs = observed(t, objects=[VlanObject("vlan", "4002", "Before")])
     row = plan([r], {IP: obs}, now=NOW).to_dict()["results"][0]
-    assert "name Customer Site Alpha" in row["commands"]
+    assert "name Customer_Site_Alpha" in row["commands"]
     assert "VLAN_RENAME_IMPACT" in row["findings"]
     obs = observed(t, objects=[VlanObject("vlan", "4002", p["name"])])
     assert plan([r], {IP: obs}, now=NOW).to_dict()["results"][0]["no_op"]

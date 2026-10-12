@@ -55,7 +55,8 @@ review workbook. The workbook retains input columns, original entered values,
 sheet order and row positions. It adds internal row IDs, sanitized configuration
 evidence, proposed CLI, timestamp, validation/consistency status, dependency IDs,
 findings, no-op status and Pending/Approve/Reject. Summary includes invalid row
-locations; unsafe invalid input text is deliberately omitted. Correct those rows
+locations; original invalid rows remain with sanitized values, field-specific errors
+and empty proposed CLI. Correct those rows
 in the source workbook and plan again. Other valid rows continue.
 
 Review rows and Evidence Details contain only requested interface/service/global
@@ -107,7 +108,7 @@ Missing/unavailable/stale evidence, missing interfaces or parents, aggregate
 ownership, ambiguous bindings, unavailable global VLAN/VSI and unresolved
 dependencies block readiness while retaining deterministic draft CLI. Known
 VLAN renames and service changes carry impact findings. Default evidence lifetime
-is one hour; API callers may select 1–86,400 seconds. Readiness describes the
+is one hour; API callers may select 1â€“86,400 seconds. Readiness describes the
 evaluation timestamp only. No approval authorizes later execution; future apply
 requires separate authorization and fresh preflight.
 
@@ -149,9 +150,11 @@ cannot authorize changed inputs or CLI. V1 contracts remain unchanged.
   access VLAN is a blocking conflict; no tagging-disable command is generated.
   Proposed tagging of the final PVID is also blocked. Removal retains
   `no vlan tagging X` before `vlan participation exclude X`.
-- C3850X VLAN names preserve spaces and case (up to 32 characters), including
-  rename proposals and matching-state no-ops. Unsafe delimiters and secret
-  markers remain forbidden; other platform name restrictions are unchanged.
+- Catalyst milestone catalogue 2.2 supersedes the earlier C3850X space-name
+  option: both families require names of up to 32 characters from letters,
+  digits, underscore, period, colon and hyphen. Interface inputs require full
+  Cisco names, such as `GigabitEthernet1/0/1`. Regenerate older v2 plans;
+  the v1 contract is unchanged.
 
 These options are shared by API, XLSX and CLI adapters. Review retains input,
 evidence and commands; Approve cannot override missing or unverified evidence.
@@ -176,10 +179,10 @@ input to 5,000 occupied rows, row positions through 5,002, observation bundles t
 per device or use smaller review batches; workers never retain a full-run result
 set. Oversized artifacts fail explicitly instead of silently truncating evidence.
 
-Platform bounds include VLANs 1–4094 (EdgeSwitch 1–4093), Catalyst/ME reserved
-1002–1005, EVC service-instance IDs 1–4000, NCS540 subinterfaces 0–2147483647,
-and NE05E subinterfaces 1–4094. Inputs are not restricted to compliance's
-2–4001 range. References used for vendor limits include the
+Platform bounds include VLANs 1â€“4094 (EdgeSwitch 1â€“4093), Catalyst/ME reserved
+1002â€“1005, EVC service-instance IDs 1â€“4000, NCS540 subinterfaces 0â€“2147483647,
+and NE05E subinterfaces 1â€“4094. Inputs are not restricted to compliance's
+2â€“4001 range. References used for vendor limits include the
 [EdgeSwitch guide](https://dl.ui.com/guides/edgemax/EdgeSwitch_AdminGuide.pdf),
 [ME3600X command reference](https://www.cisco.com/c/en/us/td/docs/switches/metro/me3600x_3800x/software/release/15-3_3_S/command/reference/3800x3600xcr/cli2.html),
 [ASR920 EVC guide](https://www.cisco.com/c/en/us/td/docs/routers/asr920/configuration/guide/ce/16-12-1/b-ce-xe-16-12-asr920/b-ce-xe-16-11-asr920_chapter_010.html),
@@ -237,3 +240,73 @@ remain. VLAN/EVC/L2VPN/service requests retain their consistency blockers.
 Missing/stale evidence, unknown declarations, identity/interface ambiguity and
 ownership conflicts still block description readiness. Audited facts, evidence,
 no-op handling and digest-bound review remain unchanged.
+
+## Milestone 1 owner-controlled read-only smoke test
+
+Templates 1?8 are the signed-off implementation scope. Templates 9?22 remain
+in the catalogue for compatibility and await separate detailed approval. Mocked
+tests do not validate a device. Milestone acceptance remains **pending owner
+live testing and explicit sign-off** on representative C3750X and C3850X releases.
+
+Activate the repository Python environment first. Use an operator-managed
+credentials workbook outside Git, read-only device credentials and existing
+Teleport routing. Replace the example addresses and interfaces with confirmed
+lab targets; do not put credentials into the template workbook or commands.
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m orbitflow.configuration.v2.cli --help
+python -m orbitflow.configuration.v2.cli input catalyst-m1-input.xlsx
+```
+
+Fill these example rows beginning at row 3 on **each** family's four worksheets.
+Use C3750X address `192.0.2.10` and C3850X address `192.0.2.11` only as placeholders.
+Choose existing full interface names and VLANs for the actual test.
+
+| Worksheet function | Example inputs | Inspect |
+|---|---|---|
+| VLAN Database | `vlan_id=445`, `name=Customer` | Create/rename/No-op against actual operational name; existing global range evidence |
+| Access Port | `interface=GigabitEthernet1/0/1`, `vlan_id=445`, optional description | Full proposal or exact No-op, shutdown retained, missing VLAN warning |
+| Trunk Port | `interface=GigabitEthernet1/0/2`, `action=Remove`, `vlans=445` | Explicit list or default ALL, resulting exclusions, service warning |
+| Description | `interface=GigabitEthernet1/0/3`, `description=Owner smoke test proposal` | Exact-target description-only proposal; full original stanza |
+
+Add separate runs for Add with/without an explicit baseline, Replace, sequential
+range/add/remove statements, native VLAN changes, dynamic/residual/routed modes,
+and physical Port-channel members. Access members must block without redirect;
+trunks must use the evidenced Port-channel and report aggregate conflicts;
+descriptions must remain on the entered physical or logical target. C3850X must
+never propose an encapsulation selector. C3750X new/conversion trunks include it.
+Use an additional invalid row (e.g. VLAN 1002 or abbreviated interface) to verify
+same-row field errors, retained input and safe continuation. Conflicting rows
+must cite both worksheet row positions. Never deploy the generated proposals.
+
+```powershell
+python -m orbitflow.configuration.v2.cli plan catalyst-m1-input.xlsx `
+  --devices 'C:\Operator\devices.xlsx' --max-concurrent-devices 1 `
+  --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER `
+  --bastion-host BASTION --bastion-user BASTION_USER
+Get-ChildItem outputs/runs/configuration -Recurse -Filter plan.xlsx
+```
+
+The command reads identity, interface descriptions, running configuration and
+`show vlan id <ID>` through one shared session per target. It does not send
+proposed configuration commands. A rejected/unparseable lookup produces
+`VLAN_LOOKUP_FALLBACK` only when running-config collection was reliable; failure
+of both sources blocks unknown state. Operational lookup text stays internal;
+Existing Evidence contains scoped sanitized configuration, original statements
+and terminating `!`. Operational inactive/suspended state warns without creating
+a missing VLAN. Optional fields left blank preserve current values.
+
+Inspect matching `plan.json` and `plan.xlsx` under
+`outputs/runs/configuration/<digest>/`; existing destinations are never overwritten.
+Compare the workbook with independently observed read-only configuration. If
+needed, the operator can run `show vlan id 445` and
+`show running-config interface GigabitEthernet1/0/1` in their own session. Keep
+raw secret-bearing output private. The same workbook is the only decision
+surface; Pending/Approve/Reject never grants apply authority or rewrites JSON.
+
+Record each device family/model/software release, run digest, test cases,
+expected/observed results and owner verdict in an operator-controlled validation
+record. Include a multi-row run with a failed device or invalid row and successful
+peers. Share sanitized evidence only. Explicitly sign off both families before
+marking Milestone 1 complete or proceeding to Template 9.

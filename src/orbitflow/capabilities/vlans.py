@@ -46,6 +46,14 @@ class VlanService:
             timeout,
         )
 
+    def lookup(self, session, context, vlan_id, *, cli=None):
+        """Read-only operational lookup on approved Catalyst families."""
+        if (context.platform not in {"cisco_ios", "cisco_xe"}
+                or context.device_family not in {"C3750X", "C3850"}
+                or type(vlan_id) is not int or not 1 <= vlan_id <= 4094):
+            raise VlanCapabilityError("unsupported VLAN lookup")
+        return CiscoVlanAdapter(session, timeout=self._timeout, cli=cli).lookup(vlan_id)
+
     def collect(
         self,
         session: DeviceSession,
@@ -55,6 +63,7 @@ class VlanService:
         device_ip: str | None = None,
         platform: str | None = None,
         device_name: str | None = None,
+        preserve_full_evidence: bool = False,
     ) -> VlanState:
         """Collect with resolved context (preferred) or legacy identity keywords.
 
@@ -84,7 +93,12 @@ class VlanService:
         if adapter is None:
             raise VlanCapabilityError(f"unsupported VLAN platform: {platform}")
         try:
-            result = adapter(session, timeout=self._timeout, cli=cli).collect()
+            options = {}
+            if preserve_full_evidence:
+                if context is None or context.device_family not in {"C3750X", "C3850"}:
+                    raise VlanCapabilityError("full evidence requires approved Catalyst context")
+                options["preserve_full_evidence"] = True
+            result = adapter(session, timeout=self._timeout, cli=cli, **options).collect()
         except Exception as exc:
             raise VlanCapabilityError(
                 f"VLAN collection failed for {device_name or device_ip} ({device_ip}, {platform}): {exc}"

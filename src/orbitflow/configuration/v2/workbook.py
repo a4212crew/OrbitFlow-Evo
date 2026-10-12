@@ -8,16 +8,17 @@ from openpyxl.utils import get_column_letter
 from openpyxl.comments import Comment
 
 from orbitflow.configuration.plans import require, PlanError
+from orbitflow.vendors.configuration_facts import _safe_source
 from .catalogue import CATALOGUE, BY_ID, BY_SHEET, normalize_display_inputs
 from .planning import request, evaluate_decisions, MAX_ROWS
 from .evidence import scoped_evidence
 
 EXTRA = ("Row ID", "Existing Evidence", "Proposed CLI", "Live Validation", "Consistency",
-         "Dependencies", "Observed At", "Findings", "No-op", "Engineer Decision")
+         "Dependencies", "Observed At", "Findings", "No-op", "Validation Status", "Error Details", "Resolved Target", "Warnings", "Blockers", "Engineer Decision")
 
 
 class WorkbookRequests(list):
-    """Adapter metadata survives normal planning without retaining unsafe rows."""
+    """Adapter metadata retains sanitized invalid rows alongside valid requests."""
     def __init__(self, layout):
         super().__init__()
         self.layout = layout
@@ -114,7 +115,27 @@ def read_input(path):
                     result.append(request(t.id, normalize_display_inputs(t, source_inputs), source_inputs=source_inputs,
                                           sheet_order=order, row=number))
                 except (PlanError, ValueError, TypeError):
-                    result.errors.append(dict(sheet=t.sheet, row=number, reason="INVALID_INPUT_ROW"))
+                    source_inputs = dict(zip(t.columns, values))
+                    original = {k: _safe_source(str(v)) if v is not None else "" for k, v in zip(t.columns, values)}
+                    details = []
+                    # Reuse the exact schema for field-local diagnostics, retaining
+                    # cross-field validation as a row error when needed.
+                    defaults = dict(management_ip="192.0.2.1", interface="GigabitEthernet1/0/1", vlan_id=445,
+                                    name="Customer", action="Replace", vlans="445", description="Customer")
+                    for field in t.columns:
+                        try:
+                            if cells[t.columns.index(field)].data_type == "f":
+                                raise PlanError("formulas forbidden")
+                            if t.family in {"C3750X", "C3850X"}:
+                                probe = {k: defaults[k] for k in t.required}
+                                probe['management_ip'] = defaults['management_ip']
+                                probe[field] = source_inputs.get(field)
+                                normalize_display_inputs(t, probe)
+                        except (PlanError, ValueError, TypeError) as exc:
+                            detail = str(exc) if isinstance(exc, PlanError) else "invalid value"
+                            details.append(field + ": " + detail)
+                    result.errors.append(dict(sheet=t.sheet, row=number, reason="INVALID_INPUT_ROW",
+                                              source_inputs=original, details=details or ["row: invalid input combination"]))
                 require(len(result) + len(result.errors) <= MAX_ROWS, "workbook row limit exceeded")
         return result
     finally:
@@ -144,7 +165,12 @@ def export_plan(plan, path):
     summary.append(["Sheet", "Row", "Result"])
     for error in data["input_errors"]:
         summary.append([error["sheet"], error["row"], error["reason"]])
-        literal(book[error["sheet"]].cell(error["row"], 1), "Invalid input omitted; correct source workbook and re-plan")
+        t = BY_SHEET[error['sheet']]
+        sheet = book[t.sheet]
+        for index, field in enumerate(t.columns, 1):
+            literal(sheet.cell(error['row'], index), error.get('source_inputs', {}).get(field, ''))
+        for field, value in (("Validation Status", "Invalid"), ("Error Details", "; ".join(error.get('details', [error['reason']]))), ("Engineer Decision", "Pending")):
+            literal(sheet.cell(error['row'], len(t.columns) + EXTRA.index(field) + 1), value)
     for r in data["requests"]:
         t, p, result = BY_ID[r["template_id"]], r["inputs"], results[r["row_id"]]
         sheet = book[t.sheet]
@@ -163,7 +189,8 @@ def export_plan(plan, path):
         values = [(",".join(map(str, original[k])) if isinstance(original.get(k), list) else original.get(k, "")) for k in t.columns]
         values += [r["row_id"], evidence, commands if isinstance(commands, str) else "\n".join(commands),
                    result["live_validation"], result["consistency"], ",".join(result["dependencies"]), obs.get("observed_at", ""),
-                   ",".join(result["findings"]), str(result["no_op"]), result["decision"]]
+                   ",".join(result["findings"]), str(result["no_op"]), "Valid", "; ".join(f"conflicts with {q['sheet']} row {q['row']}" for q in result.get("conflicting_rows", [])),
+                   result.get("resolved_target", p.get("interface", "")), ",".join(result.get("warnings", [])), ",".join(result.get("blockers", [])), result["decision"]]
         for i, v in enumerate(values, 1):
             literal(sheet.cell(r["row"], i), v)
         sheet.row_dimensions[r["row"]].height = 90

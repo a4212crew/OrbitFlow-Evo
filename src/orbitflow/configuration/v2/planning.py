@@ -1,4 +1,4 @@
-"""Deterministic ordered planning and offline review, independent of adapters."""
+"""Deterministic ordered planning and decision intent, independent of adapters."""
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -86,8 +86,13 @@ def _row(r, observation, prior, decision, now, max_age):
                 findings.append("STALE_EVIDENCE")
         except (KeyError, TypeError, ValueError):
             findings.append("EVIDENCE_TIME_UNAVAILABLE")
-        if not obs.get("evidence"):
+        if not obs.get("evidence") and not (t.family in {"C3750X", "C3850X"} and obs.get("configuration_reliable") is True):
             findings.append("CONFIGURATION_EVIDENCE_UNAVAILABLE")
+    if t.family in {"C3750X", "C3850X"}:
+        if obs.get("configuration_reliable") is False:
+            findings.append("CONFIGURATION_EVIDENCE_UNAVAILABLE")
+        from .catalyst import evaluate
+        return evaluate(t, p, obs, out, prior)
     actual = [i for i in obs.get("interfaces", []) if key(i["port_name"]) == key(p.get("interface", ""))]
     declarations = [n for n in obs.get("facts", [])
                     if n["kind"] in {"interface", "l2_interface"}
@@ -220,7 +225,7 @@ def _row(r, observation, prior, decision, now, max_age):
 
 
 def _build(requests, observations, decisions, now, max_age):
-    require(type(requests) is list and 0 < len(requests) <= MAX_ROWS, "invalid row count")
+    require(type(requests) is list and 0 <= len(requests) <= MAX_ROWS, "invalid row count")
     require(type(observations) is dict and type(decisions) is dict, "invalid planning inputs")
     require(safe_data(observations, _safe_source) == observations, "unsafe observation content")
     _safe_keys(observations)
@@ -229,7 +234,14 @@ def _build(requests, observations, decisions, now, max_age):
     for obs in observations.values():
         require(type(obs) is dict, "invalid observation")
         if obs.get("status") == "live_read_only":
-            keys(obs, "identity observed_at interfaces vlans objects facts evidence audit problems methodologies status")
+            keys({k: v for k, v in obs.items() if k not in {"vlan_lookups", "configuration_reliable"}}, "identity observed_at interfaces vlans objects facts evidence audit problems methodologies status")
+            require("configuration_reliable" not in obs or type(obs["configuration_reliable"]) is bool, "invalid configuration reliability")
+            require(type(obs.get("vlan_lookups", {})) is dict, "invalid VLAN lookups")
+            for vid, lookup in obs.get("vlan_lookups", {}).items():
+                require(type(vid) is str and vid.isdigit() and 1 <= int(vid) <= 4094, "invalid lookup VLAN")
+                keys(lookup, "status name operational_status")
+                require(lookup["status"] in {"present", "absent", "unknown", "error"}
+                        and type(lookup["name"]) is str and type(lookup["operational_status"]) is str, "invalid VLAN lookup")
             keys(obs["identity"], IDENTITY_FIELDS)
             platform = obs["identity"]["platform"]
             require(platform in {v[0] for v in FAMILIES.values()}, "invalid observation platform")
@@ -263,11 +275,12 @@ def _build(requests, observations, decisions, now, max_age):
             for q, other in group[:index]:
                 u, v = BY_ID[q["template_id"]], q["inputs"]
                 platform = p.get("platform", FAMILIES.get(t.family, ("",))[0])
-                same_interface = "interface" in p and "interface" in v and canonical_interface_name(platform, p["interface"]) == canonical_interface_name(platform, v["interface"])
+                same_interface = "interface" in p and "interface" in v and canonical_interface_name(platform, result.get("resolved_target", p["interface"])) == canonical_interface_name(platform, other.get("resolved_target", v["interface"]))
                 same_vlan = t.function == u.function == "VLAN Database" and p["vlan_id"] == v["vlan_id"]
                 same_domain = "bridge_domain" in p and "bridge_domain" in v and p["bridge_domain"] == v["bridge_domain"] and p.get("bridge_group") == v.get("bridge_group")
                 if same_interface or same_vlan or same_domain or t.family == "All" or u.family == "All":
-                    for item in (result, other):
+                    for item, counterpart in ((result, q), (other, r)):
+                        item.setdefault("conflicting_rows", []).append(dict(sheet=BY_ID[counterpart["template_id"]].sheet, row=counterpart["row"]))
                         item["findings"] = sorted(set(item["findings"]) | {"ORDERED_RESOURCE_OVERLAP"})
                         item.update(deployment_ready=False, consistency="unresolved" if item["live_validation"] != "not_live_validated" else "not_evaluated")
     # A later overlap can invalidate an earlier prerequisite.
@@ -287,6 +300,9 @@ def _build(requests, observations, decisions, now, max_age):
         if r["inputs"]["management_ip"] in collisions:
             result["findings"] = sorted(set(result["findings"]) | {"TARGET_IDENTITY_COLLISION"})
             result.update(deployment_ready=False, consistency="unresolved")
+    for result in rows:
+        if "blockers" in result:
+            result["blockers"] = sorted(set(result["findings"]) - set(result["warnings"]))
     return rows
 
 
@@ -304,7 +320,10 @@ class BulkPlan:
                 and set(d["layout"]) == {"Introduction", *BY_SHEET}, "invalid worksheet layout")
         require(type(d["input_errors"]) is list and len(d["input_errors"]) <= MAX_ROWS, "invalid input errors")
         for error in d["input_errors"]:
-            keys(error, "sheet row reason")
+            keys({k: v for k, v in error.items() if k not in {"source_inputs", "details"}}, "sheet row reason")
+            require(set(error) <= {"sheet", "row", "reason", "source_inputs", "details"}, "invalid input error")
+            require(type(error.get("source_inputs", {})) is dict and type(error.get("details", [])) is list, "invalid input error details")
+            require(safe_data(error, _safe_source) == error, "unsafe input error")
             require(error["sheet"] in BY_SHEET and type(error["row"]) is int and error["row"] >= 3
                     and error["reason"] == "INVALID_INPUT_ROW", "invalid input error")
         now = datetime.fromisoformat(d["evaluated_at"])

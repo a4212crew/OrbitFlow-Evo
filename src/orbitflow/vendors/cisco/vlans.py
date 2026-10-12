@@ -25,6 +25,21 @@ _IOS_VLAN_DECLARATION = re.compile(
 )
 
 
+def parse_vlan_lookup(output, vlan_id):
+    """Cisco tabular lookup; no raw output escapes this parser."""
+    unknown = dict(status="unknown", name="", operational_status="")
+    if _REJECTED.search(output) or re.search(r"(?i)(?:%.*(?:error|failed|denied|ambiguous)|authorization failed)", output):
+        return dict(unknown, status="error")
+    if re.search(rf"(?i)(?:VLAN\s+{vlan_id}\s+(?:not found|does not exist)|VLAN id\s+{vlan_id}\s+not found)", output):
+        return dict(unknown, status="absent")
+    if not re.search(r"VLAN\s+Name\s+Status\s+Ports", output):
+        return unknown
+    rows = re.findall(rf"(?m)^\s*{vlan_id}\s+(\S+)\s+(active|suspended|inactive|act/unsup|act/lshut)\b", output)
+    if len(rows) != 1:
+        return unknown
+    return dict(status="present", name=rows[0][0], operational_status=rows[0][1])
+
+
 def _blocks(
     output: str, *, preserve_body_indentation: bool = False
 ) -> list[tuple[str, list[str]]]:
@@ -116,7 +131,12 @@ def parse_ios_running_config(
                 # family audit resolver; legacy profiles do not replay them.
                 allowed_ids = ()
             elif allowed_value is not None:
-                allowed_ids = parse_vlan_list(allowed_value)
+                try:
+                    allowed_ids = parse_vlan_list(allowed_value)
+                except ValueError:
+                    # Typed config facts retain the unsupported operation for
+                    # audit/planning; do not abort unrelated description rows.
+                    allowed_ids = ()
             else:
                 allowed_ids = None
             refs = (
@@ -309,26 +329,39 @@ def parse_ios_xr_running_config(
 
 class CiscoVlanAdapter:
     def __init__(
-        self, session: DeviceSession, *, timeout: float = 10.0, evc: bool = False, cli: DeviceCLI | None = None
+        self, session: DeviceSession, *, timeout: float = 10.0, evc: bool = False, cli: DeviceCLI | None = None, preserve_full_evidence: bool = False
     ) -> None:
+        self._preserve_full_evidence = preserve_full_evidence
         self._cli = cli
         self._session, self._timeout, self._evc = session, timeout, evc
 
     vlan_database = True
 
+    def lookup(self, vlan_id):
+        if type(vlan_id) is not int or not 1 <= vlan_id <= 4094:
+            raise ValueError("invalid VLAN lookup ID")
+        try:
+            with open_cisco_cli(self._session, cli=self._cli, cli_type=CiscoIOSCLI, timeout=self._timeout) as cli:
+                output = cli.run_command(f"show vlan id {vlan_id}", timeout=self._timeout)
+        except Exception:
+            return dict(status="error", name="", operational_status="")
+        return parse_vlan_lookup(output, vlan_id)
+
     def collect(self) -> VlanCollection:
         with open_cisco_cli(self._session, cli=self._cli, cli_type=CiscoIOSCLI, timeout=self._timeout) as cli:
             output = cli.run_command("show running-config", timeout=self._timeout)
-            if _REJECTED.search(output):
+            if not output.strip() or _REJECTED.search(output) or re.search(r"(?im)^%.*(?:error|failed)", output):
                 raise ValueError("Cisco rejected approved command 'show running-config'")
+            if not re.search(r"(?m)^(?:hostname |interface |vlan |version |Building configuration|Current configuration)", output):
+                raise ValueError("running configuration unavailable")
             interfaces, objects = parse_ios_running_config(output, evc=self._evc, vlan_database=self.vlan_database)
             return VlanCollection(extract_ios_hostname(cli.prompt), interfaces, objects,
-                                  observe_configuration(output, "cisco_ios"))
+                                  observe_configuration(output, "cisco_ios", preserve_full_evidence=self._preserve_full_evidence))
 
 
 class CiscoXEVlanAdapter(CiscoVlanAdapter):
-    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None) -> None:
-        super().__init__(session, timeout=timeout, evc=True, cli=cli)
+    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None, preserve_full_evidence: bool = False) -> None:
+        super().__init__(session, timeout=timeout, evc=True, cli=cli, preserve_full_evidence=preserve_full_evidence)
 
 
 class CiscoASRVlanAdapter(CiscoXEVlanAdapter):

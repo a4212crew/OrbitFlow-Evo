@@ -6,7 +6,7 @@ import re
 from orbitflow.configuration.plans import PlanError, require
 from orbitflow.logging import sanitize_text
 
-VERSION = "2.1"
+VERSION = "2.2"
 FAMILIES = {
     "C3750X": ("cisco_ios", "c3750x_switching"),
     "C3850X": ("cisco_xe", "c3850_switching"),
@@ -90,6 +90,8 @@ class Template:
         for k in ("interface", "vsi", "bridge_group"):
             if k in data:
                 require(isinstance(data[k], str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9./:-]*|lag [0-9]+", data[k]), "invalid CLI identifier")
+        if self.family in {"C3750X", "C3850X"} and "interface" in data:
+            require(re.fullmatch(r"(?:FastEthernet|GigabitEthernet|TenGigabitEthernet|FortyGigabitEthernet|HundredGigE|Port-channel|Vlan|Loopback)[0-9]+(?:/[0-9]+)*(?:\.[0-9]+)?", data["interface"]), "interface: full canonical Cisco name required")
         if "bridge_domain" in data:
             if self.function == "EVC":
                 require(type(data["bridge_domain"]) is int and 1 <= data["bridge_domain"] <= 4094, "invalid bridge domain")
@@ -103,7 +105,7 @@ class Template:
         if "name" in data:
             require(len(data["name"]) <= (80 if self.family == "NE05E" else 32), "name too long")
             if self.family == "C3850X":
-                require(re.fullmatch(r"[A-Za-z0-9_.: -]+", data["name"]), "invalid VLAN name")
+                require(re.fullmatch(r"[A-Za-z0-9_.:-]+", data["name"]), "invalid VLAN name")
             elif self.family not in {"EdgeSwitch", "NE05E"}:
                 require(re.fullmatch(r"[A-Za-z0-9_.:-]+", data["name"]), "invalid VLAN name")
         if "action" in data:

@@ -36,6 +36,24 @@ def evidence(nodes):
     return result
 
 
+def reconstruct_allowed(operations):
+    """Ordered typed operations, with symbolic ALL/exclusions independent of DB."""
+    all_vlans, values = True, set()
+    for kind, operand in operations:
+        if kind == "unsupported_allowed":
+            raise ValueError("unsupported allowed operation")
+        if kind == "allowed":
+            all_vlans = operand == "ALL"
+            values = set() if isinstance(operand, str) else set(operand)
+        elif kind == "allowed_except":
+            all_vlans, values = True, set(operand)
+        elif kind == "allowed_add":
+            values = values - set(operand) if all_vlans else values | set(operand)
+        elif kind == "allowed_remove":
+            values = values | set(operand) if all_vlans else values - set(operand)
+    return dict(all=all_vlans, values=sorted(values), explicit=bool(operations))
+
+
 def parent_name(name):
     parent, dot, suffix = name.rpartition(".")
     return parent if dot and suffix.isdigit() else None
@@ -173,6 +191,14 @@ class AuditResolver:
                                 for field in ("interface_type", "valid_interface_vlans", "native", "pvid", "tagged")):
                 self.problem("AGGREGATE_CONFIG_CONFLICT" if edge else "PORT_CHANNEL_CONFIG_CONFLICT",
                              key, (node, self.config[owner]), aggregate=aggregate["config_interface_name"])
+            if self.planning and self.context.device_family in {"C3750X", "C3850"} and not edge:
+                symbolic_conflict = (any(n.kind.startswith("allowed") for n in node.children)
+                                     and row.get("planning_allowed") != aggregate.get("planning_allowed"))
+                mode_conflict = (any(n.kind in {"mode", "routed"} for n in node.children)
+                                 and row.get("planning_mode") != aggregate.get("planning_mode"))
+                if (symbolic_conflict or mode_conflict) and not any(p["code"] == "PORT_CHANNEL_CONFIG_CONFLICT" for p in row["configuration_findings"]):
+                    self.problem("PORT_CHANNEL_CONFIG_CONFLICT", key, (node, self.config[owner]),
+                                 aggregate=aggregate["config_interface_name"])
             for field in ("interface_type", "valid_interface_vlans", "tagged", "untagged", "native", "pvid", "all_vlan", "review"):
                 row[field] = aggregate[field]
             row["configuration_owner"] = aggregate["config_interface_name"]
@@ -214,6 +240,14 @@ class CatalystAuditResolver(AuditResolver):
         node, row = self.config[key], self.rows[key]
         lines = node.children
         mode = last(lines, "mode")
+        if self.planning and self.context.device_family in {"C3750X", "C3850"}:
+            operations = [(n.kind, n.value) for n in lines if n.kind.startswith("allowed") or n.kind == "unsupported_allowed"]
+            try:
+                row["planning_allowed"] = reconstruct_allowed(operations)
+            except ValueError:
+                self.problem("UNSUPPORTED_ALLOWED_VLAN_OPERATION", key, (node,))
+                row.update(review=True)
+            row["planning_mode"] = "routed" if children(lines, "routed") else mode or ("access_unspecified" if children(lines, "access") else "unconfigured")
         row["native"] = sorted(self.numeric(last(lines, "native", ())))
         access = bool(children(lines, "access"))
         contradictory = access and (mode not in {"", "access"}

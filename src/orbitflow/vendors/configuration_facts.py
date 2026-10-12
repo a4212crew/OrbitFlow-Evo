@@ -26,7 +26,7 @@ _IOS = (
     ("bridge_domain", rf"bridge-domain ({_NAME})(?: split-horizon group [0-9]+)?", "text"),
     ("service_instance", r"service instance (\d+) ethernet", "text"),
     ("member", rf"member ({_NAME} service-instance \d+)", "text"),
-    ("mode", r"switchport mode (\w+)", "text"),
+    ("mode", r"switchport mode (dynamic auto|dynamic desirable|\w+)", "text"),
     ("trunk_encapsulation", r"switchport trunk encapsulation (\w+)", "text"),
     ("allowed", rf"switchport trunk allowed vlan ({_LIST}|all|none)", "list"),
     ("allowed_add", r"switchport trunk allowed vlan add ([\d,\s-]+)", "list"),
@@ -197,12 +197,14 @@ def _review_candidate(line, stack):
             ("switchport nonegotiate", "switchport port-security", "switchport block", "switchport protected"))
 
 
-def observe_configuration(output, platform, *, source_filename="running-config"):
+def observe_configuration(output, platform, *, source_filename="running-config", preserve_full_evidence=False):
     """Preserve known statements with one-based lines and actual source excerpts.
 
     The optional filename is the caller's inspected saved file, not a fabricated
     backup path. Online collection uses the explicit source label running-config.
     Repeated interface stanzas stay ordered here and are consolidated by audit.
+    Approved Catalyst planning may opt into full sanitized stanza evidence;
+    default audit/methodology projections retain their established scope.
     """
     roots, stack = [], []
     banner_end = None
@@ -222,6 +224,9 @@ def observe_configuration(output, platform, *, source_filename="running-config")
             continue
         indent = len(raw) - len(raw.lstrip())
         if not line or line == "#" or line == "!":
+            if preserve_full_evidence and line == "!" and platform in {"cisco_ios", "cisco_xe"} and stack:
+                node = ["methodology_evidence", "stanza_end", number, raw, []]
+                stack[0][1][4].append(node)
             if line in {"#", "!"}:
                 while stack and stack[-1][0] >= indent:
                     stack.pop()
@@ -335,6 +340,8 @@ def observe_configuration(output, platform, *, source_filename="running-config")
             # Review-only nodes are stripped before audit resolution.
             entries.append(("methodology_unknown", "unsupported_forwarding_syntax"))
             raw = _review_excerpt(raw, platform)
+        if preserve_full_evidence and not entries and platform in {"cisco_ios", "cisco_xe"} and stack and stack[0][1][0] == "interface":
+            entries.append(("methodology_evidence", "interface_source"))
         for kind, value in entries:
             node = [kind, value, number, _safe_source(raw, platform), []]
             (stack[-1][1][4] if stack else roots).append(node)

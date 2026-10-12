@@ -33,7 +33,7 @@ def snapshot(context, interfaces, vlans, *, clean=sanitize_text):
                  vlans=[asdict(i) for i in vlans.interfaces], objects=[asdict(o) for o in vlans.objects],
                  facts=[asdict(n) for n in vlans.configuration], evidence=evidence(vlans.configuration),
                  audit=list(resolver.rows.values()), problems=resolver.problems, methodologies=methods,
-                 status="live_read_only")
+                 status="live_read_only", configuration_reliable=True)
     # Datetime conversion happens before shared recursive sanitation.
     for interface in value["interfaces"]:
         interface["collection_time"] = interface["collection_time"].isoformat()
@@ -80,9 +80,19 @@ def collect(requests, credentials, transport_config, *, inventory_path="data/inv
                 event("interface collection", ip, identity=context.device_id)
                 interfaces = InterfaceService().collect(session, context, cli=cli)
                 event("VLAN/config collection", ip, identity=context.device_id)
-                vlans = VlanService().collect(session, context, cli=cli)
+                vlans = VlanService().collect(session, context, cli=cli, preserve_full_evidence=context.device_family in {"C3750X", "C3850"})
                 event("audit/snapshot", ip, identity=context.device_id)
-                return snapshot(context, interfaces, vlans, clean=clean)
+                value = snapshot(context, interfaces, vlans, clean=clean)
+                if context.device_family in {"C3750X", "C3850"}:
+                    vids = set()
+                    for r in requests:
+                        if r["inputs"]["management_ip"] == ip:
+                            params = r["inputs"]
+                            vids.update(params.get("vlans", []))
+                            vids.update(params[k] for k in ("vlan_id", "native_vlan") if k in params)
+                    value["vlan_lookups"] = {str(vid): safe_data(VlanService().lookup(session, context, vid, cli=cli),
+                                                lambda text: clean(_safe_source(text, context.platform))) for vid in sorted(vids)}
+                return value
 
     def persist(outcome):
         ip = ips[outcome.position - 1]
