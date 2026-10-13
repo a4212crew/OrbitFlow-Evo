@@ -192,7 +192,7 @@ Codex implementation or revision
     -> Atlas review
 ```
 
-Maximum: 10 iterations under one approved plan.
+Maximum: 30 iterations under one explicitly owner-approved plan. Once iteration 30 is reached, move to `codex-replan-required` and require Atlas and user approval of a new plan.
 
 After iteration 10, move to `codex-replan-required` and require Atlas + user to approve a new plan.
 
