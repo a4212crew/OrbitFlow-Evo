@@ -80,18 +80,32 @@ def collect(requests, credentials, transport_config, *, inventory_path="data/inv
                 event("interface collection", ip, identity=context.device_id)
                 interfaces = InterfaceService().collect(session, context, cli=cli)
                 event("VLAN/config collection", ip, identity=context.device_id)
-                vlans = VlanService().collect(session, context, cli=cli, preserve_full_evidence=context.device_family in {"C3750X", "C3850"})
+                vlans = VlanService().collect(session, context, cli=cli, preserve_full_evidence=context.device_family in {"C3750X", "C3850", "ME3600X", "ASR920", "EdgeSwitch"})
                 event("audit/snapshot", ip, identity=context.device_id)
                 value = snapshot(context, interfaces, vlans, clean=clean)
-                if context.device_family in {"C3750X", "C3850"}:
+                if context.device_family in {"C3750X", "C3850", "ME3600X", "EdgeSwitch"}:
                     vids = set()
                     for r in requests:
                         if r["inputs"]["management_ip"] == ip:
                             params = r["inputs"]
                             vids.update(params.get("vlans", []))
-                            vids.update(params[k] for k in ("vlan_id", "native_vlan") if k in params)
+                            if 'tagged_vlans' in params:
+                                from orbitflow.vendors.vlan_types import parse_vlan_list
+                                vids.update(parse_vlan_list(params['tagged_vlans']))
+                            vids.update(params[k] for k in ("vlan_id", "native_vlan", "pvid") if k in params)
+                            if context.device_family == 'ME3600X' and 'bridge_domain' in params:
+                                vids.add(params['bridge_domain'])
                     value["vlan_lookups"] = {str(vid): safe_data(VlanService().lookup(session, context, vid, cli=cli),
                                                 lambda text: clean(_safe_source(text, context.platform))) for vid in sorted(vids)}
+                if context.device_family in {'ME3600X', 'ASR920'}:
+                    value['service_details'] = {}
+                    for r in requests:
+                        params = r['inputs']
+                        if params['management_ip'] == ip and BY_ID[r['template_id']].function == 'EVC':
+                            detail_key = params['interface'] + ':' + str(params['service_instance_id'])
+                            value['service_details'][detail_key] = safe_data(VlanService().service_detail(
+                                session, context, params['interface'], params['service_instance_id'], cli=cli),
+                                lambda text: clean(_safe_source(text, context.platform)))
                 return value
 
     def persist(outcome):

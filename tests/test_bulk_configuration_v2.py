@@ -33,9 +33,9 @@ def inputs(t):
         "Access Port": dict(interface="Gi1/0/1", vlan_id=4002),
         "Trunk Port": dict(interface="Gi1/0/1", action="Add", vlans=[4002]),
         "Interface Description": dict(interface="Gi1/0/1", description="Customer Site Alpha"),
-        "EVC": dict(interface="Gi1/0/1", service_instance=10, encapsulation="dot1q", outer_vlan=4002, bridge_domain=4002, pop_tags=1),
+        "EVC": dict(interface="Gi1/0/1", service_instance_id=10, encapsulation="Dot1q", outer_vlan="4002", bridge_domain=4002, rewrite="Pop 1 symmetric"),
         "L2VPN": dict(interface="Gi1/0/1", subinterface=10, encapsulation="dot1q", outer_vlan=4002, bridge_group="CUSTOMER", bridge_domain="BLUE"),
-        "VLAN Port": dict(interface="0/1", action="Remove", mode="Tagged", vlans=[4002]),
+        "VLAN Port": dict(interface="0/1", action="Remove", tagged_vlans="4002"),
         "Subinterface VSI": dict(interface="Gi1/0/1", subinterface=10, vlan_id=4002, encapsulation="vlan-type dot1q", vsi="BLUE"),
         "Manual CLI": dict(platform="cisco_ios", mode="interface", scope="Gi1/0/1", commands=" description Customer Site\n exit\n"),
     }
@@ -83,11 +83,11 @@ def test_all_22_schema_and_representative_cli(t):
     elif t.function == "Trunk Port":
         assert cmds == ["configure terminal", "interface Gi1/0/1", "switchport", *(["switchport trunk encapsulation dot1q"] if t.family == "C3750X" else []), "switchport mode trunk", "switchport trunk allowed vlan add 4002", "end"]
     elif t.function == "EVC":
-        assert cmds == ["configure terminal", "interface Gi1/0/1", "service instance 10 ethernet", "encapsulation dot1q 4002", "rewrite ingress tag pop 1 symmetric", "bridge-domain 4002", "end"]
+        assert cmds == ["configure terminal", "interface Gi1/0/1", *(["switchport mode trunk", "switchport trunk allowed vlan none"] if t.family == "ME3600X" else ["no ip address"]), "no service instance 10", "service instance 10 ethernet", "encapsulation dot1q 4002", "rewrite ingress tag pop 1 symmetric", "bridge-domain 4002", "end"]
     elif t.function == "L2VPN":
         assert cmds == ["configure terminal", "interface Gi1/0/1.10 l2transport", "encapsulation dot1q 4002", "exit", "l2vpn", "bridge group CUSTOMER", "bridge-domain BLUE", "interface Gi1/0/1.10", "end"]
     elif t.function == "VLAN Port":
-        assert cmds == ["configure", "interface 0/1", "no vlan tagging 4002", "vlan participation exclude 4002", "exit", "exit"]
+        assert cmds == ["configure", "interface 0/1", "vlan participation exclude 4002", "exit", "exit"]
     elif t.function == "Subinterface VSI":
         assert cmds == ["system-view", "interface Gi1/0/1.10", "vlan-type dot1q 4002", "l2 binding vsi BLUE", "quit", "quit"]
     with pytest.raises(PlanError):
@@ -127,7 +127,11 @@ def test_database_rename_noop_and_limits(family):
     for invalid in (0, 4095, True, "100"):
         with pytest.raises(PlanError):
             request(t.id, {**inputs(t), "vlan_id": invalid})
-    request(t.id, {**inputs(t), "vlan_id": 1})
+    if family == "EdgeSwitch":
+        with pytest.raises(PlanError):
+            request(t.id, {**inputs(t), "vlan_id": 1})
+    else:
+        request(t.id, {**inputs(t), "vlan_id": 1})
     if family in {"C3750X", "C3850X", "ME3600X"}:
         with pytest.raises(PlanError):
             request(t.id, {**inputs(t), "vlan_id": 1002})
@@ -315,46 +319,10 @@ def test_workbook_order_and_invalid_row_isolation(tmp_path):
     assert import_review(result, output, now=NOW).digest == result.digest
 
 
-@pytest.mark.parametrize("family", ["ASR920", "ME3600X"])
-@pytest.mark.parametrize("enc,outer,inner,pop,expected", [
-    ("untagged", None, None, None, "encapsulation untagged"),
-    ("QinQ", 445, 545, 2, "encapsulation dot1q 445 second-dot1q 545"),
-])
-def test_evc_encapsulation_variants(family, enc, outer, inner, pop, expected):
-    t = template(family, "EVC")
-    p = inputs(t)
-    p.update(encapsulation=enc, outer_vlan=outer, inner_vlan=inner, pop_tags=pop)
-    result = plan([request(t.id, p)], {IP: observed(t)}, now=NOW).to_dict()["results"][0]
-    assert expected in result["commands"]
-    if pop:
-        assert "rewrite ingress tag pop 2 symmetric" in result["commands"]
 
 
-def test_asr_global_binding_and_evc_noop_from_shared_facts():
-    from orbitflow.vendors.configuration_facts import observe_configuration
-    t = template("ASR920", "EVC")
-    p = {**inputs(t), "outer_vlan": 445, "bridge_domain": 445}
-    obs = observed(t)
-    config = "interface Gi1/0/1\n service instance 10 ethernet\n  encapsulation dot1q 445\n  rewrite ingress tag pop 1 symmetric\n  bridge-domain 445"
-    obs["facts"] = safe_data([asdict(n) for n in observe_configuration(config, "cisco_xe")])
-    r = request(t.id, p)
-    result = plan([r], {IP: obs}, now=NOW).to_dict()["results"][0]
-    assert result["no_op"] and result["commands"] == []
-    obs["audit"][0]["numeric_mappings"] = [{"global_bridge_domain": ["445"]}]
-    result = plan([r], {IP: obs}, now=NOW, decisions={r["row_id"]: "Approve"}).to_dict()["results"][0]
-    assert "ASR920_GLOBAL_BINDING_CONFLICT" in result["findings"]
-    assert not result["deployment_ready"]
 
 
-def test_edge_access_add_replace_and_description_preservation():
-    t = template("EdgeSwitch", "VLAN Port")
-    p = {**inputs(t), "action": "Add", "mode": "Access", "vlans": [445]}
-    result = plan([request(t.id, p)], {IP: observed(t)}, now=NOW).to_dict()["results"][0]
-    assert "vlan participation include 445" in result["commands"]
-    assert "vlan pvid 445" in result["commands"]
-    assert not any("disable" in c or "description" in c for c in result["commands"])
-    with pytest.raises(PlanError):
-        request(t.id, {**p, "vlans": [4094]})
 
 
 def test_secret_bearing_evidence_and_fields_rejected():
@@ -487,15 +455,6 @@ def test_trunk_actions(family, action, fragment):
     assert ("ADD_REQUIRES_EXPLICIT_BASELINE" in result["findings"]) == (action == "Add")
 
 
-def test_edge_replace_removes_prior_membership():
-    t = template("EdgeSwitch", "VLAN Port")
-    p = {**inputs(t), "action": "Replace", "vlans": [545]}
-    obs = observed(t)
-    obs["vlans"] = [dict(interface_name="0/1", mode="trunk", tagged_vlans=[445], referenced_vlans=[445], pvid=None)]
-    obs["audit"][0].update(configured_membership_vlans=[445], configured_tagged_vlans=[445])
-    result = plan([request(t.id, p)], {IP: obs}, now=NOW).to_dict()["results"][0]
-    assert result["commands"] == ["configure", "interface 0/1", "no vlan tagging 445", "vlan participation exclude 445",
-                                  "vlan participation include 545", "vlan tagging 545", "exit", "exit"]
 
 
 def test_vendor_secret_marker_sanitized_before_spooling():
@@ -552,44 +511,8 @@ def test_ncs_conditional_vlan_validation(enc, tags):
         request(t.id, {**p, "encapsulation": enc, **tags})
 
 
-@pytest.mark.parametrize("choice,enc,tags,rewrite", [
-    ("None", "dot1q", {"outer_vlan": 445}, ""),
-    ("Pop1", "dot1q", {"outer_vlan": 445}, "rewrite ingress tag pop 1 symmetric"),
-    ("Pop2", "QinQ", {"outer_vlan": 445, "inner_vlan": 545}, "rewrite ingress tag pop 2 symmetric"),
-    ("Push", "untagged", {"push_vlan": 445}, "rewrite ingress tag push dot1q 445 symmetric"),
-])
-def test_asr_rewrite_render_noop_and_explicit_none(choice, enc, tags, rewrite):
-    t = template("ASR920", "EVC")
-    p = {k: v for k, v in inputs(t).items() if k not in {"pop_tags", "outer_vlan"}}
-    p.update(encapsulation=enc, rewrite=choice, **tags)
-    encapsulation = "encapsulation untagged" if enc == "untagged" else "encapsulation dot1q 445" + (" second-dot1q 545" if enc == "QinQ" else "")
-    config = f"interface Gi1/0/1\n service instance 10 ethernet\n  {encapsulation}\n  {rewrite}\n  bridge-domain 4002"
-    obs = configuration_observation(t, config)
-    r = request(t.id, p)
-    assert plan([r], {IP: obs}, now=NOW).to_dict()["results"][0]["no_op"]
-    row = plan([r], {IP: observed(t)}, now=NOW).to_dict()["results"][0]
-    assert (rewrite or "no rewrite ingress tag") in row["commands"]
-    # An omitted rewrite cannot silently preserve an existing operation.
-    if rewrite:
-        omitted = {k: v for k, v in p.items() if k not in {"rewrite", "push_vlan"}}
-        r = request(t.id, omitted)
-        row = plan([r], {IP: obs}, now=NOW, decisions={r["row_id"]: "Approve"}).to_dict()["results"][0]
-        assert "PRESERVED_REWRITE_REQUIRES_REVIEW" in row["findings"]
-        assert not row["no_op"] and not row["deployment_ready"]
 
 
-@pytest.mark.parametrize("family,enc,choice,extra", [
-    ("ASR920", "untagged", "Pop1", {}), ("ASR920", "dot1q", "Pop2", {}),
-    ("ASR920", "dot1q", "Push", {"push_vlan": 445}),
-    ("ME3600X", "untagged", "Push", {"push_vlan": 445}),
-    ("ASR920", "untagged", "Push", {}),
-    ("ASR920", "dot1q", "None", {"pop_tags": 1}),
-])
-def test_rewrite_compatibility(family, enc, choice, extra):
-    t = template(family, "EVC")
-    p = {k: v for k, v in inputs(t).items() if k != "pop_tags" and (enc != "untagged" or k != "outer_vlan")}
-    with pytest.raises(PlanError):
-        request(t.id, {**p, "encapsulation": enc, "rewrite": choice, **extra})
 
 
 def edge_observation():
@@ -600,63 +523,13 @@ def edge_observation():
     return obs
 
 
-@pytest.mark.parametrize("participates", [False, True])
-def test_edge_pvid_only_membership_and_review_readiness(participates):
-    t = template("EdgeSwitch", "VLAN Port")
-    obs = edge_observation()
-    if participates:
-        obs["audit"][0]["configured_membership_vlans"].append(645)
-    r = request(t.id, dict(management_ip=IP, interface="0/1", pvid=645))
-    pending = plan([r], {IP: obs}, now=NOW)
-    row = pending.to_dict()["results"][0]
-    expected = ["configure", "interface 0/1"]
-    if not participates:
-        expected.append("vlan participation include 645")
-    expected += ["vlan pvid 645", "exit", "exit"]
-    assert row["commands"] == expected
-    assert row["consistency"] == "consistent" and not row["deployment_ready"]
-    for decision in ("Approve", "Reject"):
-        reviewed = review(pending, {r["row_id"]: decision}, expected_digest=pending.digest, now=NOW)
-        result = reviewed.to_dict()["results"][0]
-        assert result["deployment_ready"] == (decision == "Approve")
-        assert result["commands"] == expected
 
 
-def test_edge_pvid_without_membership_is_not_noop():
-    t = template("EdgeSwitch", "VLAN Port")
-    obs = edge_observation()
-    obs["vlans"][0]["pvid"] = 645
-    r = request(t.id, dict(management_ip=IP, interface="0/1", pvid=645))
-    row = plan([r], {IP: obs}, now=NOW).to_dict()["results"][0]
-    assert not row["no_op"]
-    assert "vlan participation include 645" in row["commands"]
 
 
-def test_edge_independent_pvid_replace_and_conflicts():
-    t = template("EdgeSwitch", "VLAN Port")
-    p = dict(management_ip=IP, interface="0/1", pvid=645)
-    r = request(t.id, p)
-    row = plan([r], {IP: edge_observation()}, now=NOW).to_dict()["results"][0]
-    assert row["commands"] == ["configure", "interface 0/1", "vlan participation include 645", "vlan pvid 645", "exit", "exit"]
-    r = request(t.id, {**p, "pvid": 445})
-    assert plan([r], {IP: edge_observation()}, now=NOW).to_dict()["results"][0]["no_op"]
-    p.update(action="Replace", vlans=[645])
-    r = request(t.id, p)
-    row = plan([r], {IP: edge_observation()}, now=NOW).to_dict()["results"][0]
-    assert "vlan participation exclude 445" not in row["commands"]
-    assert row["commands"].index("no vlan tagging 545") < row["commands"].index("vlan participation exclude 545")
-    r = request(t.id, {**p, "replace_untagged": "Yes"})
-    row = plan([r], {IP: edge_observation()}, now=NOW).to_dict()["results"][0]
-    assert "vlan participation exclude 445" in row["commands"]
-    assert "UNTAGGED_REPLACEMENT_IMPACT" in row["findings"]
-    r = request(t.id, {**p, "mode": "Access", "vlans": [545], "pvid": 545})
-    row = plan([r], {IP: edge_observation()}, now=NOW, decisions={r["row_id"]: "Approve"}).to_dict()["results"][0]
-    assert {"ACCESS_CONVERSION_IMPACT", "ACCESS_TAGGING_CONFLICT"} <= set(row["findings"])
-    assert not row["deployment_ready"]
-    assert not any("disable" in c for c in row["commands"])
 
 
-@pytest.mark.parametrize("case", ["ncs_untagged", "ncs_qinq", "asr_push", "asr_none", "asr_pop2", "edge_pvid", "edge_replace", "c3850_name"])
+@pytest.mark.parametrize("case", ["ncs_untagged", "ncs_qinq", "asr_push", "asr_none", "asr_pop2", "edge_pvid", "edge_tagged", "c3850_name"])
 def test_revised_options_input_review_roundtrip(case, tmp_path):
     if case.startswith("ncs"):
         t = template("NCS540", "L2VPN")
@@ -668,16 +541,16 @@ def test_revised_options_input_review_roundtrip(case, tmp_path):
         t = template("ASR920", "EVC")
         p = {k: v for k, v in inputs(t).items() if k not in {"outer_vlan", "pop_tags"}}
         if case == "asr_push":
-            p.update(encapsulation="untagged", rewrite="Push", push_vlan=445)
+            p.update(encapsulation="Untagged", rewrite="Push dot1q symmetric", push_vlan=445)
         elif case == "asr_pop2":
-            p.update(encapsulation="QinQ", outer_vlan=445, inner_vlan=545, rewrite="Pop2")
+            p.update(encapsulation="QinQ", outer_vlan="445", inner_vlan="545", rewrite="Pop 2 symmetric")
         else:
-            p.update(outer_vlan=445, rewrite="None")
+            p.update(outer_vlan="445-446", rewrite="None")
     elif case.startswith("edge"):
         t = template("EdgeSwitch", "VLAN Port")
-        p = dict(management_ip=IP, interface="0/1", pvid=645)
-        if case.endswith("replace"):
-            p.update(action="Replace", mode="Tagged", vlans="645")
+        p = dict(management_ip=IP, interface="0/1", action="Add/Change", pvid=645)
+        if case.endswith("tagged"):
+            p.update(tagged_vlans="645")
     else:
         t = template("C3850X", "VLAN Database")
         p = {**inputs(t), "name": "Customer_Site_Alpha"}
@@ -726,19 +599,8 @@ def test_c3850_valid_name_rename_and_noop():
     assert plan([r], {IP: obs}, now=NOW).to_dict()["results"][0]["no_op"]
 
 
-@pytest.mark.parametrize("action,vlans", [("Add", [545]), ("Replace", [545]), ("Remove", [645])])
-def test_edge_tagged_noops_preserve_untagged(action, vlans):
-    t = template("EdgeSwitch", "VLAN Port")
-    r = request(t.id, dict(management_ip=IP, interface="0/1", action=action, vlans=vlans))
-    row = plan([r], {IP: edge_observation()}, now=NOW).to_dict()["results"][0]
-    assert row["no_op"] and row["commands"] == []
 
 
-def test_edge_proposed_tagging_cannot_tag_preserved_pvid():
-    t = template("EdgeSwitch", "VLAN Port")
-    r = request(t.id, dict(management_ip=IP, interface="0/1", action="Add", vlans=[445]))
-    row = plan([r], {IP: edge_observation()}, now=NOW, decisions={r["row_id"]: "Approve"}).to_dict()["results"][0]
-    assert "PVID_TAGGING_CONFLICT" in row["findings"] and not row["deployment_ready"]
 
 
 def test_revised_cli_review_and_digest_invalidation(tmp_path, monkeypatch):
@@ -746,7 +608,7 @@ def test_revised_cli_review_and_digest_invalidation(tmp_path, monkeypatch):
     monkeypatch.setattr(socket, "socket", lambda *a, **kw: pytest.fail("review connected"))
     t = template("ASR920", "EVC")
     p = {k: v for k, v in inputs(t).items() if k not in {"outer_vlan", "pop_tags"}}
-    p.update(encapsulation="untagged", rewrite="Push", push_vlan=445)
+    p.update(encapsulation="Untagged", rewrite="Push dot1q symmetric", push_vlan=445)
     r = request(t.id, p)
     result = plan([r], {IP: observed(t)}, now=NOW)
     source, workbook, output = tmp_path / "plan.json", tmp_path / "review.xlsx", tmp_path / "reviewed.json"
@@ -816,12 +678,12 @@ def test_scoped_evidence_service_dependencies_and_workbook(tmp_path):
         asdict(fact("vlan", (4002,), 30)), asdict(fact("vlan", (999,), 40))]
     obs = safe_data(obs, lambda value: value)
     selected = scoped_evidence(r, obs)
-    assert [e["line"] for e in selected] == [10, 11, 12, 30]
+    assert [e["line"] for e in selected] == [10, 11, 12, 13, 30]
     result = plan([r], {IP: obs}, now=NOW)
     output = tmp_path / "scoped.xlsx"
     export_review(result, output)
     book = load_workbook(output)
-    assert [book["Evidence Details"].cell(i, 3).value for i in range(2, 6)] == ["10", "11", "12", "30"]
+    assert [book["Evidence Details"].cell(i, 3).value for i in range(2, 7)] == ["10", "11", "12", "13", "30"]
     assert import_review(result, output, now=NOW).digest == result.digest
     db = template("ME3600X", "VLAN Database")
     assert [e["line"] for e in scoped_evidence(request(db.id, inputs(db)), obs)] == [30]
@@ -937,36 +799,6 @@ l2vpn
     assert "OTHER" not in excerpts and "Gi1/0/2" not in excerpts
 
 
-@pytest.mark.parametrize("extra", [None, "OWNERSHIP", "STALE", "UNKNOWN", "MISSING"])
-def test_description_existing_vlan_warning_keeps_material_blockers(extra):
-    from copy import deepcopy
-    t = template("EdgeSwitch", "Interface Description")
-    r = request(t.id, inputs(t))
-    obs = observed(t)
-    defect = dict(code="TAGGED_VLAN_NOT_IN_MEMBERSHIP", vlans=[4002], evidence=deepcopy(obs["evidence"]))
-    obs["audit"][0]["configuration_findings"] = [defect]
-    obs["methodologies"] = [dict(config_interface_name=inputs(t)["interface"], review_needed=True,
-                                subtype="trunk", configuration_findings=[defect])]
-    if extra == "OWNERSHIP":
-        obs["audit"][0]["configuration_owner"] = "other"
-    elif extra == "STALE":
-        obs["observed_at"] = (NOW - timedelta(hours=2)).isoformat()
-    elif extra == "UNKNOWN":
-        obs["methodologies"][0]["configuration_findings"].append(dict(code="UNKNOWN_L2_DECLARATION"))
-    elif extra == "MISSING":
-        obs["evidence"] = []
-    original = deepcopy(obs)
-    draft = plan([r], {IP: obs}, now=NOW)
-    approved = review(draft, {r["row_id"]: "Approve"}, expected_digest=draft.digest, now=NOW)
-    result = approved.to_dict()["results"][0]
-    assert result["deployment_ready"] == (extra is None)
-    assert any("TAGGED_VLAN_NOT_IN_MEMBERSHIP" in f and "4002" in f for f in result["findings"])
-    assert obs == original
-    assert draft.digest == approved.digest
-    change = template("EdgeSwitch", "VLAN Port")
-    change_result = plan([request(change.id, {**inputs(change), "interface": inputs(t)["interface"]})],
-                         {IP: obs}, now=NOW).to_dict()["results"][0]
-    assert "OBSERVED_CONSISTENCY_CONFLICT" in change_result["findings"]
 
 
 def test_plan_export_failure_logs_safe_category(tmp_path, monkeypatch, capsys):
@@ -1010,7 +842,8 @@ def test_real_edgeswitch_audit_warning_description_only():
     approved = review(draft, {r["row_id"]: "Approve"}, expected_digest=draft.digest, now=NOW)
     assert approved.to_dict()["results"][0]["deployment_ready"]
     assert "446" in canonical(approved.to_dict()["results"][0]["findings"])
-    obs["interfaces"][0]["port_description"] = inputs(t)["description"]
+    obs["facts"][1]['children'].append(dict(kind='description', value=inputs(t)['description'],
+        source_filename='running-config', line=6, excerpt='description "' + inputs(t)['description'] + '"', children=[]))
     noop = plan([r], {IP: obs}, now=NOW)
     result = review(noop, {r["row_id"]: "Approve"}, expected_digest=noop.digest, now=NOW).to_dict()["results"][0]
     assert result["no_op"] and result["commands"] == [] and result["deployment_ready"]

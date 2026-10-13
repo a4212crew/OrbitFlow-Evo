@@ -31,7 +31,7 @@ incompatible intent remain blockers. JSON and the single workbook preserve both
 row references, projected results and original audit evidence. Deterministic tests
 cover both families; owner repeat live read-only validation remains pending.
 
-Catalyst milestone 1 (Templates 1?8, catalogue 2.2) now has shared operational
+Catalyst milestone 1 (Templates 1-8; retained in catalogue 2.3) now has shared operational
 VLAN lookup with config fallback, ordered symbolic ALL/exclusion reconstruction,
 physical-member access blocking, audited trunk aggregate resolution, exact
 logical/physical descriptions and full sanitized interface evidence through `!`.
@@ -39,8 +39,17 @@ The single plan workbook retains invalid rows, field errors, conflict references
 resolved targets and separate warnings/blockers. Both Catalyst VLAN name schemas
 reject spaces and interface inputs require full names. Deterministic validation
 is implemented; owner-controlled live C3750X/C3850X validation and sign-off remain
-pending. Templates 9?22 retain existing catalogue behavior and have no new
-milestone approval or live-validation claim.
+pending. Catalogue 2.3 implements the approved Templates 9-16 with synthetic
+validation: shared EVC ranges/QinQ, separate Push VLAN/symmetry, group zero,
+operational detail/config reconciliation, complete parent/child evidence and
+mandatory remove/recreate with omitted-child impact. ME/ASR parent and global
+BD rules remain distinct. EdgeSwitch Add/Change and Remove preserve independent
+participation, exclusion, tagging and PVID, including tagged PVID; absent global
+VLAN is informational. Database create/rename/no-op and exact descriptions use
+reliable evidence with labeled fallbacks. Workbook help, row isolation, ordered
+projections/dependencies and digest-bound single decisions are covered. No live
+hardware/firmware validation or device writes were performed. Owner read-only
+validation remains required; Templates 17-22 received no new implementation.
 
 
 Bulk planning v2 now emits flushed per-device read-only collection progress and
@@ -58,12 +67,10 @@ in-memory intent without mutating the plan or authorizing execution.
 The 21 predefined templates use shared per-device execution/session,
 inventory, InterfaceService, VlanService and family audit relationships for
 read-only evidence. Manual CLI is literal/offline-only and never connects.
-Catalogue 2.1 adds NCS540 dot1q/QinQ/untagged selection, explicit EVC
-None/Pop1/Pop2 and ASR920 untagged Push rewrite, independent EdgeSwitch
-tagged membership/PVID with untagged preservation, and earlier C3850X naming options (superseded by milestone 1 no-spaces rules).
-Deterministic review fixtures cover these options, no-ops and conflicts.
-EdgeSwitch PVID-only proposals include missing participation while preserving
-existing memberships; participating targets require only the PVID command.
+Catalogue 2.3 supersedes earlier EVC/EdgeSwitch inputs: regenerate old v2
+workbooks and plans. Legacy service_instance/pop_tags, VLAN Port mode/vlans/
+replace_untagged and Replace are rejected. Existing NCS540 catalogue behavior
+is unchanged and remains outside this approval expansion.
 NCS540 descriptions preserve observed L2transport/L3 declarations with clean
 interface inputs; evidenced ASR920 BDI declarations support logical targets.
 Review XLSX evidence is request-scoped with source/line references; internal

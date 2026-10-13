@@ -6,7 +6,7 @@ import re
 from orbitflow.configuration.plans import PlanError, require
 from orbitflow.logging import sanitize_text
 
-VERSION = "2.2"
+VERSION = "2.3"
 FAMILIES = {
     "C3750X": ("cisco_ios", "c3750x_switching"),
     "C3850X": ("cisco_xe", "c3850_switching"),
@@ -21,9 +21,9 @@ SCHEMAS = {
     "Access Port": ("interface vlan_id", "description"),
     "Trunk Port": ("interface action vlans", "native_vlan description"),
     "Interface Description": ("interface description", ""),
-    "EVC": ("interface service_instance encapsulation bridge_domain", "outer_vlan inner_vlan pop_tags rewrite push_vlan description"),
+    "EVC": ("interface service_instance_id encapsulation bridge_domain", "outer_vlan inner_vlan rewrite push_vlan split_horizon_group description interface_description"),
     "L2VPN": ("interface subinterface encapsulation bridge_group bridge_domain", "outer_vlan inner_vlan description"),
-    "VLAN Port": ("interface", "action mode vlans pvid replace_untagged description"),
+    "VLAN Port": ("interface action", "tagged_vlans pvid description"),
     "Subinterface VSI": ("interface subinterface vlan_id encapsulation vsi", "description control_vid"),
     "Manual CLI": ("platform mode scope commands", ""),
 }
@@ -57,13 +57,13 @@ class Template:
         return ("management_ip", *self.required, *self.optional)
 
     def validate(self, values):
+        if self.function in {"EVC", "VLAN Port"}:
+            return validate_service(self, values)
         require(type(values) is dict and set(values) <= set(self.columns), "unknown template field")
         require(all(values.get(k) not in (None, "") for k in ("management_ip", *self.required)), "required input missing")
         data = {k: v for k, v in values.items() if v not in (None, "")}
         numeric_fields = {"vlan_id", "outer_vlan", "inner_vlan", "native_vlan", "pvid", "control_vid",
                           "service_instance", "subinterface", "pop_tags", "push_vlan"}
-        if self.function == "EVC":
-            numeric_fields.add("bridge_domain")
         for k, v in data.items():
             require(type(v) is (int if k in numeric_fields else list if k == "vlans" else str), "invalid field type")
         try:
@@ -93,12 +93,7 @@ class Template:
         if self.family in {"C3750X", "C3850X"} and "interface" in data:
             require(re.fullmatch(r"(?:FastEthernet|GigabitEthernet|TenGigabitEthernet|FortyGigabitEthernet|HundredGigE|Port-channel|Vlan|Loopback)[0-9]+(?:/[0-9]+)*(?:\.[0-9]+)?", data["interface"]), "interface: full canonical Cisco name required")
         if "bridge_domain" in data:
-            if self.function == "EVC":
-                require(type(data["bridge_domain"]) is int and 1 <= data["bridge_domain"] <= 4094, "invalid bridge domain")
-                if self.family == "ME3600X":
-                    self.vlan(data["bridge_domain"])
-            else:
-                require(isinstance(data["bridge_domain"], str) and re.fullmatch(r"[A-Za-z0-9_.:-]+", data["bridge_domain"]), "invalid bridge domain")
+            require(isinstance(data["bridge_domain"], str) and re.fullmatch(r"[A-Za-z0-9_.:-]+", data["bridge_domain"]), "invalid bridge domain")
         for k in ("name", "description"):
             if k in data:
                 require(isinstance(data[k], str) and not any(c in data[k] for c in '\";\\'), "invalid descriptive text")
@@ -110,39 +105,22 @@ class Template:
                 require(re.fullmatch(r"[A-Za-z0-9_.:-]+", data["name"]), "invalid VLAN name")
         if "action" in data:
             require(data["action"] in {"Add", "Remove", "Replace"}, "invalid action")
-        if self.function in {"EVC", "L2VPN"}:
+        if self.function == "L2VPN":
             require(data["encapsulation"] in {"dot1q", "QinQ", "untagged"}, "invalid encapsulation")
             enc = data["encapsulation"]
             require(("outer_vlan" in data) == (enc != "untagged"), "outer tag mismatch")
             require(("inner_vlan" in data) == (enc == "QinQ"), "inner tag mismatch")
             require("pop_tags" not in data or data["pop_tags"] <= (2 if enc == "QinQ" else 1 if enc == "dot1q" else 0), "invalid rewrite")
-        if "rewrite" in data:
-            require(self.function == "EVC" and data["rewrite"] in {"None", "Pop1", "Pop2", "Push"}, "invalid rewrite choice")
-            require("pop_tags" not in data, "conflicting rewrite fields")
-            enc = data["encapsulation"]
-            require(data["rewrite"] != "Pop1" or enc != "untagged", "invalid rewrite")
-            require(data["rewrite"] != "Pop2" or enc == "QinQ", "invalid rewrite")
-            require(data["rewrite"] != "Push" or (self.family == "ASR920" and enc == "untagged"), "unsupported push rewrite")
-        require(("push_vlan" in data) == (data.get("rewrite") == "Push"), "push VLAN mismatch")
         if self.function == "Subinterface VSI":
             require(data["encapsulation"] in {"dot1q termination", "vlan-type dot1q"}, "unsupported encapsulation")
             require("control_vid" not in data or data["encapsulation"] == "dot1q termination", "unexpected control VID")
-        if self.function == "VLAN Port":
-            require(data.get("mode", "Tagged") in {"Access", "Tagged"}, "invalid port mode")
-            require(data.get("replace_untagged", "No") in {"Yes", "No"}, "invalid untagged replacement")
-            require(data.get("replace_untagged") != "Yes" or data.get("action") == "Replace", "replacement requires Replace")
-            require("vlans" not in data or "action" in data, "membership action missing")
-            require(bool(data.get("vlans")) or "pvid" in data, "membership or PVID required")
-            if data.get("mode") == "Access":
-                require(len(data.get("vlans", [])) == 1 and data.get("action") != "Remove", "invalid access request")
-                require(data.get("pvid", data["vlans"][0]) == data["vlans"][0], "access PVID mismatch")
         if self.family == "All":
             require(data["platform"] in {v[0] for v in FAMILIES.values()}, "invalid platform")
             require(data["mode"] in {"configuration", "interface", "service"}, "invalid CLI mode")
         return data
 
     def vlan(self, value):
-        require(type(value) is int and 1 <= value <= (4093 if self.family == "EdgeSwitch" else 4094), "invalid VLAN")
+        require(type(value) is int and (2 if self.family == "EdgeSwitch" else 1) <= value <= (4093 if self.family == "EdgeSwitch" else 4094), "invalid VLAN")
         if self.family in {"C3750X", "C3850X", "ME3600X"}:
             require(value not in range(1002, 1006), "reserved VLAN")
 
@@ -153,8 +131,8 @@ def _catalogue():
         "C3850X": ("VLAN Database", "Access Port", "Trunk Port", "Interface Description"),
         "ME3600X": ("VLAN Database", "EVC", "Interface Description"),
         "ASR920": ("EVC", "Interface Description"),
-        "NCS540": ("L2VPN", "Interface Description"),
         "EdgeSwitch": ("VLAN Database", "VLAN Port", "Interface Description"),
+        "NCS540": ("L2VPN", "Interface Description"),
         "NE05E": ("VLAN Database", "Subinterface VSI", "Interface Description"),
         "All": ("Manual CLI",),
     }
@@ -172,7 +150,9 @@ def normalize_display_inputs(template, values):
     """Parse human-entered scalars without depending on Excel or another UI."""
     p = {k: v for k, v in values.items() if v not in (None, "")}
     numeric = {"vlan_id", "outer_vlan", "inner_vlan", "native_vlan", "pvid", "control_vid",
-               "subinterface", "service_instance", "pop_tags", "push_vlan"}
+               "subinterface", "service_instance", "service_instance_id", "split_horizon_group", "pop_tags", "push_vlan"}
+    if template.function == "EVC":
+        numeric -= {"outer_vlan", "inner_vlan"}
     if template.function == "EVC":
         numeric.add("bridge_domain")
     for k in numeric & p.keys():
@@ -195,3 +175,72 @@ def normalize_display_inputs(template, values):
     if template.function == "L2VPN" and "bridge_domain" in p:
         p["bridge_domain"] = str(p["bridge_domain"])
     return template.validate(p)
+
+
+def vlan_expression(value):
+    """Compact approved match syntax, expanded through the shared VLAN parser."""
+    from orbitflow.vendors.vlan_types import parse_vlan_list
+    value = str(value) if type(value) is int else value
+    require(type(value) is str and re.fullmatch(r"[0-9]+(?:-[0-9]+)?(?:,[0-9]+(?:-[0-9]+)?)*", value), "invalid VLAN expression")
+    try:
+        parse_vlan_list(value)
+    except ValueError:
+        raise PlanError("invalid VLAN expression") from None
+    return value
+
+
+def validate_service(t, values):
+    require(type(values) is dict and set(values) <= set(t.columns), "unknown template field")
+    require(all(values.get(k) not in (None, "") for k in ("management_ip", *t.required)), "required input missing")
+    p = {k: v for k, v in values.items() if v not in (None, "")}
+    require(type(p['management_ip']) is str, 'invalid management IP')
+    try:
+        p['management_ip'] = str(ipaddress.ip_address(p['management_ip']))
+    except (ValueError, TypeError):
+        raise PlanError("invalid management IP") from None
+    require(type(p['interface']) is str and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9./:-]*|lag [0-9]+", p['interface']), "invalid interface")
+    for k in ('description', 'interface_description'):
+        if k in p:
+            safe(p[k])
+            require(not any(c in p[k] for c in '\";\\'), "invalid descriptive text")
+    if t.function == 'VLAN Port':
+        require(type(p['action']) is str and p['action'] in {'Add/Change', 'Remove'}, "invalid action")
+        require(p['action'] != 'Remove' or 'pvid' not in p, "REMOVE_OPERATION_CANNOT_INCLUDE_PVID")
+        require('tagged_vlans' in p or 'pvid' in p, "membership or PVID required")
+        if 'tagged_vlans' in p:
+            p['tagged_vlans'] = vlan_expression(p['tagged_vlans'])
+            from orbitflow.vendors.vlan_types import parse_vlan_list
+            for v in parse_vlan_list(p['tagged_vlans']):
+                t.vlan(v)
+        if 'pvid' in p:
+            t.vlan(p['pvid'])
+        return p
+    require(re.fullmatch(r'(?:GigabitEthernet|TenGigabitEthernet|FastEthernet|Port-channel|Gi|Te|Fa|Po)[0-9]+(?:/[0-9]+)*', p['interface']),
+            'unsupported EVC parent interface')
+    for k, low, high in [('service_instance_id', 1, 4000), ('bridge_domain', 1, 4094), ('split_horizon_group', 0, 15)]:
+        if k in p:
+            require(type(p[k]) is int and low <= p[k] <= high, "invalid " + k)
+    if t.family == 'ME3600X':
+        t.vlan(p['bridge_domain'])
+    require(type(p['encapsulation']) is str and p['encapsulation'] in {'Untagged', 'Dot1q', 'QinQ'}, "invalid encapsulation")
+    enc = p['encapsulation']
+    require(('outer_vlan' in p) == (enc != 'Untagged'), "outer tag mismatch")
+    require(('inner_vlan' in p) == (enc == 'QinQ'), "inner tag mismatch")
+    for k in ('outer_vlan', 'inner_vlan'):
+        if k in p:
+            p[k] = '1-4094' if k == 'inner_vlan' and p[k] == 'any' else vlan_expression(p[k])
+    rewrite = p.get('rewrite', 'None')
+    require(type(rewrite) is str and rewrite in {'None', 'Pop 1 symmetric', 'Pop 2 symmetric', 'Push dot1q', 'Push dot1q symmetric'}, "invalid rewrite")
+    require(('push_vlan' in p) == rewrite.startswith('Push'), "push VLAN mismatch")
+    if 'push_vlan' in p:
+        require(type(p['push_vlan']) is int and 1 <= p['push_vlan'] <= 4094, "invalid push VLAN")
+    from orbitflow.vendors.vlan_types import parse_vlan_list
+    outer_single = enc != 'Untagged' and len(parse_vlan_list(p['outer_vlan'])) == 1
+    inner_single = enc == 'QinQ' and len(parse_vlan_list(p['inner_vlan'])) == 1
+    allowed = ({'None', 'Push dot1q', 'Push dot1q symmetric'} if enc == 'Untagged' else
+               {'Pop 1 symmetric', 'Push dot1q', 'Push dot1q symmetric'} if enc == 'Dot1q' and outer_single else
+               {'None', 'Push dot1q', 'Push dot1q symmetric'} if enc == 'Dot1q' else
+               {'Pop 1 symmetric', 'Pop 2 symmetric', 'Push dot1q symmetric'} if inner_single else
+               {'None', 'Pop 1 symmetric', 'Push dot1q symmetric'})
+    require(rewrite in allowed, "UNSUPPORTED_OR_UNTESTED_REWRITE_COMBINATION")
+    return p

@@ -24,7 +24,7 @@ worksheet label for Interface Description, keeping names within Excel's
 31-character limit. C3850X template sheets resolve the existing inventory
 family `C3850` and `c3850_switching` profile. Fill rows beginning at row 3;
 header comments identify required fields and examples. Dropdowns describe
-actions, encapsulation and modes. Optional blank descriptions preserve text.
+actions, encapsulation and modes. Optional blank parent/interface descriptions preserve text. EVC rows recreate the complete child, so blank child settings are omitted.
 Credentials must never be entered into this workbook.
 
 ```powershell
@@ -117,47 +117,57 @@ ME3600X requires the bridge-domain VLAN in the global database, not the outer
 ingress tag. NCS540 keeps bridge-group/domain names separate from tags and checks
 existing L2 attachment relationships. NE05E requires an existing VSI; no QinQ or
 VSI creation is offered. EdgeSwitch tagged removal emits `no vlan tagging`
-before participation exclusion; Access uses inclusion plus PVID. EdgeSwitch
+before participation exclusion; Add/Change includes tagged membership and independently sets optional PVID. EdgeSwitch
 database proposals enter `vlan database` from privileged EXEC; its interface
 proposals use `configure`. Cisco proposals use `configure terminal`; Huawei
 uses `system-view`. None includes save or XR commit.
 
-## Revised input columns (catalogue 2.1)
+## Approved inputs (catalogue 2.3)
 
-Regenerate input workbooks with the `input` command for the revised schemas.
-Catalogue 2.0 plans/workbooks must be regenerated and reviewed; old approvals
-cannot authorize changed inputs or CLI. V1 contracts remain unchanged.
+Regenerate older v2 workbooks and plans. Templates 1-8 retain the Catalyst
+contract; Templates 9-16 follow the signed-off ME3600X/ASR920/EdgeSwitch
+[contract](../architecture/configuration/approved-me3600x-asr920-edgeswitch-templates.md).
+Templates 17-22 have no new detailed approval or validation claim in this change.
+V1 plans and authority are unchanged.
 
-- NCS540 L2VPN requires `encapsulation`: `dot1q`, `QinQ` or `untagged`.
-  `outer_vlan` is required for dot1q/QinQ and forbidden for untagged;
-  `inner_vlan` is required only for QinQ. Untagged renders
-  `encapsulation untagged`; attachment names remain independent of tags.
-- EVC offers `rewrite`: `None`, `Pop1`, `Pop2`, `Push`. None explicitly
-  removes an existing rewrite. Pop1 requires tagged ingress; Pop2 requires
-  QinQ. ASR920 Push supports untagged ingress only, requires `push_vlan`, and
-  renders `rewrite ingress tag push dot1q <push_vlan> symmetric`.
-  ME3600X Push is unavailable. Legacy `pop_tags` remains supported but cannot
-  be combined with `rewrite`. Blank rewrite fields never silently accept an
-  existing rewrite: retained operations block readiness pending explicit input.
-- EdgeSwitch VLAN Port requires interface plus membership or PVID intent.
-  `vlans` specifies tagged membership with `action` Add/Remove/Replace;
-  optional `mode` defaults to Tagged. `pvid` is independent, including with
-  Remove. For a PVID-only change leave action, mode and vlans blank. Replace
-  changes tagged membership and preserves unrelated untagged membership.
-  `replace_untagged=Yes` explicitly requests its replacement with Replace;
-  the default is No. Access selects one VLAN and uses inclusion plus PVID,
-  retaining access-conversion impact findings. Existing tagging on the selected
-  access VLAN is a blocking conflict; no tagging-disable command is generated.
-  Proposed tagging of the final PVID is also blocked. Removal retains
-  `no vlan tagging X` before `vlan participation exclude X`.
-- Catalyst milestone catalogue 2.2 supersedes the earlier C3850X space-name
-  option: both families require names of up to 32 characters from letters,
-  digits, underscore, period, colon and hyphen. Interface inputs require full
-  Cisco names, such as `GigabitEthernet1/0/1`. Regenerate older v2 plans;
-  the v1 contract is unchanged.
+- EVC requires `service_instance_id`, `encapsulation` (Untagged/Dot1q/QinQ)
+  and `bridge_domain`, independently of ingress VLAN IDs. Tagged matches use
+  `outer_vlan`; QinQ requires `inner_vlan`. Inclusive comma/range syntax is
+  preserved in CLI and expanded for overlap checks; inner `any` becomes `1-4094`.
+  `rewrite` is None, Pop 1 symmetric, Pop 2 symmetric, Push dot1q or
+  Push dot1q symmetric. Push requires separate `push_vlan`. Unsupported/untested
+  combinations block input; consult workbook Introduction and sheet A1 comments
+  for the complete valid/invalid matrix and CLI examples.
+- Every EVC row renders `no service instance <ID>` followed by complete child
+  recreation, even on a match. Optional child description/rewrite/group blanks
+  omit those old settings; `interface_description` blank preserves the parent.
+  Existing child deletion/omitted settings are visible impact warnings. Group 0
+  is distinct from omission. ME3600X requires trunk + allowed vlan none and a
+  global VLAN for the BD. ASR920 uses inline BD, without ME switchport setup.
+  Confirmed compatible empty parents may initialize; routed/owned/incompatible
+  parents block. No implicit admin, MTU, STP or policy changes.
+- EdgeSwitch VLAN Port uses `action` Add/Change or Remove, `tagged_vlans`
+  (single/comma/range), optional `pvid`, optional `description`. Add/Change
+  requires tags and/or PVID; PVID-only includes membership when necessary.
+  PVID and tagged may be the same VLAN. Remove requires tags and blank PVID,
+  untags before exclusion and blocks removal of the current PVID until an
+  earlier approved row changes it. Replace, mode, vlans and replace_untagged
+  are rejected; use separate ordered Remove then Add/Change rows. Missing
+  global VLAN is informational and never auto-created by this template.
+- VLAN Database is one ID/name per row: Cisco 1-4094 excluding 1002-1005,
+  ASCII names without spaces up to 32; EdgeSwitch 2-4093 and names with spaces
+  up to 32. Operational lookup is preferred; complete reliable running-config
+  fallback is labeled. Conflicting observations/unknown state block. Equal
+  names no-op; different names rename with impact warning.
+- Interface Description changes the exact entered physical/aggregate target,
+  including explicitly requested physical members, without changing VLAN/EVC,
+  PVID, tagging, MTU or admin state. EdgeSwitch renders quoted descriptions.
+  Required inputs and valid/invalid examples are in each worksheet's A1 comment.
 
-These options are shared by API, XLSX and CLI adapters. Review retains input,
-evidence and commands; Approve cannot override missing or unverified evidence.
+Current/Configured/Tagging operational EdgeSwitch facts remain distinct. Full
+sanitized parent evidence includes unrelated commands, all Cisco children through
+`!`, and EdgeSwitch through `exit`. Service operational Down is informational;
+unparseable/rejected detail uses annotated reliable config fallback.
 
 ## API and bounded persistence
 
@@ -179,7 +189,7 @@ input to 5,000 occupied rows, row positions through 5,002, observation bundles t
 per device or use smaller review batches; workers never retain a full-run result
 set. Oversized artifacts fail explicitly instead of silently truncating evidence.
 
-Platform bounds include VLANs 1â€“4094 (EdgeSwitch 1â€“4093), Catalyst/ME reserved
+Platform bounds include VLANs 1â€“4094 (EdgeSwitch 2â€“4093), Catalyst/ME reserved
 1002â€“1005, EVC service-instance IDs 1â€“4000, NCS540 subinterfaces 0â€“2147483647,
 and NE05E subinterfaces 1â€“4094. Inputs are not restricted to compliance's
 2â€“4001 range. References used for vendor limits include the
@@ -243,9 +253,8 @@ no-op handling and digest-bound review remain unchanged.
 
 ## Milestone 1 owner-controlled read-only smoke test
 
-Templates 1?8 are the signed-off implementation scope. Templates 9?22 remain
-in the catalogue for compatibility and await separate detailed approval. Mocked
-tests do not validate a device. Milestone acceptance remains **pending owner
+Templates 1-16 are the signed-off implementation scope. Templates 17-22
+remain outside this expansion. Mocked tests do not validate a device. Milestone acceptance remains **pending owner
 live testing and explicit sign-off** on representative C3750X and C3850X releases.
 
 Activate the repository Python environment first. Use an operator-managed
@@ -363,3 +372,40 @@ Record device family, observation time, artifact paths/digest, each tested row a
 owner assessment of evidence, CLI, No-op, warnings/blockers and final projection.
 Explicit owner sign-off after these repeated read-only runs is required before
 milestone 1 completion. Do not send proposed configuration to devices.
+
+
+## Templates 9-16 owner read-only validation pending
+
+Use authorized representative ME3600X, ASR920 and EdgeSwitch releases, the
+shared operator-owned credentials input and the planning command above.
+Never paste generated configuration back to a device. Read-only checks:
+
+- ME3600X/ASR920: collect full `show running-config` through `end`, and
+  `show ethernet service instance id <ID> interface <INTERFACE> detail`.
+  Confirm the actual ID/interface headings, fixed/list/range and QinQ/any
+  encapsulations, rewrite ethertype annotation/symmetry, BD/group zero,
+  explicit scoped absence and Up/Down output. Unrecognized detail layouts
+  deliberately use a labeled config fallback. No alternate commands are guessed.
+- ME3600X: `show vlan id <ID>`; verify present/inactive/absent/rejected lookup,
+  global BD VLAN prerequisites, compatible empty-parent initialization, normal
+  trunk/access/routed/physical-member blockers and unrelated-child retention.
+- EdgeSwitch: `show vlan <ID>` plus full `show running-config`. Verify VLAN
+  headers/names/absence, inclusive lists, full interface exit, excluded+tagged
+  facts and Current/Configured/Tagging tables. Current differences alone do not
+  change configured intent. Unknown table layouts remain evidence; planning
+  uses reliable config facts. Test Add/Change tags, PVID-only, tagged=PVID,
+  absent database informational warnings, ordered PVID change then Remove,
+  and description-only physical/LAG targets.
+- Inspect both artifacts for original input/evidence, destructive recreation
+  and omitted-setting warnings, exact CLI, row references/dependencies,
+  stale/unknown blockers and protected digest-bound Pending/Approve/Reject.
+  Existing matching EVC still recreates; matching DB/description/membership
+  no-ops produce no CLI. No apply, save or commit is available.
+
+All new syntax is deterministically tested only. Hardware forwarding behavior,
+release-specific rewrite support, empty-parent setup, service-detail command
+variants, default VLAN naming and EdgeSwitch firmware/table variants have not
+been independently live validated. Unsupported rewrite combinations fail closed;
+embedded quote/backslash input is rejected rather than guessing CLI escaping.
+Owner validation and explicit merge approval remain required. No new approval
+or firmware support is claimed for Templates 17-22.

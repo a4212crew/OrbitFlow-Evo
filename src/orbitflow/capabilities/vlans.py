@@ -48,11 +48,19 @@ class VlanService:
 
     def lookup(self, session, context, vlan_id, *, cli=None):
         """Read-only operational lookup on approved Catalyst families."""
+        if context.platform == "ubiquiti_edgeswitch" and context.device_family == "EdgeSwitch":
+            return EdgeSwitchVlanAdapter(session, timeout=self._timeout, cli=cli).lookup(vlan_id)
         if (context.platform not in {"cisco_ios", "cisco_xe"}
-                or context.device_family not in {"C3750X", "C3850"}
+                or context.device_family not in {"C3750X", "C3850", "ME3600X"}
                 or type(vlan_id) is not int or not 1 <= vlan_id <= 4094):
             raise VlanCapabilityError("unsupported VLAN lookup")
-        return CiscoVlanAdapter(session, timeout=self._timeout, cli=cli).lookup(vlan_id)
+        return CiscoVlanAdapter(session, timeout=self._timeout, cli=cli).lookup(vlan_id, preserve_evidence=context.device_family == 'ME3600X')
+
+    def service_detail(self, session, context, interface, service_instance_id, *, cli=None):
+        from orbitflow.vendors.cisco.vlans import CiscoXEVlanAdapter
+        if context.device_family not in {"ME3600X", "ASR920"}:
+            raise VlanCapabilityError("unsupported service detail")
+        return CiscoXEVlanAdapter(session, timeout=self._timeout, cli=cli).service_detail(interface, service_instance_id)
 
     def collect(
         self,
@@ -95,8 +103,8 @@ class VlanService:
         try:
             options = {}
             if preserve_full_evidence:
-                if context is None or context.device_family not in {"C3750X", "C3850"}:
-                    raise VlanCapabilityError("full evidence requires approved Catalyst context")
+                if context is None or context.device_family not in {"C3750X", "C3850", "ME3600X", "ASR920", "EdgeSwitch"}:
+                    raise VlanCapabilityError("full evidence requires approved planning context")
                 options["preserve_full_evidence"] = True
             result = adapter(session, timeout=self._timeout, cli=cli, **options).collect()
         except Exception as exc:

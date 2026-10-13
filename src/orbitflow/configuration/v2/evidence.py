@@ -12,6 +12,9 @@ def scoped_evidence(request, observation):
     logical = target + (f".{p['subinterface']}" if "subinterface" in p else "")
     names = {key(target), key(logical)} - {""}
     vids = set(p.get("vlans", []))
+    if 'tagged_vlans' in p:
+        from orbitflow.vendors.vlan_types import parse_vlan_list
+        vids.update(parse_vlan_list(p['tagged_vlans']))
     vids.update(p[k] for k in ("vlan_id", "native_vlan", "pvid") if k in p)
     if t.family == "ME3600X" and t.function == "EVC":
         vids.add(p["bridge_domain"])
@@ -34,11 +37,7 @@ def scoped_evidence(request, observation):
         if kind in {"interface", "l2_interface"} and key(value) in names:
             append(node)
             for child in node.get("children", []):
-                if t.function == "EVC" and child["kind"] == "service_instance":
-                    if child["value"] == str(p["service_instance"]):
-                        whole(child)
-                else:
-                    whole(child)
+                whole(child)
             return True
         if kind == "vlan" and set(value if isinstance(value, list) else [int(value)] if str(value).isdigit() else []) & vids:
             whole(node)
@@ -55,7 +54,7 @@ def scoped_evidence(request, observation):
         if kind == "attachment" and key(value) in names:
             whole(node)
             return True
-        if kind in {"member", "methodology_member"} and key(str(value).split(" service-instance ")[0]) in names and (t.function != "EVC" or str(value).split(" service-instance ")[-1] == str(p["service_instance"])):
+        if kind in {"member", "methodology_member"} and key(str(value).split(" service-instance ")[0]) in names and (t.function != "EVC" or str(value).split(" service-instance ")[-1] == str(p["service_instance_id"])):
             whole(node)
             return True
         start = len(result)
@@ -67,4 +66,10 @@ def scoped_evidence(request, observation):
         return False
     for node in observation.get("facts", []):
         select(node)
+    for vid in sorted(vids):
+        for e in observation.get('vlan_lookups', {}).get(str(vid), {}).get('evidence', []):
+            append(e)
+    if t.function == 'EVC':
+        for e in observation.get('service_details', {}).get(p['interface'] + ':' + str(p['service_instance_id']), {}).get('evidence', []):
+            append(e)
     return sorted(result, key=lambda e: (e["source_filename"], e["line"]))

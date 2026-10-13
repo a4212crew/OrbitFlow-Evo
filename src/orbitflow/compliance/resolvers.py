@@ -87,7 +87,8 @@ class AuditResolver:
                          if not n.kind.startswith("methodology_switchport_")
                          and n.kind not in {"methodology_unknown", "methodology_evidence", "methodology_context", "tag_rewrite",
                                            "methodology_interface", "methodology_encapsulation",
-                                           "methodology_member", "methodology_routed_attachment"})
+                                           "methodology_member", "methodology_routed_attachment", "methodology_split_horizon_group",
+                                           "vlan_name"})
         self.roots = audit_nodes(state.configuration)
         self.config, sources = {}, {}
         for node in self.roots:

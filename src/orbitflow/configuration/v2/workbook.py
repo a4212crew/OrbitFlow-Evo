@@ -41,7 +41,7 @@ def _base():
     intro.append(["OrbitFlow bulk configuration planning v2"])
     intro.append(["Order per device: worksheets left-to-right, then rows top-to-bottom. Review never authorizes device execution."])
     intro.append(["Predefined templates collect live read-only evidence. Manual CLI never connects; impact remains unknown."])
-    intro.append(["Fill rows from row 3. Required fields are marked in header comments. Do not enter credentials. Blank optional descriptions preserve existing text."])
+    intro.append(["Fill rows from row 3. Required fields are marked in header comments. Do not enter credentials. Blank parent/interface descriptions preserve text; blank EVC child settings are omitted on recreation."])
     intro.column_dimensions["A"].width = 115
     for t in CATALOGUE:
         intro.append([t.sheet])
@@ -58,13 +58,16 @@ def _base():
             cell.comment = Comment(("Required" if col in ("management_ip", *t.required) else "Optional") +
                                    ("; comma-separated VLAN IDs or ranges, e.g. 445,545,2400-2444" if col == "vlans" else ""), "OrbitFlow")
             examples = {"management_ip": "192.0.2.10", "vlan_id": "445", "name": "Customer",
-                        "description": "Customer Site Alpha", "service_instance": "10 (1-4000)",
+                        "description": "Customer Site Alpha", "service_instance_id": "10 (1-4000), independent of VLAN and BD",
                         "bridge_domain": "445; independent of ingress tag", "outer_vlan": "445",
                         "inner_vlan": "545 (QinQ only)", "pop_tags": "Legacy Pop1/Pop2; use rewrite instead",
-                        "rewrite": "None removes rewrite; Pop1/Pop2 symmetric; ASR920 Push on untagged only",
+                        "rewrite": "None omits child rewrite; Pop 1 symmetric; Pop 2 symmetric; Push dot1q; Push dot1q symmetric. Complete child recreation.",
                         "push_vlan": "Required only for Push",
                         "replace_untagged": "No preserves unrelated untagged membership; Yes explicitly replaces it",
-                        "pvid": "Independent PVID; for PVID-only leave action, mode and vlans blank",
+                        "pvid": "Independent PVID; PVID-only uses Add/Change and blank tagged_vlans; may also be tagged; Remove+pvid invalid",
+                        "tagged_vlans": "445,545,2400-2444; Add/Change includes then tags; Remove untags then excludes; no Replace",
+                        "split_horizon_group": "Optional; explicit 0 valid; blank omits setting on recreation",
+                        "interface_description": "Optional parent description; blank preserves parent text",
                         "subinterface": "10", "vsi": "existing-VSI", "bridge_group": "CUSTOMER",
                         "scope": "Affected resource metadata only; no CLI wrapper. Literal commands must include required hierarchy", "commands": "Literal multiline CLI; no credentials",
                         "interface": "Existing physical/aggregate interface; descriptions also permit existing subinterfaces"}
@@ -75,12 +78,65 @@ def _base():
                        "encapsulation": "dot1q,QinQ,untagged" if t.function in {"EVC", "L2VPN"} else "dot1q termination,vlan-type dot1q",
                        "rewrite": "None,Pop1,Pop2,Push", "replace_untagged": "No,Yes",
                        "platform": "cisco_ios,cisco_xe,cisco_xr,huawei_vrp,ubiquiti_edgeswitch"}
+            if t.function == 'EVC':
+                choices.update(encapsulation='Untagged,Dot1q,QinQ', rewrite='None,Pop 1 symmetric,Pop 2 symmetric,Push dot1q,Push dot1q symmetric')
+            if t.function == 'VLAN Port':
+                choices['action'] = 'Add/Change,Remove'
             if col in choices:
                 dv = DataValidation(type="list", formula1='"' + choices[col] + '"')
                 dv.errorTitle, dv.error, dv.showErrorMessage = "Invalid choice", "Select a listed value", True
                 sheet.add_data_validation(dv)
                 dv.add(f"{get_column_letter(index)}3:{get_column_letter(index)}5002")
+        help_text = template_help(t)
+        if help_text:
+            sheet['A1'].comment = Comment(help_text, 'OrbitFlow', width=800, height=500)
+            intro.append([t.sheet + ': ' + help_text])
+            intro.cell(intro.max_row, 1).alignment = Alignment(vertical='top', wrap_text=True)
+            intro.cell(intro.max_row, 1).font = Font(size=10)
+            intro.row_dimensions[intro.max_row].height = min(409, max(60, (len(help_text) // 95 + 2) * 13))
     return book
+
+
+def template_help(t):
+    if t.family not in {'C3750X', 'C3850X', 'ME3600X', 'ASR920', 'EdgeSwitch'}:
+        return ''
+    required = 'Required: ' + ', '.join(('management_ip', *t.required)) + '. '
+    if t.function == 'EVC':
+        return required + (
+            'Complete desired child: always no service instance <ID>, then service instance <ID> ethernet and full recreation. '
+            'Valid encapsulation mappings: Untagged / blank / blank -> encapsulation untagged; '
+            'Dot1q / 445 / blank -> encapsulation dot1q 445; Dot1q / 100-200 / blank -> encapsulation dot1q 100-200; '
+            'Dot1q / 2-444,446-544 / blank -> encapsulation dot1q 2-444,446-544; '
+            'QinQ / 300 / 200 -> encapsulation dot1q 300 second-dot1q 200; '
+            'QinQ / 100 / 1-4094 -> encapsulation dot1q 100 second-dot1q 1-4094. any inner normalizes to 1-4094. '
+            'Valid rewrites: Untagged+None or either Push; single Dot1q+Pop 1 or either Push; '
+            'Dot1q range/list+None or either Push; QinQ fixed inner+Pop 1/Pop 2/Push symmetric; '
+            'QinQ ranged inner+None/Pop 1/Push symmetric. Push needs independent push_vlan. '
+            'CLI: None omits rewrite; rewrite ingress tag pop 1 symmetric; rewrite ingress tag pop 2 symmetric; '
+            'rewrite ingress tag push dot1q 100; rewrite ingress tag push dot1q 1402 symmetric; bridge-domain 2000 split-horizon group 0. '
+            'Invalid: Untagged with tags or Pop; single Dot1q+None/Pop 2; ranged Dot1q+Pop; '
+            'QinQ+non-symmetric Push; ranged QinQ+Pop 2; missing push_vlan; reversed range 200-100. '
+            'Blank child description/rewrite/group omits old setting; blank interface_description preserves parent. '
+            'ME3600X needs trunk + allowed vlan none and global BD VLAN; ASR920 uses inline BD. Empty compatible parent may initialize. '
+            'No implicit no shutdown, MTU or policy changes. Live hardware/firmware validation pending.')
+    if t.function == 'VLAN Port':
+        return required + (
+            'Add/Change requires tagged_vlans and/or pvid. Valid: tagged_vlans=445,545-546; pvid-only=445; tagged_vlans=445 and pvid=445. '
+            'CLI: vlan participation include 445,545-546; vlan tagging 445,545-546; vlan pvid 445. '
+            'Remove requires tagged_vlans and blank pvid: no vlan tagging 545; vlan participation exclude 545. '
+            'Invalid: Replace, Remove+pvid, VLAN 1/4094, 200-100, empty Add/Change. Explicit ordered Remove then Add/Change for replacement. '
+            'Global VLAN absence is informational. Preserve unrelated configuration; Current/Configured/Tagging remain independent.')
+    if t.function == 'VLAN Database':
+        return required + ('Valid: 445 / Customer; create/rename/no-op. Invalid: multiple VLAN IDs, reversed range, names longer than 32. '
+                           'EdgeSwitch IDs 2-4093, names may contain spaces: vlan database; vlan 901; vlan name 901 "VLAN 901"; exit. '
+                           'Cisco IDs 1-4094 excluding 1002-1005, ASCII names without spaces: configure terminal; vlan 445; name Customer; end. '
+                           'Operational lookup preferred; complete reliable configuration fallback annotated; unknown blocks.')
+    if t.function == 'Interface Description':
+        return required + ('Valid: explicit physical or supported aggregate target, description=Customer Site Alpha. '
+                           'CLI: interface <target>; description Customer Site Alpha (EdgeSwitch quoted); end/exit. '
+                           'Invalid: missing/ambiguous interface, secret-bearing text, unreliable evidence. Exact target; physical member is not redirected. '
+                           'Preserve VLAN/EVC/BD, MTU, admin state and all unrelated commands; matching description is No-op.')
+    return required + 'Use approved function-specific fields; unknown fields and credentials are invalid.'
 
 
 def create_input(path):
@@ -114,7 +170,7 @@ def read_input(path):
                     source_inputs = dict(zip(t.columns, values))
                     result.append(request(t.id, normalize_display_inputs(t, source_inputs), source_inputs=source_inputs,
                                           sheet_order=order, row=number))
-                except (PlanError, ValueError, TypeError):
+                except (PlanError, ValueError, TypeError) as error:
                     source_inputs = dict(zip(t.columns, values))
                     original = {k: _safe_source(str(v)) if v is not None else "" for k, v in zip(t.columns, values)}
                     details = []
@@ -122,20 +178,29 @@ def read_input(path):
                     # cross-field validation as a row error when needed.
                     defaults = dict(management_ip="192.0.2.1", interface="GigabitEthernet1/0/1", vlan_id=445,
                                     name="Customer", action="Replace", vlans="445", description="Customer")
+                    if t.function == 'EVC':
+                        defaults.update(service_instance_id=10, encapsulation='Dot1q', bridge_domain=445,
+                                        outer_vlan='445', rewrite='Pop 1 symmetric')
+                    elif t.function == 'VLAN Port':
+                        defaults.update(interface='0/1', action='Add/Change', tagged_vlans='445')
                     for field in t.columns:
                         try:
                             if cells[t.columns.index(field)].data_type == "f":
                                 raise PlanError("formulas forbidden")
-                            if t.family in {"C3750X", "C3850X"}:
+                            if t.family in {"C3750X", "C3850X", "ME3600X", "ASR920", "EdgeSwitch"}:
                                 probe = {k: defaults[k] for k in t.required}
                                 probe['management_ip'] = defaults['management_ip']
+                                if t.function == 'EVC':
+                                    probe.update(outer_vlan='445', rewrite='Pop 1 symmetric')
+                                elif t.function == 'VLAN Port':
+                                    probe['tagged_vlans'] = '445'
                                 probe[field] = source_inputs.get(field)
                                 normalize_display_inputs(t, probe)
                         except (PlanError, ValueError, TypeError) as exc:
                             detail = str(exc) if isinstance(exc, PlanError) else "invalid value"
                             details.append(field + ": " + detail)
                     result.errors.append(dict(sheet=t.sheet, row=number, reason="INVALID_INPUT_ROW",
-                                              source_inputs=original, details=details or ["row: invalid input combination"]))
+                                              source_inputs=original, details=details or ["row: " + (str(error) if isinstance(error, PlanError) else "invalid input combination")]))
                 require(len(result) + len(result.errors) <= MAX_ROWS, "workbook row limit exceeded")
         return result
     finally:

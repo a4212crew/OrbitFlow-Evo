@@ -72,6 +72,10 @@ class InterfaceVlanObservation:
     bridge_domains: tuple[str, ...] = ()
     service_mappings: tuple[str, ...] = ()
     service_details: tuple[InterfaceVlanObservation, ...] = ()
+    configured_included_vlans: tuple[int, ...] = ()
+    configured_tagged_vlans: tuple[int, ...] = ()
+    outer_vlan_expression: str = ""
+    inner_vlan_expression: str = ""
 
 
 @dataclass(frozen=True)
@@ -102,6 +106,7 @@ class TagRewrite:
     parameters: str
     output_tags: tuple[tuple[str, int], ...] = ()
     translation: str = ""
+    push_vlan: Optional[int] = None
 
 
 @dataclass(frozen=True)

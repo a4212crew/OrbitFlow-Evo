@@ -1,0 +1,418 @@
+"""Signed-off Templates 9–16: synthetic observations, no network writes."""
+from dataclasses import asdict
+from datetime import datetime, timezone
+import socket
+
+import pytest
+from openpyxl import load_workbook
+
+from orbitflow.configuration.plans import PlanError, canonical
+from orbitflow.configuration.v2.catalogue import BY_SHEET, CATALOGUE
+from orbitflow.configuration.v2.planning import request, plan, load, save
+from orbitflow.configuration.v2.workbook import create_input, read_input, export_plan, consume_decisions, EXTRA
+from orbitflow.configuration.v2.observation import snapshot
+from orbitflow.configuration.v2.evidence import scoped_evidence
+from orbitflow.models import DeviceContext, InterfaceRecord, VlanState
+from orbitflow.vendors.configuration_facts import observe_configuration
+from orbitflow.vendors.cisco.vlans import parse_ios_running_config, parse_service_detail
+from orbitflow.vendors.ubiquiti.vlans import parse_edgeswitch_config, parse_vlan_lookup
+
+IP = '192.0.2.91'
+NOW = datetime(2026, 10, 13, tzinfo=timezone.utc)
+
+
+def template(family, function='EVC'):
+    return BY_SHEET[family + ' ' + ('Description' if function == 'Interface Description' else function)]
+
+
+def test_approved_template_numbering_and_no_legacy_fields():
+    assert [(t.family, t.function) for t in CATALOGUE[8:16]] == [
+        ('ME3600X', 'VLAN Database'), ('ME3600X', 'EVC'), ('ME3600X', 'Interface Description'),
+        ('ASR920', 'EVC'), ('ASR920', 'Interface Description'), ('EdgeSwitch', 'VLAN Database'),
+        ('EdgeSwitch', 'VLAN Port'), ('EdgeSwitch', 'Interface Description')]
+    assert not {'pop_tags', 'service_instance'} & set(template('ME3600X').columns)
+    assert not {'mode', 'vlans', 'replace_untagged', 'vlan_id', 'untagged_vlans'} & set(template('EdgeSwitch', 'VLAN Port').columns)
+
+
+@pytest.mark.parametrize('name', ['Vlan445', 'BDI445', 'GigabitEthernet0/1.445'])
+def test_evc_requires_supported_physical_or_aggregate_parent(name):
+    with pytest.raises(PlanError, match='unsupported EVC parent'):
+        request(template('ASR920').id, {**evc_inputs(), 'interface': name})
+
+
+def observation(family, config):
+    platform = 'ubiquiti_edgeswitch' if family == 'EdgeSwitch' else 'cisco_ios' if family == 'ME3600X' else 'cisco_xe'
+    profile = '' if family == 'EdgeSwitch' else 'me3600x_evc' if family == 'ME3600X' else 'asr920_evc'
+    ctx = DeviceContext('synthetic-91', IP, (IP,), 'fixture', 'fixture', platform, family, family, profile, (), 'FIXTURE', '1', '', NOW, NOW)
+    ports, objects = parse_edgeswitch_config(config) if family == 'EdgeSwitch' else parse_ios_running_config(config, evc=True, vlan_database=family != 'ASR920')
+    facts = observe_configuration(config, platform, preserve_full_evidence=True)
+    interfaces = tuple(InterfaceRecord('fixture', IP, platform, n.value, '', 'up', 'up', NOW) for n in facts if n.kind == 'interface')
+    return snapshot(ctx, interfaces, VlanState('fixture', IP, platform, ports, objects, NOW, facts))
+
+
+def evc_inputs(**changes):
+    return dict(management_ip=IP, interface='GigabitEthernet0/1', service_instance_id=3000,
+                encapsulation='Dot1q', outer_vlan='445', rewrite='Pop 1 symmetric', bridge_domain=445, **changes)
+
+
+def evc_config(family, child='', parent=''):
+    return ('vlan 445\n name Customer\n!\n' if family == 'ME3600X' else '') + 'interface GigabitEthernet0/1\n' + (
+        ' switchport mode trunk\n switchport trunk allowed vlan none\n' if family == 'ME3600X' else '') + parent + child + '!\nend\n'
+
+
+def result(family, p, config, **extra):
+    t = template(family, 'VLAN Port' if family == 'EdgeSwitch' else 'EVC')
+    r = request(t.id, p)
+    obs = observation(family, config)
+    obs.update(extra)
+    return plan([r], {IP: obs}, now=NOW, decisions={r['row_id']: 'Approve'}).to_dict()['results'][0]
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+def test_matching_evc_always_recreated_full_evidence_and_omitted_settings(family):
+    config = evc_config(family, ' service instance 3000 ethernet\n  description OLD CHILD\n  encapsulation dot1q 445\n  rewrite ingress tag pop 1 symmetric\n  bridge-domain 445 split-horizon group 0\n  service-policy input CUSTOMER\n service instance 20 ethernet\n  encapsulation dot1q 800\n  bridge-domain 800\n', ' description OLD PARENT\n mtu 9000\n shutdown\n')
+    p = evc_inputs()
+    p['split_horizon_group'] = 0
+    row = result(family, p, config)
+    assert not row['no_op'] and row['deployment_ready']
+    assert row['commands'][2:4] == ['no service instance 3000', 'service instance 3000 ethernet']
+    assert 'bridge-domain 445 split-horizon group 0' in row['commands']
+    assert not any('20 ethernet' in c or 'shutdown' in c or 'mtu' in c for c in row['commands'])
+    assert {'SERVICE_INSTANCE_RECREATE_IMPACT', 'OMITTED_CHILD_SETTINGS'} <= set(row['warnings'])
+    assert any('service-policy' in c for c in row['omitted_child_commands'])
+    obs = observation(family, config)
+    evidence = '\n'.join(e['excerpt'] for e in scoped_evidence(request(template(family).id, p), obs))
+    assert 'OLD PARENT' in evidence and 'OLD CHILD' in evidence and '20 ethernet' in evidence and '\n!' in evidence
+
+
+@pytest.mark.parametrize('enc,outer,inner', [('Untagged', None, None), ('Dot1q', '445', None), ('Dot1q', '100-200', None),
+                                          ('Dot1q', '2-444,446-544', None), ('QinQ', '300', '200'), ('QinQ', '100', '1-4094')])
+@pytest.mark.parametrize('rewrite', ['None', 'Pop 1 symmetric', 'Pop 2 symmetric', 'Push dot1q', 'Push dot1q symmetric'])
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+def test_approved_rewrite_matrix(family, enc, outer, inner, rewrite):
+    p = {**evc_inputs(), 'encapsulation': enc, 'rewrite': rewrite}
+    p.pop('outer_vlan')
+    if outer:
+        p['outer_vlan'] = outer
+    if inner:
+        p['inner_vlan'] = inner
+    if rewrite.startswith('Push'):
+        p['push_vlan'] = 1402
+    allowed = ({'None', 'Push dot1q', 'Push dot1q symmetric'} if enc == 'Untagged' else
+               {'Pop 1 symmetric', 'Push dot1q', 'Push dot1q symmetric'} if outer == '445' else
+               {'None', 'Push dot1q', 'Push dot1q symmetric'} if enc == 'Dot1q' else
+               {'Pop 1 symmetric', 'Pop 2 symmetric', 'Push dot1q symmetric'} if inner == '200' else
+               {'None', 'Pop 1 symmetric', 'Push dot1q symmetric'})
+    if rewrite not in allowed:
+        with pytest.raises(PlanError, match='UNSUPPORTED_OR_UNTESTED'):
+            request(template(family).id, p)
+    else:
+        row = result(family, p, evc_config(family))
+        assert row['deployment_ready']
+        if rewrite == 'None':
+            assert not any('rewrite' in c for c in row['commands'])
+        elif rewrite.startswith('Push'):
+            assert f"rewrite ingress tag push dot1q 1402" + (' symmetric' if rewrite.endswith('symmetric') else '') in row['commands']
+
+
+def test_shared_ranges_any_and_split_horizon_zero():
+    config = 'interface GigabitEthernet0/1\n service instance 1 ethernet\n  encapsulation dot1q 2-444,446-544 second-dot1q any\n  bridge-domain 700 split-horizon group 0\n!'
+    facts = observe_configuration(config, 'cisco_ios')
+    child = facts[0].children[0]
+    assert next(n.value for n in child.children if n.kind == 'encapsulation') == tuple([*range(2,445), *range(446,545)])
+    assert next(n.value for n in child.children if n.kind == 'inner_vlan') == tuple(range(1,4095))
+    bd = next(n for n in child.children if n.kind == 'bridge_domain')
+    assert bd.children[0].value == '0'
+    ports, _ = parse_ios_running_config(config, evc=True)
+    assert 444 in ports[0].tagged_vlans and 445 not in ports[0].tagged_vlans
+    assert ports[0].inner_vlan_expression == '1-4094'
+
+
+@pytest.mark.parametrize('inner,blocked', [('200', True), ('201', False), ('190-210', True), ('any', True)])
+def test_qinq_pair_overlap(inner, blocked):
+    p = {**evc_inputs(), 'encapsulation': 'QinQ', 'outer_vlan': '300', 'inner_vlan': '200', 'rewrite': 'Pop 2 symmetric'}
+    child = f' service instance 20 ethernet\n  encapsulation dot1q 300 second-dot1q {inner}\n  bridge-domain 800\n'
+    row = result('ASR920', p, evc_config('ASR920', child))
+    assert ('INGRESS_TAG_OVERLAP' in row['blockers']) == blocked
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+@pytest.mark.parametrize('parent', [' ip address 192.0.2.1 255.255.255.0\n', ' channel-group 1 mode active\n', ' switchport mode access\n'])
+def test_parent_conversion_and_ownership_block(family, parent):
+    config = ('vlan 445\n!\n' if family == 'ME3600X' else '') + 'interface GigabitEthernet0/1\n' + parent + '!\nend\n'
+    assert not result(family, evc_inputs(), config)['deployment_ready']
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+def test_empty_initialization_preserves_shutdown(family):
+    config = ('vlan 445\n!\n' if family == 'ME3600X' else '') + 'interface GigabitEthernet0/1\n shutdown\n mtu 9000\n!\nend\n'
+    row = result(family, evc_inputs(), config)
+    assert row['deployment_ready']
+    assert ('switchport trunk allowed vlan none' if family == 'ME3600X' else 'no ip address') in row['commands']
+    assert 'no shutdown' not in row['commands']
+
+
+def test_operational_detail_reuses_rewrite_grammar_and_scoped_absence():
+    text = 'Id: 3000\nInterface: GigabitEthernet0/1\nEncapsulation: dot1q 2-444,446-544\nRewrite: ingress tag push dot1q 1402 vlan-type 0x8100 symmetric\nBridge-domain: 700 split-horizon group 0\nState: Down\n'
+    detail = parse_service_detail(text, 'GigabitEthernet0/1', 3000)
+    assert detail['status'] == 'present' and detail['operational_status'] == 'down'
+    rewrite = next(n['value'] for n in detail['facts'] if n['kind'] == 'tag_rewrite')
+    assert rewrite['symmetric'] and rewrite['output_tags'] == [['dot1q', 1402]]
+    assert parse_service_detail('Service instance 3000 interface GigabitEthernet0/1 does not exist', 'GigabitEthernet0/1', 3000)['status'] == 'absent'
+    assert parse_service_detail('Service instance 20 interface GigabitEthernet0/2 does not exist', 'GigabitEthernet0/1', 3000)['status'] == 'unknown'
+    assert parse_service_detail('garbage', 'GigabitEthernet0/1', 3000)['status'] == 'unknown'
+
+
+EDGE = 'vlan database\nvlan 445,545,745-746,901,2436-2444\nvlan name 901 "VLAN 901"\nexit\ninterface 0/1\ndescription "Customer Site Alpha"\nvlan pvid 445\nvlan participation include 445,545\nvlan participation exclude 746\nvlan tagging 545,746\nstorm-control broadcast level 10\nmtu 9000\nexit\n'
+
+
+def edge_inputs(**changes):
+    return dict(management_ip=IP, interface='0/1', action='Add/Change', **changes)
+
+
+def test_edge_config_and_operational_independent_facts_full_evidence():
+    ports, objects = parse_edgeswitch_config(EDGE)
+    assert ports[0].configured_tagged_vlans == (545,746) and ports[0].excluded_vlans == (746,)
+    assert {v.object_id for v in objects} >= {'2436', '2444', '745', '746'}
+    assert next(v.name for v in objects if v.object_id == '901') == 'VLAN 901'
+    lookup = parse_vlan_lookup('VLAN ID: 746\nVLAN Name: Customer\nVLAN Type: Static\nPort Current Configured Tagging\n0/1 Exclude Include Tagged\n', 746)
+    assert lookup['ports'] == [dict(interface='0/1', current='Exclude', configured='Include', tagging='Tagged')]
+    assert parse_vlan_lookup('VLAN does not exist.', 746)['status'] == 'absent'
+    r = request(template('EdgeSwitch', 'VLAN Port').id, edge_inputs(tagged_vlans='746'))
+    evidence = '\n'.join(e['excerpt'] for e in scoped_evidence(r, observation('EdgeSwitch', EDGE)))
+    assert 'storm-control' in evidence and evidence.endswith('exit')
+    row = result('EdgeSwitch', edge_inputs(tagged_vlans='746'), EDGE)
+    assert row['commands'] == ['configure', 'interface 0/1', 'vlan participation include 746', 'exit', 'exit']
+
+
+def test_edge_pvid_only_tagged_pvid_global_absence_and_noops():
+    row = result('EdgeSwitch', edge_inputs(pvid=901), EDGE)
+    assert row['commands'][2:-2] == ['vlan participation include 901', 'vlan pvid 901']
+    row = result('EdgeSwitch', edge_inputs(pvid=445, tagged_vlans='445'), EDGE)
+    assert row['deployment_ready'] and row['commands'][2:-2] == ['vlan tagging 445']
+    row = result('EdgeSwitch', edge_inputs(tagged_vlans='902'), EDGE)
+    assert row['deployment_ready'] and 'VLAN_NOT_IN_DATABASE' in row['warnings']
+    assert not any(c.startswith('vlan 902') for c in row['commands'])
+    row = result('EdgeSwitch', edge_inputs(tagged_vlans='545', pvid=445), EDGE)
+    assert row['no_op'] and row['commands'] == []
+
+
+def test_edge_remove_order_no_replace_and_projected_pvid():
+    t = template('EdgeSwitch', 'VLAN Port')
+    for p in [{**edge_inputs(tagged_vlans='545'), 'action': 'Replace'}, {**edge_inputs(tagged_vlans='545', pvid=901), 'action': 'Remove'}]:
+        with pytest.raises(PlanError):
+            request(t.id, p)
+    row = result('EdgeSwitch', {**edge_inputs(tagged_vlans='746'), 'action': 'Remove'}, EDGE)
+    assert row['commands'][2:-2] == ['no vlan tagging 746']
+    row = result('EdgeSwitch', {**edge_inputs(tagged_vlans='545'), 'action': 'Remove'}, EDGE)
+    assert row['commands'][2:-2] == ['no vlan tagging 545', 'vlan participation exclude 545']
+    assert 'PVID_REMOVAL_REQUIRES_REVIEW' in result('EdgeSwitch', {**edge_inputs(tagged_vlans='445'), 'action': 'Remove'}, EDGE)['blockers']
+    a = request(t.id, edge_inputs(pvid=901), row=3)
+    b = request(t.id, {**edge_inputs(tagged_vlans='445'), 'action': 'Remove'}, row=4)
+    rows = plan([b,a], {IP: observation('EdgeSwitch', EDGE)}, now=NOW,
+                decisions={a['row_id']: 'Approve', b['row_id']: 'Approve'}).to_dict()['results']
+    assert all(r['deployment_ready'] for r in rows)
+    assert rows[1]['projected_state']['pvid'] == 901
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'EdgeSwitch'])
+def test_database_lookup_fallback_create_rename_noop_conflict_unknown(family):
+    config = EDGE if family == 'EdgeSwitch' else evc_config(family)
+    t = template(family, 'VLAN Database')
+    p = dict(management_ip=IP, vlan_id=445, name='New_Name')
+    r = request(t.id, p)
+    obs = observation(family, config)
+    row = plan([r], {IP: obs}, now=NOW).to_dict()['results'][0]
+    assert 'VLAN_LOOKUP_FALLBACK' in row['warnings'] and 'VLAN_RENAME_IMPACT' in row['warnings']
+    if family == 'EdgeSwitch':
+        assert row['commands'] == ['vlan database', 'vlan name 445 "New_Name"', 'exit']
+    obs['vlan_lookups'] = {'445': dict(status='absent', name='', operational_status='')}
+    assert 'VLAN_OBSERVATION_CONFLICT' in plan([r], {IP: obs}, now=NOW).to_dict()['results'][0]['blockers']
+    obs['configuration_reliable'] = False
+    obs['vlan_lookups'] = {}
+    assert 'VLAN_STATE_UNKNOWN' in plan([r], {IP: obs}, now=NOW).to_dict()['results'][0]['blockers']
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'EdgeSwitch'])
+def test_reliably_empty_database_is_confirmed_absent(family):
+    t = template(family, 'VLAN Database')
+    r = request(t.id, dict(management_ip=IP, vlan_id=901, name='Customer'))
+    obs = observation(family, 'hostname fixture\nend\n')
+    row = plan([r], {IP: obs}, now=NOW, decisions={r['row_id']: 'Approve'}).to_dict()['results'][0]
+    assert row['deployment_ready'] and not row['no_op']
+    assert 'vlan 901' in row['commands']
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920', 'EdgeSwitch'])
+def test_description_only_exact_member_target_and_unchanged_evidence(family):
+    t = template(family, 'Interface Description')
+    config = EDGE if family == 'EdgeSwitch' else evc_config(family, parent=' channel-group 1 mode active\n description Before\n shutdown\n')
+    p = dict(management_ip=IP, interface='0/1' if family == 'EdgeSwitch' else 'GigabitEthernet0/1', description='New Customer Site')
+    obs = observation(family, config)
+    before = canonical(obs)
+    r = request(t.id,p)
+    row = plan([r], {IP: obs}, now=NOW, decisions={r['row_id']: 'Approve'}).to_dict()['results'][0]
+    assert row['deployment_ready'] and len(row['commands']) == (5 if family == 'EdgeSwitch' else 4)
+    assert row['resolved_target'] == p['interface'] and canonical(obs) == before
+
+
+def test_new_workbook_help_invalid_row_isolation_digest_and_no_network(tmp_path, monkeypatch):
+    monkeypatch.setattr(socket, 'socket', lambda *a, **k: pytest.fail('offline workflow connected'))
+    source = tmp_path / 'input.xlsx'
+    create_input(source)
+    book = load_workbook(source)
+    for family in ('ME3600X', 'ASR920'):
+        sheet = book[template(family).sheet]
+        assert '2-444,446-544' in sheet['A1'].comment.text
+        assert 'Pop 2' in sheet['A1'].comment.text and 'Invalid' in sheet['A1'].comment.text
+    t = template('EdgeSwitch', 'VLAN Port')
+    p = edge_inputs(pvid=901)
+    for col, field in enumerate(t.columns, 1):
+        book[t.sheet].cell(3, col, p.get(field))
+        book[t.sheet].cell(4, col, {**p, 'action': 'Remove'}.get(field))
+        book[t.sheet].cell(5, col, {**p, 'management_ip': ''}.get(field))
+    book.save(source)
+    rows = read_input(source)
+    assert len(rows) == 1 and len(rows.errors) == 2
+    assert any('management_ip' in detail for detail in rows.errors[1]['details'])
+    original = plan(rows, {IP: observation('EdgeSwitch', EDGE)}, now=NOW)
+    dest = tmp_path / 'plan.xlsx'
+    export_plan(original, dest)
+    save(original, tmp_path / 'plan.json')
+    assert load(tmp_path / 'plan.json').digest == original.digest
+    book = load_workbook(dest)
+    assert book[t.sheet].cell(4, len(t.columns) + EXTRA.index('Validation Status') + 1).value == 'Invalid'
+    book[t.sheet].cell(3, len(t.columns) + len(EXTRA), 'Approve')
+    book.save(dest)
+    reviewed = consume_decisions(original, dest, expected_digest=original.digest, now=NOW)
+    assert reviewed.to_dict()['results'][0]['deployment_ready'] and not reviewed.to_dict()['execution_authorized']
+    with pytest.raises(PlanError):
+        export_plan(original, dest)
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920', 'EdgeSwitch'])
+def test_shared_collection_detail_lookup_failure_isolation_sanitization_and_no_writes(family, tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from functools import partial
+    from orbitflow.configuration.v2 import observation as collector
+    from orbitflow.config import ExecutionConfig
+    from orbitflow.transport import DeviceCredentials
+    from orbitflow.logging import module_logger
+    config = EDGE if family == 'EdgeSwitch' else evc_config(family)
+    obs = observation(family, config)
+    ident = obs['identity']
+    context = DeviceContext(ident['inventory_id'], IP, (IP,), ident['hostname'], 'fixture', ident['platform'], family,
+                            family, ident['capability_profile'], (), 'FIXTURE', '1', '', NOW, NOW)
+    calls, closed = [], []
+    @contextmanager
+    def connect(ip, credentials, config):
+        try:
+            if ip != IP:
+                raise ValueError('SYNTHETIC_PASSWORD_MUST_NOT_ESCAPE')
+            yield object()
+        finally:
+            closed.append(ip)
+    class CLI:
+        def __init__(self, session):
+            self.session = session
+            self.prompt = '(fixture)#' if family == 'EdgeSwitch' else 'fixture#'
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            closed.append('cli')
+        def require_session(self, session):
+            assert session is self.session
+        def configure(self, **options):
+            assert options['paging_command'] == 'terminal length 0'
+        def run_command(self, command, **kwargs):
+            assert command.startswith('show '), 'device write attempted'
+            calls.append(command)
+            if command == 'show running-config':
+                # Known supplied credentials must also disappear from a harmless
+                # source description, beyond command-label sanitation.
+                return config.replace('Customer Site Alpha', 'SYNTHETIC_PASSWORD_MUST_NOT_ESCAPE')
+            if command.startswith('show ethernet'):
+                return 'Service instance 3000 interface GigabitEthernet0/1 does not exist'
+            if command == 'show vlan 902':
+                return 'VLAN does not exist.'
+            return '% Invalid input'
+    class Resolver:
+        def __init__(self, *a, **k):
+            pass
+        def resolve(self, *a, **k):
+            return context
+    monkeypatch.setattr(collector, 'connect_device', connect)
+    monkeypatch.setattr(collector, 'DeviceCLI', CLI)
+    monkeypatch.setattr(collector, 'DeviceInventoryResolver', Resolver)
+    monkeypatch.setattr(collector.InterfaceService, 'collect', lambda *a, **k: ())
+    monkeypatch.setattr(collector, 'module_logger', partial(module_logger, log_root=tmp_path / 'logs'))
+    t = template(family, 'VLAN Port' if family == 'EdgeSwitch' else 'EVC')
+    p = edge_inputs(tagged_vlans='902', pvid=901) if family == 'EdgeSwitch' else evc_inputs()
+    rows = [request(t.id, p), request(t.id, {**p, 'management_ip': '192.0.2.92'}, row=4)]
+    creds = {ip: DeviceCredentials('synthetic-user', 'SYNTHETIC_PASSWORD_MUST_NOT_ESCAPE') for ip in (IP, '192.0.2.92')}
+    spool = collector.collect(rows, creds, None, inventory_path=tmp_path / 'inventory.json', spool_root=tmp_path / 'runs', execution_config=ExecutionConfig(1,0,0))
+    records = dict(collector.observations(spool))
+    assert records[IP]['status'] == 'live_read_only' and records['192.0.2.92']['status'] == 'evidence_unavailable'
+    assert calls.count('show running-config') == 1 and closed.count('cli') == 1 and closed.count(IP) == 1
+    assert ('show vlan 902' if family == 'EdgeSwitch' else 'show ethernet service instance id 3000 interface GigabitEthernet0/1 detail') in calls
+    if family == 'EdgeSwitch':
+        assert 'show vlan 901' in calls
+    persisted = ''.join(p.read_text(encoding='utf-8') for p in tmp_path.rglob('*') if p.is_file() and p.suffix in {'.json', '.jsonl', '.log'})
+    assert 'SYNTHETIC_PASSWORD_MUST_NOT_ESCAPE' not in persisted
+    assert 'SYNTHETIC_PASSWORD_MUST_NOT_ESCAPE' not in canonical(records)
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920', 'EdgeSwitch'])
+def test_incomplete_running_config_cannot_prove_absence(family):
+    from orbitflow.vendors.cisco.vlans import CiscoXEVlanAdapter
+    from orbitflow.vendors.ubiquiti.vlans import EdgeSwitchVlanAdapter
+    session = object()
+    class CLI:
+        prompt = 'fixture#'
+        def require_session(self, supplied):
+            assert supplied is session
+        def configure(self, **kwargs):
+            pass
+        def run_command(self, command, **kwargs):
+            assert command == 'show running-config'
+            return 'interface 0/1\nvlan pvid 445' if family == 'EdgeSwitch' else 'interface GigabitEthernet0/1\n shutdown\n!'
+    adapter = EdgeSwitchVlanAdapter if family == 'EdgeSwitch' else CiscoXEVlanAdapter
+    with pytest.raises(ValueError, match='incomplete'):
+        adapter(session, cli=CLI(), preserve_full_evidence=True).collect()
+
+
+def test_earlier_me_database_prerequisite_requires_approval():
+    db = template('ME3600X', 'VLAN Database')
+    evc = template('ME3600X')
+    a = request(db.id, dict(management_ip=IP, vlan_id=445, name='Customer'), sheet_order=1)
+    b = request(evc.id, evc_inputs(), sheet_order=2)
+    obs = observation('ME3600X', 'interface GigabitEthernet0/1\n!\nend\n')
+    for decision in ('Pending', 'Approve', 'Reject'):
+        rows = plan([b,a], {IP: obs}, now=NOW, decisions={a['row_id']: decision, b['row_id']: 'Approve'}).to_dict()['results']
+        assert rows[1]['dependencies'] == [a['row_id']]
+        assert rows[1]['deployment_ready'] == (decision == 'Approve')
+
+
+def test_evc_detail_semantic_conflict_down_information_and_source_sanitation():
+    family = 'ASR920'
+    config = evc_config(family, ' service instance 3000 ethernet\n  encapsulation dot1q 445\n  rewrite ingress tag pop 1 symmetric\n  bridge-domain 445\n')
+    text = 'Id: 3000\nInterface: GigabitEthernet0/1\nEncapsulation: dot1q 445\nRewrite: ingress tag pop 1 symmetric\nBridge-domain: 445\nState: Down\npassword SYNTHETIC_SECRET_VALUE\n'
+    detail = parse_service_detail(text, 'GigabitEthernet0/1', 3000)
+    row = result(family, evc_inputs(), config, service_details={'GigabitEthernet0/1:3000': detail})
+    assert row['deployment_ready'] and 'SERVICE_INSTANCE_DOWN' in row['warnings']
+    assert 'SYNTHETIC_SECRET_VALUE' not in canonical(row)
+    bad = parse_service_detail(text.replace('Bridge-domain: 445', 'Bridge-domain: 700'), 'GigabitEthernet0/1', 3000)
+    row = result(family, evc_inputs(), config, service_details={'GigabitEthernet0/1:3000': bad})
+    assert 'SERVICE_OBSERVATION_CONFLICT' in row['blockers']
+
+
+def test_child_omissions_and_separate_parent_description_are_visible():
+    p = {**evc_inputs(), 'encapsulation': 'Untagged', 'rewrite': 'None', 'description': 'New Child', 'interface_description': 'New Parent'}
+    p.pop('outer_vlan')
+    config = evc_config('ASR920', ' service instance 3000 ethernet\n  description Old Child\n  encapsulation untagged\n  rewrite ingress tag push dot1q 1402 symmetric\n  bridge-domain 445 split-horizon group 0\n', ' description Old Parent\n')
+    row = result('ASR920', p, config)
+    assert row['deployment_ready']
+    assert row['commands'].index('description New Parent') < row['commands'].index('service instance 3000 ethernet') < row['commands'].index('description New Child')
+    assert not any('rewrite' in c for c in row['commands'])
+    assert any('push dot1q' in c for c in row['omitted_child_commands'])
+    assert any('split-horizon group 0' in c for c in row['omitted_child_commands'])

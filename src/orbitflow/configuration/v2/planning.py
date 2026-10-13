@@ -86,12 +86,16 @@ def _row(r, observation, prior, decision, now, max_age):
                 findings.append("STALE_EVIDENCE")
         except (KeyError, TypeError, ValueError):
             findings.append("EVIDENCE_TIME_UNAVAILABLE")
-        if not obs.get("evidence") and not (t.family in {"C3750X", "C3850X"} and obs.get("configuration_reliable") is True):
+        if not obs.get("evidence") and not ((t.family in {"C3750X", "C3850X"} or
+                t.function == 'VLAN Database' and t.family in {'ME3600X', 'EdgeSwitch'}) and obs.get("configuration_reliable") is True):
             findings.append("CONFIGURATION_EVIDENCE_UNAVAILABLE")
     if t.family in {"C3750X", "C3850X"}:
         if obs.get("configuration_reliable") is False:
             findings.append("CONFIGURATION_EVIDENCE_UNAVAILABLE")
         from .catalyst import evaluate
+        return evaluate(t, p, obs, out, prior)
+    if t.family in {'ME3600X', 'ASR920', 'EdgeSwitch'}:
+        from .services import evaluate
         return evaluate(t, p, obs, out, prior)
     actual = [i for i in obs.get("interfaces", []) if key(i["port_name"]) == key(p.get("interface", ""))]
     declarations = [n for n in obs.get("facts", [])
@@ -241,6 +245,16 @@ def _classify_overlap(group):
                      or (u.function == t.function == "Trunk Port" and
                          (v["action"], p["action"]) in {("Add", "Add"), ("Replace", "Remove")})
                      or (u.function == t.function == "Interface Description" and v["description"] == p["description"])))
+            if t.family == u.family and t.family in {'ME3600X', 'ASR920', 'EdgeSwitch'} and not result.get('blockers') and not other.get('blockers'):
+                if same_interface:
+                    compatible = (t.function == 'Interface Description' and u.function != 'Interface Description' or
+                                  t.function == u.function == 'Interface Description' and p['description'] == v['description'] or
+                                  t.function == u.function == 'VLAN Port')
+                    if t.function == u.function == 'EVC':
+                        from orbitflow.vendors.cisco.evc import ingress, overlaps
+                        compatible = p['service_instance_id'] != v['service_instance_id'] and not overlaps(ingress(p), ingress(v))
+                elif same_domain and t.function == u.function == 'EVC':
+                    compatible = True
             code = "ORDERED_RESOURCE_OVERLAP_WARNING" if compatible else "ORDERED_RESOURCE_OVERLAP"
             detail = dict(classification="compatible" if compatible else "conflict",
                 earlier=dict(sheet=u.sheet, row=q["row"]), later=dict(sheet=t.sheet, row=r["row"]),
@@ -269,14 +283,22 @@ def _build(requests, observations, decisions, now, max_age):
     for obs in observations.values():
         require(type(obs) is dict, "invalid observation")
         if obs.get("status") == "live_read_only":
-            keys({k: v for k, v in obs.items() if k not in {"vlan_lookups", "configuration_reliable"}}, "identity observed_at interfaces vlans objects facts evidence audit problems methodologies status")
+            keys({k: v for k, v in obs.items() if k not in {"vlan_lookups", "service_details", "configuration_reliable"}}, "identity observed_at interfaces vlans objects facts evidence audit problems methodologies status")
             require("configuration_reliable" not in obs or type(obs["configuration_reliable"]) is bool, "invalid configuration reliability")
             require(type(obs.get("vlan_lookups", {})) is dict, "invalid VLAN lookups")
             for vid, lookup in obs.get("vlan_lookups", {}).items():
                 require(type(vid) is str and vid.isdigit() and 1 <= int(vid) <= 4094, "invalid lookup VLAN")
-                keys(lookup, "status name operational_status")
+                keys({k: v for k, v in lookup.items() if k not in {'ports', 'evidence'}}, "status name operational_status")
                 require(lookup["status"] in {"present", "absent", "unknown", "error"}
                         and type(lookup["name"]) is str and type(lookup["operational_status"]) is str, "invalid VLAN lookup")
+                require(set(lookup) <= {'status', 'name', 'operational_status', 'ports', 'evidence'}, 'invalid VLAN lookup')
+                require(type(lookup.get('ports', [])) is list and type(lookup.get('evidence', [])) is list, 'invalid VLAN lookup details')
+            require(type(obs.get('service_details', {})) is dict, 'invalid service details')
+            for target, detail in obs.get('service_details', {}).items():
+                safe(target)
+                keys(detail, 'status facts evidence operational_status')
+                require(detail['status'] in {'present', 'absent', 'unknown', 'error'} and type(detail['facts']) is list
+                        and type(detail['evidence']) is list and type(detail['operational_status']) is str, 'invalid service detail')
             keys(obs["identity"], IDENTITY_FIELDS)
             platform = obs["identity"]["platform"]
             require(platform in {v[0] for v in FAMILIES.values()}, "invalid observation platform")

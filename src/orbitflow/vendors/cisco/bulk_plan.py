@@ -81,7 +81,7 @@ def render(template, p, existing=None):
     if function == "L2VPN":
         name += f".{p['subinterface']}"
     lines.append(f"interface {name}" + (" l2transport" if function == "L2VPN" or (template.family == "NCS540" and function == "Interface Description" and existing and existing.get("l2transport")) else ""))
-    if p.get("description"):
+    if p.get("description") and function != 'EVC':
         lines.append(f"description {p['description']}")
     if function == "Access Port":
         lines += ["switchport", "switchport mode access", f"switchport access vlan {p['vlan_id']}"]
@@ -96,20 +96,13 @@ def render(template, p, existing=None):
         if "native_vlan" in p:
             lines += [f"switchport trunk native vlan {p['native_vlan']}"]
     elif function == "EVC":
-        lines += [f"service instance {p['service_instance']} ethernet"]
-        if p["encapsulation"] == "untagged":
-            lines += ["encapsulation untagged"]
-        else:
-            lines += [f"encapsulation dot1q {p['outer_vlan']}" +
-                      (f" second-dot1q {p['inner_vlan']}" if "inner_vlan" in p else "")]
-        if p.get("rewrite") == "None":
-            lines += ["no rewrite ingress tag"]
-        elif p.get("rewrite") == "Push":
-            lines += [f"rewrite ingress tag push dot1q {p['push_vlan']} symmetric"]
-        elif p.get("rewrite") in {"Pop1", "Pop2"} or "pop_tags" in p:
-            count = int(p["rewrite"][-1]) if "rewrite" in p else p["pop_tags"]
-            lines += [f"rewrite ingress tag pop {count} symmetric"]
-        lines += [f"bridge-domain {p['bridge_domain']}"]
+        from .evc import child_commands
+        if existing and existing.get('initialize'):
+            lines += ['switchport mode trunk', 'switchport trunk allowed vlan none'] if template.family == 'ME3600X' else ['no ip address']
+        if p.get('interface_description') and (not existing or existing.get('description') != p['interface_description']):
+            lines += ['description ' + p['interface_description']]
+        lines += [f"no service instance {p['service_instance_id']}", f"service instance {p['service_instance_id']} ethernet"]
+        lines += child_commands(p)
     elif function == "L2VPN":
         enc = "encapsulation untagged" if p["encapsulation"] == "untagged" else f"encapsulation dot1q {p['outer_vlan']}" + (f" second-dot1q {p['inner_vlan']}" if "inner_vlan" in p else "")
         lines += [enc, "exit",

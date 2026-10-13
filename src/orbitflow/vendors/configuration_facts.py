@@ -35,8 +35,9 @@ _IOS = (
     ("access", r"switchport access vlan (\d+)", "list"),
     ("native", r"switchport trunk native vlan (\d+)", "list"),
     ("aggregate", r"channel-group (\d+)(?: mode \w+)?", "text"),
-    ("encapsulation", rf"encapsulation dot1[qQ] ({_LIST})(?: second-dot1q \d+)?", "list"),
-    ("inner_vlan", rf"encapsulation dot1[qQ] {_LIST} second-dot1q (\d+)", "list"),
+    ("encapsulation", rf"encapsulation dot1[qQ] ({_LIST})(?: second-dot1q (?:{_LIST}|any))?", "list"),
+    ("inner_vlan", rf"encapsulation dot1[qQ] {_LIST} second-dot1q ({_LIST}|any)", "list"),
+    ("methodology_split_horizon_group", rf"bridge-domain {_NAME} split-horizon group ([0-9]+)", "text"),
     ("untagged", r"encapsulation (untagged)", "text"),
     ("routed", r"(no switchport)", "text"),
 )
@@ -73,6 +74,8 @@ _EDGE = (
     ("exclude", rf"vlan participation exclude ({_LIST})", "list"),
     ("tagged", rf"vlan tagging ({_LIST})(?: enable)?", "list"),
     ("untagged_vlans", rf"vlan tagging ({_LIST}) disable", "list"),
+    ("untagged_vlans", rf"no vlan tagging ({_LIST})", "list"),
+    ("vlan_name", r'vlan name ([0-9]+) "[^"\r\n]*"', "text"),
     ("aggregate", r"addport (\d+|lag \d+|\d+/\d+)", "text"),
 )
 _PATTERNS = {platform: tuple((kind, re.compile(pattern), conversion)
@@ -122,7 +125,8 @@ def _tag_rewrite(line):
     if operation == "translate" and len(output_tags) != output_count:
         return None
     return TagRewrite("ingress", operation, count or len(output_tags), bool(symmetric),
-                      parameters, output_tags, translation)
+                      parameters, output_tags, translation,
+                      int(outer_id) if operation == 'push' and outer == 'dot1q' and not inner else None)
 
 
 def _safe_source(text, platform=None):
@@ -233,6 +237,8 @@ def observe_configuration(output, platform, *, source_filename="running-config",
             continue
         if line in {"exit", "end", "return"}:
             if stack:
+                if preserve_full_evidence and platform == "ubiquiti_edgeswitch" and line == "exit":
+                    stack[-1][1][4].append(["methodology_evidence", "stanza_end", number, raw, []])
                 stack.pop()
             continue
         if platform != "ubiquiti_edgeswitch":
@@ -252,6 +258,8 @@ def observe_configuration(output, platform, *, source_filename="running-config",
                     value = match[1]
                     if conversion == "list":
                         try:
+                            if kind == "inner_vlan" and value == "any":
+                                value = "1-4094"
                             if kind.startswith("allowed") and platform in {"cisco_ios", "cisco_xe"}:
                                 if value not in {"all", "none"} and not re.fullmatch(
                                         r"[0-9]+(?:\s*-\s*[0-9]+)?(?:(?:\s*,\s*|\s+)[0-9]+(?:\s*-\s*[0-9]+)?)*", value):
@@ -340,7 +348,7 @@ def observe_configuration(output, platform, *, source_filename="running-config",
             # Review-only nodes are stripped before audit resolution.
             entries.append(("methodology_unknown", "unsupported_forwarding_syntax"))
             raw = _review_excerpt(raw, platform)
-        if preserve_full_evidence and not entries and platform in {"cisco_ios", "cisco_xe"} and stack and stack[0][1][0] == "interface":
+        if preserve_full_evidence and not entries and platform in {"cisco_ios", "cisco_xe", "ubiquiti_edgeswitch"} and stack and stack[0][1][0] in {"interface", "vlan_database"}:
             entries.append(("methodology_evidence", "interface_source"))
         for kind, value in entries:
             node = [kind, value, number, _safe_source(raw, platform), []]
