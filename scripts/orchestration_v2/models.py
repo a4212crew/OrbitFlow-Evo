@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-MAX_ITERATIONS = 10
+MAX_ITERATIONS = 30
 
 
 class FailureCategory(str, Enum):
