@@ -82,7 +82,7 @@ def test_matching_evc_always_recreated_full_evidence_and_omitted_settings(family
     assert any('service-policy' in c for c in row['omitted_child_commands'])
     obs = observation(family, config)
     evidence = '\n'.join(e['excerpt'] for e in scoped_evidence(request(template(family).id, p), obs))
-    assert 'OLD PARENT' in evidence and 'OLD CHILD' in evidence and '20 ethernet' in evidence and '\n!' in evidence
+    assert 'OLD PARENT' in evidence and 'OLD CHILD' in evidence and '20 ethernet' not in evidence and '\n!' in evidence
 
 
 @pytest.mark.parametrize('enc,outer,inner', [('Untagged', None, None), ('Dot1q', '445', None), ('Dot1q', '100-200', None),
@@ -477,7 +477,7 @@ def test_evc_recreation_source_and_precise_differences(family, existing):
     evidence = scoped_evidence(request(template(family).id, p), obs)
     interface_evidence = [e for e in evidence if e['excerpt'].strip() == '!' or 'interface' in e['excerpt'] or e['excerpt'].startswith(' ')]
     assert len({(e['source_filename'], e['line']) for e in evidence}) == len(evidence)
-    assert any(e['excerpt'] == '  !' for e in interface_evidence)
+    assert any(e['excerpt'] == '  !' for e in interface_evidence) == (existing != 'absent')
     node = next(n for n in obs['facts'] if n['kind'] == 'interface')
     service = next(n for n in node['children'] if n['kind'] == 'service_instance' and n['value'] == '20')
     assert service['children'][-1]['value'] == 'stanza_end'
@@ -625,3 +625,87 @@ def test_recreation_differences_are_sanitized_before_persistence(family, tmp_pat
     assert 'SYNTHETIC_CHILD_SECRET' not in (tmp_path / 'plan.json').read_text(encoding='utf-8')
     book = load_workbook(tmp_path / 'plan.xlsx')
     assert all('SYNTHETIC_CHILD_SECRET' not in str(cell.value) for sheet in book for row in sheet for cell in row)
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+def test_large_evc_scoping_full_validation_and_bounded_export(family, tmp_path, monkeypatch):
+    monkeypatch.setattr(socket, 'socket', lambda *a, **k: pytest.fail('planning connected'))
+    children = ''.join(f' service instance {i} ethernet\n  description Neighbor {i}\n  encapsulation dot1q {i}\n  bridge-domain {i}\n  !\n' for i in range(1, 121))
+    children += ' service instance 3000 ethernet\n  description Requested\n  encapsulation dot1q 445\n  rewrite ingress tag pop 1 symmetric\n  bridge-domain 445\n  !\n'
+    obs = observation(family, evc_config(family, children, ' description Parent\n mtu 9000\n'))
+    r = request(template(family).id, evc_inputs())
+    original = plan([r], {IP: obs}, now=NOW)
+    before = original.to_dict()
+    assert len(canonical(before['results'][0]['projected_state'])) > 32767
+    selected = scoped_evidence(r, obs)
+    assert any(e['excerpt'] == '  !' for e in selected)
+    assert any('mtu 9000' in e['excerpt'] for e in selected)
+    assert any('Requested' in e['excerpt'] for e in selected)
+    assert not any('Neighbor' in e['excerpt'] for e in selected)
+    # Exact source fidelity, including line numbers and child/parent endings.
+    source = evc_config(family, children, ' description Parent\n mtu 9000\n').splitlines()
+    assert all(source[e['line'] - 1] == e['excerpt'] for e in selected)
+    neighbor_request = request(template(family).id, {**evc_inputs(), 'outer_vlan': '120'})
+    conflict = plan([neighbor_request], {IP: obs}, now=NOW).to_dict()['results'][0]
+    assert 'INGRESS_TAG_OVERLAP' in conflict['blockers']
+    dest = tmp_path / 'plan.xlsx'
+    save(original, tmp_path / 'plan.json')
+    export_plan(original, dest)
+    book = load_workbook(dest)
+    sheet = book[template(family).sheet]
+    projected = sheet.cell(3, len(template(family).columns) + EXTRA.index('Projected State') + 1)
+    assert 'Complete value in immutable plan.json' in projected.value
+    assert original.digest in projected.value
+    assert all(len(str(c.value or '')) <= 32767 for sh in book for row in sh for c in row)
+    assert not any('Neighbor' in str(c.value) for row in book['Evidence Details'] for c in row)
+    sheet.cell(3, len(template(family).columns) + len(EXTRA), 'Approve')
+    book.save(dest)
+    consume_decisions(original, dest, expected_digest=original.digest, now=NOW)
+    assert original.to_dict() == before and load(tmp_path / 'plan.json').digest == original.digest
+    projected.value += ' altered'
+    book.save(dest)
+    with pytest.raises(PlanError, match='review content changed'):
+        consume_decisions(original, dest, expected_digest=original.digest, now=NOW)
+
+
+def test_32_rows_invalid_catalyst_names_remain_isolated(tmp_path):
+    source = tmp_path / 'input.xlsx'
+    create_input(source)
+    book = load_workbook(source)
+    t = template('C3750X', 'VLAN Database')
+    for row in range(3, 35):
+        p = dict(management_ip=IP, vlan_id=445 + row, name='Bad Name' if row in (7, 19) else 'Customer')
+        for col, field in enumerate(t.columns, 1):
+            book[t.sheet].cell(row, col, p.get(field))
+    book.save(source)
+    requests = read_input(source)
+    assert len(requests) == 30 and len(requests.errors) == 2
+    original = plan(requests, {}, now=NOW)
+    dest = tmp_path / 'plan.xlsx'
+    export_plan(original, dest)
+    book = load_workbook(dest)
+    status_col = len(t.columns) + EXTRA.index('Validation Status') + 1
+    assert [book[t.sheet].cell(row, status_col).value for row in (7, 19)] == ['Invalid', 'Invalid']
+    assert book['Summary'].max_row == 33
+    consume_decisions(original, dest, expected_digest=original.digest, now=NOW)
+
+
+@pytest.mark.parametrize('length', [32767, 32768, 100000])
+def test_excel_literal_limit_and_deterministic_reference(length):
+    from openpyxl import Workbook
+    from orbitflow.configuration.v2.workbook import literal
+    import hashlib
+    book = Workbook()
+    book.active.title = 'Introduction'
+    book.active['B1'] = 'a' * 64
+    sheet = book.create_sheet('Evidence Details')
+    value = 'x' * length
+    literal(sheet['D2'], value)
+    if length == 32767:
+        assert sheet['D2'].value == value
+    else:
+        assert len(sheet['D2'].value) <= 32767
+        assert hashlib.sha256(value.encode()).hexdigest() in sheet['D2'].value
+        assert str(length) in sheet['D2'].value
+        literal(sheet['D3'], value)
+        assert sheet['D2'].value.replace('D2', 'D3') == sheet['D3'].value

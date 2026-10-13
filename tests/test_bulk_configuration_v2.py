@@ -678,12 +678,12 @@ def test_scoped_evidence_service_dependencies_and_workbook(tmp_path):
         asdict(fact("vlan", (4002,), 30)), asdict(fact("vlan", (999,), 40))]
     obs = safe_data(obs, lambda value: value)
     selected = scoped_evidence(r, obs)
-    assert [e["line"] for e in selected] == [10, 11, 12, 13, 30]
+    assert [e["line"] for e in selected] == [10, 11, 12, 30]
     result = plan([r], {IP: obs}, now=NOW)
     output = tmp_path / "scoped.xlsx"
     export_review(result, output)
     book = load_workbook(output)
-    assert [book["Evidence Details"].cell(i, 3).value for i in range(2, 7)] == ["10", "11", "12", "13", "30"]
+    assert [book["Evidence Details"].cell(i, 3).value for i in range(2, 6)] == ["10", "11", "12", "30"]
     assert import_review(result, output, now=NOW).digest == result.digest
     db = template("ME3600X", "VLAN Database")
     assert [e["line"] for e in scoped_evidence(request(db.id, inputs(db)), obs)] == [30]

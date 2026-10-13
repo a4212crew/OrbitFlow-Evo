@@ -37,6 +37,12 @@ def scoped_evidence(request, observation):
         if kind in {"interface", "l2_interface"} and key(value) in names:
             append(node)
             for child in node.get("children", []):
+                # Presentation only: all neighboring children remain in the
+                # immutable observation and are evaluated by the planner.
+                if (t.function == "EVC" and t.family in {"ME3600X", "ASR920"}
+                        and child["kind"] == "service_instance"
+                        and str(child["value"]) != str(p["service_instance_id"])):
+                    continue
                 whole(child)
             return True
         if kind == "vlan" and set(value if isinstance(value, list) else [int(value)] if str(value).isdigit() else []) & vids:

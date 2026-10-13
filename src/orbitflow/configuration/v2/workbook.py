@@ -28,7 +28,18 @@ class WorkbookRequests(list):
 
 def literal(cell, value):
     text = str(value) if value is not None else ""
-    require(len(text) <= 32767, "Excel cell exceeds limit; use JSON evidence")
+    if len(text) > 32767:
+        # Excel/openpyxl would otherwise truncate silently. Never shorten the
+        # immutable plan: replace only its XLSX presentation, deterministically.
+        digest = cell.parent.parent["Introduction"]["B1"].value
+        require(digest, "oversized Excel value requires an immutable plan")
+        text = (f"Complete value in immutable plan.json (plan digest {digest}). "
+                f"Field: {cell.parent.title}!{cell.coordinate}; "
+                f"characters: {len(text)}; value SHA-256: "
+                f"{hashlib.sha256(text.encode('utf-8')).hexdigest()}. "
+                "Use the sheet/row and field header to locate the original input/result; "
+                "Evidence Details references identify the request and source line in observations. "
+                "This cell is a reference, not the complete value.")
     cell.value = text
     cell.data_type = "s"
     cell.alignment = Alignment(vertical="top", wrap_text=True)

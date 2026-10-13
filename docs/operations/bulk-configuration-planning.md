@@ -68,7 +68,7 @@ in the source workbook and plan again. Other valid rows continue.
 Review rows and Evidence Details contain only requested interface/service/global
 objects and required dependency stanzas. Internal sanitized device-wide facts
 remain digest-bound for consistency checks. Evidence Details preserves source filenames, one-based line numbers and exact
-sanitized excerpts; oversized main-sheet evidence refers there. The plan digest
+sanitized excerpts; oversized main-sheet evidence refers there. Templates 10/12 show parent-level source settings and only the requested service-instance child, including applicable terminators; all neighboring services remain in immutable JSON and internal conflict checks. Any individual field exceeding Excel's 32,767-character limit uses a deterministic complete-value reference to `plan.json` with plan digest, workbook field location, character count and value hash. No JSON state or evidence is truncated. These references remain protected during decision consumption. The plan digest
 binds the sanitized observation, facts, device identities, original inputs,
 source-workbook SHA-256, catalogue version, ordering, proposals and initial decisions. Edited decisions are separate intent.
 It is not a hash of a raw device backup.

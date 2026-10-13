@@ -50,6 +50,11 @@ reliable evidence with labeled fallbacks. Workbook help, row isolation, ordered
 projections/dependencies and digest-bound single decisions are covered. No live
 hardware/firmware validation or device writes were performed. Owner read-only
 validation remains required; Templates 17-22 received no new implementation.
+Templates 10/12 now project request-scoped parent/child evidence without narrowing
+full-device overlap validation. Oversized workbook fields use digest-bound immutable
+JSON references; protected-reference tampering fails decision consumption. Synthetic
+large-parent and mixed-validity workbook regressions cover export and row isolation.
+Owner repeat live read-only validation remains pending.
 The Issue #91 review revision distinguishes unverified versus lab-rejected EVC
 rewrite blockers, preserves nested child endings, and exposes unique child
 before/after/added/removed commands in JSON and the protected single workbook.
