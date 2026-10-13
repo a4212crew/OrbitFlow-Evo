@@ -109,6 +109,8 @@ def parse_edgeswitch_config(
                         mode,
                         pvid=pvid,
                         tagged_vlans=tagged,
+                        configured_tagged_vlans=tuple(sorted(configured_tags)),
+                        configured_included_vlans=included,
                         untagged_vlans=(pvid,) if pvid else (),
                         excluded_vlans=excluded,
                         referenced_vlans=refs,
@@ -127,7 +129,8 @@ def parse_edgeswitch_config(
 
 
 class EdgeSwitchVlanAdapter:
-    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None) -> None:
+    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None, preserve_full_evidence=False) -> None:
+        self._preserve_full_evidence = preserve_full_evidence
         self._cli = cli
         self._session, self._timeout = session, timeout
 
@@ -145,8 +148,58 @@ class EdgeSwitchVlanAdapter:
                 raise ValueError(
                     "EdgeSwitch rejected approved command 'show running-config'"
                 )
+            if self._preserve_full_evidence:
+                if not output.strip() or not re.search(r'(?m)^\s*(?:hostname |version |vlan database|interface |!Current Configuration)', output):
+                    raise ValueError('running configuration unavailable')
+                opened = False
+                for line in output.splitlines():
+                    text = line.strip()
+                    if text == 'vlan database' or text.startswith('interface '):
+                        if opened:
+                            raise ValueError('incomplete running configuration')
+                        opened = True
+                    elif text == 'exit':
+                        opened = False
+                if opened:
+                    raise ValueError('incomplete running configuration')
             interfaces, objects = parse_edgeswitch_config(output)
             return VlanCollection(
                 extract_edgeswitch_hostname(cli.prompt), interfaces, objects,
-                observe_configuration(output, "ubiquiti_edgeswitch")
+                observe_configuration(output, "ubiquiti_edgeswitch", preserve_full_evidence=self._preserve_full_evidence)
             )
+
+    def lookup(self, vlan_id):
+        if type(vlan_id) is not int or not 2 <= vlan_id <= 4093:
+            raise ValueError("invalid VLAN lookup ID")
+        try:
+            with open_prompt_cli(self._session, cli=self._cli, paging_command="terminal length 0",
+                                 prompt_pattern=r"^([^\r\n]+[>#])[ \t]*$", rejected=lambda x: bool(_REJECTED.search(x)),
+                                 platform_name="Ubiquiti EdgeSwitch", timeout=self._timeout) as cli:
+                output = cli.run_command(f"show vlan {vlan_id}", timeout=self._timeout)
+        except Exception:
+            return dict(status="error", name="", operational_status="", ports=[], evidence=[])
+        return parse_vlan_lookup(output, vlan_id)
+
+
+def parse_vlan_lookup(output, vlan_id):
+    """Preserve operational Current/Configured/Tagging independently."""
+    from orbitflow.vendors.configuration_facts import _safe_source
+    result = dict(status="unknown", name="", operational_status="", ports=[],
+                  evidence=[dict(source_filename=f"show vlan {vlan_id}", line=i, excerpt=_safe_source(line, 'ubiquiti_edgeswitch'))
+                            for i, line in enumerate(output.splitlines(), 1)])
+    if _REJECTED.search(output):
+        result['status'] = 'error'
+        return result
+    if re.fullmatch(r"\s*VLAN does not exist\.\s*", output, re.I):
+        result['status'] = 'absent'
+        return result
+    vid = re.search(r"(?im)^\s*VLAN ID:\s*(\d+)\s*$", output)
+    name = re.search(r"(?im)^\s*VLAN Name:\s*(.*?)\s*$", output)
+    kind = re.search(r"(?im)^\s*VLAN Type:\s*(\w+)\s*$", output)
+    if vid and int(vid[1]) == vlan_id and name and kind:
+        result.update(status='present', name=name[1], operational_status=kind[1])
+    for line in output.splitlines():
+        match = re.fullmatch(r"\s*(\d+/\d+|lag \d+)\s+(Include|Exclude|Auto)\s+(Include|Exclude|Auto)\s+(Tagged|Untagged)\s*", line, re.I)
+        if match:
+            result['ports'].append(dict(interface=match[1], current=match[2], configured=match[3], tagging=match[4]))
+    return result

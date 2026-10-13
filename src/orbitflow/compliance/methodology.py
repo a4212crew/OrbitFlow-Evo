@@ -136,7 +136,10 @@ def resolved_records(resolver):
             # VRP encapsulation facts here are vlan-type dot1q, not termination.
             # Neither the audit row's default routed type nor a tag proves role.
             outer = configured_values(lines, "encapsulation")
-            mixed = any(n.kind in switching | {"termination", "vsi_binding", "control_vid"} for n in lines)
+            mixed_kinds = switching | {"termination", "vsi_binding", "control_vid"}
+            if resolver.planning:
+                mixed_kinds = mixed_kinds - {"vsi_binding"}
+            mixed = any(n.kind in mixed_kinds for n in lines)
             record = emit(key, ["M08"], "vlan_tagged_subinterface",
                           mapping=dict(outer_vlan=outer, inner_vlan=[],
                                        encapsulation_type="vlan-type-dot1q", role="not_determined"))
@@ -264,7 +267,7 @@ def resolved_records(resolver):
     return records
 
 
-def resolve_methodologies(context, interfaces, vlans, *, management_ip="", clean=sanitize_text):
+def resolve_methodologies(context, interfaces, vlans, *, management_ip="", clean=sanitize_text, planning=False):
     """Public single-device review API using the same family resolver and snapshot."""
     device = dict(device_id=context.device_id if context else "", hostname=context.hostname if context else "",
                   management_ip=context.management_ip if context else management_ip,
@@ -275,7 +278,7 @@ def resolve_methodologies(context, interfaces, vlans, *, management_ip="", clean
                         status="unable_to_assess", review_needed=True, evidence=[],
                         configuration_findings=[dict(code="UNSUPPORTED_FAMILY_OR_UNAVAILABLE_EVIDENCE")])]
     else:
-        resolver = factory(context, vlans)
+        resolver = factory(context, vlans, planning=planning)
         records = resolver.methodology_result()
         actual = {resolver.key(i.port_name): i.port_name for i in interfaces or ()}
         for record in records:

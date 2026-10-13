@@ -29,7 +29,7 @@ def test_discovery_prioritizes_revision_and_excludes_blocked_states(monkeypatch,
     assert calls == (['codex-revise'] if revision_available else ['codex-revise', 'codex-task'])
 
 
-@pytest.mark.parametrize('count', [10, 11])
+@pytest.mark.parametrize('count', [30, 31])
 def test_exhausted_plan_does_not_require_another_review(monkeypatch, tmp_path, count):
     pages = [[{'user': {'login': 'owner'}, 'body': f'<!-- orbitflow-codex-iteration:{count} -->'}]]
     monkeypatch.setattr(github_ops, 'gh', lambda *a, **kw: json.dumps(pages))

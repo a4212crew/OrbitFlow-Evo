@@ -1,18 +1,18 @@
-# CURRENT_STATE.md — OrbitFlow-Evo Current State
+# CURRENT_STATE.md â€” OrbitFlow-Evo Current State
 
 Use this file as the concise source of truth for what is implemented and validated today.
 
 
 Keep this document short. Historical implementation detail belongs in `docs/devlog/YYYY-MM.md`.
 
-## Offline Configuration Plans (Phases 1–2)
+## Offline Configuration Plans (Phases 1â€“2)
 
 `orbitflow.configuration` and `scripts/configuration_plan.py` provide immutable
 versioned Change Plans, canonical SHA-256 content digests, inventory snapshot
 resolution, strict offline validation/preview and durable digest-bound
 approve/reject/expire gates. Manual, spreadsheet, template and compliance
-producers share a normalized JSON request; source-specific importers/generators
-remain future work. The initial renderer supports VLAN creation on C3750X IOS
+producers share a normalized JSON request; v1 has no source-specific importers.
+The separate v2 workflow is described below. The v1 renderer supports VLAN creation on C3750X IOS
 and C3850 IOS-XE profiles, including no-op and conflicting-state checks.
 SQLite approval history is signed by a separate local key; operator-controlled
 authority storage is required and actor labels are not authentication.
@@ -21,6 +21,90 @@ rejection and socket-blocked CLI operation. No apply/live verification or device
 changes are implemented. See `docs/architecture/configuration/offline-plans.md`.
 The configuration-management skill is staged alongside that document pending
 controller installation into the session-protected `.agents/skills/` directory.
+
+## Bulk Configuration Planning v2
+
+Catalyst ordered overlap planning now projects preceding safe intent in sheet/row
+order. Access then Description, Trunk Add then Add, and Replace then Remove
+produce explicit compatible-overlap warnings; individual safety prerequisites and
+incompatible intent remain blockers. JSON and the single workbook preserve both
+row references, projected results and original audit evidence. Deterministic tests
+cover both families; owner repeat live read-only validation remains pending.
+
+Catalyst milestone 1 (Templates 1-8; retained in catalogue 2.3) now has shared operational
+VLAN lookup with config fallback, ordered symbolic ALL/exclusion reconstruction,
+physical-member access blocking, audited trunk aggregate resolution, exact
+logical/physical descriptions and full sanitized interface evidence through `!`.
+The single plan workbook retains invalid rows, field errors, conflict references,
+resolved targets and separate warnings/blockers. Both Catalyst VLAN name schemas
+reject spaces and interface inputs require full names. Deterministic validation
+is implemented; owner-controlled live C3750X/C3850X validation and sign-off remain
+pending. Catalogue 2.3 implements the approved Templates 9-16 with synthetic
+validation: shared EVC ranges/QinQ, separate Push VLAN/symmetry, group zero,
+operational detail/config reconciliation, complete parent/child evidence and
+mandatory remove/recreate with omitted-child impact. ME/ASR parent and global
+BD rules remain distinct. EdgeSwitch Add/Change and Remove preserve independent
+participation, exclusion, tagging and PVID, including tagged PVID; absent global
+VLAN is informational. Database create/rename/no-op and exact descriptions use
+reliable evidence with labeled fallbacks. Workbook help, row isolation, ordered
+projections/dependencies and digest-bound single decisions are covered. No live
+hardware/firmware validation or device writes were performed. Owner read-only
+validation remains required; Templates 17-22 received no new implementation.
+Templates 10/12 now project request-scoped parent/child evidence without narrowing
+full-device overlap validation. Oversized workbook fields use digest-bound immutable
+JSON references; protected-reference tampering fails decision consumption. Synthetic
+large-parent and mixed-validity workbook regressions cover export and row isolation.
+Owner repeat live read-only validation remains pending.
+The Issue #91 review revision distinguishes unverified versus lab-rejected EVC
+rewrite blockers, preserves nested child endings, and exposes unique child
+before/after/added/removed commands in JSON and the protected single workbook.
+Deterministic workbook regressions cover ordered EdgeSwitch Remove/Add and
+PVID-change/Remove with independent excluded/tagged facts. The linked complete
+22-template [operator reference](docs/operations/configuration-template-reference.md)
+labels 17-22 provisional; no live validation or
+new template approval is claimed.
+
+
+Bulk planning v2 now emits flushed per-device read-only collection progress and
+sanitized rotating configuration module logs. Description-only requests retain
+recognized existing VLAN membership/tagging defects as non-blocking warnings;
+material evidence/identity/ownership conflicts and service-change blockers remain.
+Validated with deterministic fixtures only; no live smoke testing in this revision.
+
+`orbitflow.configuration.v2` adds a separate 22-template catalogue, deterministic
+vendor proposals and input/plan XLSX adapters. The plan workbook is the single
+Pending/Approve/Reject surface; no separate v2 review command or signing store remains.
+Default artifacts use outputs/runs/configuration/<plan-digest>/plan.json and plan.xlsx.
+Digest-pinned decision consumption validates protected cells and returns unauthenticated
+in-memory intent without mutating the plan or authorizing execution.
+The 21 predefined templates use shared per-device execution/session,
+inventory, InterfaceService, VlanService and family audit relationships for
+read-only evidence. Manual CLI is literal/offline-only and never connects.
+Catalogue 2.3 supersedes earlier EVC/EdgeSwitch inputs: regenerate old v2
+workbooks and plans. Legacy service_instance/pop_tags, VLAN Port mode/vlans/
+replace_untagged and Replace are rejected. Existing NCS540 catalogue behavior
+is unchanged and remains outside this approval expansion.
+NCS540 descriptions preserve observed L2transport/L3 declarations with clean
+interface inputs; evidenced ASR920 BDI declarations support logical targets.
+Review XLSX evidence is request-scoped with source/line references; internal
+device-wide facts remain available for consistency checks. Shared devices.xlsx
+loading supports distinct per-IP credentials and isolated missing/duplicate
+failures. Operators can select shared sequential execution with a limit of 1.
+Manual Scope is metadata; literal CLI supplies its own hierarchy.
+V1 plan/approval behavior is unchanged. Audit defaults retain existing policy
+bounds; an explicit planning projection uses platform numeric bounds and NE05E
+single-tag VSI relationships without changing compliance outputs.
+
+Same-device sheet/row order, original inputs, source provenance, observations,
+dependencies, no-ops and impact/conflict findings are digest-bound. Workbook
+decisions remain separate unauthenticated intent pinned to that source digest. Decision consumption rejects other edits and re-evaluates prerequisites
+and evidence age. Unresolved evidence/ownership/conflicting overlaps and unknown Manual CLI
+effects cannot become deployment-ready. Collection uses recoverable shared
+spools; bounded single-workbook limits are documented. No apply/save/commit or
+execution authorization exists. Deterministic tests cover all 22 templates,
+workbook integrity lifecycle, collection reuse and v1 regressions. No live smoke
+test has been run. Commands and limits:
+`docs/operations/bulk-configuration-planning.md`.
 
 ## Project
 
@@ -270,15 +354,15 @@ existence does not constitute live validation of the VLAN capability.
 ## Repository Structure
 
 Current major implementation areas:
-- `src/orbitflow/transport/` — shared and OS-specific transport;
-- `src/orbitflow/vendors/cisco/` — Cisco IOS/IOS-XE CLI behaviour;
-- `src/orbitflow/vendors/huawei/` and `src/orbitflow/vendors/ubiquiti/` — vendor interface collection/parsing;
-- `src/orbitflow/capabilities/` and `src/orbitflow/models.py` — reusable interface/VLAN capabilities and normalized records;
-- `src/orbitflow/inventory/` — identification, reconciliation, and latest JSON snapshot storage;
-- `scripts/live_validate_interfaces.py` — single-device interface integration validation;
-- `scripts/live_validate_vlans.py` — single-device VLAN integration validation harness;
-- `tests/` — deterministic mocked/unit tests;
-- `.agents/skills/` — task/vendor-specific implementation guidance.
+- `src/orbitflow/transport/` â€” shared and OS-specific transport;
+- `src/orbitflow/vendors/cisco/` â€” Cisco IOS/IOS-XE CLI behaviour;
+- `src/orbitflow/vendors/huawei/` and `src/orbitflow/vendors/ubiquiti/` â€” vendor interface collection/parsing;
+- `src/orbitflow/capabilities/` and `src/orbitflow/models.py` â€” reusable interface/VLAN capabilities and normalized records;
+- `src/orbitflow/inventory/` â€” identification, reconciliation, and latest JSON snapshot storage;
+- `scripts/live_validate_interfaces.py` â€” single-device interface integration validation;
+- `scripts/live_validate_vlans.py` â€” single-device VLAN integration validation harness;
+- `tests/` â€” deterministic mocked/unit tests;
+- `.agents/skills/` â€” task/vendor-specific implementation guidance.
 
 ## Validation Baseline
 
@@ -326,7 +410,7 @@ Current major implementation areas:
   validation devices; other supported syntax remains covered only by
   deterministic regression tests where previously noted.
 
-## Codex Orchestration — OrbitFlow-Evo
+## Codex Orchestration â€” OrbitFlow-Evo
 
 A local ChatGPT/Atlas-to-Codex orchestration foundation is implemented in OrbitFlow-Evo.
 
@@ -477,7 +561,7 @@ The prompt correction awaits operator-controlled live retesting.
 
 ## VLAN Configuration Audit
 
-Issue #79 adds a separate M01–M08 methodology projection through the existing
+Issue #79 adds a separate M01â€“M08 methodology projection through the existing
 family AuditResolver, preserving service/child identities, local/global EVC
 bindings, XR attachments, Huawei VSI and EdgeSwitch ownership. Opt-in
 `--methodology-report` collects and retains review records, then exports a separate

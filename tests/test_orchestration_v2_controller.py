@@ -126,10 +126,10 @@ def test_failure_does_not_publish(monkeypatch, tmp_path, category):
     assert states[-1] == 'codex-failed'
 
 
-def test_iteration_10_stops_before_workspace_or_worker(monkeypatch, tmp_path):
+def test_iteration_30_stops_before_workspace_or_worker(monkeypatch, tmp_path):
     monkeypatch.setattr(controller, 'run_preflight', lambda *_: PreflightReport(tmp_path, 'A', 'a@b', 'v', 'ChatGPT'))
     monkeypatch.setattr(controller, 'get_next_task', lambda *_: Task('revision', 1, 'T', 'B', ''))
-    monkeypatch.setattr(controller, 'review_context', lambda *_: (10, 'correction'))
+    monkeypatch.setattr(controller, 'review_context', lambda *_: (30, 'correction'))
     monkeypatch.setattr(controller, 'validate_workspace', lambda *_: pytest.fail('no workspace at limit'))
     states = []
     monkeypatch.setattr(controller, 'transition', lambda *args: states.append(args[2]))

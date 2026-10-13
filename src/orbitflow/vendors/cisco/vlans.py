@@ -25,6 +25,21 @@ _IOS_VLAN_DECLARATION = re.compile(
 )
 
 
+def parse_vlan_lookup(output, vlan_id):
+    """Cisco tabular lookup; no raw output escapes this parser."""
+    unknown = dict(status="unknown", name="", operational_status="")
+    if _REJECTED.search(output) or re.search(r"(?i)(?:%.*(?:error|failed|denied|ambiguous)|authorization failed)", output):
+        return dict(unknown, status="error")
+    if re.search(rf"(?i)(?:VLAN\s+{vlan_id}\s+(?:not found|does not exist)|VLAN id\s+{vlan_id}\s+not found)", output):
+        return dict(unknown, status="absent")
+    if not re.search(r"VLAN\s+Name\s+Status\s+Ports", output):
+        return unknown
+    rows = re.findall(rf"(?m)^\s*{vlan_id}\s+(\S+)\s+(active|suspended|inactive|act/unsup|act/lshut)\b", output)
+    if len(rows) != 1:
+        return unknown
+    return dict(status="present", name=rows[0][0], operational_status=rows[0][1])
+
+
 def _blocks(
     output: str, *, preserve_body_indentation: bool = False
 ) -> list[tuple[str, list[str]]]:
@@ -116,7 +131,12 @@ def parse_ios_running_config(
                 # family audit resolver; legacy profiles do not replay them.
                 allowed_ids = ()
             elif allowed_value is not None:
-                allowed_ids = parse_vlan_list(allowed_value)
+                try:
+                    allowed_ids = parse_vlan_list(allowed_value)
+                except ValueError:
+                    # Typed config facts retain the unsupported operation for
+                    # audit/planning; do not abort unrelated description rows.
+                    allowed_ids = ()
             else:
                 allowed_ids = None
             refs = (
@@ -189,6 +209,8 @@ def _evc(
     encap = next((x for x in lines if x.startswith("encapsulation dot1q ")), "")
     bridge = next((x for x in lines if x.startswith("bridge-domain ")), "")
     vlan = int(encap.split()[2]) if encap and encap.split()[2].isdigit() else None
+    outer_expression = encap.split()[2] if encap else ""
+    outer_ids = parse_vlan_list(outer_expression) if outer_expression else ()
     bridge_name = bridge.split()[1] if bridge else global_bridge
     observation = InterfaceVlanObservation(
         name,
@@ -196,20 +218,25 @@ def _evc(
         "service",
         service_vlan=vlan,
         outer_vlan=vlan,
-        referenced_vlans=(vlan,) if vlan else (),
+        referenced_vlans=outer_ids,
         vlan_source="service-instance",
         vlan_database_applicable=False,
         service_binding_type="bridge-domain" if bridge_name else "service-instance",
         service_binding_name=bridge_name or sid,
     )
     untagged = "encapsulation untagged" in lines
-    inner = re.search(r"second-dot1q (\d+)", encap)
-    observation = replace(observation, inner_vlan=int(inner.group(1)) if inner else None)
+    inner = re.search(r"second-dot1q (\S+)", encap)
+    inner_expression = ('1-4094' if inner[1] == 'any' else inner[1]) if inner else ''
+    inner_ids = parse_vlan_list(inner_expression) if inner_expression else ()
+    observation = replace(observation, inner_vlan=inner_ids[0] if len(inner_ids) == 1 else None,
+                          outer_vlan_expression=outer_expression, inner_vlan_expression=inner_expression)
     target = bridge_name
-    ingress = "untagged" if untagged else str(vlan) if vlan else ""
+    ingress = "untagged" if untagged else outer_expression
+    if inner and (len(outer_ids) > 1 or len(inner_ids) > 1):
+        ingress += f" second-dot1q {inner_expression}"
     return (
         forwarding(observation, "evc", untagged=(target if target.isdigit() else "UNTAGGED") if untagged else "",
-                   tagged=(vlan,) if vlan else (), domains=(target,) if target else (),
+                   tagged=outer_ids, domains=(target,) if target else (),
                    mappings=[f"{ingress} -> {target}"] if ingress and target else []),
         VlanObject("bridge_domain", bridge_name) if bridge_name else None,
     )
@@ -307,28 +334,104 @@ def parse_ios_xr_running_config(
     return tuple(normalized), visible_objects(objects)
 
 
+def parse_service_detail(output, interface, service_instance_id):
+    """Operational EVC fields reuse the saved-config fact grammar."""
+    from dataclasses import asdict
+    from orbitflow.vendors.configuration_facts import _safe_source
+    result = dict(status='unknown', facts=[], operational_status='', evidence=[
+        dict(source_filename=f'service detail {interface} {service_instance_id}', line=i, excerpt=_safe_source(line, 'cisco_ios'))
+        for i, line in enumerate(output.splitlines(), 1)])
+    if _REJECTED.search(output):
+        result['status'] = 'error'
+        return result
+    sid = re.search(r'(?im)^\s*(?:Service Instance ID|Id):\s*(\d+)\s*$', output)
+    port = re.search(r'(?im)^\s*Interface:\s*(\S+)\s*$', output)
+    matches = bool(sid and int(sid[1]) == service_instance_id and port and
+                   canonical_interface_name('cisco_ios', port[1]) == canonical_interface_name('cisco_ios', interface))
+    if re.search(r'(?i)does not exist', output):
+        # Only explicitly identified requested targets prove absence.
+        if matches or re.search(rf'(?i)service instance {service_instance_id}\b.*\b{re.escape(interface)}\b.*does not exist', output):
+            result['status'] = 'absent'
+        return result
+    if not matches:
+        return result
+    lines = []
+    for line in output.splitlines():
+        enc = re.fullmatch(r'\s*Encapsulation:\s*(.+?)\s*', line, re.I)
+        rewrite = re.fullmatch(r'\s*Rewrite:\s*(.+?)\s*', line, re.I)
+        bd = re.fullmatch(r'\s*Bridge[- ]domain:\s*(\d+(?: split-horizon group \d+)?)\s*', line, re.I)
+        state = re.fullmatch(r'\s*State:\s*(Up|Down)\s*', line, re.I)
+        if enc:
+            lines.append(' encapsulation ' + enc[1])
+        if rewrite and rewrite[1].lower() != 'none':
+            value = re.sub(r' vlan-type 0x[0-9a-fA-F]+', '', rewrite[1])
+            lines.append(' rewrite ' + value)
+        if bd:
+            lines.append(' bridge-domain ' + bd[1])
+        if state:
+            result['operational_status'] = state[1].lower()
+    facts = observe_configuration('interface ' + interface + '\n service instance ' + str(service_instance_id) + ' ethernet\n' +
+                                  '\n'.join(' ' + line for line in lines), 'cisco_ios')
+    children = facts[0].children[0].children if facts and facts[0].children else ()
+    from orbitflow.compliance.vlan import safe_data
+    result['facts'] = safe_data([asdict(n) for n in children])
+    if any(n.kind in {'encapsulation', 'untagged'} for n in children) and any(n.kind == 'bridge_domain' for n in children) and not any(n.kind == 'methodology_unknown' for n in children):
+        result['status'] = 'present'
+    return result
+
+
 class CiscoVlanAdapter:
     def __init__(
-        self, session: DeviceSession, *, timeout: float = 10.0, evc: bool = False, cli: DeviceCLI | None = None
+        self, session: DeviceSession, *, timeout: float = 10.0, evc: bool = False, cli: DeviceCLI | None = None, preserve_full_evidence: bool = False
     ) -> None:
+        self._preserve_full_evidence = preserve_full_evidence
         self._cli = cli
         self._session, self._timeout, self._evc = session, timeout, evc
 
     vlan_database = True
 
+    def lookup(self, vlan_id, *, preserve_evidence=False):
+        if type(vlan_id) is not int or not 1 <= vlan_id <= 4094:
+            raise ValueError("invalid VLAN lookup ID")
+        try:
+            with open_cisco_cli(self._session, cli=self._cli, cli_type=CiscoIOSCLI, timeout=self._timeout) as cli:
+                output = cli.run_command(f"show vlan id {vlan_id}", timeout=self._timeout)
+        except Exception:
+            return dict(status="error", name="", operational_status="")
+        result = parse_vlan_lookup(output, vlan_id)
+        if preserve_evidence:
+            from orbitflow.vendors.configuration_facts import _safe_source
+            result['evidence'] = [dict(source_filename=f'show vlan id {vlan_id}', line=i, excerpt=_safe_source(line, 'cisco_ios'))
+                                  for i, line in enumerate(output.splitlines(), 1)]
+        return result
+
+    def service_detail(self, interface, service_instance_id):
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9/-]+", interface) or type(service_instance_id) is not int or not 1 <= service_instance_id <= 4000:
+            raise ValueError("invalid service detail target")
+        try:
+            with open_cisco_cli(self._session, cli=self._cli, cli_type=CiscoIOSCLI, timeout=self._timeout) as cli:
+                output = cli.run_command(f"show ethernet service instance id {service_instance_id} interface {interface} detail", timeout=self._timeout)
+        except Exception:
+            return dict(status='error', facts=[], evidence=[], operational_status='')
+        return parse_service_detail(output, interface, service_instance_id)
+
     def collect(self) -> VlanCollection:
         with open_cisco_cli(self._session, cli=self._cli, cli_type=CiscoIOSCLI, timeout=self._timeout) as cli:
             output = cli.run_command("show running-config", timeout=self._timeout)
-            if _REJECTED.search(output):
+            if not output.strip() or _REJECTED.search(output) or re.search(r"(?im)^%.*(?:error|failed)", output):
                 raise ValueError("Cisco rejected approved command 'show running-config'")
+            if not re.search(r"(?m)^(?:hostname |interface |vlan |version |Building configuration|Current configuration)", output):
+                raise ValueError("running configuration unavailable")
+            if self._preserve_full_evidence and self._evc and not re.search(r'(?m)^end\s*$', output):
+                raise ValueError('incomplete running configuration')
             interfaces, objects = parse_ios_running_config(output, evc=self._evc, vlan_database=self.vlan_database)
             return VlanCollection(extract_ios_hostname(cli.prompt), interfaces, objects,
-                                  observe_configuration(output, "cisco_ios"))
+                                  observe_configuration(output, "cisco_ios", preserve_full_evidence=self._preserve_full_evidence))
 
 
 class CiscoXEVlanAdapter(CiscoVlanAdapter):
-    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None) -> None:
-        super().__init__(session, timeout=timeout, evc=True, cli=cli)
+    def __init__(self, session: DeviceSession, *, timeout: float = 10.0, cli: DeviceCLI | None = None, preserve_full_evidence: bool = False) -> None:
+        super().__init__(session, timeout=timeout, evc=True, cli=cli, preserve_full_evidence=preserve_full_evidence)
 
 
 class CiscoASRVlanAdapter(CiscoXEVlanAdapter):
