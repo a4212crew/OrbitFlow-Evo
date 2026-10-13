@@ -40,7 +40,7 @@ credential rejection and no device side effects for changes.
 
 ## Approved replacement configuration workflow — design only, not implemented
 
-The authoritative approved target is `docs/architecture/configuration/guided-bulk-planning.md` (22 function-specific templates). The previous two-stage guided Requests/Parameters workbook, offline-only Gap C, auto methodology matching and special elevated Manual CLI approver design are **superseded**. Issue #88 was closed as not planned and PR #89 was closed unmerged. Do not implement superseded material.
+The architecture catalogue is `docs/architecture/configuration/guided-bulk-planning.md` (22 function-specific templates). Detailed approved contracts: `docs/architecture/configuration/approved-catalyst-templates.md` (1–8) and `docs/architecture/configuration/approved-me3600x-asr920-edgeswitch-templates.md` (9–16); latter supersedes older generic EVC and EdgeSwitch notes. Templates 17–22 still await detailed owner sign-off. The previous two-stage guided Requests/Parameters workbook, offline-only Gap C, auto methodology matching and special elevated Manual CLI approver design are **superseded**. Issue #88 was closed as not planned and PR #89 was closed unmerged. Do not implement superseded material.
 
 The existing v1 `orbitflow.configuration` behaviour and protections above remain implemented and unchanged. Extend it through a **versioned** API-first planning contract; do not weaken v1 validation, digest/authority or secret controls.
 
@@ -50,7 +50,7 @@ For **Manual CLI only**: no device connection, no live observation, no claim of 
 
 Excel is a thin adapter: Introduction sheet navigation, one sheet per platform/function, per-row input + evidence + generated CLI + decisions, sheet-left-to-right then row-top-to-bottom same-device order; internal row IDs and a digest-bound immutable Change Plan. Template catalogue, service planner, reviewer and vendor renderer must be reusable through future REST/web interfaces independently of XLSX.
 
-The approved catalogue and exact vendor exceptions (ASR920 inline-only; ME3600X BD global-VLAN prerequisite; EdgeSwitch tagging removal; NE05E existing VSI; platform-specific configuration-mode commands and numeric ranges) are in the authoritative design document. Update deterministic tests; do not mutate equipment in this phase.
+For Templates 9–16 follow the detailed signed-off requirements document: shared ME3600X/ASR920 EVC parser, VLAN ranges/QinQ, separate Push symmetry and push_vlan, split-horizon group 0, always Remove/Recreate CLI, ME parent switchport predicate/ASR inline BD, complete evidence, and EdgeSwitch Add/Change or Remove with independently parsed PVID, membership and tagging (no Replace and missing global VLAN not blocking). The general catalogue documents remaining vendor exceptions. Extend shared normalized parsers without breaking VLAN audit/compliance. Update deterministic tests; do not mutate equipment in this phase.
 
 ## Approved 2026-10-12 staged Catalyst v2 milestone
 
