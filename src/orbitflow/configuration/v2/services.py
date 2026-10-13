@@ -9,7 +9,7 @@ from orbitflow.vendors.interface_names import canonical_interface_name
 from orbitflow.vendors.vlan_types import parse_vlan_list
 from orbitflow.vendors.cisco.bulk_plan import render as cisco
 from orbitflow.vendors.ubiquiti.bulk_plan import render as edge
-from orbitflow.vendors.cisco.evc import ingress, overlaps, service_signature, service_settings
+from orbitflow.vendors.cisco.evc import ingress, overlaps, service_signature, service_settings, child_commands, source_child_commands
 from orbitflow.configuration.plans import canonical
 
 
@@ -167,18 +167,18 @@ def evaluate(t, p, obs, out, prior):
                         block('INGRESS_TAG_OVERLAP')
                 if targets:
                     warn('SERVICE_INSTANCE_RECREATE_IMPACT')
-                    from orbitflow.vendors.cisco.evc import child_commands
                     desired = set(child_commands(p))
-                    def omitted(nodes):
-                        lines = []
-                        for n in nodes:
-                            if n.get('excerpt', '').strip() not in desired and n['value'] != 'stanza_end':
-                                lines.append(n['excerpt'])
-                            lines.extend(omitted(n.get('children', [])))
-                        return lines
-                    out['omitted_child_commands'] = list(dict.fromkeys(omitted(targets[0]['children'])))
+                    before = source_child_commands(targets[0])
+                    out['omitted_child_commands'] = [line for line in before if line not in desired]
                     if out['omitted_child_commands']:
                         warn('OMITTED_CHILD_SETTINGS')
+                else:
+                    before = []
+                after = child_commands(p)
+                out['service_instance_changes'] = dict(before=before, after=after,
+                    removed=[line for line in before if line not in after],
+                    added=[line for line in after if line not in before],
+                    recreation=True, existed=bool(targets))
                 detail = obs.get('service_details', {}).get(target + ':' + str(p['service_instance_id']), {})
                 if detail.get('operational_status') == 'down':
                     warn('SERVICE_INSTANCE_DOWN')

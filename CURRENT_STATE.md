@@ -50,6 +50,14 @@ reliable evidence with labeled fallbacks. Workbook help, row isolation, ordered
 projections/dependencies and digest-bound single decisions are covered. No live
 hardware/firmware validation or device writes were performed. Owner read-only
 validation remains required; Templates 17-22 received no new implementation.
+The Issue #91 review revision distinguishes unverified versus lab-rejected EVC
+rewrite blockers, preserves nested child endings, and exposes unique child
+before/after/added/removed commands in JSON and the protected single workbook.
+Deterministic workbook regressions cover ordered EdgeSwitch Remove/Add and
+PVID-change/Remove with independent excluded/tagged facts. The linked complete
+22-template [operator reference](docs/operations/configuration-template-reference.md)
+labels 17-22 provisional; no live validation or
+new template approval is claimed.
 
 
 Bulk planning v2 now emits flushed per-device read-only collection progress and

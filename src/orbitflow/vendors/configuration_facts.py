@@ -230,7 +230,10 @@ def observe_configuration(output, platform, *, source_filename="running-config",
         if not line or line == "#" or line == "!":
             if preserve_full_evidence and line == "!" and platform in {"cisco_ios", "cisco_xe"} and stack:
                 node = ["methodology_evidence", "stanza_end", number, raw, []]
-                stack[0][1][4].append(node)
+                # Nested child delimiters belong to that child, not the parent.
+                owner = next((n for depth, n in reversed(stack)
+                              if depth <= indent and n[0] in {'interface', 'service_instance'}), stack[0][1])
+                owner[4].append(node)
             if line in {"#", "!"}:
                 while stack and stack[-1][0] >= indent:
                     stack.pop()

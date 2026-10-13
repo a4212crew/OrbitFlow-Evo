@@ -66,3 +66,15 @@ def desired_service(p):
     text = 'interface ' + p['interface'] + '\n service instance ' + str(p['service_instance_id']) + ' ethernet\n'
     text += '\n'.join('  ' + line for line in child_commands(p))
     return decode(canonical(asdict(observe_configuration(text, 'cisco_ios')[0].children[0])))
+
+
+def source_child_commands(service):
+    """One command per source line; multi-fact lines are not extra settings."""
+    sources = {}
+    def visit(nodes):
+        for node in nodes:
+            if node['value'] != 'stanza_end':
+                sources[(node['source_filename'], node['line'])] = node['excerpt'].strip()
+            visit(node.get('children', []))
+    visit(service['children'])
+    return list(dict.fromkeys(sources.values()))

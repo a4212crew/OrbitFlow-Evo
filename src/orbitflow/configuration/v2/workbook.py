@@ -14,7 +14,7 @@ from .planning import request, evaluate_decisions, MAX_ROWS
 from .evidence import scoped_evidence
 
 EXTRA = ("Row ID", "Existing Evidence", "Proposed CLI", "Live Validation", "Consistency",
-         "Dependencies", "Observed At", "Findings", "No-op", "Validation Status", "Error Details", "Resolved Target", "Warnings", "Blockers", "Ordered Overlap Details", "Projected State", "Engineer Decision")
+         "Dependencies", "Observed At", "Findings", "No-op", "Validation Status", "Error Details", "Resolved Target", "Warnings", "Blockers", "Ordered Overlap Details", "Projected State", "Service Instance Differences", "Engineer Decision")
 
 
 class WorkbookRequests(list):
@@ -42,6 +42,7 @@ def _base():
     intro.append(["Order per device: worksheets left-to-right, then rows top-to-bottom. Review never authorizes device execution."])
     intro.append(["Predefined templates collect live read-only evidence. Manual CLI never connects; impact remains unknown."])
     intro.append(["Fill rows from row 3. Required fields are marked in header comments. Do not enter credentials. Blank parent/interface descriptions preserve text; blank EVC child settings are omitted on recreation."])
+    intro.append(["Operator reference: docs/operations/configuration-template-reference.md. Templates 1-16 have signed-off contracts; Templates 17-22 are catalogue/provisional, not owner-approved or live-validated. All hardware/firmware validation remains pending."])
     intro.column_dimensions["A"].width = 115
     for t in CATALOGUE:
         intro.append([t.sheet])
@@ -57,6 +58,12 @@ def _base():
             cell.fill = PatternFill("solid", fgColor="17365D")
             cell.comment = Comment(("Required" if col in ("management_ip", *t.required) else "Optional") +
                                    ("; comma-separated VLAN IDs or ranges, e.g. 445,545,2400-2444" if col == "vlans" else ""), "OrbitFlow")
+            if t.function == 'EVC' and col in {'outer_vlan', 'inner_vlan', 'push_vlan'}:
+                cell.comment.text = ('Conditional: ' + {'outer_vlan': 'required for Dot1q/QinQ; forbidden for Untagged; inclusive ID/list/range 1-4094',
+                    'inner_vlan': 'required for QinQ only; inclusive ID/list/range 1-4094 or any',
+                    'push_vlan': 'required for either Push only; single integer 1-4094'}[col])
+            if t.function == 'VLAN Port' and col == 'tagged_vlans':
+                cell.comment.text = 'Conditional: required for Remove; Add/Change requires tagged_vlans and/or pvid; IDs 2-4093'
             examples = {"management_ip": "192.0.2.10", "vlan_id": "445", "name": "Customer",
                         "description": "Customer Site Alpha", "service_instance_id": "10 (1-4000), independent of VLAN and BD",
                         "bridge_domain": "445; independent of ingress tag", "outer_vlan": "445",
@@ -99,7 +106,12 @@ def _base():
 
 def template_help(t):
     if t.family not in {'C3750X', 'C3850X', 'ME3600X', 'ASR920', 'EdgeSwitch'}:
-        return ''
+        return ('Catalogue/provisional, not owner-approved or live-validated. Required: ' +
+                ', '.join(('management_ip', *t.required)) + '. Optional: ' +
+                (', '.join(t.optional) or 'none') +
+                '. See docs/operations/configuration-template-reference.md for current input grammar, examples, CLI and limitations. ' +
+                ('Manual CLI is literal/offline only; no device connection, wrappers or semantic validation. Impact unknown.'
+                 if t.function == 'Manual CLI' else 'Existing shared read-only facts are required; unavailable/ambiguous evidence blocks.'))
     required = 'Required: ' + ', '.join(('management_ip', *t.required)) + '. '
     if t.function == 'EVC':
         return required + (
@@ -114,7 +126,9 @@ def template_help(t):
             'QinQ ranged inner+None/Pop 1/Push symmetric. Push needs independent push_vlan. '
             'CLI: None omits rewrite; rewrite ingress tag pop 1 symmetric; rewrite ingress tag pop 2 symmetric; '
             'rewrite ingress tag push dot1q 100; rewrite ingress tag push dot1q 1402 symmetric; bridge-domain 2000 split-horizon group 0. '
-            'Invalid: Untagged with tags or Pop; single Dot1q+None/Pop 2; ranged Dot1q+Pop; '
+            'Unverified (blocked): single Dot1q+None; fixed QinQ+None; Untagged+Pop. '
+            'Lab rejected (blocked): single Dot1q+Pop 2; ranged Dot1q+Pop; '
+            'Invalid: Untagged with tags; '
             'QinQ+non-symmetric Push; ranged QinQ+Pop 2; missing push_vlan; reversed range 200-100. '
             'Blank child description/rewrite/group omits old setting; blank interface_description preserves parent. '
             'ME3600X needs trunk + allowed vlan none and global BD VLAN; ASR920 uses inline BD. Empty compatible parent may initialize. '
@@ -136,7 +150,23 @@ def template_help(t):
                            'CLI: interface <target>; description Customer Site Alpha (EdgeSwitch quoted); end/exit. '
                            'Invalid: missing/ambiguous interface, secret-bearing text, unreliable evidence. Exact target; physical member is not redirected. '
                            'Preserve VLAN/EVC/BD, MTU, admin state and all unrelated commands; matching description is No-op.')
-    return required + 'Use approved function-specific fields; unknown fields and credentials are invalid.'
+    if t.function == 'Access Port':
+        return required + ('Optional description; full canonical interface, VLAN 1-4094 excluding 1002-1005. '
+            'Valid: GigabitEthernet1/0/1, vlan_id=445 -> switchport; switchport mode access; switchport access vlan 445. '
+            'Exact explicit match is No-op. Invalid: Gi1/0/1, VLAN 1002, empty VLAN. Missing global VLAN warns; '
+            'configured trunk/routed conversion and physical Port-channel members block. No implicit no shutdown. '
+            'See docs/operations/configuration-template-reference.md.')
+    if t.function == 'Trunk Port':
+        return required + ('Optional native_vlan/description; blank preserves. Add/Remove/Replace only; '
+            'vlans=445,545-546 expands inclusively; no ALL/NONE input or reserved 1002-1005. '
+            'CLI: Add -> switchport trunk allowed vlan add 445,545,546; Remove -> switchport trunk allowed vlan remove 445; '
+            'Replace -> switchport trunk allowed vlan 445,545,546. Add requires explicit baseline; Remove supports observed default ALL. '
+            'Invalid: Add without explicit baseline, reversed range, abbreviated interface. Full match No-op. '
+            'Trunks resolve evidenced Port-channel owners; access/routed conversion blocks. '
+            'C3750X new trunk adds switchport trunk encapsulation dot1q; C3850X never does. '
+            'Compatible Add then Add / Replace then Remove warn and project; other overlapping pairs block. '
+            'See docs/operations/configuration-template-reference.md.')
+    return required + 'See docs/operations/configuration-template-reference.md; unknown fields and credentials are invalid.'
 
 
 def create_input(path):
@@ -255,7 +285,7 @@ def export_plan(plan, path):
         values += [r["row_id"], evidence, commands if isinstance(commands, str) else "\n".join(commands),
                    result["live_validation"], result["consistency"], ",".join(result["dependencies"]), obs.get("observed_at", ""),
                    ",".join(result["findings"]), str(result["no_op"]), "Valid", "; ".join(f"conflicts with {q['sheet']} row {q['row']}" for q in result.get("conflicting_rows", [])) + ("; " + result["prerequisite_details"] if result.get("prerequisite_details") else ""),
-                   result.get("resolved_target", p.get("interface", "")), ",".join(result.get("warnings", [])), ",".join(result.get("blockers", [])), canonical(result.get("overlaps", [])), canonical(result.get("projected_state")), result["decision"]]
+                   result.get("resolved_target", p.get("interface", "")), ",".join(result.get("warnings", [])), ",".join(result.get("blockers", [])), canonical(result.get("overlaps", [])), canonical(result.get("projected_state")), canonical(result.get("service_instance_changes")), result["decision"]]
         for i, v in enumerate(values, 1):
             literal(sheet.cell(r["row"], i), v)
         sheet.row_dimensions[r["row"]].height = 90

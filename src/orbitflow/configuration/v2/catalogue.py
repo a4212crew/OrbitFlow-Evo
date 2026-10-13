@@ -242,5 +242,11 @@ def validate_service(t, values):
                {'None', 'Push dot1q', 'Push dot1q symmetric'} if enc == 'Dot1q' else
                {'Pop 1 symmetric', 'Pop 2 symmetric', 'Push dot1q symmetric'} if inner_single else
                {'None', 'Pop 1 symmetric', 'Push dot1q symmetric'})
-    require(rewrite in allowed, "UNSUPPORTED_OR_UNTESTED_REWRITE_COMBINATION")
+    if rewrite not in allowed:
+        unverified = (rewrite == 'None' and (enc == 'Dot1q' and outer_single or enc == 'QinQ' and inner_single)
+                      or enc == 'Untagged')
+        require(False, ("UNVERIFIED_REWRITE_COMBINATION: " if unverified else "LAB_REJECTED_REWRITE_COMBINATION: ") +
+                t.family + "; " + enc + "; " + rewrite +
+                ("; device support not independently lab-proven; fail closed" if unverified else
+                 "; rejected by approved lab matrix; fail closed"))
     return p

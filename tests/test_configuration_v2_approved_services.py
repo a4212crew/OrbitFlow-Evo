@@ -104,7 +104,7 @@ def test_approved_rewrite_matrix(family, enc, outer, inner, rewrite):
                {'Pop 1 symmetric', 'Pop 2 symmetric', 'Push dot1q symmetric'} if inner == '200' else
                {'None', 'Pop 1 symmetric', 'Push dot1q symmetric'})
     if rewrite not in allowed:
-        with pytest.raises(PlanError, match='UNSUPPORTED_OR_UNTESTED'):
+        with pytest.raises(PlanError, match='(?:UNVERIFIED|LAB_REJECTED)_REWRITE_COMBINATION'):
             request(template(family).id, p)
     else:
         row = result(family, p, evc_config(family))
@@ -416,3 +416,212 @@ def test_child_omissions_and_separate_parent_description_are_visible():
     assert not any('rewrite' in c for c in row['commands'])
     assert any('push dot1q' in c for c in row['omitted_child_commands'])
     assert any('split-horizon group 0' in c for c in row['omitted_child_commands'])
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+@pytest.mark.parametrize('enc,outer,inner,rewrite,reason', [
+    ('Dot1q', '445', None, 'None', 'UNVERIFIED'),
+    ('QinQ', '300', '200', 'None', 'UNVERIFIED'),
+    ('Untagged', None, None, 'Pop 1 symmetric', 'UNVERIFIED'),
+    ('Untagged', None, None, 'Pop 2 symmetric', 'UNVERIFIED'),
+    ('Dot1q', '445', None, 'Pop 2 symmetric', 'LAB_REJECTED'),
+    ('Dot1q', '100-200', None, 'Pop 1 symmetric', 'LAB_REJECTED'),
+    ('QinQ', '300', '200', 'Push dot1q', 'LAB_REJECTED'),
+    ('QinQ', '100', '1-4094', 'Pop 2 symmetric', 'LAB_REJECTED'),
+])
+def test_rewrite_rejection_reason_is_explicit(family, enc, outer, inner, rewrite, reason):
+    p = {**evc_inputs(), 'encapsulation': enc, 'rewrite': rewrite}
+    p.pop('outer_vlan')
+    if outer:
+        p['outer_vlan'] = outer
+    if inner:
+        p['inner_vlan'] = inner
+    if rewrite.startswith('Push'):
+        p['push_vlan'] = 100
+    with pytest.raises(PlanError, match=reason + '_REWRITE_COMBINATION: ' + family):
+        request(template(family).id, p)
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+@pytest.mark.parametrize('existing', ['absent', 'matching', 'changed', 'unknown', 'conflict'])
+def test_evc_recreation_source_and_precise_differences(family, existing):
+    from orbitflow.vendors.cisco.evc import child_commands
+    p = {**evc_inputs(), 'encapsulation': 'QinQ', 'outer_vlan': '300', 'inner_vlan': '200',
+         'rewrite': 'Pop 2 symmetric', 'split_horizon_group': 0}
+    desired = child_commands(p)
+    child = '' if existing == 'absent' else ' service instance 3000 ethernet\n' + '\n'.join('  ' + c for c in desired) + '\n  !\n'
+    if existing == 'changed':
+        child = child.replace('  !', '  service-policy input OLD\n  description Old Child\n  !')
+    if existing == 'unknown':
+        child = child.replace('encapsulation dot1q 300 second-dot1q 200', 'encapsulation unsupported')
+    config = evc_config(family, child + ' service instance 20 ethernet\n  encapsulation dot1q 800\n  bridge-domain 800\n  !\n',
+                        ' description Parent\n mtu 9000\n shutdown\n')
+    extra = {}
+    if existing == 'conflict':
+        extra['service_details'] = {'GigabitEthernet0/1:3000': parse_service_detail(
+            'Service instance 3000 interface GigabitEthernet0/1 does not exist', 'GigabitEthernet0/1', 3000)}
+    row = result(family, p, config, **extra)
+    assert not row['no_op']
+    assert row['commands'][2:4] == ['no service instance 3000', 'service instance 3000 ethernet']
+    assert row['commands'][4:-1] == desired
+    assert row['deployment_ready'] == (existing not in {'unknown', 'conflict'})
+    changes = row['service_instance_changes']
+    assert changes['after'] == desired and changes['recreation']
+    if existing == 'matching':
+        assert changes['removed'] == changes['added'] == row['omitted_child_commands'] == []
+        assert 'OMITTED_CHILD_SETTINGS' not in row['warnings']
+    if existing == 'changed':
+        assert row['omitted_child_commands'] == ['service-policy input OLD', 'description Old Child']
+        assert changes['removed'] == row['omitted_child_commands']
+    assert ('SERVICE_INSTANCE_RECREATE_IMPACT' in row['warnings']) == (existing != 'absent')
+    obs = observation(family, config)
+    evidence = scoped_evidence(request(template(family).id, p), obs)
+    interface_evidence = [e for e in evidence if e['excerpt'].strip() == '!' or 'interface' in e['excerpt'] or e['excerpt'].startswith(' ')]
+    assert len({(e['source_filename'], e['line']) for e in evidence}) == len(evidence)
+    assert any(e['excerpt'] == '  !' for e in interface_evidence)
+    node = next(n for n in obs['facts'] if n['kind'] == 'interface')
+    service = next(n for n in node['children'] if n['kind'] == 'service_instance' and n['value'] == '20')
+    assert service['children'][-1]['value'] == 'stanza_end'
+    assert 'service instance 20 ethernet' not in row['commands']
+    assert all(c not in row['commands'] for c in ['shutdown', 'mtu 9000', 'description Parent'])
+
+
+@pytest.mark.parametrize('scenario', ['remove_add', 'pvid_remove', 'repeat', 'unsafe', 'pending', 'reject'])
+def test_edge_ordered_workbook_rows_to_plan(tmp_path, scenario):
+    source = tmp_path / 'ordered.xlsx'
+    create_input(source)
+    book = load_workbook(source)
+    t = template('EdgeSwitch', 'VLAN Port')
+    inputs = {
+        'remove_add': [dict(action='Remove', tagged_vlans='545,746'), dict(action='Add/Change', tagged_vlans='545,746', pvid=746)],
+        'pvid_remove': [dict(action='Add/Change', pvid=901), dict(action='Remove', tagged_vlans='445')],
+        'repeat': [dict(action='Add/Change', tagged_vlans='545', pvid=445)] * 2,
+        'unsafe': [dict(action='Add/Change', tagged_vlans='545'), dict(action='Remove', tagged_vlans='445')],
+        'pending': [dict(action='Add/Change', pvid=901), dict(action='Remove', tagged_vlans='445')],
+        'reject': [dict(action='Add/Change', pvid=901), dict(action='Remove', tagged_vlans='445')],
+    }[scenario]
+    for number, values in enumerate(inputs, 3):
+        p = dict(management_ip=IP, interface='0/1', **values)
+        for col, field in enumerate(t.columns, 1):
+            book[t.sheet].cell(number, col, p.get(field))
+    book.save(source)
+    requests = read_input(source)
+    assert not requests.errors
+    obs = observation('EdgeSwitch', EDGE.replace('mtu 9000', 'poe opmode auto\nmtu 9000'))
+    obs['vlan_lookups'] = {'746': parse_vlan_lookup('VLAN ID: 746\nVLAN Name: 746\nVLAN Type: Static\nPort Current Configured Tagging\n0/1 Exclude Include Tagged\n', 746)}
+    before = canonical(obs)
+    decisions = {r['row_id']: 'Approve' for r in requests}
+    if scenario in {'pending', 'reject'}:
+        decisions[requests[0]['row_id']] = scenario.title()
+    planned = plan(requests, {IP: obs}, now=NOW, decisions=decisions)
+    rows = planned.to_dict()['results']
+    assert canonical(obs) == before
+    assert [r['row'] for r in planned.to_dict()['requests']] == [3, 4]
+    if scenario == 'remove_add':
+        assert rows[0]['commands'][2:-2] == ['no vlan tagging 545,746', 'vlan participation exclude 545']
+        assert rows[1]['commands'][2:-2] == ['vlan participation include 545,746', 'vlan tagging 545,746', 'vlan pvid 746']
+        assert rows[1]['projected_state'] == dict(description='Customer Site Alpha', included=[445,545,746], excluded=[], tagged=[545,746], pvid=746)
+    elif scenario == 'pvid_remove':
+        assert rows[1]['commands'][2:-2] == ['vlan participation exclude 445']
+        assert rows[1]['projected_state']['pvid'] == 901
+    elif scenario == 'repeat':
+        assert all(r['no_op'] and not r['commands'] for r in rows)
+    elif scenario == 'pending':
+        assert 'DEPENDENCY_NOT_APPROVED' in rows[1]['blockers']
+    elif scenario in {'unsafe', 'reject'}:
+        assert 'PVID_REMOVAL_REQUIRES_REVIEW' in rows[1]['blockers']
+    if scenario in {'remove_add', 'pvid_remove', 'repeat'}:
+        assert all(r['deployment_ready'] and 'ORDERED_RESOURCE_OVERLAP_WARNING' in r['warnings'] for r in rows)
+    else:
+        assert 'ORDERED_RESOURCE_OVERLAP' in rows[1]['blockers']
+    assert all(not any('storm-control' in c or 'poe' in c or 'mtu' in c for c in r['commands']) for r in rows)
+    for r in requests:
+        evidence = '\n'.join(e['excerpt'] for e in scoped_evidence(r, obs))
+        assert 'poe opmode auto' in evidence and 'storm-control' in evidence and 'exit' in evidence
+    export_plan(planned, tmp_path / 'plan.xlsx')
+
+
+def test_edge_excluded_tag_lists_ranges_remain_independent():
+    config = EDGE.replace('vlan participation exclude 746', 'vlan participation exclude 745-746,2436-2444').replace('vlan tagging 545,746', 'vlan tagging 545,745-746,2436-2444')
+    ports, _ = parse_edgeswitch_config(config)
+    assert set(ports[0].configured_tagged_vlans) == {545,745,746,*range(2436,2445)}
+    assert set(ports[0].excluded_vlans) == {745,746,*range(2436,2445)}
+    row = result('EdgeSwitch', edge_inputs(pvid=901), config)
+    assert row['projected_state']['tagged'] == list(ports[0].configured_tagged_vlans)
+    assert row['projected_state']['excluded'] == list(ports[0].excluded_vlans)
+    assert row['commands'][2:-2] == ['vlan participation include 901', 'vlan pvid 901']
+
+@pytest.mark.parametrize('ending', [' !', '  !'])
+def test_nested_child_ending_is_preserved_with_child(ending):
+    config = evc_config('ASR920', ' service instance 3000 ethernet\n  encapsulation dot1q 445\n  rewrite ingress tag pop 1 symmetric\n  bridge-domain 445 split-horizon group 0\n' + ending + '\n')
+    obs = observation('ASR920', config)
+    node = next(n for n in obs['facts'] if n['kind'] == 'interface')
+    child = next(n for n in node['children'] if n['kind'] == 'service_instance')
+    def descendants(n):
+        return [n] + [c for sub in n.get('children', []) for c in descendants(sub)]
+    assert any(n['excerpt'] == ending and n['value'] == 'stanza_end' for n in descendants(child))
+    p = {**evc_inputs(), 'split_horizon_group': 0}
+    row = result('ASR920', p, config)
+    assert row['omitted_child_commands'] == []
+
+
+def test_operator_reference_columns_and_workbook_help_agree():
+    from pathlib import Path
+    from orbitflow.configuration.v2.workbook import _base
+    reference = (Path(__file__).resolve().parents[1] / 'docs/operations/configuration-template-reference.md').read_text(encoding='utf-8')
+    book = _base()
+    for number, t in enumerate(CATALOGUE, 1):
+        section = reference.split(f'## Template {number} — {t.sheet}\n', 1)[1].split('\n## ', 1)[0]
+        assert all(f'| `{field}` |' in section for field in t.columns)
+        assert '| `management_ip` | Required |' in section
+        for field in t.required:
+            assert f'| `{field}` | Required |' in section
+        assert ('Expected' in section or 'complete matrix' in section.lower() or 'scenario table below' in section) and 'evidence' in section.lower()
+        help_text = book[t.sheet]['A1'].comment.text
+        assert all(field in help_text for field in ('management_ip', *t.required))
+        if number >= 17:
+            assert 'not owner-approved or live-validated' in help_text
+            assert 'catalogue/provisional' in section
+    for family in ('ME3600X', 'ASR920'):
+        text = book[template(family).sheet]['A1'].comment.text
+        assert 'Unverified (blocked): single Dot1q+None; fixed QinQ+None' in text
+        assert 'Lab rejected (blocked):' in text
+    for value in ('Push dot1q symmetric', 'Pop 2 symmetric', 'Remove', 'Add/Change', 'split_horizon_group', 'push_vlan'):
+        assert value in reference
+    assert 'Service Instance Differences' in EXTRA
+
+
+def test_evc_differences_in_single_digest_bound_workbook(tmp_path):
+    t = template('ASR920')
+    r = request(t.id, {**evc_inputs(), 'split_horizon_group': 0})
+    config = evc_config('ASR920', ' service instance 3000 ethernet\n  encapsulation dot1q 445\n  rewrite ingress tag pop 1 symmetric\n  bridge-domain 445 split-horizon group 0\n  service-policy input OLD\n !\n', ' description Parent\n')
+    original = plan([r], {IP: observation('ASR920', config)}, now=NOW)
+    path = tmp_path / 'plan.xlsx'
+    export_plan(original, path)
+    save(original, tmp_path / 'plan.json')
+    assert load(tmp_path / 'plan.json').digest == original.digest
+    book = load_workbook(path)
+    col = len(t.columns) + EXTRA.index('Service Instance Differences') + 1
+    text = book[t.sheet].cell(3, col).value
+    assert 'service-policy input OLD' in text and 'description Parent' not in text
+    assert 'removed' in text and 'before' in text and 'after' in text
+    book[t.sheet].cell(3, len(t.columns) + len(EXTRA), 'Approve')
+    book.save(path)
+    assert consume_decisions(original, path, expected_digest=original.digest, now=NOW).to_dict()['results'][0]['deployment_ready']
+    book[t.sheet].cell(3, col, '{}')
+    book.save(path)
+    with pytest.raises(PlanError, match='review content changed'):
+        consume_decisions(original, path, expected_digest=original.digest, now=NOW)
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+def test_recreation_differences_are_sanitized_before_persistence(family, tmp_path):
+    config = evc_config(family, ' service instance 3000 ethernet\n  encapsulation dot1q 445\n  rewrite ingress tag pop 1 symmetric\n  bridge-domain 445\n  description password SYNTHETIC_CHILD_SECRET\n !\n')
+    t = template(family)
+    r = request(t.id, evc_inputs())
+    original = plan([r], {IP: observation(family, config)}, now=NOW)
+    assert 'SYNTHETIC_CHILD_SECRET' not in canonical(original.to_dict())
+    assert '[REDACTED]' in canonical(original.to_dict()['results'][0]['service_instance_changes'])
+    save(original, tmp_path / 'plan.json')
+    export_plan(original, tmp_path / 'plan.xlsx')
+    assert 'SYNTHETIC_CHILD_SECRET' not in (tmp_path / 'plan.json').read_text(encoding='utf-8')
+    book = load_workbook(tmp_path / 'plan.xlsx')
+    assert all('SYNTHETIC_CHILD_SECRET' not in str(cell.value) for sheet in book for row in sheet for cell in row)

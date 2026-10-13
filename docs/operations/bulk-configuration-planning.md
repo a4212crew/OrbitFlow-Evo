@@ -5,6 +5,12 @@ catalogue from [the approved design](../architecture/configuration/guided-bulk-p
 Existing `orbitflow.configuration` v1 JSON plans, commands, validation and
 approval authority remain unchanged.
 
+The [complete template operator reference](configuration-template-reference.md)
+enumerates all 22 worksheets, every input column, conditional requirements,
+valid/invalid examples, scenario CLI, evidence/fallback and ordered dependencies.
+Templates 1-16 have signed-off detailed contracts; 17-22 are provisional catalogue
+behavior, not owner-approved or live-validated. All device validation is pending.
+
 This workflow proposes configuration and records offline engineer decisions.
 It has no device apply/save/commit/rollback implementation. The 21 predefined
 templates collect current read-only evidence. Manual CLI never connects or
@@ -318,7 +324,8 @@ Record each device family/model/software release, run digest, test cases,
 expected/observed results and owner verdict in an operator-controlled validation
 record. Include a multi-row run with a failed device or invalid row and successful
 peers. Share sanitized evidence only. Explicitly sign off both families before
-marking Milestone 1 complete or proceeding to Template 9.
+marking the Catalyst live-validation milestone complete. Templates 9-16 have
+their own signed-off contract and still require independent owner live validation.
 
 ## Repeat read-only overlap validation (Issue #91)
 
