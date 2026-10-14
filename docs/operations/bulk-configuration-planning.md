@@ -16,30 +16,6 @@ It has no device apply/save/commit/rollback implementation. The 21 predefined
 templates collect current read-only evidence. Manual CLI never connects or
 claims live or semantic validation, including when approved.
 
-## User-executable workflow index
-
-Run all commands from the repository root with an activated Python environment and
-`PYTHONPATH=src`. Operator-provided Teleport routing, credentials and local output
-permissions are prerequisites for live read-only operations.
-
-| Task | Entry point | Result / guide |
-|---|---|---|
-| Create a blank 22-template request workbook | `python -m orbitflow.configuration.v2.cli input bulk-input.xlsx` | Local input XLSX; instructions below |
-| Collect read-only evidence and propose bulk changes | `python -m orbitflow.configuration.v2.cli plan bulk-input.xlsx --devices devices.xlsx --max-concurrent-devices 1 --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER` | Immutable `plan.json` and review `plan.xlsx`; no apply |
-| Refresh device inventory | `python scripts/device_inventory_refresh.py devices.xlsx --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER` | Inventory JSON and Excel; see [README](../../README.md#inventory-refresh-and-full-excel-export) |
-| Collect interface and VLAN observation report | `python scripts/device_interface_vlan_report.py devices.xlsx --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER` | Excel report; see [README](../../README.md#batch-interface-and-vlan-report) |
-| Collect VLAN compliance | `python scripts/device_vlan_compliance.py run devices.xlsx --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER` | Compliance spool/report; see [README](../../README.md) |
-| Back up device configuration (sensitive) | `python scripts/device_configuration_backup.py devices.xlsx --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER` | Date-stamped configuration backups and `failed_devices.xlsx`; see [README](../../README.md#device-configuration-backup) |
-| Preview next Codex task | `python scripts/orchestration_v2/controller.py --dry-run` | Non-mutating preview |
-| Run one queued Codex task | `python scripts/orchestration_v2/controller.py` | Controller-managed worktree, tests and PR; no automatic merge |
-| Watch queued Codex tasks | `python scripts/orchestration_v2/controller.py --watch` | Polling controller; no automatic merge |
-
-The batch commands shown use their documented common flags. Use `--help` to
-confirm other supported options on the checked-out revision; do not supply
-credentials on the command line. `devices.xlsx` requires
-`management_ip`, `username`, `password` and optionally `secret`.
-The separate **bulk template input** contains no credentials.
-
 ## Operator commands
 
 Run with the repository environment and `src` on the Python import path, as
@@ -198,41 +174,6 @@ Current/Configured/Tagging operational EdgeSwitch facts remain distinct. Full
 sanitized parent evidence includes unrelated commands, all Cisco children through
 `!`, and EdgeSwitch through `exit`. Service operational Down is informational;
 unparseable/rejected detail uses annotated reliable config fallback.
-
-## Issue #100 candidate changes — pending merge and live validation
-
-**Branch/version warning (2026-10-14):** The changes below are implemented in
-[PR #101](https://github.com/a4212crew/OrbitFlow-Evo/pull/101), **not yet in
-`main`**. On `main`, the older blocker and prompt behaviour can still occur.
-Use the `codex/issue-100` worktree only for authorised read-only validation.
-Do not interpret this section as an assertion that main has been updated.
-
-- A pending VLAN Database prerequisite yields `DEPENDENCY_NOT_APPROVED` as a
-  **warning**, and the dependent proposal may be `consistent` with no blocker,
-  but stays `deployment_ready=false` until prerequisite approval. The dependency
-  references, workbook order and downstream authority checks remain.
-- An Interface Description operation overlapping another operation on the same
-  interface yields `ORDERED_RESOURCE_OVERLAP_WARNING` for **all supported
-  device families**, in either workbook order. Genuine incompatible operations,
-  identity/ownership/evidence failures and independent safety blockers are not
-  waived. Distinct conflicting description-only requests remain blockers.
-- Unsupported Catalyst trunk Add/conversion stays blocked, including
-  `ADD_REQUIRES_EXPLICIT_BASELINE` and `TRUNK_CONVERSION_BLOCKED`.
-- EdgeSwitch CLI identity now accepts the parenthesised angle-bracket hostname
-  formats `(<LAB-ES24>) >` and `(<LAB-ES24>) #`, normalizing the identity to
-  `LAB-ES24`, while retaining existing plain/annotated forms. A `>` session
-  still needs the existing authenticated privilege transition before read-only
-  commands. No SSH host-key or identity check is intentionally bypassed.
-
-**Read-only operator verification:** Generate a fresh input workbook and plan
-from the PR worktree, with one C3750X pending VLAN + Access + Description case,
-and an unsupported trunk Add case. Inspect both JSON and XLSX: warnings,
-dependency links, operation order, `consistency`, `deployment_ready`, and
-the retained trunk blockers. Separately include the previously timed-out
-EdgeSwitch in the credentials workbook and verify identity resolves, then
-inspect inventory/Interface/VLAN/compliance evidence and run a separate
-configuration backup if authorised. Do not send any Proposed CLI to equipment.
-Keep secrets and raw configuration out of Issues and review screenshots.
 
 ## API and bounded persistence
 
