@@ -189,11 +189,16 @@ def evaluate(t, p, obs, out, prior):
                     warn('SERVICE_INSTANCE_DOWN')
                 if detail.get('status') == 'absent' and targets or detail.get('status') == 'present' and not targets:
                     block('SERVICE_OBSERVATION_CONFLICT')
-                if detail.get('status') == 'present' and targets:
+                if detail.get('status') == 'present':
                     operational = service_settings(dict(children=detail['facts']))
-                    configured = service_settings(targets[0])
-                    if any(operational[k] != configured[k] for k in ('ingress', 'domains', 'rewrites')) or operational['groups'] and operational['groups'] != configured['groups']:
-                        block('SERVICE_OBSERVATION_CONFLICT')
+                    if len(operational['domains']) != 1:
+                        block('SERVICE_DETAIL_INCOMPLETE')
+                    if targets:
+                        configured = service_settings(targets[0])
+                        if (any(operational[k] != configured[k] for k in ('ingress', 'rewrites')) or
+                                operational['domains'] and operational['domains'] != configured['domains'] or
+                                operational['groups'] and operational['groups'] != configured['groups']):
+                            block('SERVICE_OBSERVATION_CONFLICT')
                 if detail.get('status') not in {'present', 'absent'}:
                     if reliable:
                         warn('SERVICE_DETAIL_FALLBACK')

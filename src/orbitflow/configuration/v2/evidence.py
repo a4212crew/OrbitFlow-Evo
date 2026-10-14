@@ -82,8 +82,11 @@ def scoped_evidence(request, observation):
         detail = observation.get('service_details', {}).get(p['interface'] + ':' + str(p['service_instance_id']), {})
         for e in detail.get('evidence', []):
             append(e)
-        if t.family == 'ASR920' and detail.get('status') in {'absent', 'error', 'unknown'}:
+        if detail.get('status') in {'absent', 'error', 'unknown'}:
             status = 'does not exist (reliable lookup)' if detail['status'] == 'absent' else 'lookup unavailable; absence not established'
             append(dict(source_filename='Service lookup result', line=0,
                         excerpt=f"Interface {p['interface']}: service instance {p['service_instance_id']} {status}."))
+        if detail.get('status') == 'present' and not any(n['kind'] == 'bridge_domain' for n in detail['facts']):
+            append(dict(source_filename='Service lookup result', line=0,
+                        excerpt=f"Interface {p['interface']}: service instance {p['service_instance_id']} present; forwarding evidence incomplete (bridge-domain unavailable)."))
     return sorted(result, key=lambda e: (e["source_filename"], e["line"]))

@@ -71,6 +71,15 @@ recognized existing VLAN membership/tagging defects as non-blocking warnings;
 material evidence/identity/ownership conflicts and service-change blockers remain.
 Validated with deterministic fixtures only; no live smoke testing in this revision.
 
+The shared Cisco EVC detail parser now recognizes hardware Associated Interface
+identity and exact per-ID/per-port negative replies, including short input names.
+Operational ethertype annotations, QinQ/ranges, descriptions, push/pop and BD
+microblocks reuse shared facts while original evidence remains intact. A valid
+instance without BD evidence is present with incomplete forwarding; v2 blocks it
+and displays the limitation. CLI failures remain error, never absence. Supplied
+ASR920/ME3600X response shapes are deterministically covered; owner repeat live
+read-only validation of dispatch, response and planner artifacts is still required.
+
 `orbitflow.configuration.v2` adds a separate 22-template catalogue, deterministic
 vendor proposals and input/plan XLSX adapters. The plan workbook is the single
 Pending/Approve/Reject surface; no separate v2 review command or signing store remains.
