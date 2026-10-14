@@ -622,34 +622,6 @@ Each backup run also writes `failed_devices.xlsx` in the same dated folder, with
 Backup failure reporting distinguishes missing enable secrets, failed enable authentication, exhausted transient connection retries, and failed connection cleanup using fixed safe reasons. Neither the enable exchange nor raw exception text enters logs, inventory, spools, or `failed_devices.xlsx`.
 
 
-## User-executable scripts — operator quick reference
-
-For the current operator command matrix, prerequisites, inputs, read-only
-behaviour, report destinations and review rules, see the
-[GitHub operation guide](docs/operations/bulk-configuration-planning.md#user-executable-workflow-index).
-The guide uses the same `devices.xlsx`, Teleport routing and output conventions
-as the script-specific sections below. From the repository root in Windows
-PowerShell:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-$env:PYTHONPATH = "src"
-python scripts/orchestration_v2/controller.py --dry-run
-```
-
-The guide covers these user entry points: inventory refresh,
-Interface/VLAN Excel reporting, VLAN compliance, configuration backup, bulk
-configuration request generation and read-only planning, and the Codex controller
-(one-shot, dry-run and watch). Scripts do not implicitly apply proposed
-configuration. Backups and `devices.xlsx` are sensitive; keep them outside Git.
-
-**Revision status:** The EdgeSwitch `(<HOST>) >` prompt compatibility fix and
-non-blocking pending-VLAN/description-overlap planner policy belong to
-[PR #101](https://github.com/a4212crew/OrbitFlow-Evo/pull/101) and are not
-part of `main` until explicitly merged. Read-only operator testing remains
-required; use the relevant PR worktree rather than treating these behaviours as
-already released.
-
 ### Bulk configuration planning v2
 
 Create the approved 22-template workbook with `python -m orbitflow.configuration.v2.cli input bulk-input.xlsx`.
