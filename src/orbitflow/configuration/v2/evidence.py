@@ -18,6 +18,9 @@ def scoped_evidence(request, observation):
     vids.update(p[k] for k in ("vlan_id", "native_vlan", "pvid") if k in p)
     if t.family == "ME3600X" and t.function == "EVC":
         vids.add(p["bridge_domain"])
+    port_only = t.family == 'EdgeSwitch' and t.function == 'VLAN Port'
+    if port_only:
+        vids.clear()
     for row in observation.get("audit", []):
         if key(row.get("config_interface_name", "")) in names:
             names.add(key(row.get("configuration_owner", "")))
@@ -76,6 +79,14 @@ def scoped_evidence(request, observation):
         for e in observation.get('vlan_lookups', {}).get(str(vid), {}).get('evidence', []):
             append(e)
     if t.function == 'EVC':
-        for e in observation.get('service_details', {}).get(p['interface'] + ':' + str(p['service_instance_id']), {}).get('evidence', []):
+        detail = observation.get('service_details', {}).get(p['interface'] + ':' + str(p['service_instance_id']), {})
+        for e in detail.get('evidence', []):
             append(e)
+        if detail.get('status') in {'absent', 'error', 'unknown'}:
+            status = 'does not exist (reliable lookup)' if detail['status'] == 'absent' else 'lookup unavailable; absence not established'
+            append(dict(source_filename='Service lookup result', line=0,
+                        excerpt=f"Interface {p['interface']}: service instance {p['service_instance_id']} {status}."))
+        if detail.get('status') == 'present' and not any(n['kind'] == 'bridge_domain' for n in detail['facts']):
+            append(dict(source_filename='Service lookup result', line=0,
+                        excerpt=f"Interface {p['interface']}: service instance {p['service_instance_id']} present; forwarding evidence incomplete (bridge-domain unavailable)."))
     return sorted(result, key=lambda e: (e["source_filename"], e["line"]))

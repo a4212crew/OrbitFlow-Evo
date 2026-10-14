@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 from orbitflow.configuration.plans import PlanError, canonical
 from orbitflow.configuration.v2.catalogue import CATALOGUE, FAMILIES
 from orbitflow.configuration.v2.planning import request, plan, evaluate_decisions as review, BulkPlan, save, load
-from orbitflow.configuration.v2.workbook import create_input, read_input, export_plan as export_review, consume_decisions, EXTRA
+from orbitflow.configuration.v2.workbook import create_input, read_input, export_plan as export_review, consume_decisions, EXTRA, output_columns
 def import_review(original, path, **kwargs):
     return consume_decisions(original, path, expected_digest=original.digest, **kwargs)
 from orbitflow.configuration.v2.observation import snapshot
@@ -192,7 +192,7 @@ def test_manual_no_network_workbook_and_signed_review(tmp_path, monkeypatch):
     output = tmp_path / "review.xlsx"
     export_review(original, output)
     wb = load_workbook(output)
-    wb[t.sheet].cell(3, len(t.columns) + len(EXTRA), "Approve")
+    wb[t.sheet].cell(3, len(t.columns) + len(output_columns(t)), "Approve")
     wb.save(output)
     approved = import_review(original, output, now=NOW)
     assert approved.to_dict()["results"][0]["commands"] == inputs(t)["commands"]
@@ -406,7 +406,7 @@ def test_manual_cli_operator_commands_offline(tmp_path, monkeypatch):
     original = load(output)
     assert original.to_dict()["source"].startswith("workbook-sha256:")
     book = load_workbook(output.with_suffix(".xlsx"))
-    book[t.sheet].cell(3, len(t.columns) + len(EXTRA), "Approve")
+    book[t.sheet].cell(3, len(t.columns) + len(output_columns(t)), "Approve")
     book.save(output.with_suffix(".xlsx"))
     evaluation = import_review(original, output.with_suffix(".xlsx"))
     assert evaluation.to_dict()["execution_authorized"] is False
@@ -437,8 +437,8 @@ def test_mixed_device_workbook_evidence_and_manual_status(tmp_path):
     book = load_workbook(destination)
     for t in templates:
         sheet = book[t.sheet]
-        status = sheet.cell(3, len(t.columns) + EXTRA.index("Live Validation") + 1).value
-        evidence = sheet.cell(3, len(t.columns) + EXTRA.index("Existing Evidence") + 1).value
+        status = sheet.cell(3, len(t.columns) + output_columns(t).index("Live Validation") + 1).value
+        evidence = sheet.cell(3, len(t.columns) + output_columns(t).index("Existing Evidence") + 1).value
         assert status == ("not_live_validated" if t.family == "All" else "live_read_only")
         assert not evidence  # fixture has no requested VLAN stanza; unrelated interfaces stay private
     assert len(result.to_dict()["observations"]) == 2
@@ -570,9 +570,9 @@ def test_revised_options_input_review_roundtrip(case, tmp_path):
     sheet = book[t.sheet]
     for col, field in enumerate(t.columns, 1):
         assert sheet.cell(3, col).value == (str(p[field]) if field in p else None)
-    assert sheet.cell(3, len(t.columns) + EXTRA.index("Existing Evidence") + 1).value == (None if case == "c3850_name" else obs["evidence"][0]["excerpt"])
-    assert sheet.cell(3, len(t.columns) + EXTRA.index("Proposed CLI") + 1).value
-    sheet.cell(3, len(t.columns) + len(EXTRA), "Approve")
+    assert sheet.cell(3, len(t.columns) + output_columns(t).index("Existing Evidence") + 1).value == (None if case == "c3850_name" else obs["evidence"][0]["excerpt"])
+    assert sheet.cell(3, len(t.columns) + output_columns(t).index("Proposed CLI") + 1).value
+    sheet.cell(3, len(t.columns) + len(output_columns(t)), "Approve")
     book.save(output)
     approved = import_review(result, output, now=NOW)
     assert approved.digest == result.digest
@@ -582,7 +582,7 @@ def test_revised_options_input_review_roundtrip(case, tmp_path):
     output = tmp_path / "unavailable.xlsx"
     export_review(unavailable, output)
     book = load_workbook(output)
-    book[t.sheet].cell(3, len(t.columns) + len(EXTRA), "Approve")
+    book[t.sheet].cell(3, len(t.columns) + len(output_columns(t)), "Approve")
     book.save(output)
     assert not import_review(unavailable, output, now=NOW).to_dict()["results"][0]["deployment_ready"]
 
@@ -615,7 +615,7 @@ def test_revised_cli_review_and_digest_invalidation(tmp_path, monkeypatch):
     save(result, source)
     export_review(result, workbook)
     book = load_workbook(workbook)
-    book[t.sheet].cell(3, len(t.columns) + len(EXTRA), "Reject")
+    book[t.sheet].cell(3, len(t.columns) + len(output_columns(t)), "Reject")
     book.save(workbook)
     revised = import_review(load(source), workbook, now=NOW)
     assert revised.digest == result.digest
@@ -1001,7 +1001,7 @@ def test_workbook_decision_integrity(tmp_path, edit):
     else:
         field = {"cli": "Proposed CLI", "evidence": "Existing Evidence",
                  "formula": "Engineer Decision", "invalid_decision": "Engineer Decision"}[edit]
-        sheet.cell(3, len(t.columns) + EXTRA.index(field) + 1,
+        sheet.cell(3, len(t.columns) + output_columns(t).index(field) + 1,
                    "=1+1" if edit == "formula" else "changed")
     book.save(path)
     with pytest.raises(PlanError):

@@ -317,8 +317,8 @@ def test_ordered_access_description_pairs(family, number, tmp_path):
     book = load_workbook(tmp_path/'plan.xlsx')
     for t, r in ((access, a), (desc, b)):
         sheet = book[t.sheet]
-        column = len(t.columns) + EXTRA.index('Ordered Overlap Details') + 1
-        assert 'Final text' in sheet.cell(r['row'], column).value
+        assert 'Ordered Overlap Details' not in [c.value for c in sheet[2]]
+        assert 'ORDERED_RESOURCE_OVERLAP_WARNING' in sheet.cell(r['row'], len(t.columns) + EXTRA.index('Warnings') + 1).value
         assert 'shutdown' in sheet.cell(r['row'], len(t.columns)+EXTRA.index('Existing Evidence')+1).value
     assert consume_decisions(original, tmp_path/'plan.xlsx', expected_digest=original.digest, now=NOW).digest == original.digest
 
@@ -381,7 +381,7 @@ def test_sequential_port_channel_and_all(family, baseline, tmp_path):
     assert 'SERVICE_IMPACT_REVIEW' in rows[1]['warnings']
     export_plan(original,tmp_path/'plan.xlsx')
     book=load_workbook(tmp_path/'plan.xlsx')
-    assert 'compatible' in book[t.sheet].cell(3,len(t.columns)+EXTRA.index('Ordered Overlap Details')+1).value
+    assert 'ORDERED_RESOURCE_OVERLAP_WARNING' in book[t.sheet].cell(3,len(t.columns)+EXTRA.index('Warnings')+1).value
     rejected=consume_decisions(original,tmp_path/'plan.xlsx',expected_digest=original.digest,now=NOW)
     assert rejected.digest==original.digest
     # An absent logical owner remains a blocker on both requests.

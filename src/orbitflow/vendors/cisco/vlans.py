@@ -341,33 +341,46 @@ def parse_service_detail(output, interface, service_instance_id):
     result = dict(status='unknown', facts=[], operational_status='', evidence=[
         dict(source_filename=f'service detail {interface} {service_instance_id}', line=i, excerpt=_safe_source(line, 'cisco_ios'))
         for i, line in enumerate(output.splitlines(), 1)])
-    if _REJECTED.search(output):
+    if _REJECTED.search(output) or re.search(r'(?im)^\s*%.*(?:error|failed|denied|ambiguous|timeout)|authorization failed', output):
         result['status'] = 'error'
         return result
-    sid = re.search(r'(?im)^\s*(?:Service Instance ID|Id):\s*(\d+)\s*$', output)
-    port = re.search(r'(?im)^\s*Interface:\s*(\S+)\s*$', output)
-    matches = bool(sid and int(sid[1]) == service_instance_id and port and
-                   canonical_interface_name('cisco_ios', port[1]) == canonical_interface_name('cisco_ios', interface))
+    def port_key(name):
+        # IOS accepts the single-letter GigabitEthernet abbreviation too.
+        return canonical_interface_name('cisco_ios', re.sub(r'(?i)^g(?=\d)', 'Gi', name))
+
+    ids = re.findall(r'(?im)^\s*(?:Service Instance ID|Id):\s*(\d+)\s*$', output)
+    ports = re.findall(r'(?im)^\s*(?:Associated Interface|Interface):\s*(\S+)\s*$', output)
+    matches = bool(ids == [str(service_instance_id)] and len(ports) == 1 and
+                   port_key(ports[0]) == port_key(interface))
     if re.search(r'(?i)does not exist', output):
         # Only explicitly identified requested targets prove absence.
-        if matches or re.search(rf'(?i)service instance {service_instance_id}\b.*\b{re.escape(interface)}\b.*does not exist', output):
+        negatives = re.findall(r'(?im)^\s*Service Instance(?: ID)?\s+(\d+)\s+(?:on\s+)?interface\s+(\S+)\s+does not exist\s*\.?\s*$', output)
+        if (not ids and not ports and len(negatives) == 1 and
+                int(negatives[0][0]) == service_instance_id and
+                port_key(negatives[0][1]) == port_key(interface)):
             result['status'] = 'absent'
         return result
     if not matches:
         return result
     lines = []
+    valid_domains = True
     for line in output.splitlines():
         enc = re.fullmatch(r'\s*Encapsulation:\s*(.+?)\s*', line, re.I)
         rewrite = re.fullmatch(r'\s*Rewrite:\s*(.+?)\s*', line, re.I)
-        bd = re.fullmatch(r'\s*Bridge[- ]domain:\s*(\d+(?: split-horizon group \d+)?)\s*', line, re.I)
+        bd = re.fullmatch(r'\s*Bridge[- ]domain:\s*(.+?)\s*', line, re.I)
         state = re.fullmatch(r'\s*State:\s*(Up|Down)\s*', line, re.I)
+        description = re.fullmatch(r'\s*Description:\s*(.+?)\s*', line, re.I)
         if enc:
-            lines.append(' encapsulation ' + enc[1])
+            value = re.sub(r'\s+vlan protocol type 0x8100\b', '', enc[1], flags=re.I)
+            lines.append(' encapsulation ' + value.lower())
+        if description:
+            lines.append(' description ' + description[1])
         if rewrite and rewrite[1].lower() != 'none':
             value = re.sub(r' vlan-type 0x[0-9a-fA-F]+', '', rewrite[1])
             lines.append(' rewrite ' + value)
         if bd:
             lines.append(' bridge-domain ' + bd[1])
+            valid_domains = valid_domains and bool(re.fullmatch(r'\d+(?: split-horizon group \d+)?', bd[1]))
         if state:
             result['operational_status'] = state[1].lower()
     facts = observe_configuration('interface ' + interface + '\n service instance ' + str(service_instance_id) + ' ethernet\n' +
@@ -375,7 +388,14 @@ def parse_service_detail(output, interface, service_instance_id):
     children = facts[0].children[0].children if facts and facts[0].children else ()
     from orbitflow.compliance.vlan import safe_data
     result['facts'] = safe_data([asdict(n) for n in children])
-    if any(n.kind in {'encapsulation', 'untagged'} for n in children) and any(n.kind == 'bridge_domain' for n in children) and not any(n.kind == 'methodology_unknown' for n in children):
+    from orbitflow.vendors.cisco.evc import service_signature
+    # Existence and forwarding completeness are distinct: a valid EFP may
+    # have no forwarding microblock. The planner still checks domain facts.
+    if (valid_domains and service_signature(dict(children=result['facts'])) is not None and
+            (result['operational_status'] or any(n.kind == 'bridge_domain' for n in children)) and
+            sum(n.kind == 'bridge_domain' for n in children) <= 1 and
+            sum(n.kind == 'tag_rewrite' for n in children) <= 1 and
+            len(re.findall(r'(?im)^\s*State:', output)) <= 1):
         result['status'] = 'present'
     return result
 

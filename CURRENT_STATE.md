@@ -71,10 +71,26 @@ recognized existing VLAN membership/tagging defects as non-blocking warnings;
 material evidence/identity/ownership conflicts and service-change blockers remain.
 Validated with deterministic fixtures only; no live smoke testing in this revision.
 
+The shared Cisco EVC detail parser now recognizes hardware Associated Interface
+identity and exact per-ID/per-port negative replies, including short input names.
+Operational ethertype annotations, QinQ/ranges, descriptions, push/pop and BD
+microblocks reuse shared facts while original evidence remains intact. A valid
+instance without BD evidence is present with incomplete forwarding; v2 blocks it
+and displays the limitation. CLI failures remain error, never absence. Supplied
+ASR920/ME3600X response shapes are deterministically covered; owner repeat live
+read-only validation of dispatch, response and planner artifacts is still required.
+
 `orbitflow.configuration.v2` adds a separate 22-template catalogue, deterministic
 vendor proposals and input/plan XLSX adapters. The plan workbook is the single
 Pending/Approve/Reject surface; no separate v2 review command or signing store remains.
 Default artifacts use outputs/runs/configuration/<plan-digest>/plan.json and plan.xlsx.
+Templates 1–16 output sheets now omit seven internal detail columns; immutable JSON
+retains them, while Templates 17–22 keep their output layout. EdgeSwitch port/description
+pairs sequence in either sheet order without an approval dependency solely for overlap;
+port evidence excludes global VLAN output. ASR920 evidence explicitly distinguishes
+reliable per-target absence from lookup failure. Missing ME3600X BD VLAN alone warns,
+retaining the ID for future pre-apply checks without auto-creation. These revisions
+are deterministically tested; hardware/firmware validation remains operator-controlled.
 Digest-pinned decision consumption validates protected cells and returns unauthenticated
 in-memory intent without mutating the plan or authorizing execution.
 The 21 predefined templates use shared per-device execution/session,

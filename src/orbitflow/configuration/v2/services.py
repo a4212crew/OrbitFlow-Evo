@@ -4,6 +4,7 @@ This layer compares typed observations only. CLI grammar and rendering belong
 to vendor modules; projected state follows the existing per-device row order.
 """
 from copy import deepcopy
+from .catalogue import BY_ID
 
 from orbitflow.vendors.interface_names import canonical_interface_name
 from orbitflow.vendors.vlan_types import parse_vlan_list
@@ -74,8 +75,12 @@ def evaluate(t, p, obs, out, prior):
         for q, result in prior:
             if key(result.get('resolved_target', '')) == key(target) and result.get('projected_state') and not result.get('blockers') and result['decision'] != 'Reject':
                 projected = result['projected_state']
-                out['dependencies'].append(q['row_id'])
-                if not result['deployment_ready']:
+                independent_description = (t.family == 'EdgeSwitch' and
+                    {t.function, BY_ID[q['template_id']].function} ==
+                    {'VLAN Port', 'Interface Description'})
+                if not independent_description:
+                    out['dependencies'].append(q['row_id'])
+                if not independent_description and not result['deployment_ready']:
                     block('DEPENDENCY_NOT_APPROVED')
         if projected:
             description = projected.get('description', description)
@@ -184,11 +189,16 @@ def evaluate(t, p, obs, out, prior):
                     warn('SERVICE_INSTANCE_DOWN')
                 if detail.get('status') == 'absent' and targets or detail.get('status') == 'present' and not targets:
                     block('SERVICE_OBSERVATION_CONFLICT')
-                if detail.get('status') == 'present' and targets:
+                if detail.get('status') == 'present':
                     operational = service_settings(dict(children=detail['facts']))
-                    configured = service_settings(targets[0])
-                    if any(operational[k] != configured[k] for k in ('ingress', 'domains', 'rewrites')) or operational['groups'] and operational['groups'] != configured['groups']:
-                        block('SERVICE_OBSERVATION_CONFLICT')
+                    if len(operational['domains']) != 1:
+                        block('SERVICE_DETAIL_INCOMPLETE')
+                    if targets:
+                        configured = service_settings(targets[0])
+                        if (any(operational[k] != configured[k] for k in ('ingress', 'rewrites')) or
+                                operational['domains'] and operational['domains'] != configured['domains'] or
+                                operational['groups'] and operational['groups'] != configured['groups']):
+                            block('SERVICE_OBSERVATION_CONFLICT')
                 if detail.get('status') not in {'present', 'absent'}:
                     if reliable:
                         warn('SERVICE_DETAIL_FALLBACK')
@@ -204,7 +214,8 @@ def evaluate(t, p, obs, out, prior):
                             if not result['deployment_ready']:
                                 block('DEPENDENCY_NOT_APPROVED')
                         else:
-                            block('GLOBAL_VLAN_REQUIRED')
+                            warn('GLOBAL_VLAN_REQUIRED')
+                        out['missing_global_vlans'] = [p['bridge_domain']]
                 for a in obs.get('audit', []):
                     if key(a['config_interface_name']) == key(target) and any(m.get('global_bridge_domain') for m in a.get('numeric_mappings', [])) and t.family == 'ASR920':
                         block('ASR920_GLOBAL_BINDING_CONFLICT')

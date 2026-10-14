@@ -13,8 +13,16 @@ from .catalogue import CATALOGUE, BY_ID, BY_SHEET, normalize_display_inputs
 from .planning import request, evaluate_decisions, MAX_ROWS
 from .evidence import scoped_evidence
 
-EXTRA = ("Row ID", "Existing Evidence", "Proposed CLI", "Live Validation", "Consistency",
+FULL_EXTRA = ("Row ID", "Existing Evidence", "Proposed CLI", "Live Validation", "Consistency",
          "Dependencies", "Observed At", "Findings", "No-op", "Validation Status", "Error Details", "Resolved Target", "Warnings", "Blockers", "Ordered Overlap Details", "Projected State", "Service Instance Differences", "Engineer Decision")
+
+OMITTED = frozenset({"Row ID", "Observed At", "Findings", "Resolved Target",
+                     "Ordered Overlap Details", "Projected State", "Service Instance Differences"})
+EXTRA = tuple(name for name in FULL_EXTRA if name not in OMITTED)
+
+
+def output_columns(template):
+    return EXTRA if template in CATALOGUE[:16] else FULL_EXTRA
 
 
 class WorkbookRequests(list):
@@ -142,7 +150,7 @@ def template_help(t):
             'Invalid: Untagged with tags; '
             'QinQ+non-symmetric Push; ranged QinQ+Pop 2; missing push_vlan; reversed range 200-100. '
             'Blank child description/rewrite/group omits old setting; blank interface_description preserves parent. '
-            'ME3600X needs trunk + allowed vlan none and global BD VLAN; ASR920 uses inline BD. Empty compatible parent may initialize. '
+            'ME3600X needs trunk + allowed vlan none; missing global BD VLAN warns and is never auto-created; ASR920 uses inline BD. Empty compatible parent may initialize. '
             'No implicit no shutdown, MTU or policy changes. Live hardware/firmware validation pending.')
     if t.function == 'VLAN Port':
         return required + (
@@ -258,12 +266,12 @@ def export_plan(plan, path):
     book._sheets = [book[s] for s in names]
     for t in CATALOGUE:
         sheet = book[t.sheet]
-        for i, name in enumerate(EXTRA, len(t.columns) + 1):
+        for i, name in enumerate(output_columns(t), len(t.columns) + 1):
             literal(sheet.cell(2, i), name)
             sheet.column_dimensions[get_column_letter(i)].width = 40
         dv = DataValidation(type="list", formula1='"Pending,Approve,Reject"')
         sheet.add_data_validation(dv)
-        col = get_column_letter(len(t.columns) + len(EXTRA))
+        col = get_column_letter(len(t.columns) + len(output_columns(t)))
         dv.add(f"{col}3:{col}5002")
     details = book.create_sheet("Evidence Details")
     details.append(["Reference", "Source", "Line", "Exact sanitized excerpt"])
@@ -276,7 +284,7 @@ def export_plan(plan, path):
         for index, field in enumerate(t.columns, 1):
             literal(sheet.cell(error['row'], index), error.get('source_inputs', {}).get(field, ''))
         for field, value in (("Validation Status", "Invalid"), ("Error Details", "; ".join(error.get('details', [error['reason']]))), ("Engineer Decision", "Pending")):
-            literal(sheet.cell(error['row'], len(t.columns) + EXTRA.index(field) + 1), value)
+            literal(sheet.cell(error['row'], len(t.columns) + output_columns(t).index(field) + 1), value)
     for r in data["requests"]:
         t, p, result = BY_ID[r["template_id"]], r["inputs"], results[r["row_id"]]
         sheet = book[t.sheet]
@@ -293,10 +301,12 @@ def export_plan(plan, path):
         commands = result["commands"]
         original = r["source_inputs"]
         values = [(",".join(map(str, original[k])) if isinstance(original.get(k), list) else original.get(k, "")) for k in t.columns]
-        values += [r["row_id"], evidence, commands if isinstance(commands, str) else "\n".join(commands),
+        extras = [r["row_id"], evidence, commands if isinstance(commands, str) else "\n".join(commands),
                    result["live_validation"], result["consistency"], ",".join(result["dependencies"]), obs.get("observed_at", ""),
                    ",".join(result["findings"]), str(result["no_op"]), "Valid", "; ".join(f"conflicts with {q['sheet']} row {q['row']}" for q in result.get("conflicting_rows", [])) + ("; " + result["prerequisite_details"] if result.get("prerequisite_details") else ""),
                    result.get("resolved_target", p.get("interface", "")), ",".join(result.get("warnings", [])), ",".join(result.get("blockers", [])), canonical(result.get("overlaps", [])), canonical(result.get("projected_state")), canonical(result.get("service_instance_changes")), result["decision"]]
+        fields = dict(zip(FULL_EXTRA, extras))
+        values += [fields[name] for name in output_columns(t)]
         for i, v in enumerate(values, 1):
             literal(sheet.cell(r["row"], i), v)
         sheet.row_dimensions[r["row"]].height = 90
@@ -327,7 +337,7 @@ def consume_decisions(original, path, *, expected_digest, now=None):
             decision_cells = {}
             for r in original.to_dict()["requests"]:
                 t = BY_ID[r["template_id"]]
-                decision_cells[(t.sheet, r["row"], len(t.columns) + len(EXTRA))] = r["row_id"]
+                decision_cells[(t.sheet, r["row"], len(t.columns) + len(output_columns(t)))] = r["row_id"]
             for sheet in expected:
                 actual = book[sheet.title]
                 require(actual.max_row == sheet.max_row and actual.max_column == sheet.max_column, "review dimensions changed")
