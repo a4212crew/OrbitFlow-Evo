@@ -4,14 +4,17 @@ import re
 
 def extract_edgeswitch_hostname(prompt: str) -> str:
     text = prompt.strip()
-    simple = re.fullmatch(r"([^:#>\s()]+)[#>]", text)
+    simple = re.fullmatch(r"([^:#<>\s()]+)[#>]", text)
     if simple:
         return simple[1]
-    outer = re.fullmatch(r"\(([^:#>\s()]+)(.*?)\)[ \t]*[#>]", text)
+    # Some firmware wraps the hostname in angle brackets inside the outer
+    # parentheses. Delimiters are presentation only, never identity facts.
+    outer = re.fullmatch(r"\((?:<([^:#<>\s()]+)>|([^:#<>\s()]+))(.*?)\)[ \t]*[#>]", text)
     if outer:
-        annotation = outer[2]
+        hostname = outer[1] or outer[2]
+        annotation = outer[3]
         if not annotation:
-            return outer[1]
+            return hostname
         if annotation[0] in " \t":
             annotation = annotation.strip(" \t")
             depth = 0
@@ -24,5 +27,5 @@ def extract_edgeswitch_hostname(prompt: str) -> str:
                         break
                 else:
                     if depth == 0:
-                        return outer[1]
+                        return hostname
     raise ValueError("unrecognized EdgeSwitch prompt")

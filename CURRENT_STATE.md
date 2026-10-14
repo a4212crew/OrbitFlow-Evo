@@ -215,7 +215,7 @@ returns normalized `DeviceContext` stable facts.
 
 Current behaviour:
 - deterministic detection of Cisco IOS, IOS-XE, IOS-XR, Huawei VRP, and Ubiquiti EdgeSwitch;
-- EdgeSwitch hostname extraction structurally accepts parenthesized exec prompts ending in `#` or `>`, including optional nested annotations of arbitrary text, normalizes to the base hostname, rejects malformed parentheses, and retains simple `hostname#` / `hostname>` support (deterministically tested);
+- EdgeSwitch hostname extraction structurally accepts parenthesized exec prompts ending in `#` or `>`, including angle-wrapped hostnames such as `(<LAB-ES24>) >` and optional nested annotations of arbitrary text, normalizes to the base hostname, rejects malformed delimiters, and retains simple `hostname#` / `hostname>` support. Full-banner and fragmented-receive regressions cover identity, enable safety, continued observation/compliance and configuration capture; hardware read-only verification remains pending;
 - family/profile selection for ASR920, C3850, C3750X, ME3600X, NCS540, NE05E, and EdgeSwitch;
 - ME3600X remains `cisco_ios` while retaining an EVC-capable profile;
 - serial-first physical identity reconciliation across management-IP changes;
