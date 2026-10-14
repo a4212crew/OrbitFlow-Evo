@@ -75,9 +75,8 @@ def evaluate(t, p, obs, out, prior):
         for q, result in prior:
             if key(result.get('resolved_target', '')) == key(target) and result.get('projected_state') and not result.get('blockers') and result['decision'] != 'Reject':
                 projected = result['projected_state']
-                independent_description = (t.family == 'EdgeSwitch' and
-                    {t.function, BY_ID[q['template_id']].function} ==
-                    {'VLAN Port', 'Interface Description'})
+                independent_description = ((t.function == 'Interface Description') !=
+                    (BY_ID[q['template_id']].function == 'Interface Description'))
                 if not independent_description:
                     out['dependencies'].append(q['row_id'])
                 if not independent_description and not result['deployment_ready']:
@@ -212,7 +211,7 @@ def evaluate(t, p, obs, out, prior):
                             q, result = candidates[-1]
                             out['dependencies'].append(q['row_id'])
                             if not result['deployment_ready']:
-                                block('DEPENDENCY_NOT_APPROVED')
+                                warn('DEPENDENCY_NOT_APPROVED')
                         else:
                             warn('GLOBAL_VLAN_REQUIRED')
                         out['missing_global_vlans'] = [p['bridge_domain']]

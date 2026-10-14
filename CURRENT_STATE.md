@@ -24,12 +24,14 @@ controller installation into the session-protected `.agents/skills/` directory.
 
 ## Bulk Configuration Planning v2
 
-Catalyst ordered overlap planning now projects preceding safe intent in sheet/row
-order. Access then Description, Trunk Add then Add, and Replace then Remove
-produce explicit compatible-overlap warnings; individual safety prerequisites and
-incompatible intent remain blockers. JSON and the single workbook preserve both
-row references, projected results and original audit evidence. Deterministic tests
-cover both families; owner repeat live read-only validation remains pending.
+Ordered planning permits a description alongside another interface operation on
+all device families in either workbook order, with explicit compatible-overlap
+warnings. Pending VLAN database prerequisites warn without making the plan
+unresolved; dependency links remain digest-bound and deployment readiness still
+requires prerequisite approval. Genuine conflicts, evidence/identity/ownership
+blockers and Catalyst trunk conversion/explicit Add baseline gates remain.
+JSON/XLSX and Pending/Approve/Reject regressions use deterministic fixtures only;
+no live apply or hardware validation was performed.
 
 Catalyst milestone 1 (Templates 1-8; retained in catalogue 2.3) now has shared operational
 VLAN lookup with config fallback, ordered symbolic ALL/exclusion reconstruction,

@@ -154,6 +154,7 @@ def _row(r, observation, prior, decision, now, max_age):
             dependencies.append(q["row_id"])
             if result["decision"] != "Approve" or not result["deployment_ready"]:
                 findings.append("DEPENDENCY_NOT_APPROVED")
+                warning_codes.add("DEPENDENCY_NOT_APPROVED")
         else:
             findings.append("GLOBAL_VLAN_REQUIRED")
     if t.function == "Subinterface VSI" and not any(o["object_type"] == "vsi" and o["object_id"] == p["vsi"] for o in obs.get("objects", [])):
@@ -222,6 +223,7 @@ def _row(r, observation, prior, decision, now, max_age):
     out["commands"] = [] if out["no_op"] else renderer(t, p, existing)
     out["findings"] = sorted(set(findings))
     warnings = {"VLAN_RENAME_IMPACT", "SERVICE_IMPACT_REVIEW", "ACCESS_CONVERSION_IMPACT", "UNTAGGED_REPLACEMENT_IMPACT"}
+    out["warnings"] = sorted((set(findings) & warnings) | warning_codes)
     blockers = set(findings) - warnings - warning_codes
     out.update(consistency="unresolved" if blockers else "consistent", impact="none" if out["no_op"] else "review_required",
                deployment_ready=not blockers and decision == "Approve")
@@ -256,6 +258,11 @@ def _classify_overlap(group):
                         compatible = p['service_instance_id'] != v['service_instance_id'] and not overlaps(ingress(p), ingress(v))
                 elif same_domain and t.function == u.function == 'EVC':
                     compatible = True
+            # A description and a separate interface operation compose in workbook
+            # order on every family. Independent safety findings remain blockers.
+            if (same_interface and t.family == u.family
+                    and (t.function == "Interface Description") != (u.function == "Interface Description")):
+                compatible = True
             code = "ORDERED_RESOURCE_OVERLAP_WARNING" if compatible else "ORDERED_RESOURCE_OVERLAP"
             detail = dict(classification="compatible" if compatible else "conflict",
                 earlier=dict(sheet=u.sheet, row=q["row"]), later=dict(sheet=t.sheet, row=r["row"]),
@@ -329,10 +336,17 @@ def _build(requests, observations, decisions, now, max_age):
         _classify_overlap(previous)
     # A later overlap can invalidate an earlier prerequisite.
     by_id = {r["row_id"]: r for r in rows}
+    requests_by_id = {r["row_id"]: r for r in ordered}
     for result in rows:
         if any(not by_id[d]["deployment_ready"] for d in result["dependencies"]):
             result["findings"] = sorted(set(result["findings"]) | {"DEPENDENCY_NOT_APPROVED"})
-            result.update(deployment_ready=False, consistency="unresolved")
+            pending = [d for d in result["dependencies"] if not by_id[d]["deployment_ready"]]
+            if all(BY_ID[requests_by_id[d]["template_id"]].function == "VLAN Database" for d in pending):
+                result["warnings"] = sorted(set(result.get("warnings", [])) | {"DEPENDENCY_NOT_APPROVED"})
+                result["deployment_ready"] = False
+            else:
+                result["warnings"] = sorted(set(result.get("warnings", [])) - {"DEPENDENCY_NOT_APPROVED"})
+                result.update(deployment_ready=False, consistency="unresolved")
     identities = {}
     for ip, obs in observations.items():
         for field in ("inventory_id", "serial_number", "hostname"):

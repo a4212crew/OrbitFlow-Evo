@@ -85,7 +85,7 @@ def evaluate(t, p, obs, out, prior):
                     if q['inputs'].get('vlan_id') == p['vlan_id'] and 'name' in q['inputs']:
                         out['dependencies'].append(q['row_id'])
                         if not result['deployment_ready']:
-                            block('DEPENDENCY_NOT_APPROVED')
+                            warn('DEPENDENCY_NOT_APPROVED')
             if mode in {'trunk', 'routed'}:
                 block('ACCESS_CONVERSION_BLOCKED')
             if mode not in {'access', 'trunk', 'routed'}:
