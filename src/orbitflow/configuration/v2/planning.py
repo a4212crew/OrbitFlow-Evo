@@ -247,7 +247,8 @@ def _classify_overlap(group):
                      or (u.function == t.function == "Interface Description" and v["description"] == p["description"])))
             if t.family == u.family and t.family in {'ME3600X', 'ASR920', 'EdgeSwitch'} and not result.get('blockers') and not other.get('blockers'):
                 if same_interface:
-                    compatible = (t.function == 'Interface Description' and u.function != 'Interface Description' or
+                    compatible = (t.family == 'EdgeSwitch' and {t.function, u.function} == {'VLAN Port', 'Interface Description'} or
+                                  t.function == 'Interface Description' and u.function != 'Interface Description' or
                                   t.function == u.function == 'Interface Description' and p['description'] == v['description'] or
                                   t.function == u.function == 'VLAN Port')
                     if t.function == u.function == 'EVC':

@@ -149,7 +149,7 @@ V1 plans and authority are unchanged.
   omit those old settings; `interface_description` blank preserves the parent.
   Existing child deletion/omitted settings are visible impact warnings. Group 0
   is distinct from omission. ME3600X requires trunk + allowed vlan none and a
-  global VLAN for the BD. ASR920 uses inline BD, without ME switchport setup.
+  global VLAN for the BD at deployment. Missing global VLAN alone warns during planning, retains the ID for future pre-apply checks, and never auto-creates it. ASR920 uses inline BD, without ME switchport setup.
   Confirmed compatible empty parents may initialize; routed/owned/incompatible
   parents block. No implicit admin, MTU, STP or policy changes.
 - EdgeSwitch VLAN Port uses `action` Add/Change or Remove, `tagged_vlans`
@@ -354,9 +354,9 @@ Port-channel on the later row. Repeat the Access/Description example for four
 observed pairs. Sheet order is authoritative; row order applies within each sheet.
 
 Inspect both source rows: `ORDERED_RESOURCE_OVERLAP_WARNING`, `Consistency=consistent`
-when no other blockers exist, and `Ordered Overlap Details` with both exact source
+when no other blockers exist, and immutable JSON overlap details with both exact source
 references. Confirm final description is Final text; Access CLI still includes
-Access text. Compare each row's `Projected State` and CLI with preceding intent.
+Access text. Compare each row's JSON projected state and workbook CLI with preceding intent.
 Add emits all requested VLANs when needed; Remove is assessed against Replace,
 with service-impact warnings preserved. A later complete match is No-op/empty CLI.
 Existing Evidence remains the original complete sanitized stanza, including `!`.
@@ -394,7 +394,7 @@ Never paste generated configuration back to a device. Read-only checks:
   explicit scoped absence and Up/Down output. Unrecognized detail layouts
   deliberately use a labeled config fallback. No alternate commands are guessed.
 - ME3600X: `show vlan id <ID>`; verify present/inactive/absent/rejected lookup,
-  global BD VLAN prerequisites, compatible empty-parent initialization, normal
+  global BD VLAN warnings and explicit database dependencies, compatible empty-parent initialization, normal
   trunk/access/routed/physical-member blockers and unrelated-child retention.
 - EdgeSwitch: `show vlan <ID>` plus full `show running-config`. Verify VLAN
   headers/names/absence, inclusive lists, full interface exit, excluded+tagged
@@ -416,3 +416,11 @@ been independently live validated. Unsupported rewrite combinations fail closed;
 embedded quote/backslash input is rejected rather than guessing CLI escaping.
 Owner validation and explicit merge approval remain required. No new approval
 or firmware support is claimed for Templates 17-22.
+
+### Issue #94 output and evidence revision
+
+Regenerate plan workbooks for the revised output layout. Templates 1–16 display original inputs plus Existing Evidence, Proposed CLI, Live Validation, Consistency, Dependencies, No-op, Validation Status, Error Details, Warnings, Blockers and Engineer Decision. The seven removed detail columns remain digest-bound in immutable JSON; Templates 17–22 retain their columns. Only Pending/Approve/Reject cells may be edited. Protected input/result cells, exact worksheet order and sheet/row decision identity are still verified against regenerated output and the trusted plan digest.
+
+EdgeSwitch VLAN Port and Description on the same interface are compatible in either sheet order without a Pending approval dependency solely for that pair. Existing PVID-removal, ownership, unknown-state and conflicting-intent blockers remain. Port evidence omits global VLAN declarations and show vlan output; database facts still supply warnings internally. ASR920 evidence labels per-interface/per-ID reliable absence separately from unavailable/error lookup and preserves relevant parent settings. Missing ME3600X BD VLAN alone is a warning, with missing IDs retained in JSON for future pre-apply checks; no implicit VLAN creation occurs.
+
+These revisions have deterministic offline coverage. Operator-controlled read-only validation of both EdgeSwitch sheet orders, ASR920 absence/error responses and ME3600X missing-VLAN plans remains required on deployed hardware/firmware. No apply/save workflow is introduced.

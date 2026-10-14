@@ -587,7 +587,7 @@ def test_operator_reference_columns_and_workbook_help_agree():
         assert 'Lab rejected (blocked):' in text
     for value in ('Push dot1q symmetric', 'Pop 2 symmetric', 'Remove', 'Add/Change', 'split_horizon_group', 'push_vlan'):
         assert value in reference
-    assert 'Service Instance Differences' in EXTRA
+    assert 'Service Instance Differences' not in EXTRA
 
 
 def test_evc_differences_in_single_digest_bound_workbook(tmp_path):
@@ -600,8 +600,8 @@ def test_evc_differences_in_single_digest_bound_workbook(tmp_path):
     save(original, tmp_path / 'plan.json')
     assert load(tmp_path / 'plan.json').digest == original.digest
     book = load_workbook(path)
-    col = len(t.columns) + EXTRA.index('Service Instance Differences') + 1
-    text = book[t.sheet].cell(3, col).value
+    col = len(t.columns) + EXTRA.index('Proposed CLI') + 1
+    text = canonical(original.to_dict()['results'][0]['service_instance_changes'])
     assert 'service-policy input OLD' in text and 'description Parent' not in text
     assert 'removed' in text and 'before' in text and 'after' in text
     book[t.sheet].cell(3, len(t.columns) + len(EXTRA), 'Approve')
@@ -653,9 +653,8 @@ def test_large_evc_scoping_full_validation_and_bounded_export(family, tmp_path, 
     export_plan(original, dest)
     book = load_workbook(dest)
     sheet = book[template(family).sheet]
-    projected = sheet.cell(3, len(template(family).columns) + EXTRA.index('Projected State') + 1)
-    assert 'Complete value in immutable plan.json' in projected.value
-    assert original.digest in projected.value
+    assert 'Projected State' not in [c.value for c in sheet[2]]
+    projected = sheet.cell(3, len(template(family).columns) + EXTRA.index('Proposed CLI') + 1)
     assert all(len(str(c.value or '')) <= 32767 for sh in book for row in sh for c in row)
     assert not any('Neighbor' in str(c.value) for row in book['Evidence Details'] for c in row)
     sheet.cell(3, len(template(family).columns) + len(EXTRA), 'Approve')
@@ -709,3 +708,163 @@ def test_excel_literal_limit_and_deterministic_reference(length):
         assert str(length) in sheet['D2'].value
         literal(sheet['D3'], value)
         assert sheet['D2'].value.replace('D2', 'D3') == sheet['D3'].value
+
+@pytest.mark.parametrize('description_first', [False, True])
+@pytest.mark.parametrize('decision', ['Pending', 'Approve', 'Reject'])
+def test_edgeswitch_port_description_mixed_sheet_order(tmp_path, description_first, decision):
+    port = template('EdgeSwitch', 'VLAN Port')
+    desc = template('EdgeSwitch', 'Interface Description')
+    source = tmp_path / 'input.xlsx'
+    create_input(source)
+    book = load_workbook(source)
+    if description_first:
+        book.move_sheet(desc.sheet, offset=-1)
+    values = [(port, dict(management_ip=IP, interface='0/1', action='Add/Change', tagged_vlans='902', pvid=902, description='Port description')),
+              (desc, dict(management_ip=IP, interface='0/1', description='New description'))]
+    for t, p in values:
+        for col, field in enumerate(t.columns, 1):
+            book[t.sheet].cell(3, col, p.get(field))
+    book.save(source)
+    requests = read_input(source)
+    obs = observation('EdgeSwitch', 'vlan database\n vlan 901\n exit\ninterface 0/1\n description "Original"\n vlan pvid 901\n vlan participation include 901\n vlan tagging 901\nexit\n')
+    original = plan(requests, {IP: obs}, now=NOW)
+    for row in original.to_dict()['results']:
+        assert not row['blockers'] and row['consistency'] == 'consistent'
+        assert 'ORDERED_RESOURCE_OVERLAP_WARNING' in row['warnings']
+        assert not row['dependencies']
+    expected_description = 'Port description' if description_first else 'New description'
+    assert original.to_dict()['results'][-1]['projected_state']['description'] == expected_description
+    path = tmp_path / 'plan.xlsx'
+    export_plan(original, path)
+    book = load_workbook(path)
+    for t, _ in values:
+        book[t.sheet].cell(3, len(t.columns) + len(EXTRA), decision)
+    book.save(path)
+    evaluated = consume_decisions(original, path, expected_digest=original.digest, now=NOW)
+    assert all(r['decision'] == decision and not r['blockers'] for r in evaluated.to_dict()['results'])
+    assert all(r['deployment_ready'] == (decision == 'Approve') for r in evaluated.to_dict()['results'])
+    assert original.to_dict()['results'][0]['decision'] == 'Pending'
+
+
+def test_edgeswitch_description_does_not_waive_pvid_blocker():
+    port = request(template('EdgeSwitch', 'VLAN Port').id,
+                   dict(management_ip=IP, interface='0/1', action='Remove', tagged_vlans='901'), sheet_order=1)
+    desc = request(template('EdgeSwitch', 'Interface Description').id,
+                   dict(management_ip=IP, interface='0/1', description='New'), sheet_order=2)
+    obs = observation('EdgeSwitch', 'interface 0/1\n vlan pvid 901\n vlan participation include 901\n vlan tagging 901\nexit\n')
+    rows = plan([port, desc], {IP: obs}, now=NOW).to_dict()['results']
+    assert 'PVID_REMOVAL_REQUIRES_REVIEW' in rows[0]['blockers']
+    assert all('ORDERED_RESOURCE_OVERLAP' in row['blockers'] for row in rows)
+
+
+def test_edgeswitch_port_evidence_excludes_database_but_retains_warnings(tmp_path):
+    t = template('EdgeSwitch', 'VLAN Port')
+    r = request(t.id, dict(management_ip=IP, interface='0/1', action='Add/Change', tagged_vlans='902', pvid=902))
+    obs = observation('EdgeSwitch', 'vlan database\n vlan 901\n exit\ninterface 0/1\n vlan pvid 901\n vlan participation include 901\n vlan tagging 901\nexit\n')
+    obs['vlan_lookups'] = {'902': dict(status='absent', name='', operational_status='', evidence=[
+        dict(source_filename='show vlan 902', line=1, excerpt='VLAN does not exist.')])}
+    original = plan([r], {IP: obs}, now=NOW)
+    assert 'VLAN_NOT_IN_DATABASE' in original.to_dict()['results'][0]['warnings']
+    assert original.to_dict()['observations'][IP]['vlan_lookups'] == obs['vlan_lookups']
+    path = tmp_path / 'plan.xlsx'
+    export_plan(original, path)
+    book = load_workbook(path)
+    text = book[t.sheet].cell(3, len(t.columns) + EXTRA.index('Existing Evidence') + 1).value
+    assert all(s in text for s in ('vlan pvid 901', 'vlan participation include 901', 'vlan tagging 901'))
+    assert 'VLAN does not exist' not in text and 'vlan database' not in text
+    assert not any('show vlan' in str(c.value) for row in book['Evidence Details'] for c in row)
+
+
+@pytest.mark.parametrize('lookup', ['absent', 'error', 'unknown', 'unavailable'])
+def test_asr920_lookup_evidence_distinguishes_absence(tmp_path, lookup):
+    t = template('ASR920')
+    r = request(t.id, evc_inputs())
+    text = {'absent': 'Service instance 3000 interface GigabitEthernet0/1 does not exist',
+            'error': '% Invalid input detected; service instance 3000 interface GigabitEthernet0/1 does not exist',
+            'unknown': 'Service instance 20 interface GigabitEthernet0/1 does not exist',
+            'unavailable': ''}[lookup]
+    detail = parse_service_detail(text, 'GigabitEthernet0/1', 3000) if lookup != 'unavailable' else dict(status='error', facts=[], evidence=[], operational_status='')
+    assert detail['status'] == ('error' if lookup == 'unavailable' else lookup)
+    obs = observation('ASR920', evc_config('ASR920', parent=' description Parent\n mtu 9000\n'))
+    obs['service_details'] = {'GigabitEthernet0/1:3000': detail}
+    original = plan([r], {IP: obs}, now=NOW)
+    path = tmp_path / 'plan.xlsx'
+    export_plan(original, path)
+    book = load_workbook(path)
+    evidence = book[t.sheet].cell(3, len(t.columns) + EXTRA.index('Existing Evidence') + 1).value
+    assert 'description Parent' in evidence and 'mtu 9000' in evidence
+    if lookup == 'absent':
+        assert 'Interface GigabitEthernet0/1: service instance 3000 does not exist (reliable lookup)' in evidence
+    else:
+        assert 'lookup unavailable; absence not established' in evidence
+        assert 'does not exist (reliable lookup)' not in evidence
+        assert 'SERVICE_DETAIL_FALLBACK' in original.to_dict()['results'][0]['warnings']
+
+
+def test_me_missing_global_vlan_warns_without_creating_and_keeps_other_blockers():
+    config = evc_config('ME3600X').replace('vlan 445\n name Customer\n', '')
+    # Remove all global declarations regardless of the fixture name.
+    config = config[config.index('interface '):]
+    row = result('ME3600X', evc_inputs(), config)
+    assert 'GLOBAL_VLAN_REQUIRED' in row['warnings'] and not row['blockers']
+    assert row['deployment_ready'] and row['missing_global_vlans'] == [445]
+    assert 'vlan 445' not in row['commands']
+    bad = result('ME3600X', evc_inputs(), config.replace('switchport mode trunk', 'switchport mode access'))
+    assert 'INCOMPATIBLE_EVC_PARENT' in bad['blockers']
+    assert 'GLOBAL_VLAN_REQUIRED' in bad['warnings']
+
+
+def test_all_output_columns_and_hidden_identity_tamper(tmp_path):
+    from orbitflow.configuration.v2.workbook import FULL_EXTRA, OMITTED, output_columns
+    t = template('EdgeSwitch', 'Interface Description')
+    requests = [request(t.id, dict(management_ip=IP, interface='0/1', description=value), row=row)
+                for row, value in [(3, 'New'), (4, 'New')]]
+    original = plan(requests, {IP: observation('EdgeSwitch', 'interface 0/1\n description "Old"\nexit\n')}, now=NOW)
+    path = tmp_path / 'plan.xlsx'
+    export_plan(original, path)
+    book = load_workbook(path)
+    for index, item in enumerate(CATALOGUE):
+        headers = tuple(c.value for c in book[item.sheet][2])
+        assert headers == item.columns + (EXTRA if index < 16 else FULL_EXTRA)
+        if index < 16:
+            assert not OMITTED.intersection(headers)
+    col = len(t.columns) + len(output_columns(t))
+    book[t.sheet].cell(3, col, 'Approve')
+    book[t.sheet].cell(4, col, 'Reject')
+    book.save(path)
+    rows = consume_decisions(original, path, expected_digest=original.digest, now=NOW).to_dict()['results']
+    assert [(r['row_id'], r['decision']) for r in rows] == [(requests[0]['row_id'], 'Approve'), (requests[1]['row_id'], 'Reject')]
+    # Moving input rows changes protected content even without a visible Row ID.
+    book[t.sheet].cell(3, 1, '192.0.2.92')
+    book.save(path)
+    with pytest.raises(PlanError, match='review content changed'):
+        consume_decisions(original, path, expected_digest=original.digest, now=NOW)
+
+@pytest.mark.parametrize('field', ['Existing Evidence', 'Proposed CLI', 'Live Validation', 'Consistency',
+                                   'Dependencies', 'No-op', 'Validation Status', 'Error Details', 'Warnings', 'Blockers'])
+def test_simplified_workbook_protected_result_cells(tmp_path, field):
+    t = template('ASR920')
+    r = request(t.id, evc_inputs())
+    original = plan([r], {IP: observation('ASR920', evc_config('ASR920'))}, now=NOW)
+    path = tmp_path / 'plan.xlsx'
+    export_plan(original, path)
+    book = load_workbook(path)
+    book[t.sheet].cell(3, len(t.columns) + EXTRA.index(field) + 1, 'altered')
+    book.save(path)
+    with pytest.raises(PlanError, match='review content changed'):
+        consume_decisions(original, path, expected_digest=original.digest, now=NOW)
+
+
+@pytest.mark.parametrize('field', ['overlaps', 'projected_state', 'service_instance_changes', 'resolved_target', 'findings'])
+def test_removed_workbook_detail_remains_json_protected(tmp_path, field):
+    import json
+    t = template('ASR920')
+    r = request(t.id, evc_inputs())
+    original = plan([r], {IP: observation('ASR920', evc_config('ASR920'))}, now=NOW)
+    path = tmp_path / 'plan.json'
+    save(original, path)
+    payload = json.loads(path.read_text())
+    payload['plan']['results'][0][field] = 'altered'
+    path.write_text(json.dumps(payload))
+    with pytest.raises(PlanError):
+        load(path)
