@@ -10,6 +10,7 @@ from typing import Any, Iterator
 
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.common import DeviceCLI, open_prompt_cli
+from .echo import cisco_echo_end
 from orbitflow.vendors.privilege import ensure_privileged
 from orbitflow.vendors.prompts import is_structural_prompt
 
@@ -165,12 +166,20 @@ def open_cisco_cli(
     cli_type: type[CiscoIOSCLI] = CiscoIOSCLI, timeout: float = 10.0,
 ) -> Iterator[CiscoIOSCLI | DeviceCLI]:
     """Keep Cisco setup rules while borrowing a workflow-owned shell."""
-    if cli is None:
+    if cli is None and cli_type is CiscoIOSCLI:
+        with open_prompt_cli(session, paging_command="terminal length 0",
+                             prompt_pattern=_PROMPT.pattern,
+                             rejected=lambda output: bool(_REJECTED_COMMAND.search(output)),
+                             platform_name="Cisco", timeout=timeout,
+                             echo_matcher=cisco_echo_end) as temporary:
+            yield temporary
+    elif cli is None:
         with closing(cli_type(session, timeout=timeout)) as temporary:
             yield temporary
     else:
         with open_prompt_cli(session, cli=cli, paging_command="terminal length 0",
                              prompt_pattern=_PROMPT.pattern,
                              rejected=lambda output: bool(_REJECTED_COMMAND.search(output)),
-                             platform_name="Cisco", timeout=timeout) as shared:
+                             platform_name="Cisco", timeout=timeout,
+                             echo_matcher=cisco_echo_end) as shared:
             yield shared

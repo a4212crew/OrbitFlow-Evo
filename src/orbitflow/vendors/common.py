@@ -27,6 +27,17 @@ def normalize_output(text: str) -> str:
     return _ANSI_ESCAPE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
 
 
+def command_echo_end(text: str, command: str, prompt: str) -> int | None:
+    """Return the framing boundary of a complete, associated command echo."""
+    lines = normalize_output(text).split("\n")
+    for index, line in enumerate(lines[:-1]):
+        if line.strip() in (command, f"{prompt}{command}"):
+            return index + 1
+        if line.strip() not in ("", prompt):
+            return None
+    return None
+
+
 class PromptCLI:
     """Minimal prompt/echo synchronization shared by vendor-specific shells."""
 
@@ -39,9 +50,12 @@ class PromptCLI:
         rejected: Callable[[str], bool],
         platform_name: str,
         timeout: float = 10.0,
+        echo_matcher: Callable[[str, str, str], int | None] = command_echo_end,
     ) -> None:
         if timeout <= 0:
             raise ValueError("timeout must be greater than zero")
+        self._synchronized = True
+        self._echo_matcher = echo_matcher
         self._prompt_re = re.compile(prompt_pattern, re.MULTILINE)
         self._rejected = rejected
         self._platform_name = platform_name
@@ -83,11 +97,12 @@ class PromptCLI:
         deadline = time.monotonic() + timeout
         received = bytearray()
         candidate: tuple[str, str] | None = None
+        echo = command is None
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise InteractiveCLITimeout(
-                    f"timed out waiting for a {self._platform_name} prompt"
+                    f"CLI response timeout (stage={'prompt' if echo else 'echo'})"
                 )
             self._channel.settimeout(min(remaining, 1.0) if candidate else remaining)
             try:
@@ -96,20 +111,17 @@ class PromptCLI:
                 if candidate is not None:
                     return candidate
                 raise InteractiveCLITimeout(
-                    f"timed out waiting for a {self._platform_name} prompt"
+                    f"CLI response timeout (stage={'prompt' if echo else 'echo'})"
                 ) from exc
             if not chunk:
                 raise InteractiveCLIError(
-                    f"channel closed before a {self._platform_name} prompt was received"
+                    "CLI channel closed (stage=response)"
                 )
             received.extend(chunk)
             candidate = None
             text = received.decode("utf-8", errors="replace")
             found = self._detect_prompt(text)
-            echo = command is None or any(
-                line.strip() in (command, f"{prompt}{command}")
-                for line in normalize_output(text).split("\n")
-            )
+            echo = command is None or self._echo_matcher(text, command, prompt) is not None
             if found is not None and echo and (not exact_prompt or found == prompt):
                 if not exact_prompt:
                     return text, found
@@ -120,6 +132,17 @@ class PromptCLI:
                     candidate = (text, found)
 
     def run_command(self, command: str, timeout: float = 10.0) -> str:
+        if self._channel is None or not self._synchronized:
+            raise InteractiveCLIError("shared CLI is closed or unsynchronized")
+        if timeout <= 0 or not command or "\n" in command or "\r" in command:
+            raise ValueError("invalid command or timeout")
+        try:
+            return self._run_command(command, timeout)
+        except BaseException:
+            self._synchronized = False
+            raise
+
+    def _run_command(self, command: str, timeout: float = 10.0) -> str:
         if not command or "\n" in command or "\r" in command:
             raise ValueError("command must be one non-empty line")
         starting_prompt = self.prompt
@@ -128,11 +151,10 @@ class PromptCLI:
             timeout, command=command, prompt=starting_prompt
         )
         lines = normalize_output(raw).split("\n")
-        # Ignore stale prompt/receive data preceding the synchronized echo.
-        for index, line in enumerate(lines):
-            if line.strip() in (command, f"{starting_prompt}{command}"):
-                lines = lines[index + 1:]
-                break
+        end = self._echo_matcher(raw, command, starting_prompt)
+        if end is None:
+            raise InteractiveCLIError("CLI response framing failed (stage=echo)")
+        lines = lines[end:]
         while lines and not lines[-1].strip():
             lines.pop()
         if lines and lines[-1].strip() == self.prompt:
@@ -175,13 +197,15 @@ class DeviceCLI(PromptCLI):
 
     def configure(self, *, paging_command: str, prompt_pattern: str,
                   rejected: Callable[[str], bool], platform_name: str,
-                  timeout: float = 10.0) -> None:
+                  timeout: float = 10.0,
+                  echo_matcher: Callable[[str, str, str], int | None] = command_echo_end) -> None:
         self.require_session(self.session)
         prompt_re = re.compile(prompt_pattern, re.MULTILINE)
         if not prompt_re.fullmatch(self.prompt):
             raise InteractiveCLIError("shared CLI prompt does not match selected platform")
         self._prompt_re, self._rejected = prompt_re, rejected
         self._platform_name = platform_name
+        self._echo_matcher = echo_matcher
         output = self.run_command(paging_command, timeout=timeout)
         if rejected(output):
             raise InteractiveCLIError(
@@ -218,10 +242,10 @@ class DeviceCLI(PromptCLI):
             raw, _ = self._read_until_prompt(timeout, command=command,
                                              prompt=prompt, exact_prompt=True)
             lines = normalize_output(raw).split("\n")
-            for index, line in enumerate(lines):
-                if line.strip() in (command, f"{prompt}{command}"):
-                    lines = lines[index + 1:]
-                    break
+            end = self._echo_matcher(raw, command, prompt)
+            if end is None:
+                raise InteractiveCLIError("CLI response framing failed (stage=echo)")
+            lines = lines[end:]
             while lines and not lines[-1].strip():
                 lines.pop()
             lines.pop()  # exact final prompt

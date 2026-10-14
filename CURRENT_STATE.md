@@ -725,3 +725,11 @@ children consolidate into existing parents without requiring parent trunk mode;
 missing parents, explicit access conflicts and invalid VSI bindings remain
 visible. Synthetic regressions include 13 Cisco conflicts, five NE05E parents,
 one unresolved Cisco case and invalid relationships. No live testing was run.
+
+Shared CLI Issue #97 adds Cisco-only exact wrapped echo framing and conservative
+`$ ` clipped EVC target matching, shared by synchronization and framing removal.
+Wrong targets/conflicting echoes fail closed; standalone IOS/XE adapter calls
+also use the shared reader. Timeout diagnostics distinguish echo/prompt stages
+without output disclosure. Deterministic large backup/content and consumer
+regressions are covered; hardware checks remain pending in
+[the owner live-validation matrix](docs/operations/shared-cli-live-validation.md).
