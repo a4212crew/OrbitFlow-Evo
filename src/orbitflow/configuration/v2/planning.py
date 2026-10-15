@@ -253,11 +253,18 @@ def _classify_overlap(group):
                                   t.function == 'Interface Description' and u.function != 'Interface Description' or
                                   t.function == u.function == 'Interface Description' and p['description'] == v['description'] or
                                   t.function == u.function == 'VLAN Port')
-                    if t.function == u.function == 'EVC':
-                        from orbitflow.vendors.cisco.evc import ingress, overlaps
-                        compatible = p['service_instance_id'] != v['service_instance_id'] and not overlaps(ingress(p), ingress(v))
-                elif same_domain and t.function == u.function == 'EVC':
-                    compatible = True
+            # Independent EVC intent stays compatible even when either row has
+            # an unrelated safety blocker. Readiness is evaluated separately.
+            if t.family == u.family and t.family in {'ME3600X', 'ASR920'} and t.function == u.function == 'EVC':
+                from orbitflow.vendors.cisco.evc import ingress, overlaps
+                compatible = (not same_interface or
+                    p['service_instance_id'] != v['service_instance_id'] and not overlaps(ingress(p), ingress(v)))
+                if compatible and (not same_interface or (
+                        not p.get('interface_description') and not v.get('interface_description')
+                        and not result.get('projected_state', {}).get('initializes_parent')
+                        and not other.get('projected_state', {}).get('initializes_parent'))):
+                    # Sharing an existing parent is not a shared resource mutation.
+                    continue
             # A description and a separate interface operation compose in workbook
             # order on every family. Independent safety findings remain blockers.
             if (same_interface and t.family == u.family

@@ -24,6 +24,21 @@ controller installation into the session-protected `.agents/skills/` directory.
 
 ## Bulk Configuration Planning v2
 
+ME3600X independent service instances with disjoint ingress no longer acquire
+conflicts or approval dependencies solely from sharing a parent or another row's
+safety blocker. Parent initialization and same-object approval gates remain.
+Explicit IOS VLAN-name facts distinguish unnamed range declarations from real
+name contradictions during configuration/operational reconciliation. Independent
+ME3600X/ASR920 EVCs on an established parent produce no shared-parent overlap
+warning. Intentional schema-owned child replacements retain the complete diff;
+omitted-settings warnings identify dropped optional or unrepresented commands.
+VLAN lookup output remains in immutable observations and conflict checks but is
+excluded from ME3600X/ASR920 workbook evidence presentation. The representative
+11-row scenario retains the row 13 incompatible-parent blocker. Owner read-only
+ME3600X validation confirmed rows 3–12 consistent and row 13 blocked before these
+presentation corrections; repeat live read-only validation remains pending.
+No device apply is implemented by this revision.
+
 Ordered planning permits a description alongside another interface operation on
 all device families in either workbook order, with explicit compatible-overlap
 warnings. Pending VLAN database prerequisites warn without making the plan
