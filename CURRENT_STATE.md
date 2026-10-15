@@ -24,6 +24,17 @@ controller installation into the session-protected `.agents/skills/` directory.
 
 ## Bulk Configuration Planning v2
 
+Issue #106 adds structured ingress conflict evidence and workbook explanations
+with service-instance IDs, canonical interfaces, selectors and projected row
+provenance. The overlap blocker and digest-bound review remain enforced.
+ASR920 disjoint first services on a compatible existing parent are independently
+reviewable; ME3600X initial parent conversion dependencies remain required.
+Shutdown state is preserved. The nine-row ASR920 Gi0/0/8 regression covers SI
+1012 and 2400–2407 with repeated BD 1237 and no false overlap warnings or
+approval dependencies. The input workbook has one compact 22-template directory
+with blue underlined links; detailed guidance remains in comments/docs.
+Deterministic regression coverage only; no live apply.
+
 ME3600X independent service instances with disjoint ingress no longer acquire
 conflicts or approval dependencies solely from sharing a parent or another row's
 safety blocker. Parent initialization and same-object approval gates remain.

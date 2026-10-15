@@ -60,12 +60,36 @@ def _base():
     intro.append(["OrbitFlow bulk configuration planning v2"])
     intro.append(["Order per device: worksheets left-to-right, then rows top-to-bottom. Review never authorizes device execution."])
     intro.append(["Predefined templates collect live read-only evidence. Manual CLI never connects; impact remains unknown."])
-    intro.append(["Fill rows from row 3. Required fields are marked in header comments. Do not enter credentials. Blank parent/interface descriptions preserve text; blank EVC child settings are omitted on recreation."])
-    intro.append(["Operator reference: docs/operations/configuration-template-reference.md. Templates 1-16 have signed-off contracts; Templates 17-22 are catalogue/provisional, not owner-approved or live-validated. All hardware/firmware validation remains pending."])
-    intro.column_dimensions["A"].width = 115
+    intro.append(["Fill rows from row 3; use header comments and sheet A1 comments for field rules. Never enter credentials."])
+    intro.append(["Review the generated plan and set Pending/Approve/Reject; decisions bind to immutable plan.json."])
+    intro.append(["Reference: docs/operations/configuration-template-reference.md. Templates 17–22 are provisional; hardware validation remains pending."])
+    intro.append(["Platform", "Template / function", "Purpose", "Open template"])
+    for column, width in {"A": 22, "B": 28, "C": 68, "D": 32}.items():
+        intro.column_dimensions[column].width = width
+    for row in intro.iter_rows(min_row=1, max_row=6, max_col=1):
+        row[0].alignment = Alignment(vertical="top", wrap_text=True)
+        if row[0].row != 1:  # B1 is reserved for the immutable output plan digest.
+            intro.merge_cells(start_row=row[0].row, start_column=1, end_row=row[0].row, end_column=4)
+        intro.row_dimensions[row[0].row].height = 30
+    for cell in intro[7]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="17365D")
+    purposes = {
+        "VLAN Database": "Create or rename a VLAN in the device database.",
+        "Access Port": "Assign an interface to one access VLAN.",
+        "Trunk Port": "Add, remove or replace trunk VLAN membership.",
+        "Interface Description": "Update an existing interface description.",
+        "EVC": "Create or recreate an Ethernet service instance.",
+        "VLAN Port": "Change port VLAN membership, tagging or PVID.",
+        "L2VPN": "Plan a Layer 2 subinterface and bridge-domain attachment.",
+        "Subinterface VSI": "Plan a VLAN subinterface attached to an existing VSI.",
+        "Manual CLI": "Supply literal offline commands; impact is unknown.",
+    }
     for t in CATALOGUE:
-        intro.append([t.sheet])
-        intro.cell(intro.max_row, 1).hyperlink = f"#'{t.sheet}'!A1"
+        intro.append([t.family, t.function, purposes[t.function], t.sheet])
+        link = intro.cell(intro.max_row, 4)
+        link.hyperlink = f"#'{t.sheet}'!A1"
+        link.font = Font(color="0000FF", underline="single")
         sheet = book.create_sheet(t.sheet)
         sheet.append(["Back to Introduction"])
         sheet["A1"].hyperlink = "#'Introduction'!A1"
@@ -116,10 +140,6 @@ def _base():
         help_text = template_help(t)
         if help_text:
             sheet['A1'].comment = Comment(help_text, 'OrbitFlow', width=800, height=500)
-            intro.append([t.sheet + ': ' + help_text])
-            intro.cell(intro.max_row, 1).alignment = Alignment(vertical='top', wrap_text=True)
-            intro.cell(intro.max_row, 1).font = Font(size=10)
-            intro.row_dimensions[intro.max_row].height = min(409, max(60, (len(help_text) // 95 + 2) * 13))
     return book
 
 
@@ -306,6 +326,9 @@ def export_plan(plan, path):
                    ",".join(result["findings"]), str(result["no_op"]), "Valid", "; ".join(f"conflicts with {q['sheet']} row {q['row']}" for q in result.get("conflicting_rows", [])) + ("; " + result["prerequisite_details"] if result.get("prerequisite_details") else ""),
                    result.get("resolved_target", p.get("interface", "")), ",".join(result.get("warnings", [])), ",".join(result.get("blockers", [])), canonical(result.get("overlaps", [])), canonical(result.get("projected_state")), canonical(result.get("service_instance_changes")), result["decision"]]
         fields = dict(zip(FULL_EXTRA, extras))
+        if result.get('ingress_conflicts'):
+            fields['Error Details'] = '; '.join(filter(None, [fields['Error Details']] +
+                [item['explanation'] for item in result['ingress_conflicts']]))
         values += [fields[name] for name in output_columns(t)]
         for i, v in enumerate(values, 1):
             literal(sheet.cell(r["row"], i), v)

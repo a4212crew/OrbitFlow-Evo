@@ -128,11 +128,12 @@ def test_shared_ranges_any_and_split_horizon_zero():
     assert ports[0].inner_vlan_expression == '1-4094'
 
 
+@pytest.mark.parametrize('family', ['ASR920', 'ME3600X'])
 @pytest.mark.parametrize('inner,blocked', [('200', True), ('201', False), ('190-210', True), ('any', True)])
-def test_qinq_pair_overlap(inner, blocked):
+def test_qinq_pair_overlap(family, inner, blocked):
     p = {**evc_inputs(), 'encapsulation': 'QinQ', 'outer_vlan': '300', 'inner_vlan': '200', 'rewrite': 'Pop 2 symmetric'}
     child = f' service instance 20 ethernet\n  encapsulation dot1q 300 second-dot1q {inner}\n  bridge-domain 800\n'
-    row = result('ASR920', p, evc_config('ASR920', child))
+    row = result(family, p, evc_config(family, child))
     assert ('INGRESS_TAG_OVERLAP' in row['blockers']) == blocked
 
 
@@ -1146,3 +1147,138 @@ def test_vlan_lookup_is_internal_only_in_evc_workbook(tmp_path, family):
     if family == 'ME3600X':
         obs['vlan_lookups']['445']['name'] = 'Contradiction'
         assert 'VLAN_OBSERVATION_CONFLICT' in plan([r], {IP: obs}, now=NOW).to_dict()['results'][0]['blockers']
+
+
+@pytest.mark.parametrize('family', ['ASR920', 'ME3600X'])
+def test_actual_545_overlap_has_digest_bound_actionable_evidence(family, tmp_path):
+    p = {**evc_inputs(), 'interface': 'TenGigabitEthernet0/0/24',
+         'service_instance_id': 2406, 'outer_vlan': '501-599', 'rewrite': 'None'}
+    config = evc_config(family, ' service instance 545 ethernet\n  encapsulation dot1q 545\n  bridge-domain 545\n').replace('GigabitEthernet0/1', p['interface'])
+    r = request(template(family).id, p)
+    artifact = plan([r], {IP: observation(family, config)}, now=NOW, decisions={r['row_id']: 'Approve'})
+    row = artifact.to_dict()['results'][0]
+    assert 'INGRESS_TAG_OVERLAP' in row['blockers'] and not row['deployment_ready']
+    conflict, = row['ingress_conflicts']
+    assert conflict['interface'] == 'tengige0/0/24'
+    assert conflict['requested']['selector']['outer_vlan'] == '501-599'
+    assert conflict['conflicting'] == dict(service_instance_id=545,
+        selector=dict(kind='tagged', outer_vlan='545', inner_vlan=''), origin=dict(kind='existing'))
+    path = tmp_path / 'plan.xlsx'
+    export_plan(artifact, path)
+    sheet = load_workbook(path)[template(family).sheet]
+    assert conflict['explanation'] in sheet.cell(3, len(template(family).columns) + EXTRA.index('Error Details') + 1).value
+    saved = tmp_path / 'plan.json'
+    save(artifact, saved)
+    assert load(saved).to_dict() == artifact.to_dict()
+    from orbitflow.configuration.v2.planning import BulkPlan
+    changed = artifact.to_dict()
+    changed['results'][0]['ingress_conflicts'][0]['explanation'] = 'Altered'
+    with pytest.raises(PlanError, match='tampered planning result'):
+        BulkPlan(canonical(changed))
+
+
+@pytest.mark.parametrize('family', ['ASR920', 'ME3600X'])
+def test_initial_parent_siblings_keep_family_specific_dependencies(family):
+    config = ('vlan 445\n!\n' if family == 'ME3600X' else '') + 'interface GigabitEthernet0/0/8\n no ip address\n shutdown\n!\n'
+    requests = [request(template(family).id, {**evc_inputs(), 'interface': 'GigabitEthernet0/0/8',
+        'service_instance_id': si, 'outer_vlan': str(vid)}, row=row) for row, si, vid in [(3, 10, 100), (4, 20, 200)]]
+    rows = plan(requests, {IP: observation(family, config)}, now=NOW,
+                decisions={requests[1]['row_id']: 'Approve'}).to_dict()['results']
+    assert all(not any('shutdown' in c for c in r['commands']) for r in rows)
+    if family == 'ASR920':
+        assert all(not r['dependencies'] and not r['blockers'] and not r.get('overlaps') for r in rows)
+        assert rows[1]['deployment_ready']
+    else:
+        assert rows[1]['dependencies'] == [requests[0]['row_id']]
+        assert 'DEPENDENCY_NOT_APPROVED' in rows[1]['blockers']
+        assert 'switchport mode trunk' in rows[0]['commands']
+        assert 'switchport trunk allowed vlan none' in rows[0]['commands']
+
+
+@pytest.mark.parametrize('family', ['ASR920', 'ME3600X'])
+@pytest.mark.parametrize('same_interface,second_si,second_vlan', [(False, 10, '100'), (True, 20, '100'), (True, 10, '100'), (True, 20, '200')])
+def test_projected_ingress_conflicts_and_interface_scope(family, same_interface, second_si, second_vlan):
+    config = evc_config(family) + evc_config(family).replace('GigabitEthernet0/1', 'GigabitEthernet0/2')
+    requests = [request(template(family).id, {**evc_inputs(), 'service_instance_id': 10, 'outer_vlan': '100'}, row=3),
+                request(template(family).id, {**evc_inputs(), 'interface': 'GigabitEthernet0/1' if same_interface else 'GigabitEthernet0/2',
+                    'service_instance_id': second_si, 'outer_vlan': second_vlan}, row=4)]
+    rows = plan(requests, {IP: observation(family, config)}, now=NOW).to_dict()['results']
+    if same_interface and second_vlan == '100':
+        assert 'ORDERED_RESOURCE_OVERLAP' in rows[1]['blockers']
+        if second_si != 10:
+            conflict, = rows[1]['ingress_conflicts']
+            assert conflict['conflicting']['origin']['row_id'] == requests[0]['row_id']
+            assert conflict['conflicting']['origin']['row'] == 3
+    else:
+        assert all(not r['blockers'] and not r.get('ingress_conflicts') for r in rows)
+
+
+@pytest.mark.parametrize('family', ['ASR920', 'ME3600X'])
+@pytest.mark.parametrize('encapsulation,blocked', [('Untagged', True), ('Dot1q', False)])
+def test_untagged_conflict_uses_canonical_parent_identity(family, encapsulation, blocked):
+    config = evc_config(family, ' service instance 50 ethernet\n  encapsulation untagged\n  bridge-domain 50\n').replace('GigabitEthernet0/1', 'Gi0/1')
+    p = {**evc_inputs(), 'encapsulation': encapsulation, 'rewrite': 'None' if blocked else 'Pop 1 symmetric'}
+    if blocked:
+        p.pop('outer_vlan')
+    row = result(family, p, config)
+    assert ('INGRESS_TAG_OVERLAP' in row['blockers']) == blocked
+    if blocked:
+        assert row['ingress_conflicts'][0]['conflicting']['selector']['kind'] == 'untagged'
+
+
+def test_asr920_nine_independent_services_repeated_bridge_domain(tmp_path):
+    """Operator Gi0/0/8 report: empty shutdown parent and shared BD 1237."""
+    config = 'interface GigabitEthernet0/0/8\n no ip address\n shutdown\n!\nend\n'
+    specs = [(1012, '1012', 1012), (2400, '100-199', 1237),
+             (2401, '200-299', 1237), (2402, '300-399', 1237),
+             (2403, '400-499', 1237), (2404, '600-699', 1237),
+             (2405, '700-799', 1237), (2406, '501-599', 1237),
+             (2407, '800-899', 1237)]
+    requests = [request(template('ASR920').id, {**evc_inputs(),
+        'interface': 'Gi0/0/8', 'service_instance_id': si, 'outer_vlan': tags,
+        'rewrite': 'Pop 1 symmetric' if si == 1012 else 'None',
+        'bridge_domain': bd}, row=i) for i, (si, tags, bd) in enumerate(specs, 3)]
+    obs = {IP: observation('ASR920', config)}
+    # Every service must stand alone regardless of sibling approval status.
+    for selected in requests:
+        artifact = plan(requests, obs, now=NOW, decisions={selected['row_id']: 'Approve'})
+        rows = artifact.to_dict()['results']
+        assert all(not r['blockers'] and not r['dependencies'] and not r.get('overlaps') for r in rows)
+        assert all('ORDERED_RESOURCE_OVERLAP_WARNING' not in r['warnings'] for r in rows)
+        assert all(not any('shutdown' in cmd for cmd in r['commands']) for r in rows)
+        assert rows[requests.index(selected)]['deployment_ready']
+    path = tmp_path / 'plan.xlsx'
+    export_plan(artifact, path)
+    sheet = load_workbook(path)[template('ASR920').sheet]
+    warning_column = len(template('ASR920').columns) + EXTRA.index('Warnings') + 1
+    assert all('ORDERED_RESOURCE_OVERLAP_WARNING' not in str(sheet.cell(i, warning_column).value)
+               for i in range(3, 12))
+
+
+def test_input_workbook_compact_directory_roundtrip(tmp_path):
+    from orbitflow.configuration.v2.workbook import create_input, template_help
+    path = tmp_path / 'input.xlsx'
+    create_input(path)
+    book = load_workbook(path)
+    # Repeat serialization to ensure the visible hyperlink style is durable.
+    book.save(path)
+    book = load_workbook(path)
+    intro = book['Introduction']
+    assert intro.max_row == 7 + 22
+    assert intro.max_column == 4
+    assert [c.value for c in intro[7]] == ['Platform', 'Template / function', 'Purpose', 'Open template']
+    assert len(CATALOGUE) == 22
+    for row, t in enumerate(CATALOGUE, 8):
+        assert intro.cell(row, 1).value == t.family
+        assert intro.cell(row, 2).value == t.function
+        purpose = intro.cell(row, 3).value
+        assert 10 < len(purpose) < 80
+        link = intro.cell(row, 4)
+        assert link.value == t.sheet
+        assert link.hyperlink.target == f"#'{t.sheet}'!A1"
+        assert link.font.color.type == 'rgb' and link.font.color.rgb == '000000FF'
+        assert link.font.underline == 'single'
+        assert book[t.sheet]['A1'].hyperlink.target == "#'Introduction'!A1"
+        assert book[t.sheet]['A1'].comment.text == template_help(t)
+        assert template_help(t) not in '\n'.join(str(c.value or '') for cells in intro for c in cells)
+    assert all(len(str(c.value or '')) < 160 for cells in intro for c in cells)

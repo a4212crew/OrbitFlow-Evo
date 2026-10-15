@@ -180,6 +180,43 @@ def evaluate(t, p, obs, out, prior):
                         block('SERVICE_STATE_UNKNOWN')
                     elif s['value'] != str(p['service_instance_id']) and overlaps(wanted_ingress, signature):
                         block('INGRESS_TAG_OVERLAP')
+                        # Only normalized selectors and validated row metadata are
+                        # persisted; never copy raw device output into diagnostics.
+                        def selector(sig):
+                            def ranges(values):
+                                groups = []
+                                for value in sorted(set(values)):
+                                    if groups and value == groups[-1][-1] + 1:
+                                        groups[-1].append(value)
+                                    else:
+                                        groups.append([value])
+                                return ','.join(str(g[0]) if len(g) == 1 else f'{g[0]}-{g[-1]}' for g in groups)
+                            return dict(kind=sig[0], outer_vlan=ranges(sig[1]), inner_vlan=ranges(sig[2]))
+                        origin = dict(kind='existing')
+                        for q, result in prior:
+                            if (BY_ID[q['template_id']].function == 'EVC'
+                                    and key(q['inputs']['interface']) == key(target)
+                                    and str(q['inputs']['service_instance_id']) == s['value']
+                                    and result.get('projected_state') and not result.get('blockers')
+                                    and result['decision'] != 'Reject'):
+                                origin = dict(kind='projected', row_id=q['row_id'],
+                                              sheet=BY_ID[q['template_id']].sheet, row=q['row'])
+                        requested = selector(wanted_ingress)
+                        conflicting = selector(signature)
+                        def display(value):
+                            return ('untagged' if value['kind'] == 'untagged' else
+                                    'dot1q ' + value['outer_vlan'] +
+                                    (' second-dot1q ' + value['inner_vlan'] if value['inner_vlan'] else ''))
+                        explanation = (f"{p['management_ip']} {target}: requested SI {p['service_instance_id']} "
+                                       f"({display(requested)}) overlaps {origin['kind']} SI {s['value']} "
+                                       f"({display(conflicting)})" +
+                                       (f" from {origin['sheet']} row {origin['row']}" if origin['kind'] == 'projected' else '') +
+                                       '. INGRESS_TAG_OVERLAP blocks this row.')
+                        out.setdefault('ingress_conflicts', []).append(dict(
+                            code='INGRESS_TAG_OVERLAP', management_ip=p['management_ip'], interface=key(target),
+                            requested=dict(service_instance_id=p['service_instance_id'], selector=requested),
+                            conflicting=dict(service_instance_id=int(s['value']), selector=conflicting, origin=origin),
+                            explanation=explanation))
                 if targets:
                     warn('SERVICE_INSTANCE_RECREATE_IMPACT')
                     before = source_child_commands(targets[0])
@@ -232,8 +269,11 @@ def evaluate(t, p, obs, out, prior):
                 out['commands'] = renderer(t, p, dict(initialize=empty, description=description))
                 # Store normalized desired children through the shared vendor helper.
                 from orbitflow.vendors.cisco.evc import desired_service
+                # Only ME3600X converts an empty parent into a shared trunk
+                # resource. ASR920's address-free parent needs no conversion;
+                # its defensive no-ip command must not serialize siblings.
                 out['projected_state'] = dict(description=p.get('interface_description', description),
-                    evc_parent=True, initializes_parent=empty and not bool(projected and projected.get('evc_parent')), services=[s for s in services if s['value'] != str(p['service_instance_id'])] + [desired_service(p)])
+                    evc_parent=True, initializes_parent=t.family == 'ME3600X' and empty and not bool(projected and projected.get('evc_parent')), services=[s for s in services if s['value'] != str(p['service_instance_id'])] + [desired_service(p)])
     out['findings'] = sorted(set(findings))
     out['warnings'] = sorted(warnings)
     out['blockers'] = sorted(set(findings) - warnings)

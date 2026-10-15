@@ -49,7 +49,10 @@ for the existing configuration CLI:
 python -m orbitflow.configuration.v2.cli input bulk-input.xlsx
 ```
 
-Introduction links to all 22 function sheets. `Description` is the shortened
+Introduction provides a concise quick-start and one directory of all 22 templates,
+with platform, function, short purpose and blue underlined worksheet links.
+Detailed technical guidance remains in field-header and sheet A1 comments and
+the template reference. `Description` is the shortened
 worksheet label for Interface Description, keeping names within Excel's
 31-character limit. C3850X template sheets resolve the existing inventory
 family `C3850` and `c3850_switching` profile. Fill rows beginning at row 3;
@@ -173,7 +176,7 @@ V1 plans and authority are unchanged.
   preserved in CLI and expanded for overlap checks; inner `any` becomes `1-4094`.
   `rewrite` is None, Pop 1 symmetric, Pop 2 symmetric, Push dot1q or
   Push dot1q symmetric. Push requires separate `push_vlan`. Unsupported/untested
-  combinations block input; consult workbook Introduction and sheet A1 comments
+  combinations block input; consult sheet A1 comments and the template reference
   for the complete valid/invalid matrix and CLI examples.
 - Every EVC row renders `no service instance <ID>` followed by complete child
   recreation, even on a match. Optional child description/rewrite/group blanks
@@ -490,3 +493,27 @@ Regenerate plan workbooks for the revised output layout. Templates 1–16 displa
 EdgeSwitch VLAN Port and Description on the same interface are compatible in either sheet order without a Pending approval dependency solely for that pair. Existing PVID-removal, ownership, unknown-state and conflicting-intent blockers remain. Port evidence omits global VLAN declarations and show vlan output; database facts still supply warnings internally. ASR920 evidence labels per-interface/per-ID reliable absence separately from unavailable/error lookup and preserves relevant parent settings. Missing ME3600X BD VLAN alone is a warning, with missing IDs retained in JSON for future pre-apply checks; no implicit VLAN creation occurs.
 
 These revisions have deterministic offline coverage. Operator-controlled read-only validation of both EdgeSwitch sheet orders, ASR920 absence/error responses and ME3600X missing-VLAN plans remains required on deployed hardware/firmware. No apply/save workflow is introduced.
+
+EVC ingress conflicts retain the blocking `INGRESS_TAG_OVERLAP` code. The plan
+workbook's Error Details identifies the management IP, canonical physical
+interface, requested and conflicting service-instance IDs and normalized ingress
+selectors. Projected conflicts also identify the originating sheet and row.
+Immutable plan JSON carries these explanations and structured `ingress_conflicts`;
+review remains bound to the complete plan digest. Resolve the conflicting intent
+and regenerate the plan before review; approval cannot bypass this blocker.
+
+On ASR920, independent service instances with disjoint ingress on an existing
+compatible physical interface can be reviewed independently even when it has no
+EVCs yet (`no ip address` and `shutdown` are supported). Active L3 addressing and
+incompatible ownership still block. Shutdown is preserved. Explicit shared parent
+description changes retain ordering. ME3600X still requires trunk mode and allowed
+VLAN none, with sequencing and approval dependencies for initial conversion.
+No device apply is provided.
+
+Independent ASR920 EVC services on an address-free parent (including a shutdown
+parent with no existing EVC) may be reviewed separately. Sharing a bridge domain,
+including repeated BD 1237, does not create an ordering warning or approval
+dependency for distinct SIs with disjoint ingress. Parent descriptions and actual
+parent conversions retain ordered review; same-interface ingress overlaps and
+duplicate SI intent remain blocked. ME3600X initial trunk conversion still
+requires its parent-initialization dependency. Planning preserves shutdown state.
