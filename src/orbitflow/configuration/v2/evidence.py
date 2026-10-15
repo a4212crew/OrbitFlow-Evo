@@ -75,7 +75,8 @@ def scoped_evidence(request, observation):
         return False
     for node in observation.get("facts", []):
         select(node)
-    for vid in sorted(vids):
+    # Lookup outputs remain in immutable observations for validation, not display.
+    for vid in sorted(vids) if t.family not in {"ME3600X", "ASR920"} else ():
         for e in observation.get('vlan_lookups', {}).get(str(vid), {}).get('evidence', []):
             append(e)
     if t.function == 'EVC':

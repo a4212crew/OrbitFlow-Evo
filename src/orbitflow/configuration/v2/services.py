@@ -10,7 +10,7 @@ from orbitflow.vendors.interface_names import canonical_interface_name
 from orbitflow.vendors.vlan_types import parse_vlan_list
 from orbitflow.vendors.cisco.bulk_plan import render as cisco
 from orbitflow.vendors.ubiquiti.bulk_plan import render as edge
-from orbitflow.vendors.cisco.evc import ingress, overlaps, service_signature, service_settings, child_commands, source_child_commands
+from orbitflow.vendors.cisco.evc import ingress, overlaps, service_signature, service_settings, child_commands, source_child_commands, omitted_child_commands
 from orbitflow.configuration.plans import canonical
 
 
@@ -182,9 +182,8 @@ def evaluate(t, p, obs, out, prior):
                         block('INGRESS_TAG_OVERLAP')
                 if targets:
                     warn('SERVICE_INSTANCE_RECREATE_IMPACT')
-                    desired = set(child_commands(p))
                     before = source_child_commands(targets[0])
-                    out['omitted_child_commands'] = [line for line in before if line not in desired]
+                    out['omitted_child_commands'] = omitted_child_commands(targets[0], p)
                     if out['omitted_child_commands']:
                         warn('OMITTED_CHILD_SETTINGS')
                 else:

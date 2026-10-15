@@ -78,3 +78,23 @@ def source_child_commands(service):
             visit(node.get('children', []))
     visit(service['children'])
     return list(dict.fromkeys(sources.values()))
+
+
+def omitted_child_commands(service, p):
+    """Report dropped settings, excluding schema-owned intentional replacements."""
+    desired = set(child_commands(p))
+    replaced = {'encapsulation', 'inner_vlan', 'untagged', 'bridge_domain', 'methodology_split_horizon_group'}
+    if p.get('description'):
+        replaced.add('description')
+    if p.get('rewrite', 'None') != 'None':
+        replaced.add('tag_rewrite')
+    represented = {n['excerpt'].strip() for n in service['children'] if n['kind'] in replaced}
+    unknown = {n['excerpt'].strip() for n in service['children'] if n['kind'] not in replaced}
+    omitted = []
+    for line in source_child_commands(service):
+        # Removing an optional split-horizon setting still deserves review.
+        dropped_group = (line.startswith('bridge-domain ') and ' split-horizon group ' in line
+                         and 'split_horizon_group' not in p)
+        if line not in desired and (dropped_group or line not in represented or line in unknown):
+            omitted.append(line)
+    return omitted

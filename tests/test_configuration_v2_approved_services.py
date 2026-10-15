@@ -1014,6 +1014,8 @@ def test_me_representative_operator_replacements_and_distinct_domains():
         for i, row in enumerate(rows[:10]):
             assert row['consistency'] == 'consistent' and not row['blockers']
             assert row['dependencies'] == []
+            assert 'ORDERED_RESOURCE_OVERLAP_WARNING' not in row['warnings']
+            assert 'OMITTED_CHILD_SETTINGS' not in row['warnings']
             assert {'SERVICE_DETAIL_FALLBACK', 'SERVICE_IMPACT_REVIEW'} <= set(row['warnings'])
             assert row['deployment_ready'] == (i == selected)
             assert not row['execution_authorized']
@@ -1092,3 +1094,55 @@ def test_me_separate_parent_description_preserves_evc_independence(description_f
                 decisions={evc['row_id']:'Approve'}).to_dict()['results']
     assert all(not r['blockers'] and not r['dependencies'] for r in rows)
     assert next(r for r in rows if r['row_id'] == evc['row_id'])['deployment_ready']
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+def test_replacement_distinguishes_changed_and_dropped_children(family):
+    config = evc_config(family, ' service instance 3000 ethernet\n  description OLD\n  encapsulation dot1q 100\n  rewrite ingress tag push dot1q 200 symmetric\n  bridge-domain 100\n')
+    p = {**evc_inputs(), 'description': 'NEW', 'split_horizon_group': 0}
+    row = result(family, p, config)
+    assert row['deployment_ready']
+    assert not row['omitted_child_commands']
+    assert 'OMITTED_CHILD_SETTINGS' not in row['warnings']
+    assert {'SERVICE_INSTANCE_RECREATE_IMPACT', 'SERVICE_IMPACT_REVIEW'} <= set(row['warnings'])
+    assert 'encapsulation dot1q 100' in row['service_instance_changes']['removed']
+    assert 'bridge-domain 445 split-horizon group 0' in row['service_instance_changes']['added']
+    row = result(family, evc_inputs(), config.replace('  bridge-domain 100', '  service-policy input KEEP\n  bridge-domain 100'))
+    assert row['omitted_child_commands'] == ['description OLD', 'service-policy input KEEP']
+    assert 'OMITTED_CHILD_SETTINGS' in row['warnings']
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+def test_disjoint_evcs_have_no_overlap_warning(family):
+    t = template(family)
+    requests = [request(t.id, {**evc_inputs(), 'service_instance_id': si, 'outer_vlan': str(vid)}, row=i)
+                for i, si, vid in [(3, 10, 100), (4, 20, 200)]]
+    obs = observation(family, evc_config(family, ' service instance 99 ethernet\n  encapsulation dot1q 999\n  bridge-domain 999\n'))
+    rows = plan(requests, {IP: obs}, now=NOW,
+                decisions={requests[1]['row_id']: 'Approve'}).to_dict()['results']
+    assert all(not r['blockers'] and not r['dependencies'] and not r.get('overlaps') for r in rows)
+    assert all('ORDERED_RESOURCE_OVERLAP_WARNING' not in r['warnings'] for r in rows)
+    assert rows[1]['deployment_ready']
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+def test_vlan_lookup_is_internal_only_in_evc_workbook(tmp_path, family):
+    t = template(family)
+    r = request(t.id, evc_inputs())
+    obs = observation(family, evc_config(family))
+    lookup = dict(status='present', name='Customer', operational_status='active', evidence=[
+        dict(source_filename='show vlan id 445', line=1, excerpt='LOOKUP_ONLY_MARKER')])
+    obs['vlan_lookups'] = {'445': lookup}
+    original = plan([r], {IP: obs}, now=NOW)
+    assert original.to_dict()['observations'][IP]['vlan_lookups']['445'] == lookup
+    path = tmp_path / 'plan.xlsx'
+    export_plan(original, path)
+    book = load_workbook(path)
+    evidence = book[t.sheet].cell(3, len(t.columns) + EXTRA.index('Existing Evidence') + 1).value
+    assert 'interface GigabitEthernet0/1' in evidence
+    assert 'LOOKUP_ONLY_MARKER' not in evidence
+    assert not any('LOOKUP_ONLY_MARKER' in str(c.value) or 'show vlan id' in str(c.value)
+                   for row in book['Evidence Details'] for c in row)
+    if family == 'ME3600X':
+        obs['vlan_lookups']['445']['name'] = 'Contradiction'
+        assert 'VLAN_OBSERVATION_CONFLICT' in plan([r], {IP: obs}, now=NOW).to_dict()['results'][0]['blockers']
