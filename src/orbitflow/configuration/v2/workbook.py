@@ -306,6 +306,9 @@ def export_plan(plan, path):
                    ",".join(result["findings"]), str(result["no_op"]), "Valid", "; ".join(f"conflicts with {q['sheet']} row {q['row']}" for q in result.get("conflicting_rows", [])) + ("; " + result["prerequisite_details"] if result.get("prerequisite_details") else ""),
                    result.get("resolved_target", p.get("interface", "")), ",".join(result.get("warnings", [])), ",".join(result.get("blockers", [])), canonical(result.get("overlaps", [])), canonical(result.get("projected_state")), canonical(result.get("service_instance_changes")), result["decision"]]
         fields = dict(zip(FULL_EXTRA, extras))
+        if result.get('ingress_conflicts'):
+            fields['Error Details'] = '; '.join(filter(None, [fields['Error Details']] +
+                [item['explanation'] for item in result['ingress_conflicts']]))
         values += [fields[name] for name in output_columns(t)]
         for i, v in enumerate(values, 1):
             literal(sheet.cell(r["row"], i), v)

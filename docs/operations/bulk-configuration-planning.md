@@ -490,3 +490,19 @@ Regenerate plan workbooks for the revised output layout. Templates 1–16 displa
 EdgeSwitch VLAN Port and Description on the same interface are compatible in either sheet order without a Pending approval dependency solely for that pair. Existing PVID-removal, ownership, unknown-state and conflicting-intent blockers remain. Port evidence omits global VLAN declarations and show vlan output; database facts still supply warnings internally. ASR920 evidence labels per-interface/per-ID reliable absence separately from unavailable/error lookup and preserves relevant parent settings. Missing ME3600X BD VLAN alone is a warning, with missing IDs retained in JSON for future pre-apply checks; no implicit VLAN creation occurs.
 
 These revisions have deterministic offline coverage. Operator-controlled read-only validation of both EdgeSwitch sheet orders, ASR920 absence/error responses and ME3600X missing-VLAN plans remains required on deployed hardware/firmware. No apply/save workflow is introduced.
+
+EVC ingress conflicts retain the blocking `INGRESS_TAG_OVERLAP` code. The plan
+workbook's Error Details identifies the management IP, canonical physical
+interface, requested and conflicting service-instance IDs and normalized ingress
+selectors. Projected conflicts also identify the originating sheet and row.
+Immutable plan JSON carries these explanations and structured `ingress_conflicts`;
+review remains bound to the complete plan digest. Resolve the conflicting intent
+and regenerate the plan before review; approval cannot bypass this blocker.
+
+On ASR920, independent service instances with disjoint ingress on an existing
+compatible physical interface can be reviewed independently even when it has no
+EVCs yet (`no ip address` and `shutdown` are supported). Active L3 addressing and
+incompatible ownership still block. Shutdown is preserved. Explicit shared parent
+description changes retain ordering. ME3600X still requires trunk mode and allowed
+VLAN none, with sequencing and approval dependencies for initial conversion.
+No device apply is provided.
