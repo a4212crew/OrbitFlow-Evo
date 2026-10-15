@@ -391,6 +391,8 @@ def test_earlier_me_database_prerequisite_requires_approval():
         rows = plan([b,a], {IP: obs}, now=NOW, decisions={a['row_id']: decision, b['row_id']: 'Approve'}).to_dict()['results']
         assert rows[1]['dependencies'] == [a['row_id']]
         assert rows[1]['deployment_ready'] == (decision == 'Approve')
+        assert rows[1]['consistency'] == 'consistent' and not rows[1]['blockers']
+        assert ('DEPENDENCY_NOT_APPROVED' in rows[1]['warnings']) == (decision != 'Approve')
 
 
 def test_evc_detail_semantic_conflict_down_information_and_source_sanitation():
@@ -754,7 +756,8 @@ def test_edgeswitch_description_does_not_waive_pvid_blocker():
     obs = observation('EdgeSwitch', 'interface 0/1\n vlan pvid 901\n vlan participation include 901\n vlan tagging 901\nexit\n')
     rows = plan([port, desc], {IP: obs}, now=NOW).to_dict()['results']
     assert 'PVID_REMOVAL_REQUIRES_REVIEW' in rows[0]['blockers']
-    assert all('ORDERED_RESOURCE_OVERLAP' in row['blockers'] for row in rows)
+    assert all('ORDERED_RESOURCE_OVERLAP_WARNING' in row['warnings'] for row in rows)
+    assert not rows[1]['blockers']
 
 
 def test_edgeswitch_port_evidence_excludes_database_but_retains_warnings(tmp_path):
@@ -868,3 +871,18 @@ def test_removed_workbook_detail_remains_json_protected(tmp_path, field):
     path.write_text(json.dumps(payload))
     with pytest.raises(PlanError):
         load(path)
+
+
+def test_me_vlan_dependency_chain_preserves_downstream_gate():
+    db = template('ME3600X', 'VLAN Database')
+    evc = template('ME3600X')
+    a = request(db.id, dict(management_ip=IP, vlan_id=445, name='Customer'), sheet_order=1)
+    b = request(evc.id, evc_inputs(), sheet_order=2, row=3)
+    c = request(evc.id, {**evc_inputs(), 'service_instance_id':3001, 'outer_vlan':'446'}, sheet_order=2, row=4)
+    obs = observation('ME3600X', 'interface GigabitEthernet0/1\n!\nend\n')
+    rows = plan([a,b,c], {IP:obs}, now=NOW, decisions={b['row_id']:'Approve', c['row_id']:'Approve'}).to_dict()['results']
+    assert rows[1]['dependencies'] == [a['row_id']]
+    assert 'DEPENDENCY_NOT_APPROVED' in rows[1]['warnings'] and not rows[1]['blockers']
+    assert b['row_id'] in rows[2]['dependencies'] and a['row_id'] in rows[2]['dependencies']
+    assert 'DEPENDENCY_NOT_APPROVED' in rows[2]['blockers']
+    assert all(not r['deployment_ready'] and not r['execution_authorized'] for r in rows)

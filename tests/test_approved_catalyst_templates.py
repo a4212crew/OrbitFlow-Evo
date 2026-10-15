@@ -404,7 +404,60 @@ def test_projected_description_noop_and_stale_evidence(family):
     assert original.to_dict()['results'][1]['commands']==[]
     stale=plan([a,b],{IP:obs},now=NOW+timedelta(hours=2)).to_dict()['results']
     assert all('STALE_EVIDENCE' in r['blockers'] for r in stale)
-    assert all('ORDERED_RESOURCE_OVERLAP_WARNING' not in r['warnings'] for r in stale)
+    assert all('ORDERED_RESOURCE_OVERLAP_WARNING' in r['warnings'] for r in stale)
     rejected=evaluate_decisions(original,{a['row_id']:'Reject'},expected_digest=original.digest,now=NOW)
     assert not rejected.to_dict()['results'][1]['no_op']
     assert rejected.digest==original.digest
+
+
+@pytest.mark.parametrize('decision', ['Pending', 'Approve', 'Reject'])
+def test_owner_pending_vlan_access_description_and_trunk(tmp_path, decision):
+    db = template('C3750X', 'VLAN Database')
+    access = template('C3750X', 'Access Port')
+    desc = template('C3750X', 'Interface Description')
+    trunk = template('C3750X', 'Trunk Port')
+    names = ['GigabitEthernet1/1/1', 'GigabitEthernet1/1/2', 'GigabitEthernet1/1/3']
+    obs = observation('C3750X', ''.join(f'interface {n}\n switchport mode access\n!\n' for n in names + ['GigabitEthernet1/0/13']))
+    prerequisites = [request(db.id, dict(management_ip=IP, vlan_id=v, name=f'Customer{v}'), sheet_order=1, row=i+3) for i,v in enumerate([2432,2433,2434])]
+    ports = [request(access.id, dict(management_ip=IP, interface=n, vlan_id=v), sheet_order=2, row=i+3) for i,(n,v) in enumerate(zip(names,[2432,2433,2434]))]
+    conversion = request(trunk.id, dict(management_ip=IP, interface='GigabitEthernet1/0/13', action='Add', vlans=[2432]), sheet_order=3)
+    description = request(desc.id, dict(management_ip=IP, interface=names[0], description='Customer'), sheet_order=4)
+    original = plan(prerequisites + ports + [conversion, description], {IP:obs}, now=NOW)
+    rows = original.to_dict()['results']
+    for prerequisite, row in zip(prerequisites, rows[3:6]):
+        assert row['dependencies'] == [prerequisite['row_id']]
+        assert 'DEPENDENCY_NOT_APPROVED' in row['warnings']
+        assert not row['blockers'] and row['consistency'] == 'consistent'
+        assert not row['deployment_ready']
+    assert 'ORDERED_RESOURCE_OVERLAP_WARNING' in rows[3]['warnings']
+    assert {'ADD_REQUIRES_EXPLICIT_BASELINE', 'TRUNK_CONVERSION_BLOCKED'} <= set(rows[6]['blockers'])
+    save(original, tmp_path/'plan.json')
+    assert load(tmp_path/'plan.json').digest == original.digest
+    export_plan(original, tmp_path/'plan.xlsx')
+    book = load_workbook(tmp_path/'plan.xlsx')
+    for r in prerequisites + ports + [description]:
+        t = template('C3750X', 'VLAN Database') if r in prerequisites else access if r in ports else desc
+        book[t.sheet].cell(r['row'], len(t.columns)+len(EXTRA), decision if r in prerequisites else 'Approve')
+    book.save(tmp_path/'plan.xlsx')
+    reviewed = consume_decisions(original, tmp_path/'plan.xlsx', expected_digest=original.digest, now=NOW)
+    assert reviewed.digest == original.digest
+    evaluated = reviewed.to_dict()['results']
+    assert all(r['deployment_ready'] == (decision == 'Approve') for r in evaluated[3:6])
+    assert all(not r['execution_authorized'] for r in evaluated)
+
+
+@pytest.mark.parametrize('family', FAMILIES)
+@pytest.mark.parametrize('description_first', [False, True])
+def test_access_description_cli_follows_both_workbook_orders(family, description_first):
+    access, desc = template(family, 'Access Port'), template(family, 'Interface Description')
+    operation = (access, dict(management_ip=IP, interface=NAME, vlan_id=445, description='Port description'))
+    description = (desc, dict(management_ip=IP, interface=NAME, description='Separate description'))
+    ordered = [description, operation] if description_first else [operation, description]
+    requests = [request(t.id, p, sheet_order=i+1) for i,(t,p) in enumerate(ordered)]
+    obs = observation(family, f'vlan 445\n name Customer\n!\ninterface {NAME}\n switchport mode access\n switchport access vlan 445\n description Original\n!')
+    rows = plan(requests, {IP:obs}, now=NOW, decisions={r['row_id']:'Approve' for r in requests}).to_dict()['results']
+    assert all(not r['blockers'] and r['deployment_ready'] for r in rows)
+    assert all('ORDERED_RESOURCE_OVERLAP_WARNING' in r['warnings'] for r in rows)
+    for row, (_,p) in zip(rows,ordered):
+        assert 'description ' + p['description'] in row['commands']
+    assert rows[-1]['projected_state']['description'] == ordered[-1][1]['description']

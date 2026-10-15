@@ -51,13 +51,15 @@ def test_optional_excel_secret(tmp_path, header, value):
 
 
 @pytest.mark.parametrize('end', ['>', '#'])
+@pytest.mark.parametrize('host', ['HOSTNAME', '<HOSTNAME>'])
 @pytest.mark.parametrize('annotation', ['', ' (arbitrary annotation)', ' (x (nested) y)', ' (changed # > text)'])
-def test_structural_prompt(end, annotation):
-    assert extract_edgeswitch_hostname(f'(HOSTNAME{annotation}) {end}') == 'HOSTNAME'
+def test_structural_prompt(end, host, annotation):
+    assert extract_edgeswitch_hostname(f'({host}{annotation}) {end}') == 'HOSTNAME'
     assert extract_edgeswitch_hostname(f'HOSTNAME{end}') == 'HOSTNAME'
 
 
 @pytest.mark.parametrize('prompt', ['(host (x) #', '(host x) #', '(host (x)))>',
+    '(<host) #', '(host>) #', '(<<host>>) #', '(<host>junk) #', '(<host extra>) #',
     '(host (x) (y)) #', '((x)) #', '(host (x)junk) #', '(host (x\ny)) #', '(host) junk#'])
 def test_malformed_prompt(prompt):
     with pytest.raises(ValueError, match='unrecognized EdgeSwitch prompt'):
@@ -102,12 +104,15 @@ ACCESS_DEVICES = [d for d in DEVICES if d[1] in {'cisco_ios', 'cisco_xe', 'ubiqu
 @pytest.mark.parametrize('cli_type', [DeviceCLI, CiscoIOSCLI])
 @pytest.mark.parametrize('device', ACCESS_DEVICES, ids=lambda d: d[2])
 @pytest.mark.parametrize('fragmented', [False, True])
+@pytest.mark.parametrize('angle_host', [False, True])
 @pytest.mark.parametrize('scenario', [
     'echo', 'stale_before', 'stale_after', 'changed_before', 'changed_after',
     'denied', 'repeat', 'malformed', 'timeout', 'closed',
 ])
-def test_enable_interactive_state_machine(cli_type, device, fragmented, scenario):
+def test_enable_interactive_state_machine(cli_type, device, fragmented, angle_host, scenario):
     session, client, channel = enable_session(device)
+    if angle_host and device[1] == 'ubiquiti_edgeswitch':
+        channel.prompt = channel.prompt.replace('(sw ', '(<sw> ')
     channel.prompt = channel.prompt.replace('annotation', 'annotati\u00f6n')
     user_prompt = channel.prompt
     privileged_prompt = user_prompt[:-1] + '#'
@@ -195,6 +200,7 @@ def test_enable_cisco_prompt_formatting(cli_type, enabled_prompt):
 @pytest.mark.parametrize('enabled_prompt', [
     '(sw (different annotation))#', '(sw (new (nested) annotation))\t#',
     '(sw)#', 'sw#', '  (sw (changed # > text))  #\t',
+    '(<sw>) #', '(<sw> (new (nested) # > text)) #',
 ])
 def test_enable_edgeswitch_prompt_presentation_change(enabled_prompt):
     edge = next(d for d in ACCESS_DEVICES if d[1] == 'ubiquiti_edgeswitch')

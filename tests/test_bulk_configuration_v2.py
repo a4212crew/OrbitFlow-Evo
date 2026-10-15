@@ -1008,3 +1008,19 @@ def test_workbook_decision_integrity(tmp_path, edit):
         consume_decisions(original, path, expected_digest=original.digest, now=NOW)
     with pytest.raises(PlanError):
         consume_decisions(original, path, expected_digest="0" * 64, now=NOW)
+
+
+@pytest.mark.parametrize("family,function", [("C3750X","Access Port"), ("C3850X","Access Port"), ("ME3600X","EVC"), ("ASR920","EVC"), ("EdgeSwitch","VLAN Port"), ("NCS540","L2VPN"), ("NE05E","Subinterface VSI")])
+@pytest.mark.parametrize("description_first", [True, False])
+def test_description_overlap_all_families_preserves_safety(family, function, description_first):
+    operation, desc = template(family, function), template(family, "Interface Description")
+    p = inputs(operation)
+    d = dict(management_ip=IP, interface=p['interface'], description='Final description')
+    ordered = [(desc,d), (operation,p)] if description_first else [(operation,p), (desc,d)]
+    requests = [request(t.id, values, sheet_order=i+1) for i,(t,values) in enumerate(ordered)]
+    # Unavailable evidence remains a blocker independently of a permitted overlap.
+    rows = plan(requests, {IP: dict(status='evidence_unavailable')}, now=NOW).to_dict()['results']
+    assert all('ORDERED_RESOURCE_OVERLAP_WARNING' in r['warnings'] for r in rows)
+    assert all('EVIDENCE_UNAVAILABLE' in r['findings'] and not r['deployment_ready'] for r in rows)
+    assert all('ORDERED_RESOURCE_OVERLAP' not in r['findings'] for r in rows)
+    assert all(not r['execution_authorized'] for r in rows)
