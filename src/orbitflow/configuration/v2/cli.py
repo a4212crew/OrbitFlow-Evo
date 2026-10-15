@@ -1,6 +1,8 @@
 """Operator adapters for v2 input, live read-only planning and workbook decisions."""
 import argparse
 import sys
+import re
+from datetime import datetime
 from orbitflow.execution import Progress
 from orbitflow.logging import module_logger
 from pathlib import Path
@@ -11,6 +13,34 @@ from .planning import plan, save
 from .workbook import create_input, read_input, export_plan
 
 
+def _default_output(requests, *, now=None, root=Path("outputs/reports/configuration")):
+    """Reserve a display directory; only the immutable plan digest is authoritative."""
+    targets = {(BY_ID[r["template_id"]].family, r["inputs"]["management_ip"])
+               for r in requests}
+    if targets and all(family == "All" for family, _ in targets):
+        descriptor = "Manual-only"
+    elif len(targets) == 1:
+        family, address = next(iter(targets))
+        descriptor = f"{family}-{address}"
+    else:
+        descriptor = f"multi-device-{len({address for _, address in targets})}"
+    # ASCII allowlist, bounded length, no separators/dots/control characters.
+    descriptor = re.sub(r"[^A-Za-z0-9_]+", "-", descriptor).strip("-_")[:100] or "targets"
+    stamp = (now or datetime.now().astimezone()).strftime("%Y%m%d-%H%M%S")
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    base = f"{stamp}_{descriptor}"
+    suffix = 0
+    while True:
+        directory = root / (base if suffix == 0 else f"{base}-{suffix:02d}")
+        try:
+            directory.mkdir()  # Atomic reservation across simultaneous CLI processes.
+        except FileExistsError:
+            suffix += 1
+        else:
+            return directory / "plan.json"
+
+
 def _main(argv, logger, progress):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -18,7 +48,7 @@ def _main(argv, logger, progress):
     template.add_argument("path", type=Path)
     generate = sub.add_parser("plan")
     generate.add_argument("workbook", type=Path)
-    generate.add_argument("output", type=Path, nargs="?", help="JSON destination; default outputs/runs/configuration/<plan-digest>/plan.json; never overwrite")
+    generate.add_argument("output", type=Path, nargs="?", help="JSON destination; default outputs/reports/configuration/<timestamp>_<target>/plan.json; never overwrite")
     generate.add_argument("--devices", type=Path, default=Path("devices.xlsx"))
     generate.add_argument("--max-concurrent-devices", type=int)
     for name in ("proxy", "cluster", "bastion-host", "bastion-user"):
@@ -66,7 +96,7 @@ def _main(argv, logger, progress):
             logger.info("Planning proposals")
             stage = "planning"
             result = plan(requests, observations, source="workbook-sha256:" + requests.source_digest)
-        args.output = args.output or Path("outputs/runs/configuration") / result.digest / "plan.json"
+        args.output = args.output or _default_output(requests)
         require(not args.output.exists() and not args.output.with_suffix(".xlsx").exists(), "output already exists")
         progress("Exporting immutable plan and decision workbook")
         logger.info("Export start: " + str(args.output))

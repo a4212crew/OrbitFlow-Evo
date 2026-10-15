@@ -972,8 +972,8 @@ def test_plan_output_resolution_and_no_overwrite(tmp_path, monkeypatch, destinat
         argv.append(str(output))
     main(argv)
     if destination == "default":
-        output, = Path("outputs/runs/configuration").glob("*/plan.json")
-        assert output.parent.name == load(output).digest
+        output, = Path("outputs/reports/configuration").glob("*/plan.json")
+        assert output.parent.name.endswith("_Manual-only")
     before = output.read_bytes()
     workbook = output.with_suffix(".xlsx")
     assert workbook.is_file()
@@ -1024,3 +1024,55 @@ def test_description_overlap_all_families_preserves_safety(family, function, des
     assert all('EVIDENCE_UNAVAILABLE' in r['findings'] and not r['deployment_ready'] for r in rows)
     assert all('ORDERED_RESOURCE_OVERLAP' not in r['findings'] for r in rows)
     assert all(not r['execution_authorized'] for r in rows)
+
+@pytest.mark.parametrize('families,addresses,descriptor', [
+    (['C3750X'], [IP], 'C3750X-192-0-2-10'),
+    (['C3750X', 'C3850X'], [IP, '192.0.2.11'], 'multi-device-2'),
+    (['C3750X', 'C3750X'], [IP, '192.0.2.11'], 'multi-device-2'),
+    (['All'], [IP], 'Manual-only'),
+    (['C3750X'], ['../../evil\\path\n:<>|?*'], 'C3750X-evil-path'),
+])
+def test_readable_output_reservation(tmp_path, families, addresses, descriptor):
+    from orbitflow.configuration.v2.cli import _default_output
+    rows = [{'template_id': next(t.id for t in CATALOGUE if t.family == f),
+             'inputs': {'management_ip': ip}} for f, ip in zip(families, addresses)]
+    root = tmp_path / 'reports'
+    first = _default_output(rows, now=NOW, root=root)
+    assert first == root / ('20261011-000000_' + descriptor) / 'plan.json'
+    first.write_text('preserved')
+    second = _default_output(rows, now=NOW, root=root)
+    assert second.parent.name == first.parent.name + '-01'
+    assert first.read_text() == 'preserved'
+    assert second.parent.parent == root
+
+
+@pytest.mark.parametrize('explicit', [False, True])
+def test_cli_report_pair_preserves_digest_and_override(tmp_path, monkeypatch, explicit):
+    from orbitflow.configuration.v2 import cli
+    import logging
+    t = template('All', 'Manual CLI')
+    class Rows(list):
+        source_digest = 'a' * 64
+    rows = Rows([request(t.id, inputs(t))])
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, 'read_input', lambda _: rows)
+    args = ['plan', 'input.xlsx']
+    if explicit:
+        args.append('custom/review.json')
+    cli._main(args, logging.getLogger('test'), lambda _: None)
+    path = tmp_path / 'custom/review.json' if explicit else next(tmp_path.glob('outputs/reports/configuration/*/plan.json'))
+    original = load(path)
+    assert len(original.digest) == 64
+    book = load_workbook(path.with_suffix('.xlsx'))
+    assert book['Introduction']['B1'].value == original.digest
+    consume_decisions(original, path.with_suffix('.xlsx'), expected_digest=original.digest)
+    before = path.read_bytes(), path.with_suffix('.xlsx').read_bytes()
+    with pytest.raises((PlanError, FileExistsError)):
+        save(original, path)
+    with pytest.raises(PlanError):
+        export_review(original, path.with_suffix('.xlsx'))
+    if explicit:
+        with pytest.raises(SystemExit):
+            cli._main(args, logging.getLogger('test'), lambda _: None)
+    assert before == (path.read_bytes(), path.with_suffix('.xlsx').read_bytes())
+    assert not (tmp_path / 'outputs/runs/configuration').exists()
