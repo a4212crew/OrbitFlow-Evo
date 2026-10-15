@@ -100,7 +100,9 @@ read-only validation of dispatch, response and planner artifacts is still requir
 `orbitflow.configuration.v2` adds a separate 22-template catalogue, deterministic
 vendor proposals and input/plan XLSX adapters. The plan workbook is the single
 Pending/Approve/Reject surface; no separate v2 review command or signing store remains.
-Default artifacts use outputs/runs/configuration/<plan-digest>/plan.json and plan.xlsx.
+V2 default artifacts use outputs/reports/configuration/<local-timestamp>_<target>/plan.json
+and plan.xlsx, with atomic collision suffixes; full plan digests remain authoritative.
+Explicit destinations and legacy digest-path loading remain supported.
 Templates 1–16 output sheets now omit seven internal detail columns; immutable JSON
 retains them, while Templates 17–22 keep their output layout. EdgeSwitch port/description
 pairs sequence in either sheet order without an approval dependency solely for overlap;

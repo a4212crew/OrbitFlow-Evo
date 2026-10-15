@@ -115,10 +115,17 @@ content integrity only, not who approved it: future apply must independently
 establish authenticated authorization and perform fresh live preflight.
 
 Omit the positional JSON destination to use
-`outputs/runs/configuration/<full-plan-sha256>/plan.json` and adjacent `plan.xlsx`.
-The digest includes the evaluation timestamp, so naming is deterministic for a
-particular immutable plan, not identical across new observations. Existing JSON
-or companion XLSX causes failure, with no overwrite or automatic suffix. The
+`outputs/reports/configuration/YYYYMMDD-HHMMSS_<target>/plan.json` and adjacent
+`plan.xlsx`. The timestamp uses local run time. A single unambiguous target uses
+its template family and sanitized management IP; mixed/multiple targets use
+`multi-device-N` (distinct management IP count), and Manual-only runs use
+`Manual-only`. Unsafe characters are replaced and descriptors are length bounded.
+Directories are reserved atomically; same-name collisions add `-01`, `-02`, etc.
+Folder names are display identifiers only: the full original SHA-256 remains in
+JSON and XLSX and continues to bind immutable content and review validation.
+Existing digest-path artifacts remain readable without migration; new defaults
+do not move old artifacts. Live observation spools remain under
+`outputs/runs/configuration_observation/`. The
 optional positional destination remains compatible: relative paths resolve from
 the working directory and absolute paths are honored exactly. Missing parents
 are created. Files use exclusive creation; a failed workbook export may leave
@@ -359,7 +366,7 @@ python -m orbitflow.configuration.v2.cli plan catalyst-m1-input.xlsx `
   --devices 'C:\Operator\devices.xlsx' --max-concurrent-devices 1 `
   --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER `
   --bastion-host BASTION --bastion-user BASTION_USER
-Get-ChildItem outputs/runs/configuration -Recurse -Filter plan.xlsx
+Get-ChildItem outputs/reports/configuration -Recurse -Filter plan.xlsx
 ```
 
 The command reads identity, interface descriptions, running configuration and
@@ -372,7 +379,7 @@ and terminating `!`. Operational inactive/suspended state warns without creating
 a missing VLAN. Optional fields left blank preserve current values.
 
 Inspect matching `plan.json` and `plan.xlsx` under
-`outputs/runs/configuration/<digest>/`; existing destinations are never overwritten.
+`outputs/reports/configuration/<timestamp>_<target>/`; existing destinations are never overwritten.
 Compare the workbook with independently observed read-only configuration. If
 needed, the operator can run `show vlan id 445` and
 `show running-config interface GigabitEthernet1/0/1` in their own session. Keep
@@ -428,7 +435,7 @@ explains that Replace is required. Projected output on a blocked row is an
 inspection-only proposal, not deployable state. An unrelated invalid input row
 must retain its field errors while valid rows continue.
 
-Default output remains `outputs/runs/configuration/<digest>/plan.json` plus
+Default output uses `outputs/reports/configuration/<timestamp>_<target>/plan.json` plus
 `plan.xlsx`. Check matching digest and protected source references in both artifacts.
 Edit only Pending/Approve/Reject in this workbook; decisions do not authorize device
 writes. No second review artifacts or review command exist. Rejection re-evaluates
