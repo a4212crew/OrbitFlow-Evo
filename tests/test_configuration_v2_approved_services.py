@@ -886,3 +886,86 @@ def test_me_vlan_dependency_chain_preserves_downstream_gate():
     assert b['row_id'] in rows[2]['dependencies'] and a['row_id'] in rows[2]['dependencies']
     assert 'DEPENDENCY_NOT_APPROVED' in rows[2]['blockers']
     assert all(not r['deployment_ready'] and not r['execution_authorized'] for r in rows)
+
+
+def test_me_owner_independent_eleven_row_snapshot():
+    config = ('vlan 2200-2201\n!\ninterface TenGigabitEthernet0/1\n'
+              ' switchport mode trunk\n switchport trunk allowed vlan none\n'
+              ' service instance 10 ethernet\n  encapsulation dot1q 1300\n  bridge-domain 2200\n'
+              '!\ninterface GigabitEthernet0/22\n switchport mode trunk\n!\nend\n')
+    obs = observation('ME3600X', config)
+    obs['vlan_lookups'] = {'2200': dict(status='present', name='VLAN2200', operational_status='active')}
+    specs = [('Dot1q', '1300', ''), ('Dot1q', '1234', ''), ('Dot1q', '100', ''),
+             ('Dot1q', '101-200', ''), ('QinQ', '2433', '100'), ('QinQ', '2434', '200'),
+             ('QinQ', '2438', '100-200'), ('QinQ', '1000', '100'), ('QinQ', '1000', '101'),
+             ('Untagged', '', '')]
+    requests = []
+    for i, (enc, outer, inner) in enumerate(specs):
+        p = dict(management_ip=IP, interface='TenGigabitEthernet0/1', service_instance_id=10+i,
+                 encapsulation=enc, rewrite='Push dot1q symmetric', push_vlan=3300, bridge_domain=2200)
+        if outer:
+            p['outer_vlan'] = outer
+        if inner:
+            p['inner_vlan'] = inner
+        requests.append(request(template('ME3600X').id, p, row=i+3))
+    requests.append(request(template('ME3600X').id, {**requests[0]['inputs'], 'interface':'GigabitEthernet0/22'}, row=13))
+    rows = plan(requests, {IP:obs}, now=NOW).to_dict()['results']
+    for row in rows[:10]:
+        assert row['consistency'] == 'consistent' and not row['blockers'], row['blockers']
+        assert row['dependencies'] == []
+        assert {'SERVICE_DETAIL_FALLBACK', 'SERVICE_IMPACT_REVIEW'} <= set(row['warnings'])
+        assert not row['deployment_ready'] and not row['execution_authorized']
+    assert 'SERVICE_INSTANCE_RECREATE_IMPACT' in rows[0]['warnings']
+    assert rows[10]['blockers'] == ['INCOMPATIBLE_EVC_PARENT']
+    # Each independent service can be reviewed without approving its siblings.
+    approved = plan(requests, {IP:obs}, now=NOW,
+                    decisions={requests[9]['row_id']:'Approve'}).to_dict()['results']
+    assert approved[9]['deployment_ready']
+
+
+@pytest.mark.parametrize('change', [dict(service_instance_id=3000, outer_vlan='446'),
+                                  dict(service_instance_id=3001, outer_vlan='445'),
+                                  dict(service_instance_id=3001, outer_vlan='440-450', rewrite='Push dot1q symmetric', push_vlan=3300)])
+def test_me_real_same_parent_conflicts_remain(change):
+    a = request(template('ME3600X').id, evc_inputs(), row=3)
+    b = request(template('ME3600X').id, {**evc_inputs(), **change}, row=4)
+    rows = plan([a,b], {IP:observation('ME3600X', evc_config('ME3600X'))}, now=NOW).to_dict()['results']
+    assert all('ORDERED_RESOURCE_OVERLAP' in row['blockers'] for row in rows)
+
+
+@pytest.mark.parametrize('lookup', [dict(status='present', name='Different'), dict(status='absent')])
+def test_me_authoritative_vlan_contradictions_remain(lookup):
+    row = result('ME3600X', evc_inputs(), evc_config('ME3600X'), vlan_lookups={'445':{**dict(name='', operational_status=''), **lookup}})
+    assert 'VLAN_OBSERVATION_CONFLICT' in row['blockers']
+
+
+@pytest.mark.parametrize('blocked_first', [True, False])
+def test_me_independent_blocker_does_not_spread_to_sibling(blocked_first):
+    a = request(template('ME3600X').id, evc_inputs(), row=3)
+    b = request(template('ME3600X').id, {**evc_inputs(), 'service_instance_id':3001, 'outer_vlan':'446'}, row=4)
+    obs = observation('ME3600X', evc_config('ME3600X'))
+    obs['service_details'] = {('GigabitEthernet0/1:3000' if blocked_first else 'GigabitEthernet0/1:3001'):dict(status='present', facts=[], evidence=[], operational_status='unknown')}
+    rows = plan([a,b], {IP:obs}, now=NOW, decisions={a['row_id']:'Approve', b['row_id']:'Approve'}).to_dict()['results']
+    blocked, independent = rows if blocked_first else rows[::-1]
+    assert blocked['blockers'] and 'ORDERED_RESOURCE_OVERLAP' not in blocked['blockers']
+    assert not independent['blockers'] and not independent['dependencies'] and independent['deployment_ready']
+
+
+def test_me_explicit_numeric_vlan_name_is_authoritative():
+    config = evc_config('ME3600X').replace('name Customer', 'name 445')
+    row = result('ME3600X', evc_inputs(), config,
+                 vlan_lookups={'445':dict(status='present', name='VLAN0445', operational_status='active')})
+    assert 'VLAN_OBSERVATION_CONFLICT' in row['blockers']
+
+
+@pytest.mark.parametrize('inner,blocked', [('150-250', True), ('201-300', False)])
+def test_me_ordered_qinq_ranges_use_tag_pairs(inner, blocked):
+    p = {**evc_inputs(), 'encapsulation':'QinQ', 'outer_vlan':'1000',
+         'inner_vlan':'100-200', 'rewrite':'Pop 1 symmetric'}
+    a = request(template('ME3600X').id, p, row=3)
+    b = request(template('ME3600X').id, {**p, 'service_instance_id':3001, 'inner_vlan':inner}, row=4)
+    rows = plan([a,b], {IP:observation('ME3600X', evc_config('ME3600X'))}, now=NOW,
+                decisions={b['row_id']:'Approve'}).to_dict()['results']
+    assert all(('ORDERED_RESOURCE_OVERLAP' in row['blockers']) == blocked for row in rows)
+    if not blocked:
+        assert not rows[1]['dependencies'] and rows[1]['deployment_ready']

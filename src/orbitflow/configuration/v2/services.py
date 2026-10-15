@@ -28,6 +28,13 @@ def evaluate(t, p, obs, out, prior):
         block('CONFIGURATION_EVIDENCE_UNAVAILABLE')
     database = {int(o['object_id']): o.get('name', '') for o in obs.get('objects', [])
                 if o['object_type'] == 'vlan' and str(o['object_id']).isdigit()}
+    if t.family == 'ME3600X':
+        for fact in obs.get('facts', []):
+            if fact['kind'] == 'vlan':
+                names = [n['value'] for n in fact['children'] if n['kind'] == 'vlan_name']
+                for vid in fact['value']:
+                    if vid in database:
+                        database[vid] = names[-1] if names else ''
     observed_database = set(database)
     for q, result in prior:
         if q['inputs'].get('vlan_id') and result.get('projected_state', {}).get('vlan_name') is not None and not result.get('blockers') and result['decision'] != 'Reject':
@@ -38,7 +45,7 @@ def evaluate(t, p, obs, out, prior):
         status = value.get('status')
         if status in {'present', 'absent'}:
             exists = status == 'present'
-            if reliable and (exists != (vid in database) or exists and database[vid] != value['name']):
+            if reliable and (exists != (vid in database) or exists and (t.family != 'ME3600X' or bool(database[vid])) and database[vid] != value['name']):
                 # Prior approved planning may change this resource after observation.
                 if not any(q['inputs'].get('vlan_id') == vid and result.get('projected_state') for q, result in prior):
                     block('VLAN_OBSERVATION_CONFLICT')
@@ -77,9 +84,13 @@ def evaluate(t, p, obs, out, prior):
                 projected = result['projected_state']
                 independent_description = ((t.function == 'Interface Description') !=
                     (BY_ID[q['template_id']].function == 'Interface Description'))
-                if not independent_description:
+                independent_evc = (t.function == BY_ID[q['template_id']].function == 'EVC'
+                    and p['service_instance_id'] != q['inputs']['service_instance_id']
+                    and not result['projected_state'].get('initializes_parent')
+                    and not q['inputs'].get('interface_description'))
+                if not independent_description and not independent_evc:
                     out['dependencies'].append(q['row_id'])
-                if not independent_description and not result['deployment_ready']:
+                if not independent_description and not independent_evc and not result['deployment_ready']:
                     block('DEPENDENCY_NOT_APPROVED')
         if projected:
             description = projected.get('description', description)
@@ -223,7 +234,7 @@ def evaluate(t, p, obs, out, prior):
                 # Store normalized desired children through the shared vendor helper.
                 from orbitflow.vendors.cisco.evc import desired_service
                 out['projected_state'] = dict(description=p.get('interface_description', description),
-                    evc_parent=True, services=[s for s in services if s['value'] != str(p['service_instance_id'])] + [desired_service(p)])
+                    evc_parent=True, initializes_parent=empty and not bool(projected and projected.get('evc_parent')), services=[s for s in services if s['value'] != str(p['service_instance_id'])] + [desired_service(p)])
     out['findings'] = sorted(set(findings))
     out['warnings'] = sorted(warnings)
     out['blockers'] = sorted(set(findings) - warnings)

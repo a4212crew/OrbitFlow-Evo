@@ -273,6 +273,13 @@ def observe_configuration(output, platform, *, source_filename="running-config",
                                 raise
                             kind, value = "unsupported_allowed", "invalid_allowed_operation"
                     entries.append((kind, value))
+        # A display-name fallback on VlanObject is not an authoritative name.
+        # Preserve explicit IOS VLAN names separately for evidence reconciliation.
+        if (platform in {'cisco_ios', 'cisco_xe'} and not entries and stack
+                and stack[-1][1][0] == 'vlan'):
+            name = re.fullmatch(r'name ([A-Za-z0-9_.:-]{1,32})', line)
+            if name:
+                entries.append(('vlan_name', name[1]))
         # Preserve additional relationship syntax for methodology review only.
         # Existing compliance facts and their evidence projection stay unchanged.
         if (platform in {"cisco_ios", "cisco_xe"} and not entries and stack
