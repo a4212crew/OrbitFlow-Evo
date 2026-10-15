@@ -28,9 +28,11 @@ ME3600X independent service instances with disjoint ingress no longer acquire
 conflicts or approval dependencies solely from sharing a parent or another row's
 safety blocker. Parent initialization and same-object approval gates remain.
 Explicit IOS VLAN-name facts distinguish unnamed range declarations from real
-name contradictions during configuration/operational reconciliation. The sanitized
-11-row scenario has deterministic coverage; operator live read-only validation
-remains pending. No device apply is implemented by this revision.
+name contradictions during configuration/operational reconciliation. Generic and representative
+11-row scenarios have deterministic coverage, including SI 2200/2201 replacement,
+distinct bridge domains, rewrite variants and independent approval. The exact
+remaining operator SI/BD/rewrite mapping has not been supplied; operator live
+read-only validation remains pending. No device apply is implemented by this revision.
 
 Ordered planning permits a description alongside another interface operation on
 all device families in either workbook order, with explicit compatible-overlap
