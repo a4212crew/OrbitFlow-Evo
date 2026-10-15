@@ -49,7 +49,10 @@ for the existing configuration CLI:
 python -m orbitflow.configuration.v2.cli input bulk-input.xlsx
 ```
 
-Introduction links to all 22 function sheets. `Description` is the shortened
+Introduction provides a concise quick-start and one directory of all 22 templates,
+with platform, function, short purpose and blue underlined worksheet links.
+Detailed technical guidance remains in field-header and sheet A1 comments and
+the template reference. `Description` is the shortened
 worksheet label for Interface Description, keeping names within Excel's
 31-character limit. C3850X template sheets resolve the existing inventory
 family `C3850` and `c3850_switching` profile. Fill rows beginning at row 3;
@@ -173,7 +176,7 @@ V1 plans and authority are unchanged.
   preserved in CLI and expanded for overlap checks; inner `any` becomes `1-4094`.
   `rewrite` is None, Pop 1 symmetric, Pop 2 symmetric, Push dot1q or
   Push dot1q symmetric. Push requires separate `push_vlan`. Unsupported/untested
-  combinations block input; consult workbook Introduction and sheet A1 comments
+  combinations block input; consult sheet A1 comments and the template reference
   for the complete valid/invalid matrix and CLI examples.
 - Every EVC row renders `no service instance <ID>` followed by complete child
   recreation, even on a match. Optional child description/rewrite/group blanks
@@ -506,3 +509,11 @@ incompatible ownership still block. Shutdown is preserved. Explicit shared paren
 description changes retain ordering. ME3600X still requires trunk mode and allowed
 VLAN none, with sequencing and approval dependencies for initial conversion.
 No device apply is provided.
+
+Independent ASR920 EVC services on an address-free parent (including a shutdown
+parent with no existing EVC) may be reviewed separately. Sharing a bridge domain,
+including repeated BD 1237, does not create an ordering warning or approval
+dependency for distinct SIs with disjoint ingress. Parent descriptions and actual
+parent conversions retain ordered review; same-interface ingress overlaps and
+duplicate SI intent remain blocked. ME3600X initial trunk conversion still
+requires its parent-initialization dependency. Planning preserves shutdown state.

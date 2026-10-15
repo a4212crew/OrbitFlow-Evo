@@ -1224,3 +1224,61 @@ def test_untagged_conflict_uses_canonical_parent_identity(family, encapsulation,
     assert ('INGRESS_TAG_OVERLAP' in row['blockers']) == blocked
     if blocked:
         assert row['ingress_conflicts'][0]['conflicting']['selector']['kind'] == 'untagged'
+
+
+def test_asr920_nine_independent_services_repeated_bridge_domain(tmp_path):
+    """Operator Gi0/0/8 report: empty shutdown parent and shared BD 1237."""
+    config = 'interface GigabitEthernet0/0/8\n no ip address\n shutdown\n!\nend\n'
+    specs = [(1012, '1012', 1012), (2400, '100-199', 1237),
+             (2401, '200-299', 1237), (2402, '300-399', 1237),
+             (2403, '400-499', 1237), (2404, '600-699', 1237),
+             (2405, '700-799', 1237), (2406, '501-599', 1237),
+             (2407, '800-899', 1237)]
+    requests = [request(template('ASR920').id, {**evc_inputs(),
+        'interface': 'Gi0/0/8', 'service_instance_id': si, 'outer_vlan': tags,
+        'rewrite': 'Pop 1 symmetric' if si == 1012 else 'None',
+        'bridge_domain': bd}, row=i) for i, (si, tags, bd) in enumerate(specs, 3)]
+    obs = {IP: observation('ASR920', config)}
+    # Every service must stand alone regardless of sibling approval status.
+    for selected in requests:
+        artifact = plan(requests, obs, now=NOW, decisions={selected['row_id']: 'Approve'})
+        rows = artifact.to_dict()['results']
+        assert all(not r['blockers'] and not r['dependencies'] and not r.get('overlaps') for r in rows)
+        assert all('ORDERED_RESOURCE_OVERLAP_WARNING' not in r['warnings'] for r in rows)
+        assert all(not any('shutdown' in cmd for cmd in r['commands']) for r in rows)
+        assert rows[requests.index(selected)]['deployment_ready']
+    path = tmp_path / 'plan.xlsx'
+    export_plan(artifact, path)
+    sheet = load_workbook(path)[template('ASR920').sheet]
+    warning_column = len(template('ASR920').columns) + EXTRA.index('Warnings') + 1
+    assert all('ORDERED_RESOURCE_OVERLAP_WARNING' not in str(sheet.cell(i, warning_column).value)
+               for i in range(3, 12))
+
+
+def test_input_workbook_compact_directory_roundtrip(tmp_path):
+    from orbitflow.configuration.v2.workbook import create_input, template_help
+    path = tmp_path / 'input.xlsx'
+    create_input(path)
+    book = load_workbook(path)
+    # Repeat serialization to ensure the visible hyperlink style is durable.
+    book.save(path)
+    book = load_workbook(path)
+    intro = book['Introduction']
+    assert intro.max_row == 7 + 22
+    assert intro.max_column == 4
+    assert [c.value for c in intro[7]] == ['Platform', 'Template / function', 'Purpose', 'Open template']
+    assert len(CATALOGUE) == 22
+    for row, t in enumerate(CATALOGUE, 8):
+        assert intro.cell(row, 1).value == t.family
+        assert intro.cell(row, 2).value == t.function
+        purpose = intro.cell(row, 3).value
+        assert 10 < len(purpose) < 80
+        link = intro.cell(row, 4)
+        assert link.value == t.sheet
+        assert link.hyperlink.target == f"#'{t.sheet}'!A1"
+        assert link.font.color.type == 'rgb' and link.font.color.rgb == '000000FF'
+        assert link.font.underline == 'single'
+        assert book[t.sheet]['A1'].hyperlink.target == "#'Introduction'!A1"
+        assert book[t.sheet]['A1'].comment.text == template_help(t)
+        assert template_help(t) not in '\n'.join(str(c.value or '') for cells in intro for c in cells)
+    assert all(len(str(c.value or '')) < 160 for cells in intro for c in cells)
