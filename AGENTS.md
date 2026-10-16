@@ -18,18 +18,13 @@ OrbitFlow-Evo is a multi-vendor network automation platform for ISP operations.
 12. Normalized capability models are authoritative for reusable cross-vendor observation. A routed audit/analysis skill may derive validated audit facts from preserved saved-configuration relationships and evidence, but reporting/workflow layers must not perform ad-hoc vendor reinterpretation.
 13. Do not create synthetic interface identities solely from VLAN, L2VPN, VSI, bridge-domain, or other service references.
 14. For every meaningful feature, fix or behaviour change, follow `.agents/skills/documentation-management/SKILL.md`: append the monthly devlog and update affected operator, public API, README and function documentation. Update `CURRENT_STATE.md` only when the implementation/validation baseline changes.
-15. Multi-device execution must use the shared OrbitFlow device-execution layer; feature modules must not create independent thread pools, worker pools, or equivalent concurrency mechanisms.
-16. The concurrency boundary is one target device. One execution worker owns that device's DeviceContext, DeviceSession/transport resources, CLI resources, per-device workflow, and intermediate results.
-17. Reusable capabilities remain single-device components and must not depend on whether other devices are executing concurrently.
-18. Shared mutable resources such as inventory persistence, report/output generation, and process-wide logging state must be synchronized or aggregated by their owning shared layer rather than mutated unsafely by device workers.
-19. Large multi-device workflows must not require retaining an unbounded full-run result set in memory; reusable execution-result persistence and output consumption belong to shared infrastructure rather than feature-specific workers.
-20. Use the approved filesystem convention for new or migrated paths: `data/` holds persistent OrbitFlow application state, while `outputs/` holds OrbitFlow-generated operational output. The target layout is `data/inventory/inventory.json`, `outputs/reports/<report>/`, `outputs/backups/<backup-type>/`, `outputs/validation/<validation-type>/`, `outputs/logs/<module>/YYYY-MM-DD/`, and `outputs/runs/<task>/<run-id>/`. Treat this as the target architecture until runtime migration is implemented; do not claim legacy paths have moved before the code changes.
+15. All multi-device flows use shared device execution; feature modules must not create independent worker pools. Each worker owns one target device and that device's context, session, CLI and intermediate results; reusable capabilities stay single-device and independent of concurrency.
+16. Shared persistence, reporting and logging are synchronized or aggregated in their owning layer. Large runs use shared bounded execution-result spooling/consumption instead of retaining unbounded full-run results.
+17. Follow the approved target filesystem convention: persistent state under `data/` (e.g. `data/inventory/inventory.json`); generated files under `outputs/` (`reports/<report>/`, `backups/<type>/`, `validation/<type>/`, `logs/<module>/YYYY-MM-DD/`, `runs/<task>/<run-id>/`). Do not claim paths were migrated unless source confirms it.
 
 ## 2. Architecture Boundaries
 
-Keep transport, target input/device identity, shared device execution, execution-result spooling/consumption, reusable capabilities, vendor CLI/parsers, normalized models, analysis/policy, workflows, reporting, logging, configuration apply/verification, integrations, and tests separated.
-
-Higher-level workflows must not recreate SSH/jumphost logic, vendor parsing, normalized semantics, or logging configuration already owned by shared layers.
+Keep transport, inventory/identity, execution/spooling, normalized capabilities, vendor parsing, analysis, reporting, logging and configuration execution separated. Workflows must reuse existing shared interfaces rather than duplicate them.
 
 ## 3. Safety and Roles
 
@@ -88,9 +83,7 @@ The documentation-management skill applies across meaningful development tasks; 
 
 Operational controller: `python scripts/orchestration_v2/controller.py` (add `--dry-run` to preview).
 
-One GitHub Issue is one scoped task. Tasks use isolated branches/worktrees. The controller owns preflight, Codex invocation, test gate, commit/push, PR/state transitions, and never auto-merges. Codex changes repository files and tests only.
-
-Load `.agents/skills/codex-orchestration/SKILL.md` only when changing or troubleshooting this orchestration lifecycle.
+One Issue is one scoped task in an isolated worktree. Controller owns preflight, Codex invocation, tests, Git and PR lifecycle; never auto-merges. Load the orchestration skill only when modifying/troubleshooting that lifecycle.
 
 ## 7. Documentation
 
