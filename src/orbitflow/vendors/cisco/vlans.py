@@ -34,10 +34,10 @@ def parse_vlan_lookup(output, vlan_id):
         return dict(unknown, status="absent")
     if not re.search(r"VLAN\s+Name\s+Status\s+Ports", output):
         return unknown
-    rows = re.findall(rf"(?m)^\s*{vlan_id}\s+(\S+)\s+(active|suspended|inactive|act/unsup|act/lshut)\b", output)
+    rows = re.findall(rf"(?m)^\s*{vlan_id}\s+(.+)\s+(active|suspended|inactive|act/unsup|act/lshut)\b", output)
     if len(rows) != 1:
         return unknown
-    return dict(status="present", name=rows[0][0], operational_status=rows[0][1])
+    return dict(status="present", vlan_id=vlan_id, name=rows[0][0].rstrip(), operational_status=rows[0][1])
 
 
 def _blocks(

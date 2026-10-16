@@ -2,8 +2,11 @@
 
 OrbitFlow is a multi-vendor network automation platform providing shared
 Teleport/device transport, inventory refresh, read-only interface/VLAN reporting,
-VLAN compliance, configuration backup, and offline configuration planning.
-Live configuration apply is not implemented. Executable operator guides are indexed
+VLAN compliance, configuration backup, offline configuration planning, and confirmed
+predefined Catalyst/EdgeSwitch execution. The [execution guide](docs/user_manual/configuration-execution.md)
+and [public APIs](docs/operations/configuration-execution-api.md) cover prepare/confirm,
+standalone collectors/verification/save and offline report recovery. Device/lab
+validation remains owner-performed and pending. Executable operator guides are indexed
 in [docs/user_manual/README.md](docs/user_manual/README.md).
 
 ## Setup

@@ -1,5 +1,8 @@
 # OrbitFlow-Evo Documentation Index
 
+- [Confirmed Catalyst/EdgeSwitch execution](user_manual/configuration-execution.md): CLI, recovery and pending owner validation.
+- [Execution and standalone APIs](operations/configuration-execution-api.md): prepare/confirm, collectors/parsers, verification and save.
+
  > **Current layout:** The documentation migration is present on `main`; canonical executable guides live under `docs/user_manual/`. Legacy reference paths remain where source/tests depend on them.
 
 ## Start here
@@ -48,7 +51,7 @@ This is a **navigation index**, not a claim that every executable script and pub
 - [Configuration management proposal](architecture/configuration/configuration-management.md)
 - [Change Plan specification proposal](architecture/configuration/change-plan-specification.md)
 - [Configuration templates proposal](architecture/configuration/configuration-templates.md)
-- [Approved initial device execution](architecture/configuration/approved-device-execution.md) — owner-approved design, not implemented; initial Catalyst/EdgeSwitch execution and reusable capabilities.
+- [Approved initial device execution](architecture/configuration/approved-device-execution.md) — implemented initial Catalyst/EdgeSwitch execution and reusable capabilities; owner lab validation pending.
 - [Execution workflow proposal](architecture/configuration/execution-workflow.md)
 - [Platform adapters proposal](architecture/configuration/platform-adapters.md)
 - [Drift detection proposal](architecture/configuration/drift-detection.md)

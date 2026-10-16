@@ -4,6 +4,9 @@ This directory is the **canonical home for user guides for user-executable scrip
 
 ## Guide index
 
+- [Confirmed Catalyst/EdgeSwitch execution](configuration-execution.md): apply CLI, Linux/Windows commands, recovery and validation.
+- [Execution and standalone capability APIs](../operations/configuration-execution-api.md): prepare/confirm, switchport parsers/collectors, verifier and save.
+
 Executable guides are indexed below. Source/test-linked reference documents remain at their established locations for compatibility.
 
 - [Device inventory refresh](device-inventory-refresh.md) — CLI, options, report output and failures.

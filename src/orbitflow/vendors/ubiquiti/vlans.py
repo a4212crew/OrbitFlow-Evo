@@ -184,7 +184,7 @@ class EdgeSwitchVlanAdapter:
 def parse_vlan_lookup(output, vlan_id):
     """Preserve operational Current/Configured/Tagging independently."""
     from orbitflow.vendors.configuration_facts import _safe_source
-    result = dict(status="unknown", name="", operational_status="", ports=[],
+    result = dict(status="unknown", name="", operational_status="", vlan_type="", ports_complete=False, ports=[],
                   evidence=[dict(source_filename=f"show vlan {vlan_id}", line=i, excerpt=_safe_source(line, 'ubiquiti_edgeswitch'))
                             for i, line in enumerate(output.splitlines(), 1)])
     if _REJECTED.search(output):
@@ -197,9 +197,17 @@ def parse_vlan_lookup(output, vlan_id):
     name = re.search(r"(?im)^\s*VLAN Name:\s*(.*?)\s*$", output)
     kind = re.search(r"(?im)^\s*VLAN Type:\s*(\w+)\s*$", output)
     if vid and int(vid[1]) == vlan_id and name and kind:
-        result.update(status='present', name=name[1], operational_status=kind[1])
+        result.update(status='present', name=name[1], operational_status=kind[1], vlan_type=kind[1], vlan_id=vlan_id)
+    table = False
+    malformed = False
     for line in output.splitlines():
+        if re.search(r'Port\s+Current\s+Configured\s+Tagging', line, re.I):
+            table = True
+            continue
         match = re.fullmatch(r"\s*(\d+/\d+|lag \d+)\s+(Include|Exclude|Auto)\s+(Include|Exclude|Auto)\s+(Tagged|Untagged)\s*", line, re.I)
         if match:
             result['ports'].append(dict(interface=match[1], current=match[2], configured=match[3], tagging=match[4]))
+        elif table and line.strip() and not re.fullmatch(r'[\s-]+', line):
+            malformed = True
+    result['ports_complete'] = table and not malformed
     return result

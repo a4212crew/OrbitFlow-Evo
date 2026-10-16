@@ -82,6 +82,7 @@ class PromptCLI:
     ) -> tuple[str, str]:
         deadline = time.monotonic() + timeout
         received = bytearray()
+        self.last_response = ''
         candidate: tuple[str, str] | None = None
         while True:
             remaining = deadline - time.monotonic()
@@ -103,6 +104,7 @@ class PromptCLI:
                     f"channel closed before a {self._platform_name} prompt was received"
                 )
             received.extend(chunk)
+            self.last_response = received.decode('utf-8', errors='replace')
             candidate = None
             text = received.decode("utf-8", errors="replace")
             found = self._detect_prompt(text)
@@ -123,6 +125,7 @@ class PromptCLI:
         if not command or "\n" in command or "\r" in command:
             raise ValueError("command must be one non-empty line")
         starting_prompt = self.prompt
+        self.last_response = ''  # Never attach a prior sensitive capture to send failure.
         self._channel.sendall((command + "\n").encode())
         raw, self.prompt = self._read_until_prompt(
             timeout, command=command, prompt=starting_prompt
@@ -247,6 +250,73 @@ class DeviceCLI(PromptCLI):
         except BaseException:
             self._synchronized = False
             raise
+
+    def execution_mode(self, exec_prompt: str, platform: str) -> None:
+        """Select only approved modes of the originally learned privileged host."""
+        self.require_session(self.session)
+        if (not exec_prompt.endswith('#') or not is_structural_prompt(exec_prompt)
+                or platform in {'cisco_ios', 'cisco_xe'} and '(' in exec_prompt
+                or platform == 'ubiquiti_edgeswitch' and re.search(r'\)\s+\(', exec_prompt)):
+            raise InteractiveCLIError('privileged EXEC required')
+        if platform == 'ubiquiti_edgeswitch':
+            base = exec_prompt[:-1].rstrip()
+            pattern = re.escape(base) + r'(?:[ \t]+\((?:Vlan|Config|Interface [0-9]+/[0-9]+)\))?[ \t]*#'
+        elif platform in {'cisco_ios', 'cisco_xe'}:
+            base = exec_prompt[:-1]
+            pattern = re.escape(base) + r'(?:\(config(?:-if|-vlan|-vl)?\))?#'
+        else:
+            raise InteractiveCLIError('unsupported execution platform')
+        selected = re.compile('^(' + pattern + r')[ \t]*$', re.MULTILINE)
+        if not selected.fullmatch(self.prompt):
+            raise InteractiveCLIError('unexpected execution mode')
+        self._prompt_re = selected
+
+    def save_configuration(self, exec_prompt: str, platform: str, *, timeout: float):
+        """One save exchange; exact original EXEC return determines completion.
+
+        Partial text is returned on failure. Never retry or answer an unknown
+        question. Caller sanitizes evidence before persistence.
+        """
+        self.require_session(self.session)
+        if self.prompt != exec_prompt or timeout <= 0:
+            raise InteractiveCLIError('save requires original EXEC and positive timeout')
+        self.execution_mode(exec_prompt, platform)
+        raw, echoed, answered = '', False, False
+        deadline = time.monotonic() + timeout
+        try:
+            self._channel.sendall(b'write memory\n')
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise InteractiveCLITimeout('save timeout')
+                self._channel.settimeout(remaining)
+                chunk = self._channel.recv(65535)
+                if not chunk:
+                    raise InteractiveCLIError('save disconnected')
+                raw += chunk.decode('utf-8', errors='replace')
+                lines = normalize_output(raw).split('\n')
+                if not echoed:
+                    for index, line in enumerate(lines):
+                        if line.strip() in ('write memory', exec_prompt + 'write memory'):
+                            raw = '\n'.join(lines[index + 1:])
+                            echoed = True
+                            break
+                    if not echoed:
+                        continue
+                text = normalize_output(raw)
+                if platform == 'ubiquiti_edgeswitch' and not answered and text.rstrip().endswith('Are you sure you want to save? (y/n)'):
+                    self._channel.sendall(b'y\n')
+                    answered = True
+                    continue
+                if text.rstrip('\n').split('\n')[-1].strip() == exec_prompt:
+                    return dict(status='Saved', response=text, answered=answered, error_category='')
+        except BaseException as exc:
+            self._synchronized = False
+            self.last_response = normalize_output(raw)
+            if not isinstance(exc, Exception):
+                raise
+            return dict(status='Unknown', response=normalize_output(raw), answered=answered,
+                        error_category='SaveExchangeIncomplete')
 
 
 @contextmanager

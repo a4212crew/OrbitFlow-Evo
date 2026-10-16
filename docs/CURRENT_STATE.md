@@ -24,6 +24,22 @@ controller installation into the session-protected `.agents/skills/` directory.
 
 ## Bulk Configuration Planning v2
 
+Issue #117 adds separate confirmed predefined execution for C3750X, C3850 and
+EdgeSwitch through `orbitflow.configuration.execution` and `execution_cli`.
+Prepare validates immutable plan/review decisions without connecting; transactional
+summary-bound confirmation prevents replay. Shared per-IP execution uses a separate
+apply limit (default 1), fresh identity/state checks, protected backup, exact approved
+commands, per-row verification and partial-change saving at device-task end.
+New standalone switchport parsers/collectors preserve typed facts and independent
+EdgeSwitch Current/Configured/Tagging evidence. Incremental fsynced events and shared
+result spools support offline execution-workbook regeneration after interruption.
+Save completion is original EXEC prompt return; explicit errors remain separate.
+Deterministic coverage only; no owner live/lab validation is claimed. Other families,
+Manual CLI apply, HTTP, automatic rollback and write replay/resume remain unsupported.
+See [execution manual](user_manual/configuration-execution.md) and
+[public APIs](operations/configuration-execution-api.md). Planning paragraphs below
+describe the v2 planner boundary; apply is the separate explicitly confirmed service.
+
 Issue #106 adds structured ingress conflict evidence and workbook explanations
 with service-instance IDs, canonical interfaces, selectors and projected row
 provenance. The overlap blocker and digest-bound review remain enforced.
@@ -48,7 +64,7 @@ excluded from ME3600X/ASR920 workbook evidence presentation. The representative
 11-row scenario retains the row 13 incompatible-parent blocker. Owner read-only
 ME3600X validation confirmed rows 3–12 consistent and row 13 blocked before these
 presentation corrections; repeat live read-only validation remains pending.
-No device apply is implemented by this revision.
+That planning revision did not implement apply; the separate Issue #117 executor is described above.
 
 Ordered planning permits a description alongside another interface operation on
 all device families in either workbook order, with explicit compatible-overlap
@@ -146,8 +162,8 @@ dependencies, no-ops and impact/conflict findings are digest-bound. Workbook
 decisions remain separate unauthenticated intent pinned to that source digest. Decision consumption rejects other edits and re-evaluates prerequisites
 and evidence age. Unresolved evidence/ownership/conflicting overlaps and unknown Manual CLI
 effects cannot become deployment-ready. Collection uses recoverable shared
-spools; bounded single-workbook limits are documented. No apply/save/commit or
-execution authorization exists. Deterministic tests cover all 22 templates,
+spools; bounded single-workbook limits are documented. Planning supplies no execution
+authorization; the separate Issue #117 service above requires confirmation. Deterministic tests cover all 22 templates,
 workbook integrity lifecycle, collection reuse and v1 regressions. No live smoke
 test has been run. Commands and limits:
 `docs/operations/bulk-configuration-planning.md`.

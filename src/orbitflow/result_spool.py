@@ -21,6 +21,44 @@ from orbitflow.logging import sanitize_text
 logger = logging.getLogger(__name__)
 
 
+class ResultJournal:
+    """Synchronized, fsynced incremental events, including pre-send intent.
+
+    Workers submit JSON data to this owning writer. A process interruption leaves
+    complete lines readable; an incomplete final line is ignored in recovery.
+    """
+    def __init__(self, path, *, clean=sanitize_text):
+        from threading import Lock
+        self.path = Path(path)
+        self._lock = Lock()
+        self._failed = False
+        self._safe = ResultSpool.__new__(ResultSpool)
+        self._safe.clean = clean
+
+    def append(self, value):
+        line = json.dumps(self._safe._safe(value), allow_nan=False) + '\n'
+        with self._lock:
+            if self._failed:
+                raise RuntimeError('Journal stopped after persistence failure')
+            try:
+                with self.path.open('a', encoding='utf-8', newline='\n') as stream:
+                    stream.write(line)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            except BaseException:
+                self._failed = True
+                raise
+
+    def records(self):
+        if not self.path.exists():
+            return
+        with self.path.open(encoding='utf-8') as stream:
+            for line in stream:
+                if not line.endswith('\n'):
+                    break
+                yield json.loads(line)
+
+
 def _permission_retry(operation):
     """Allow a bounded handle-release delay without changing access controls."""
     for delay in (0.1, 0.2, 0.4, None):

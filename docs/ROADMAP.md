@@ -23,6 +23,14 @@ Items here are not automatically approved implementation tasks. Move an item int
 
 ## Universal Configuration Management (Proposed)
 
+Issue #117 implements the initial approved C3750X/C3850/EdgeSwitch predefined
+execution milestone with summary confirmation, fresh preflight, independent
+verification/save and durable report recovery. See the
+[execution manual](user_manual/configuration-execution.md). Deterministic validation
+is implemented; owner lab/live validation remains pending. The generic delivery
+order below is historical: IOS-XR/other-family execution, Manual CLI execution,
+HTTP integration, automatic rollback and drift reconciliation remain future work.
+
 Architecture: [docs/architecture/configuration/](architecture/configuration/README.md). These are prospective phases, not approved implementation issues or completed features.
 
 1. Define and validate a versioned shared Change Plan contract for manual CLI, Excel/CSV, templates and compliance-derived proposals.
@@ -36,4 +44,4 @@ Automated rollback must remain conditional on vendor capability and field-tested
 
 ## Approved documentation baseline: template-based configuration planning (2026-10-11)
 
-The earlier generic ordering above is exploratory, not a current implementation plan. Approved future target: [22-template Gap C configuration planning](architecture/configuration/guided-bulk-planning.md). It uses one input worksheet per family/function; live read-only observation and existing-CLI evidence for predefined templates; offline-only Manual CLI; common engineer review and digest-bound immutable plans; reusable service APIs. **Configuration planning v2 is now implemented on `main` as an offline/read-only planning workflow**; consult [the operator guide](operations/bulk-configuration-planning.md) and [template reference](operations/configuration-template-reference.md) for supported commands, scenarios and limitations. Issue #88 and PR #89 were superseded, and the later v2 implementation has merged. **C5/C6 live device apply, save, rollback and related execution gates remain future work and are not implemented.**
+The earlier generic ordering above is exploratory, not a current implementation plan. Approved future target: [22-template Gap C configuration planning](architecture/configuration/guided-bulk-planning.md). It uses one input worksheet per family/function; live read-only observation and existing-CLI evidence for predefined templates; offline-only Manual CLI; common engineer review and digest-bound immutable plans; reusable service APIs. **Configuration planning v2 is now implemented on `main` as an offline/read-only planning workflow**; consult [the operator guide](operations/bulk-configuration-planning.md) and [template reference](operations/configuration-template-reference.md) for supported commands, scenarios and limitations. Issue #88 and PR #89 were superseded, and the later v2 implementation has merged. **Issue #117 now implements confirmed predefined Catalyst/EdgeSwitch apply, verification and save; rollback and other execution families remain future work. Owner live/lab validation is pending.**

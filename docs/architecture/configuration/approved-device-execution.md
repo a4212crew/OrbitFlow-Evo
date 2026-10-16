@@ -1,6 +1,9 @@
 # Approved device configuration execution — Catalyst and EdgeSwitch
 
-Status: **Owner-approved design, 2026-10-17 (Australia/Sydney); not implemented.**
+Status: **Owner-approved design, 2026-10-17 (Australia/Sydney); implemented by Issue #117 with deterministic validation; owner live/lab validation pending.**
+See the [execution manual](../../user_manual/configuration-execution.md) and
+[supported APIs](../../operations/configuration-execution-api.md) for actual names,
+defaults, behavior and limitations. Design-time suggestions below retain provenance.
 This document records the owner's template-by-template review and later corrections.
 It does not authorize a development Issue, production changes, or a PR merge.
 Source and tests establish current behavior; supplied device transcripts establish

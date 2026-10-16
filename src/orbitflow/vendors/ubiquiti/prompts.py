@@ -4,6 +4,10 @@ import re
 
 def extract_edgeswitch_hostname(prompt: str) -> str:
     text = prompt.strip()
+    # Configuration suffixes are outside the presentation hostname wrapper.
+    mode = re.fullmatch(r'(\((?:<[^<>\s()]+>|[^\s()]+)\))\s+\((?:Vlan|Interface [0-9]+/[0-9]+|Config)\)\s*#', text)
+    if mode:
+        return extract_edgeswitch_hostname(mode[1] + ' #')
     simple = re.fullmatch(r"([^:#<>\s()]+)[#>]", text)
     if simple:
         return simple[1]

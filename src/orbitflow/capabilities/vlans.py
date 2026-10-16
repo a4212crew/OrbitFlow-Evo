@@ -54,7 +54,7 @@ class VlanService:
                 or context.device_family not in {"C3750X", "C3850", "ME3600X"}
                 or type(vlan_id) is not int or not 1 <= vlan_id <= 4094):
             raise VlanCapabilityError("unsupported VLAN lookup")
-        return CiscoVlanAdapter(session, timeout=self._timeout, cli=cli).lookup(vlan_id, preserve_evidence=context.device_family == 'ME3600X')
+        return CiscoVlanAdapter(session, timeout=self._timeout, cli=cli).lookup(vlan_id, preserve_evidence=True)
 
     def service_detail(self, session, context, interface, service_instance_id, *, cli=None):
         from orbitflow.vendors.cisco.vlans import CiscoXEVlanAdapter
