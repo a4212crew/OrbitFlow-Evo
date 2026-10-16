@@ -13,6 +13,7 @@ Executable guides are indexed below. Source/test-linked reference documents rema
 - [Retired v1 operator guide (compatibility link)](configuration-plan.md) — historical offline-plan CLI pointer; do not use as the current bulk workflow.
 - [Development orchestration controller](orchestration-controller.md) — dry-run, watch and task lifecycle.
 - [Live validation utilities](live-validation.md) — single-device inventory/VLAN and batch inventory validation helpers.
+- [Configuration template workbook engineer guide](configuration-template-guide.md) — full operator walkthrough for all 22 worksheets, per-field inputs, proposed CLI/result cases, review and troubleshooting.
 - [Bulk configuration planning v2](bulk-configuration-planning.md) — **current** complete operator manual: purpose, all CLI flags, Linux/Windows commands, 22 templates, input schemas and expected results.
 - [Configuration template reference](../operations/configuration-template-reference.md) — detailed scenarios and output expectations.
 
