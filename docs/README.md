@@ -1,6 +1,6 @@
 # OrbitFlow-Evo Documentation Index
 
-> **Authority and migration status:** This index reflects the Phase 3 proposed branch layout. Relocated paths do not become available on `main` until the PR merges; source/test-dependent legacy paths remain preserved.
+ > **Current layout:** The documentation migration is present on `main`; canonical executable guides live under `docs/user_manual/`. Legacy reference paths remain where source/tests depend on them.
 
 ## Start here
 
@@ -25,7 +25,7 @@
 ## Operations / executable features
 
 - [Inventory, interface/VLAN reporting and configuration backup usage](../README.md)
-- [Bulk configuration planning v2](user_manual/bulk-configuration-planning.md) — operator workflow, input generation, plan preparation and validation.
+- [Bulk configuration planning v2](user_manual/bulk-configuration-planning.md) — **current** guide: script purpose, complete CLI options, all 22 template schemas, proposed CLI examples and expected outputs.
 - [Configuration v2 template reference](operations/configuration-template-reference.md) — template scenarios and expected results. **Referenced by current source and tests; preserve this path.**
 - [Methodology patterns 8–12](operations/methodology-patterns-8-12.md) — specialized audit reference.
 - [EdgeSwitch interface-status observations](operations/edgeswitch-interface-status-observations-2026-10-08.md) — dated diagnostic/reference evidence.
@@ -74,4 +74,4 @@ This is a **navigation index**, not a claim that every executable script and pub
 
 For user-executable scripts, Atlas and Codex maintain canonical guides under `docs/user_manual/`. For any meaningful source change or fix, Codex must follow [documentation-management/SKILL.md](../.agents/skills/documentation-management/SKILL.md), append a monthly devlog entry and update affected README, function/API/CLI guidance and indexes as needed. Atlas may correct and reorganize Markdown directly through reviewable documentation-only changes, without creating a Codex development Issue. **Neither Atlas nor Codex may merge a PR without the owner's explicit approval.**
 
-This index documents the Phase 3 reorganization proposed in PR #110. Relocated paths become authoritative on `main` only after that PR is merged.
+The documentation structure was merged in PR #110. This index tracks current canonical and retained reference paths.
