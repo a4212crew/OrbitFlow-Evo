@@ -4,9 +4,12 @@ This directory is the **canonical home for user guides for user-executable scrip
 
 ## Guide index
 
-Some existing executable documentation remains at legacy locations; migration is in progress. Until the separately reviewed migration is complete, consult:
+Executable core operator guides are indexed below. More detailed or source-linked legacy documentation is retained for compatibility until a separate reference audit is complete. Until the separately reviewed migration is complete, consult:
 
-- [Inventory, interface/VLAN reporting and backups](../../README.md) — existing executable examples.
+- [Device inventory refresh](device-inventory-refresh.md) — CLI, options, report output and failures.
+- [Interface/VLAN observation report](device-interface-vlan-report.md) — read-only collection and Excel reporting.
+- [VLAN compliance](device-vlan-compliance.md) — collection, methodology report, and offline re-export.
+- [Configuration backup](device-configuration-backup.md) — sensitive read-only backup collection.
 - [Bulk configuration planning v2](bulk-configuration-planning.md) — executable operator workflow and commands (migrated manual; original operations path retained as a compatibility reference).
 - [Configuration template reference](../operations/configuration-template-reference.md) — detailed scenarios and output expectations.
 
