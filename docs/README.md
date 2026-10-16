@@ -25,6 +25,7 @@
 ## Operations / executable features
 
 - [Inventory, interface/VLAN reporting and configuration backup usage](../README.md)
+- [Configuration template workbook engineer guide](user_manual/configuration-template-guide.md) — worked instructions and all 22 template inputs, expected proposals and review cases.
 - [Bulk configuration planning v2](user_manual/bulk-configuration-planning.md) — **current** guide: script purpose, complete CLI options, all 22 template schemas, proposed CLI examples and expected outputs.
 - [Configuration v2 template reference](operations/configuration-template-reference.md) — template scenarios and expected results. **Referenced by current source and tests; preserve this path.**
 - [Methodology patterns 8–12](operations/methodology-patterns-8-12.md) — specialized audit reference.

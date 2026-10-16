@@ -6,6 +6,8 @@
 
 **What it supports.** VLAN database creation/renaming, Catalyst access and trunk changes, interface descriptions, ME3600X/ASR920 EVCs, EdgeSwitch VLAN port tagging/participation/PVID, and provisional NCS540 L2VPN and NE05E VLAN/subinterface/VSI requests, plus free-form Manual CLI. Templates **1–16** have signed-off detailed contracts but still require platform-specific operator live validation. Templates **17–22** are implemented catalogue/provisional behavior, **not owner-approved or live validated**. The planner is not a configuration deployment mechanism.
 
+For a per-worksheet engineer walkthrough with inputs, examples, expected CLI, blockers and review steps, see the [Configuration Template Workbook Engineer Guide](configuration-template-guide.md).
+
 ## All v2 CLI commands and options
 
 Run from the repository root, activate the environment, install dependencies, and make `src` importable. The v2 CLI implements **only** `input` and `plan` (plus argparse `--help`); it does **not** implement a v2 `review`, `approve`, `apply` or `execute` command. The separate legacy v1 CLI is not a prerequisite.
