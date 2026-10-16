@@ -172,7 +172,7 @@ Treat VLANs as service/subinterface constructs rather than assuming a classic VL
 ## Owner-approved execution requirements — 2026-10-17
 
 Read [approved device execution](../../../docs/architecture/configuration/approved-device-execution.md)
-for the initial Catalyst/EdgeSwitch milestone. **Approved design, not implemented.**
+for the initial Catalyst/EdgeSwitch milestone. **Implemented in PR #118 (Issue #117); owner lab validation and merge pending.**
 Its exact template, prompt, switchport parsing, evidence, error and save requirements
 override older conceptual execution examples for these families. Preserve existing
 read-only behavior; new collectors must be independently callable through shared
@@ -184,3 +184,10 @@ Down does not fail configured-intent verification. VLAN database non-active stat
 is warning only. Accept learned-host VLAN modes config-vlan/config-vl. C3850 trunk
 CLI omits the encapsulation selector. `write memory` completes when the original
 EXEC prompt returns; record errors independently without requiring `[OK]`.
+
+See [execution API](../../../docs/operations/configuration-execution-api.md) for
+standalone calls and optional shared run/row/digest logging correlation, command/
+target metadata, elapsed timing and safe failure diagnostics. Live validation of
+the executor remains owner-controlled; sample transcripts are not validation.
+Require matching normalized Name evidence. The approved C3750X trunk selector
+change must verify without failing preservation; unrelated settings remain checked.

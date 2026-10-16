@@ -8,7 +8,9 @@ description: Use for Change Plans, rendering, review/approval, and approved conf
 Phase 1–2 implementation is in `src/orbitflow/configuration/`; operator entry
 points are `python -m orbitflow.configuration.cli` and
 `scripts/configuration_plan.py`. Read `docs/architecture/configuration/offline-plans.md`
-for the v1 contract. Live execution and additional adapters are future work.
+for the v1 contract. Separate predefined Catalyst/EdgeSwitch execution is implemented
+in PR #118; owner lab validation and merge are pending. Additional adapters remain
+future work. The restrictions below apply to v1 planning, not the separate executor.
 
 - Resolve existing `DeviceContext` snapshots; never connect or refresh inventory.
 - Closed schemas reject unknown fields. Canonical JSON is immutable content;
@@ -38,7 +40,7 @@ Run `python -m pytest tests/test_configuration_plans.py -q` and appropriate shar
 inventory/vendor regressions. Cover identity, mutation, expiry, tampering,
 credential rejection and no device side effects for changes.
 
-## Approved replacement configuration workflow — design only, not implemented
+## Historical approved replacement planning workflow — implementation context follows
 
 The architecture catalogue is `docs/architecture/configuration/guided-bulk-planning.md` (22 function-specific templates). Detailed approved contracts: `docs/architecture/configuration/approved-catalyst-templates.md` (1–8) and `docs/architecture/configuration/approved-me3600x-asr920-edgeswitch-templates.md` (9–16); latter supersedes older generic EVC and EdgeSwitch notes. Templates 17–22 still await detailed owner sign-off. The previous two-stage guided Requests/Parameters workbook, offline-only Gap C, auto methodology matching and special elevated Manual CLI approver design are **superseded**. Issue #88 was closed as not planned and PR #89 was closed unmerged. Do not implement superseded material.
 
@@ -64,7 +66,8 @@ Read `docs/architecture/configuration/configuration-removal.md` for future remov
 
 ## Owner-approved configuration execution milestone — 2026-10-17
 
-**Design only; no executor is implemented.** For apply, verification, save, reusable
+**Implemented in PR #118 (Issue #117); owner lab validation and merge pending.**
+For apply, verification, save, reusable
 summary/confirmation or switchport observation, read
 [approved device execution](../../../docs/architecture/configuration/approved-device-execution.md).
 It supersedes older proposed global batch-stop/save-only-after-verification policy
@@ -76,3 +79,11 @@ EdgeSwitch missing global VLANs block dependent execution, not planning. Save at
 device-task end including partial changes; original EXEC prompt return is the
 approved save-completion criterion, with errors recorded separately. No Issue,
 apply or merge is authorized merely by this design.
+
+Current execution entry point: `python -m orbitflow.configuration.execution_cli`.
+See [execution manual](../../../docs/user_manual/configuration-execution.md) and
+[supported standalone APIs](../../../docs/operations/configuration-execution-api.md).
+Require matching normalized Cisco Name/EdgeSwitch Port identity. Preserve the
+approved C3750X dot1q change and detect unrelated changes. Use optional shared
+run/row/digest correlation and elapsed timing for standalone capability logs.
+The executor is separate from v1/v2 planning; no production validation is implied.

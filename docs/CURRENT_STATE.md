@@ -19,8 +19,8 @@ authority storage is required and actor labels are not authentication.
 Deterministic tests cover the lifecycle, expiry, mutations, tampering, secret
 rejection and socket-blocked CLI operation. No apply/live verification or device
 changes are implemented. See `docs/architecture/configuration/offline-plans.md`.
-The configuration-management skill is staged alongside that document pending
-controller installation into the session-protected `.agents/skills/` directory.
+The configuration-management skill is installed under `.agents/skills/`; it
+distinguishes this v1 contract from the separate predefined execution workflow.
 
 ## Bulk Configuration Planning v2
 

@@ -1,4 +1,12 @@
-# Issue #117 protected skill corrections
+# Issue #117 protected skill correction history
+
+**Resolved by Atlas in the same PR after the iteration-2 review.** The three skill
+files now describe the execution implementation on the PR branch, pending merge
+and owner lab validation. The following records the original Codex filesystem
+restriction and proposed handoff; it is historical, not an outstanding blocker.
+The PR description is maintained by Atlas.
+
+## Original Codex handoff (superseded by Atlas correction)
 
 The implementation session received PermissionError writing
 `.agents/skills/configuration-management/SKILL.md`; no protected skill was changed.
@@ -20,7 +28,8 @@ can be claimed. Preserve historical approvals and phase-specific v1 restrictions
   C3850 omits encapsulation; save errors remain separate from Saved.
 
 Verified behavior: [execution API](configuration-execution-api.md).
-These protected edits remain pending; this document does not replace the skills.
+The original pending edits below were completed by Atlas; this historical handoff
+does not replace the authoritative skills.
 
 ## Controller PR description revision draft
 
