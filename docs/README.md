@@ -1,6 +1,6 @@
 # OrbitFlow-Evo Documentation Index
 
-> **Authority and migration status:** This index lists the **existing paths on `main`**. Documentation relocation and historical deletion are future, separately reviewed phases. Do not interpret a planned destination as an existing file.
+> **Authority and migration status:** This index reflects the Phase 3 proposed branch layout. Relocated paths do not become available on `main` until the PR merges; source/test-dependent legacy paths remain preserved.
 
 ## Start here
 
@@ -8,24 +8,24 @@
 |---|---|---|
 | Codex global safety rules and skill routing | [AGENTS.md](../AGENTS.md) | Current instruction |
 | Atlas issue workflow | [Issue creation rules](../.agents/ISSUE_CREATION_RULES.md) | Current instruction |
-| Writing / updating documentation | [Documentation management skill](../.agents/skills/documentation-management/SKILL.md) | Current instruction (Phase 2 branch; upon merge) |
-| Current implemented/validated capabilities | [CURRENT_STATE.md](../CURRENT_STATE.md) | Current-state reference; needs editorial reconciliation |
+| Writing / updating documentation | [Documentation management skill](../.agents/skills/documentation-management/SKILL.md) | Current instruction |
+| Current implemented/validated capabilities | [CURRENT_STATE.md](CURRENT_STATE.md) | Current-state reference; needs editorial reconciliation |
 | Project usage and setup | [README.md](../README.md) | Operator entry point; some introductory wording outdated |
-| Architecture overview | [ARCHITECTURE.md](../ARCHITECTURE.md) | Architecture; iteration governance needs reconciliation |
-| Numbered decisions | [DECISIONS.md](../DECISIONS.md) | Decision history; later decisions override earlier rules |
-| Future planning | [ROADMAP.md](../ROADMAP.md) | Proposals; implemented configuration-v2 status needs correction |
-| Development history index | [DEVLOG.md](../DEVLOG.md) | Monthly index; October link needs adding |
+| Architecture overview | [architecture overview](architecture/README.md) | Architecture; iteration governance needs reconciliation |
+| Numbered decisions | [architecture decisions](architecture/DECISIONS.md) | Decision history; later decisions override earlier rules |
+| Future planning | [ROADMAP.md](ROADMAP.md) | Future plans; configuration v2 planning status reconciled |
+| Development history index | [devlog/README.md](devlog/README.md) | Monthly index including September and October |
 | September devlog | [2026-09.md](devlog/2026-09.md) | Historical |
 | October devlog | [2026-10.md](devlog/2026-10.md) | Historical |
 
 ## User manuals for executable scripts
 
-- [Canonical executable-script user manual index](user_manual/README.md) — guides maintained by both Atlas and Codex, with verified inputs, scenarios, commands and expected outputs. Existing guides remain at their current paths until an approved migration.
+- [Canonical executable-script user manual index](user_manual/README.md) — guides maintained by both Atlas and Codex, with verified inputs, scenarios, commands and expected outputs. Legacy operations references remain at their existing paths where source/test compatibility requires them.
 
 ## Operations / executable features
 
 - [Inventory, interface/VLAN reporting and configuration backup usage](../README.md)
-- [Bulk configuration planning v2](operations/bulk-configuration-planning.md) — operator workflow, input generation, plan preparation and validation.
+- [Bulk configuration planning v2](user_manual/bulk-configuration-planning.md) — operator workflow, input generation, plan preparation and validation.
 - [Configuration v2 template reference](operations/configuration-template-reference.md) — template scenarios and expected results. **Referenced by current source and tests; preserve this path.**
 - [Methodology patterns 8–12](operations/methodology-patterns-8-12.md) — specialized audit reference.
 - [EdgeSwitch interface-status observations](operations/edgeswitch-interface-status-observations-2026-10-08.md) — dated diagnostic/reference evidence.
@@ -74,4 +74,4 @@ This is a **navigation index**, not a claim that every executable script and pub
 
 For user-executable scripts, Atlas and Codex maintain canonical guides under `docs/user_manual/`. For any meaningful source change or fix, Codex must follow [documentation-management/SKILL.md](../.agents/skills/documentation-management/SKILL.md), append a monthly devlog entry and update affected README, function/API/CLI guidance and indexes as needed. Atlas may correct and reorganize Markdown directly through reviewable documentation-only changes, without creating a Codex development Issue. **Neither Atlas nor Codex may merge a PR without the owner's explicit approval.**
 
-This Phase 2 index does **not** move, rename or delete any existing Markdown document.
+This index documents the Phase 3 reorganization proposed in PR #110. Relocated paths become authoritative on `main` only after that PR is merged.

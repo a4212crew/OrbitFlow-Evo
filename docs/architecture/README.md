@@ -69,7 +69,7 @@ Each run has a unique directory and run ID. Failed/interrupted output generation
 
 The initial scale-hardening acceptance target is approximately 1,500 targets at a configured active-device limit of 5. This is an implementation/validation target, not a new hard-coded global concurrency rule.
 
-This spool architecture is approved but not yet implemented; current implementation state remains documented separately in `CURRENT_STATE.md`.
+This spool architecture is approved but not yet implemented; current implementation state remains documented separately in `../CURRENT_STATE.md`.
 
 Detailed implementation guidance belongs in `.agents/skills/device-execution/SKILL.md`.
 
@@ -214,9 +214,9 @@ Documentation should distinguish clearly between:
 
 Canonical continuity files are:
 - `AGENTS.md`
-- `CURRENT_STATE.md`
-- `ARCHITECTURE.md`
-- `DECISIONS.md`
+- `../CURRENT_STATE.md`
+- `docs/architecture/README.md`
+- `docs/architecture/DECISIONS.md`
 - `docs/PROJECT_HANDOFF.md`
 
 Task/vendor implementation knowledge remains under `.agents/skills/`.
@@ -243,7 +243,7 @@ ChatGPT / Atlas is the architecture, orchestration, and review layer. Codex is t
 
 ### Implementation / Review Iteration Limit
 
-Each approved implementation plan may undergo a maximum of 15 Codex implementation/revision and Atlas review iterations.
+**Current controller implementation:** `scripts/orchestration_v2/models.py` defines `MAX_ITERATIONS = 30`; `controller.py` enforces this limit. Earlier 15-iteration guidance in this document is superseded for current controller behaviour. Any change to the approved limit requires owner review.
 
 One iteration consists of:
 
@@ -252,7 +252,7 @@ Codex implementation or revision
     -> Atlas review
 ```
 
-If the fifteenth review still requires changes, automated implementation must stop and the task moves to `codex-replan-required`. Atlas and the user then reassess the architecture or implementation plan. A newly approved plan begins a new implementation cycle with its own 15-iteration limit.
+When the current 30-iteration controller limit is reached, automated implementation stops and the task moves to `codex-replan-required`. Atlas and the user must reassess the task and explicitly approve a new plan.
 
 ## 14. OrbitFlow-Evo Boundary
 
@@ -285,7 +285,7 @@ GitHub remains the coordination and audit layer, while Codex execution occurs lo
 
 The Python controller validates local repository identity and a clean main checkout, prevents duplicate initial execution, isolates tasks in dedicated Git worktrees, updates issue labels/comments, enforces a passing pytest gate before commit/push/PR progression, creates or updates the task PR, and reuses the same task branch for revisions. Its dry-run mode is non-mutating. The same controller implementation is used on Windows and Linux.
 
-The 15-iteration replan gate remains mandatory. Revision 16 is never executed under the same approved plan.
+The active controller's 30-iteration replan gate applies. Historical 10/15-iteration descriptions elsewhere must not override verified controller behaviour.
 
 No automatic merge is permitted. Teleport and network-device credentials remain outside Codex prompts and GitHub. Live network validation remains operator-controlled.
 
@@ -312,4 +312,4 @@ Parallel workers must not share one mutable working directory.
 
 ## 17. Proposed Universal Configuration Management
 
-The approved design direction for future controlled device changes is documented in [docs/architecture/configuration/](docs/architecture/configuration/README.md). Manual CLI, Excel/CSV, reviewed templates and validated compliance findings produce a common Change Plan. An explicit approval gate precedes shared, device-scoped prechecks, checkpoint/backup, platform-specific apply, verification, conditional persistence/recovery and audit. This section documents proposed architecture only; it does **not** establish an implemented or live-validated configuration engine.
+The approved design direction for future controlled device changes is documented in [docs/architecture/configuration/](configuration/README.md). Manual CLI, Excel/CSV, reviewed templates and validated compliance findings produce a common Change Plan. An explicit approval gate precedes shared, device-scoped prechecks, checkpoint/backup, platform-specific apply, verification, conditional persistence/recovery and audit. This section documents proposed architecture only; it does **not** establish an implemented or live-validated configuration engine.

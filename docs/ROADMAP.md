@@ -23,7 +23,7 @@ Items here are not automatically approved implementation tasks. Move an item int
 
 ## Universal Configuration Management (Proposed)
 
-Architecture: [docs/architecture/configuration/](docs/architecture/configuration/README.md). These are prospective phases, not approved implementation issues or completed features.
+Architecture: [docs/architecture/configuration/](architecture/configuration/README.md). These are prospective phases, not approved implementation issues or completed features.
 
 1. Define and validate a versioned shared Change Plan contract for manual CLI, Excel/CSV, templates and compliance-derived proposals.
 2. Build a non-destructive validation and approval boundary, reusing shared device execution, transport, backups and logging.
@@ -36,4 +36,4 @@ Automated rollback must remain conditional on vendor capability and field-tested
 
 ## Approved documentation baseline: template-based configuration planning (2026-10-11)
 
-The earlier generic ordering above is exploratory, not a current implementation plan. Approved future target: [22-template Gap C configuration planning](docs/architecture/configuration/guided-bulk-planning.md). It uses one input worksheet per family/function; live read-only observation and existing-CLI evidence for predefined templates; offline-only Manual CLI; common engineer review and digest-bound immutable plans; reusable service APIs. **Not yet implemented**. Issue #88 is obsolete (closed not planned); PR #89 was closed unmerged. A replacement implementation task will follow review/merge of the documentation baseline. C5/C6 live apply remains separately gated.
+The earlier generic ordering above is exploratory, not a current implementation plan. Approved future target: [22-template Gap C configuration planning](architecture/configuration/guided-bulk-planning.md). It uses one input worksheet per family/function; live read-only observation and existing-CLI evidence for predefined templates; offline-only Manual CLI; common engineer review and digest-bound immutable plans; reusable service APIs. **Configuration planning v2 is now implemented on `main` as an offline/read-only planning workflow**; consult [the operator guide](operations/bulk-configuration-planning.md) and [template reference](operations/configuration-template-reference.md) for supported commands, scenarios and limitations. Issue #88 and PR #89 were superseded, and the later v2 implementation has merged. **C5/C6 live device apply, save, rollback and related execution gates remain future work and are not implemented.**

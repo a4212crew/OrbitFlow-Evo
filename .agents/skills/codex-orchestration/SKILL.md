@@ -8,7 +8,7 @@ Use this skill only when changing or troubleshooting OrbitFlow-Evo orchestration
 
 Normal feature implementation does not load this skill merely because Codex is the worker.
 
-Read `AGENTS.md` first. Read `CURRENT_STATE.md` only when the task depends on current implementation status, architecture baseline, supported behaviour, known limitations, or active development state. Read `docs/architecture/codex-orchestration.md` only when lifecycle architecture or controller behaviour is directly relevant.
+Read `AGENTS.md` first. Read `docs/CURRENT_STATE.md` only when the task depends on current implementation status, architecture baseline, supported behaviour, known limitations, or active development state. Read `docs/architecture/codex-orchestration.md` only when lifecycle architecture or controller behaviour is directly relevant.
 
 ## Roles
 
@@ -95,7 +95,7 @@ Keep it concise and include:
 - acceptance criteria;
 - architecture references only when needed.
 
-Do not duplicate large persistent rules from `AGENTS.md`, `CURRENT_STATE.md`, or architecture docs into every issue.
+Do not duplicate large persistent rules from `AGENTS.md`, `docs/CURRENT_STATE.md`, or architecture docs into every issue.
 
 ## Context Efficiency
 
@@ -106,7 +106,7 @@ Use the minimum repository context needed to complete the scoped task safely.
 - Treat adjacent-skill references as capability ownership guidance, not automatic context dependencies.
 - Load an additional skill only when the task modifies that capability or targeted source inspection shows the implementation must cross that boundary.
 - Using an existing capability through its current public interface does not require loading that capability's skill.
-- Do not load `CURRENT_STATE.md`, architecture documents, or devlogs by default; load them only when the task materially depends on them.
+- Do not load `docs/CURRENT_STATE.md`, architecture documents, or devlogs by default; load them only when the task materially depends on them.
 - Prefer targeted search/file reads and one final diff over broad repository-document ingestion.
 - Run targeted tests while developing when useful, then the required deterministic suite once at the final gate.
 
@@ -194,7 +194,6 @@ Codex implementation or revision
 
 Maximum: 30 iterations under one explicitly owner-approved plan. Once iteration 30 is reached, move to `codex-replan-required` and require Atlas and user approval of a new plan.
 
-After iteration 10, move to `codex-replan-required` and require Atlas + user to approve a new plan.
 
 ## Merge Boundary
 
@@ -231,7 +230,7 @@ A failed task must not remain continuously queued for automatic retry unless ret
 
 After meaningful completed development work, including features, behavioural changes, bug fixes, and orchestration changes:
 - append a concise record of the completed work, validation, and important limitations to the current monthly `docs/devlog/YYYY-MM.md`;
-- update `CURRENT_STATE.md` when the change alters the currently implemented or validated capability baseline;
+- update `docs/CURRENT_STATE.md` when the change alters the currently implemented or validated capability baseline;
 - update durable architecture documentation only when the architecture changes;
 - update `DECISIONS.md` when a durable decision changes;
 - keep `AGENTS.md` focused on permanent rules.

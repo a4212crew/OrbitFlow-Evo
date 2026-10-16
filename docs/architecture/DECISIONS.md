@@ -14,7 +14,7 @@ This document records important technical and development decisions so future Ch
 
 **Decision:** Important architecture, development state, and decisions must be stored in the repository.
 
-**Canonical files:** `AGENTS.md`, `CURRENT_STATE.md`, `ARCHITECTURE.md`, `DECISIONS.md`, and `docs/PROJECT_HANDOFF.md`.
+**Canonical files:** `AGENTS.md`, `docs/CURRENT_STATE.md`, `docs/architecture/README.md`, `docs/architecture/DECISIONS.md`, and `docs/PROJECT_HANDOFF.md`.
 
 **Reason:** Chat history and AI memory are useful context but are not sufficient as the only project record.
 
@@ -209,4 +209,4 @@ If the tenth review still requires changes, automated implementation stops and t
 
 **Reason:** OrbitFlow workflows repeatedly follow the same pattern—execute a task concurrently across many devices, then send normalized results to a destination. Separating execution persistence from output destinations gives the platform one reusable scale/recovery mechanism and prevents every feature from rebuilding its own large-run aggregation.
 
-**Current-state consequence:** This decision records the approved architecture only. `CURRENT_STATE.md` must not claim result-spool capability until implementation and validation are complete.
+**Current-state consequence:** This decision records the approved architecture only. `docs/CURRENT_STATE.md` must not claim result-spool capability until implementation and validation are complete.

@@ -98,7 +98,7 @@ The current controller processes one task at a time per controller process. Mult
 - `codex-approved` — Atlas review passed.
 - `codex-pr` — the task has an implementation PR.
 - `codex-failed` — local orchestration failed and needs inspection.
-- `codex-replan-required` — iteration 10 was exhausted under the current plan.
+- `codex-replan-required` — iteration 30 was exhausted under the current plan.
 
 These labels must exist in the repository before task processing. Repository setup is operator-owned; v2 does not create labels.
 
@@ -118,7 +118,7 @@ The controller passes the original issue plus the latest owner-authored marked A
 
 Atlas should keep correction prompts concise because persistent architecture already lives in the repository.
 
-## 10-Iteration Replan Gate
+## 30-Iteration Replan Gate (current controller)
 
 One successful Codex implementation/revision followed by one Atlas review is one iteration.
 
@@ -128,9 +128,9 @@ Successful iterations are recorded in issue comments with:
 <!-- orbitflow-codex-iteration:N -->
 ```
 
-A plan may use at most 10 iterations.
+The current controller enforces at most 30 successful iterations (`MAX_ITERATIONS = 30` in `scripts/orchestration_v2/models.py`); earlier 10-iteration decision text is historical and requires explicit owner approval before changing controller policy.
 
-If another revision is requested after iteration 10, the controller does not run Codex. It applies `codex-replan-required` and stops automated implementation.
+If another revision is requested after iteration 30, the controller does not run Codex. It applies `codex-replan-required` and stops automated implementation.
 
 Atlas and the user must then revisit and approve the implementation plan. A new approved plan begins a fresh implementation cycle.
 
@@ -242,7 +242,7 @@ The controller implements these phases:
 
 4. **Publish and review** ? after the full test gate, stage changes in the isolated worktree, commit with the preflighted identity, push the explicit task branch, create/update its PR, transition to `codex-pr`, post the successful iteration marker, and transition to `codex-review`. Initial and revision tasks follow `codex-task`/`codex-revise` -> `codex-running` -> `codex-pr` -> `codex-review`. Transitions read the issue labels and remove only attached state labels, preserving unrelated labels and tolerating absent states. Optional watch mode continues after review; no auto-merge exists.
 
-Revision discovery reads paginated issue comments, selects the latest owner-authored `<!-- atlas-review -->`, and requires an existing open task PR. Existing worktrees must be clean, on the expected branch, and match the fetched remote after a fast-forward-only update. Codex receives the original contract plus the requested revision. A worker HEAD change is rejected. Iteration markers count successful cycles; requests after iteration 10 move to `codex-replan-required`. A new approved plan requires an explicit operator reset of the prior cycle's markers; relabeling alone does not reset the counter.
+Revision discovery reads paginated issue comments, selects the latest owner-authored `<!-- atlas-review -->`, and requires an existing open task PR. Existing worktrees must be clean, on the expected branch, and match the fetched remote after a fast-forward-only update. Codex receives the original contract plus the requested revision. A worker HEAD change is rejected. Iteration markers count successful cycles; requests after iteration 30 move to `codex-replan-required`. A new approved plan requires an explicit operator reset of the prior cycle's markers; relabeling alone does not reset the counter.
 
 Selected-task failures transition to `codex-failed`, removing queue/running labels and preserving prerequisite, controller, Codex, or test failure categories. Global preflight failures occur before task selection and exit without claiming a task. If GitHub failure reporting itself fails, the controller exits with both errors and requires manual inspection; it cannot guarantee remote dequeue during an outage.
 
