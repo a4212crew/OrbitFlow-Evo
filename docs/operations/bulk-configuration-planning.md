@@ -1,3 +1,5 @@
+> **Compatibility reference:** The canonical current guide is [Bulk configuration planning v2](../user_manual/bulk-configuration-planning.md). This operations path is retained for existing links; consult the canonical manual first.
+
 # Bulk configuration planning v2
 
 The separate `orbitflow.configuration.v2` API implements the 22-template

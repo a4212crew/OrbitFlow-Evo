@@ -1,5 +1,109 @@
 # Bulk configuration planning v2
 
+## Overview and safety
+
+**Purpose.** The v2 planner generates a 22-worksheet Excel request workbook, collects *read-only* device evidence for predefined templates, evaluates ordered changes and safety dependencies, renders proposed device CLI, and exports an immutable JSON plan alongside an Excel engineer-review workbook. Engineers can review differences, blockers, warnings and no-ops and record **Pending / Approve / Reject** in the generated review workbook. **There is no apply, save, commit or rollback command.** Offline decisions do not authorize device configuration. Manual CLI is offline-only and has no semantic or live validation.
+
+**What it supports.** VLAN database creation/renaming, Catalyst access and trunk changes, interface descriptions, ME3600X/ASR920 EVCs, EdgeSwitch VLAN port tagging/participation/PVID, and provisional NCS540 L2VPN and NE05E VLAN/subinterface/VSI requests, plus free-form Manual CLI. Templates **1–16** have signed-off detailed contracts but still require platform-specific operator live validation. Templates **17–22** are implemented catalogue/provisional behavior, **not owner-approved or live validated**. The planner is not a configuration deployment mechanism.
+
+## All v2 CLI commands and options
+
+Run from the repository root, activate the environment, install dependencies, and make `src` importable. The v2 CLI implements **only** `input` and `plan` (plus argparse `--help`); it does **not** implement a v2 `review`, `approve`, `apply` or `execute` command. The separate legacy v1 CLI is not a prerequisite.
+
+| Invocation / option | Required and behavior |
+|---|---|
+| `python -m orbitflow.configuration.v2.cli --help` | List top-level commands |
+| `python -m orbitflow.configuration.v2.cli input --help` | Input command help |
+| `python -m orbitflow.configuration.v2.cli input PATH.xlsx` | Create a blank 22-template input workbook at `PATH`; fill sheets from row 3 |
+| `python -m orbitflow.configuration.v2.cli plan --help` | Plan command help |
+| `python -m orbitflow.configuration.v2.cli plan WORKBOOK.xlsx [OUTPUT.json]` | Read input and export `plan.json` plus adjacent `plan.xlsx`; optional output defaults to `outputs/reports/configuration/<timestamp>_<target>/plan.json`, and existing destinations are not overwritten |
+| `--devices PATH` | Device credentials workbook; default `devices.xlsx`; required for live predefined rows through the shared target loader |
+| `--proxy VALUE` | Teleport proxy; required for predefined rows requiring live observation |
+| `--cluster VALUE` | Teleport cluster; required for live observation |
+| `--bastion-host VALUE` | Teleport bastion; required for live observation |
+| `--bastion-user VALUE` | Bastion user; required for live observation |
+| `--teleport-key-path PATH` | Optional CLI identity private-key path; Linux operators normally supply the active Teleport identity |
+| `--teleport-cert-path PATH` | Optional CLI identity certificate path; Linux operators normally supply matching certificate |
+| `--inventory-path PATH` | Inventory snapshot, default `data/inventory/inventory.json` |
+| `--config PATH` | Execution TOML config, default `orbitflow.toml` |
+| `--max-concurrent-devices N` | Optional override of configured per-device concurrency; positive integer, use `1` for serialized read-only testing |
+
+The `plan` command requires all four Teleport routing flags when any predefined device needs read-only evidence; a Manual-CLI-only workbook does not use credentials or network access. There is no `--timeout` flag in the v2 planner's parser. Obtain approved device credentials through a **separate locally protected** `devices.xlsx`, with `management_ip`, `username`, `password` and optional `secret`. Never put secrets in the template request workbook or repository.
+
+### Copy-ready Linux commands
+
+```bash
+source .venv/bin/activate
+export PYTHONPATH="$PWD/src"
+python -m orbitflow.configuration.v2.cli --help
+python -m orbitflow.configuration.v2.cli input bulk-input.xlsx
+# Edit the appropriate worksheet(s), beginning at row 3.
+python -m orbitflow.configuration.v2.cli plan bulk-input.xlsx \
+  --devices "$HOME/secure/devices.xlsx" \
+  --proxy "TELEPORT_PROXY:443" --cluster "TELEPORT_CLUSTER" \
+  --bastion-host "BASTION_HOST" --bastion-user "BASTION_USER" \
+  --teleport-key-path "$TELEPORT_KEY_PATH" --teleport-cert-path "$TELEPORT_CERT_PATH" \
+  --max-concurrent-devices 1
+# For a workbook containing ONLY Manual CLI rows (no network):
+python -m orbitflow.configuration.v2.cli plan manual-only.xlsx
+```
+
+### Copy-ready Windows PowerShell commands
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m orbitflow.configuration.v2.cli --help
+python -m orbitflow.configuration.v2.cli input bulk-input.xlsx
+# Edit the appropriate worksheet(s), beginning at row 3.
+python -m orbitflow.configuration.v2.cli plan bulk-input.xlsx `
+  --devices "C:\\Operator\\devices.xlsx" `
+  --proxy "TELEPORT_PROXY:443" --cluster "TELEPORT_CLUSTER" `
+  --bastion-host "BASTION_HOST" --bastion-user "BASTION_USER" `
+  --max-concurrent-devices 1
+python -m orbitflow.configuration.v2.cli plan manual-only.xlsx
+```
+
+### Expected files, engineer decisions and failure handling
+
+- `input` creates an Excel workbook containing an Introduction sheet and **22 templates** with validated input columns, guidance/comments and dropdowns. Input rows start at row 3.
+- `plan` writes `plan.json` (immutable, digest-bound planning evidence, requests, findings, projected states and CLI) and the adjacent `plan.xlsx` (operator review, evidence, proposed CLI, warnings/blockers, validation and decision cells). Successful output reports a plan digest; it **does not** execute any configuration.
+- Edit **only Engineer Decision** cells to `Pending`, `Approve` or `Reject` in the *output* `plan.xlsx`; do not edit protected inputs/evidence. There is no user-facing v2 CLI to consume those decisions: the library API `workbook.consume_decisions` enforces source/digest, workbook integrity and decision validation for future callers.
+- Invalid input rows retain location and sanitized field errors with no proposed CLI; safe unrelated rows can continue. Unavailable/stale evidence, identity ambiguity, resource overlaps and incompatible state may block deployment readiness even when draft CLI exists. An existing correctly configured state can yield a no-op with empty CLI. Failures of the CLI print `Planning failed (<category>)` and exit code 2; details use sanitized configuration/transport module logs, not raw device credentials.
+- Review `outputs/logs/configuration/YYYY-MM-DD/bulk_planning.log` and observation spool `outputs/runs/configuration_observation/` as needed. No CLI output or offline approval proves a live device change.
+
+## Template-by-template input and expected proposal catalogue
+
+Each of the following is a **separate Excel worksheet**, not a separate CLI command. The same `input` and `plan` commands above apply to **all** templates; place request rows under that worksheet's headers. Every worksheet requires `management_ip` (IPv4/IPv6 literal; no hostname), shown once in the per-template schema reference; the required-fields column below lists the **additional** fields. **Required** fields must be populated; **optional** fields are omitted when blank. The link for each template gives a worked input, conditional rules, rejected examples, exact proposed CLI examples, expected output status and device evidence requirements. This table summarizes the schema, not the complete conditional validation matrix.
+
+| Template / worksheet (detailed per-template expected CLI) | Required fields beyond `management_ip` | Optional or conditional fields | Expected result categories |
+|---|---|---|---|
+| [1. C3750X VLAN Database](../operations/configuration-template-reference.md#template-1--c3750x-vlan-database) | `vlan_id`, `name` | — | Create/rename/no-op VLAN proposal |
+| [2. C3750X Access Port](../operations/configuration-template-reference.md#template-2--c3750x-access-port) | `interface`, `vlan_id` | `description` | Access VLAN proposal or blocker |
+| [3. C3750X Trunk Port](../operations/configuration-template-reference.md#template-3--c3750x-trunk-port) | `interface`, `action`, `vlans` | `native_vlan`, `description` | Trunk VLAN change proposal or blocker |
+| [4. C3750X Description](../operations/configuration-template-reference.md#template-4--c3750x-description) | `interface`, `description` | — | Description-only proposal or no-op |
+| [5. C3850X VLAN Database](../operations/configuration-template-reference.md#template-5--c3850x-vlan-database) | `vlan_id`, `name` | — | Create/rename/no-op VLAN proposal |
+| [6. C3850X Access Port](../operations/configuration-template-reference.md#template-6--c3850x-access-port) | `interface`, `vlan_id` | `description` | Access VLAN proposal or blocker |
+| [7. C3850X Trunk Port](../operations/configuration-template-reference.md#template-7--c3850x-trunk-port) | `interface`, `action`, `vlans` | `native_vlan`, `description` | Trunk VLAN change proposal or blocker |
+| [8. C3850X Description](../operations/configuration-template-reference.md#template-8--c3850x-description) | `interface`, `description` | — | Description-only proposal or no-op |
+| [9. ME3600X VLAN Database](../operations/configuration-template-reference.md#template-9--me3600x-vlan-database) | `vlan_id`, `name` | — | Create/rename/no-op VLAN proposal |
+| [10. ME3600X EVC](../operations/configuration-template-reference.md#template-10--me3600x-evc) | `interface`, `service_instance_id`, `encapsulation`, `bridge_domain` | `outer_vlan`, `inner_vlan`, `rewrite`, `push_vlan`, `split_horizon_group`, `description`, `interface_description` | Complete EVC remove/recreate proposal or blocker |
+| [11. ME3600X Description](../operations/configuration-template-reference.md#template-11--me3600x-description) | `interface`, `description` | — | Description-only proposal or no-op |
+| [12. ASR920 EVC](../operations/configuration-template-reference.md#template-12--asr920-evc) | `interface`, `service_instance_id`, `encapsulation`, `bridge_domain` | `outer_vlan`, `inner_vlan`, `rewrite`, `push_vlan`, `split_horizon_group`, `description`, `interface_description` | Complete EVC remove/recreate proposal or blocker |
+| [13. ASR920 Description](../operations/configuration-template-reference.md#template-13--asr920-description) | `interface`, `description` | — | Description-only proposal or no-op |
+| [14. EdgeSwitch VLAN Database](../operations/configuration-template-reference.md#template-14--edgeswitch-vlan-database) | `vlan_id`, `name` | — | Create/rename/no-op VLAN proposal |
+| [15. EdgeSwitch VLAN Port](../operations/configuration-template-reference.md#template-15--edgeswitch-vlan-port) | `interface`, `action` | `tagged_vlans`, `pvid`, `description` | Tagging/participation/PVID proposal |
+| [16. EdgeSwitch Description](../operations/configuration-template-reference.md#template-16--edgeswitch-description) | `interface`, `description` | — | Description-only proposal or no-op |
+| [17. NCS540 L2VPN](../operations/configuration-template-reference.md#template-17--ncs540-l2vpn) | `interface`, `subinterface`, `encapsulation`, `bridge_group`, `bridge_domain` | `outer_vlan`, `inner_vlan`, `description` | L2VPN attachment proposal |
+| [18. NCS540 Description](../operations/configuration-template-reference.md#template-18--ncs540-description) | `interface`, `description` | — | Description-only proposal or no-op |
+| [19. NE05E VLAN Database](../operations/configuration-template-reference.md#template-19--ne05e-vlan-database) | `vlan_id`, `name` | — | Create/rename/no-op VLAN proposal |
+| [20. NE05E Subinterface VSI](../operations/configuration-template-reference.md#template-20--ne05e-subinterface-vsi) | `interface`, `subinterface`, `vlan_id`, `encapsulation`, `vsi` | `description`, `control_vid` | Subinterface/VSI proposal |
+| [21. NE05E Description](../operations/configuration-template-reference.md#template-21--ne05e-description) | `interface`, `description` | — | Description-only proposal or no-op |
+| [22. Manual CLI](../operations/configuration-template-reference.md#template-22--manual-cli) | `platform`, `mode`, `scope`, `commands` | — | Offline literal CLI, no observation |
+
+For *each* template, follow the linked **Expected result** table in the [configuration template reference](../operations/configuration-template-reference.md) to compare rendered CLI against the observed target state. Output may instead be a **no-op**, **warning**, **blocked draft**, or **invalid row**, according to evidence and contract. Specific examples are **proposals for review**, never operational commands to send. EVC optional child settings that are blank are omitted during complete child recreation; confirm the impact warning before accepting.
+
+
 The separate `orbitflow.configuration.v2` API implements the 22-template
 catalogue from [the approved design](../architecture/configuration/guided-bulk-planning.md).
 Existing `orbitflow.configuration` v1 JSON plans, commands, validation and
