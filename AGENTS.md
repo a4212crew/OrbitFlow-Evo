@@ -33,7 +33,7 @@ Keep transport, inventory/identity, execution/spooling, normalized capabilities,
 - **User** — product owner, network architect, final technical and merge authority.
 - **Atlas** — architecture, documentation owner, scope, GitHub Issue orchestration and PR review; may make reviewable Markdown-only changes.
 - **Codex** — sole implementer of source code, executable scripts and tests; updates affected documentation in the same development work.
-- Codex implements/tests only; the controller owns Git/GitHub lifecycle operations.
+- Codex implements source code and tests and updates affected documentation; the controller owns Git/GitHub lifecycle operations.
 - Codex and the controller must not auto-merge. Atlas must not merge without explicit user approval.
 - Atlas does not change code, scripts or tests. Only Codex implements executable changes.
 - Only **one active Codex development Issue** at a time. Never create/materially update a development Issue without explicit owner instruction; never merge without explicit owner approval.
