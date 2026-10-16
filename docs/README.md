@@ -20,7 +20,7 @@
 
 ## User manuals for executable scripts
 
-- [Canonical executable-script user manual index](user_manual/README.md) — guides maintained by both Atlas and Codex, with verified inputs, scenarios, commands and expected outputs. Existing guides remain at their current paths until an approved migration.
+- [Canonical executable-script user manual index](user_manual/README.md) — guides maintained by both Atlas and Codex, with verified inputs, scenarios, commands and expected outputs. Legacy operations references remain at their existing paths where source/test compatibility requires them.
 
 ## Operations / executable features
 
