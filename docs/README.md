@@ -9,7 +9,7 @@
 | Codex global safety rules and skill routing | [AGENTS.md](../AGENTS.md) | Current instruction |
 | Atlas issue workflow | [Issue creation rules](../.agents/ISSUE_CREATION_RULES.md) | Current instruction |
 | Writing / updating documentation | [Documentation management skill](../.agents/skills/documentation-management/SKILL.md) | Current instruction (Phase 2 branch; upon merge) |
-| Current implemented/validated capabilities | [CURRENT_STATE.md](../CURRENT_STATE.md) | Current-state reference; needs editorial reconciliation |
+| Current implemented/validated capabilities | [CURRENT_STATE.md](CURRENT_STATE.md) | Current-state reference; needs editorial reconciliation |
 | Project usage and setup | [README.md](../README.md) | Operator entry point; some introductory wording outdated |
 | Architecture overview | [ARCHITECTURE.md](../ARCHITECTURE.md) | Architecture; iteration governance needs reconciliation |
 | Numbered decisions | [DECISIONS.md](../DECISIONS.md) | Decision history; later decisions override earlier rules |
