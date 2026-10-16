@@ -17,7 +17,7 @@ OrbitFlow will accept operator-authored CLI, tabular bulk input, reusable templa
 
 ## Architecture boundaries
 
-The shared device-execution layer owns concurrency and device-scoped resources; DeviceContext and DeviceSession/transport are reused. Vendor behaviour stays behind adapters; observation/audit interpretation stays in its owning capability. Reuse existing backup, reporting and structured logging where available; do not assume an unimplemented capability exists. See [root architecture](../../../ARCHITECTURE.md) and [roadmap](../../ROADMAP.md).
+The shared device-execution layer owns concurrency and device-scoped resources; DeviceContext and DeviceSession/transport are reused. Vendor behaviour stays behind adapters; observation/audit interpretation stays in its owning capability. Reuse existing backup, reporting and structured logging where available; do not assume an unimplemented capability exists. See [root architecture](../README.md) and [roadmap](../../ROADMAP.md).
 
 No device apply, remote approval service, rollback automation, or desired-state
 datastore is implemented. Later phases require separately scoped issues,
