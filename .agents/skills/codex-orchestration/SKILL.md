@@ -194,7 +194,7 @@ Codex implementation or revision
 
 Maximum: 30 iterations under one explicitly owner-approved plan. Once iteration 30 is reached, move to `codex-replan-required` and require Atlas and user approval of a new plan.
 
-After iteration 10, move to `codex-replan-required` and require Atlas + user to approve a new plan.
+After iteration 30, move to `codex-replan-required` and require Atlas + user to approve a new plan. This matches `scripts/orchestration_v2/models.py` (`MAX_ITERATIONS = 30`); older 10/15-iteration instructions are historical.
 
 ## Merge Boundary
 
