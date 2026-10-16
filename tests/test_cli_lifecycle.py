@@ -76,7 +76,7 @@ def prompt_cli(session):
 @pytest.mark.parametrize("factory", [prompt_cli, CiscoIOSCLI, CiscoXRCLI])
 @pytest.mark.parametrize("failure", [None, "send", "prompt", "paging", "rejected", "command"])
 def test_helper_cleanup_and_parent_ownership(factory, failure):
-    outputs = {"": "", "terminal length 0": "", "show version": "version"}
+    outputs = {"": "", "terminal length 0": "", "terminal width 511": "", "show version": "version"}
     if failure in {"prompt", "paging", "command"}:
         command = {"prompt": "", "paging": "terminal length 0", "command": "show version"}[failure]
         outputs[command] = socket.timeout("read failed")
@@ -110,13 +110,13 @@ def test_inventory_interfaces_vlans_share_one_session_without_retained_shells(tm
     case = INTERFACES[platform]
     prompt = case["prompt"]
     identity = Channel(prompt, {
-        "": "", "terminal length 0": "", "screen-length 0 temporary": "",
+        "": "", "terminal length 0": "", "terminal width 511": "", "screen-length 0 temporary": "",
         "show version": version if platform != "huawei_vrp" else "% Invalid input",
         "display version": version, "show inventory": "", "show chassis": "", "display esn": "",
     })
-    interface = Channel(prompt, {"": "", case["paging"]: "", case["command"]: case["output"]})
+    interface = Channel(prompt, {"": "", "terminal width 511": "", case["paging"]: "", case["command"]: case["output"]})
     vlan_prompt, paging, command, output = VLANS[platform]
-    vlan = Channel(vlan_prompt, {"": "", paging: "", command: output})
+    vlan = Channel(vlan_prompt, {"": "", "terminal width 511": "", paging: "", command: output})
     session, client = session_for([identity, interface, vlan])
     resolver = DeviceInventoryResolver(JsonInventoryStore(tmp_path / "inventory.json"))
 
@@ -166,7 +166,7 @@ def test_capability_failure_releases_shell(platform, capability, failure, monkey
                 ("cisco", "vlan"): "parse_ios_xr_running_config" if platform == "cisco_xr" else "parse_ios_running_config",
             }
             monkeypatch.setattr(f"orbitflow.vendors.{vendor}.{capability}s.{names[vendor, capability]}", fail_parse)
-    channel = Channel(prompt, {"": "", paging: "", command: output})
+    channel = Channel(prompt, {"": "", "terminal width 511": "", paging: "", command: output})
     session, client = session_for([channel])
     with pytest.raises(error):
         service.collect(session, device_ip="192.0.2.1", platform=platform)
@@ -177,7 +177,7 @@ def test_capability_failure_releases_shell(platform, capability, failure, monkey
 @pytest.mark.parametrize("failure", ["read", "unknown", "store"])
 def test_inventory_failure_releases_shell(tmp_path, failure, monkeypatch):
     channel = Channel("sw#", {
-        "": "", "terminal length 0": "", "screen-length 0 temporary": "",
+        "": "", "terminal length 0": "", "terminal width 511": "", "screen-length 0 temporary": "",
         "show version": DEVICES[0][0], "show inventory": "", "display version": "unknown",
     })
     if failure == "read":

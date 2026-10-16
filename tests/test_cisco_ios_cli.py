@@ -55,7 +55,7 @@ def test_command_execution_disables_paging_and_tracks_changed_prompt():
     channel = FakeChannel(
         [
             b"Banner\r\nrouter#",
-            b"terminal length 0\r\nrouter#",
+            b"terminal length 0\r\nrouter#", b"terminal width 511\r\nrouter#",
             b"show version\r\nCisco IOS XE Software, Version 17.12\r\nrouter-new#",
         ]
     )
@@ -63,7 +63,7 @@ def test_command_execution_disables_paging_and_tracks_changed_prompt():
 
     result = cli.run_command("show version", timeout=4)
 
-    assert channel.sent == [b"\n", b"terminal length 0\n", b"show version\n"]
+    assert channel.sent == [b"\n", b"terminal length 0\n", b"terminal width 511\n", b"show version\n"]
     assert result == "Cisco IOS XE Software, Version 17.12"
     assert cli.prompt == "router-new#"
     assert channel.timeouts and all(timeout > 0 for timeout in channel.timeouts)
@@ -74,7 +74,7 @@ def test_command_execution_ignores_stale_prompt_before_command_echo():
         [
             b"router#",
             b"router#",
-            b"terminal length 0\r\nrouter#",
+            b"terminal length 0\r\nrouter#", b"terminal width 511\r\nrouter#",
             b"show version\r\nCisco IOS Software\r\nrouter#",
         ]
     )
@@ -85,7 +85,7 @@ def test_command_execution_ignores_stale_prompt_before_command_echo():
 
 def test_command_timeout_is_reported_without_fixed_sleeping():
     channel = FakeChannel(
-        [b"router#", b"terminal length 0\r\nrouter#", socket.timeout()]
+        [b"router#", b"terminal length 0\r\nrouter#", b"terminal width 511\r\nrouter#", socket.timeout()]
     )
     cli = CiscoIOSCLI(make_session(channel))
 

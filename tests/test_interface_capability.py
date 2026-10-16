@@ -125,6 +125,7 @@ def run_collection(platform, output=None, setup_output="", device_name="edge-01"
         [
             prompt.encode(),
             f"{paging}\r\n{setup_output}\r\n{prompt}".encode(),
+            *([f"terminal width 511\r\n{prompt}".encode()] if platform.startswith("cisco_") else []),
             f"{command}\r\n{case['output'] if output is None else output}\r\n{prompt}".encode(),
         ]
     )
@@ -146,6 +147,7 @@ def test_every_platform_disables_paging_and_uses_only_approved_command(platform)
     assert channel.sent == [
         b"\n",
         f"{case['paging']}\n".encode(),
+        *([b"terminal width 511\n"] if platform.startswith("cisco_") else []),
         f"{case['command']}\n".encode(),
     ]
 

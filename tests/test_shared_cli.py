@@ -83,7 +83,7 @@ def device_session(device):
     if device[2] == "ASR920":
         vlan_output = EVC
     outputs = {
-        "": "", "terminal length 0": "", "screen-length 0 temporary": "",
+        "": "", "terminal length 0": "", "terminal width 511": "", "screen-length 0 temporary": "",
         "show version": version if platform != "huawei_vrp" else "% Invalid input",
         "display version": version, "show inventory": "", "show chassis": "", "display esn": "",
         case["command"]: case["output"], vlan_command: vlan_output,

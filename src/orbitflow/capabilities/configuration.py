@@ -27,9 +27,11 @@ class ConfigurationService:
         profile = PROFILES.get(context.platform)
         if profile is None:
             raise UnsupportedConfigurationPlatform("unsupported configuration platform")
+        setup = ({"setup_commands": profile.setup_commands}
+                 if profile.setup_commands else {})
         cli.configure(paging_command=profile.paging, prompt_pattern=profile.prompt,
-                      rejected=profile.rejected, platform_name=context.platform,
-                      timeout=self.timeout)
+                      rejected=profile.rejected_setup, platform_name=context.platform,
+                      timeout=self.timeout, **setup)
         text = cli.read_configuration(profile.command, timeout=self.timeout)
         if not text.strip():
             raise EmptyConfigurationCapture("configuration empty")

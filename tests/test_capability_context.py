@@ -42,7 +42,7 @@ def test_resolved_context_collects_both_capabilities(tmp_path, device):
     platform = device[1]
     case = INTERFACES[platform]
     prompt, paging, command = case['prompt'], case['paging'], case['command']
-    session, channel = make_session([prompt.encode(), f"{paging}\r\n{prompt}".encode(), f"{command}\r\n{case['output']}\r\n{prompt}".encode()])
+    session, channel = make_session([prompt.encode(), f"{paging}\r\n{prompt}".encode(), *([f"terminal width 511\r\n{prompt}".encode()] if platform.startswith("cisco_") else []), f"{command}\r\n{case['output']}\r\n{prompt}".encode()])
     prompt_v, paging_v, command_v, output_v = VLANS[platform]
     if platform in {"cisco_ios", "cisco_xe"}:
         output_v += "\n" + EVC
@@ -56,7 +56,7 @@ def test_resolved_context_collects_both_capabilities(tmp_path, device):
     records = InterfaceService().collect(session, context)
     assert records
     assert all((r.device_ip, r.device_name, r.platform) == (context.management_ip, context.hostname, platform) for r in records)
-    assert channel.sent == [b"\n", f"{paging}\n".encode(), f"{command}\n".encode()]
+    assert channel.sent == [b"\n", f"{paging}\n".encode(), *([b"terminal width 511\n"] if platform.startswith("cisco_") else []), f"{command}\n".encode()]
 
     # Both capability adapters open their shells on the same established session.
     state = VlanService().collect(session, context=context)
@@ -65,7 +65,7 @@ def test_resolved_context_collects_both_capabilities(tmp_path, device):
     assert bool(services) == (device[2] in {"ME3600X", "ASR920"})
     if services:
         assert services[0].referenced_vlans == (445,)
-    assert vlan_channel.sent == [b"\n", f"{paging_v}\n".encode(), f"{command_v}\n".encode()]
+    assert vlan_channel.sent == [b"\n", f"{paging_v}\n".encode(), *([b"terminal width 511\n"] if platform.startswith("cisco_") else []), f"{command_v}\n".encode()]
 
 
 @pytest.mark.parametrize("selection", ["profile", "family", "flags"])

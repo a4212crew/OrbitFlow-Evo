@@ -147,12 +147,14 @@ class DeviceCLI(PromptCLI):
     adapters then select their existing prompt and paging rules on this same
     reader. A failed exchange invalidates synchronization; subsequent commands
     fail locally rather than consuming a late response as a new command result.
+    Additional required setup commands are cached after acceptance on this shell.
     This context is sequential only and never closes its parent transport.
     """
 
     def __init__(self, session: DeviceSession, *, timeout: float = 10.0) -> None:
         self.session = session
         self._synchronized = True
+        self._completed_setup: set[str] = set()
         # Huawei safely rejects this initial inventory probe setup; its
         # approved paging command is selected during identification.
         super().__init__(session, paging_command="terminal length 0",
@@ -175,7 +177,7 @@ class DeviceCLI(PromptCLI):
 
     def configure(self, *, paging_command: str, prompt_pattern: str,
                   rejected: Callable[[str], bool], platform_name: str,
-                  timeout: float = 10.0) -> None:
+                  timeout: float = 10.0, setup_commands: tuple[str, ...] = ()) -> None:
         self.require_session(self.session)
         prompt_re = re.compile(prompt_pattern, re.MULTILINE)
         if not prompt_re.fullmatch(self.prompt):
@@ -187,6 +189,22 @@ class DeviceCLI(PromptCLI):
             raise InteractiveCLIError(
                 f"{platform_name} rejected required session setup command {paging_command!r}"
             )
+
+        for command in setup_commands:
+            if command in self._completed_setup:
+                continue
+            try:
+                output = self.run_command(command, timeout=timeout)
+            except TimeoutError as exc:
+                raise InteractiveCLITimeout(
+                    f"{platform_name} timed out during required session setup {command!r}"
+                ) from exc
+            if rejected(output):
+                self._synchronized = False
+                raise InteractiveCLIError(
+                    f"{platform_name} rejected required session setup command {command!r}"
+                )
+            self._completed_setup.add(command)
 
     def run_command(self, command: str, timeout: float = 10.0) -> str:
         self.require_session(self.session)
