@@ -9,6 +9,11 @@ class ConfigurationProfile:
     paging: str
     prompt: str
     rejection: str
+    setup_commands: tuple[str, ...] = ()
+
+    def rejected_setup(self, output):
+        """Setup diagnostics may follow an IOS-XR timestamp, unlike config text."""
+        return any(self.rejected(line) for line in output.splitlines())
 
     def rejected(self, output):
         # Only diagnostic lines at the start of a response are command errors;
@@ -18,7 +23,8 @@ class ConfigurationProfile:
 
 _CISCO = ConfigurationProfile(
     "show running-config", "terminal length 0", r"^([^\r\n]+[>#])[ \t]*$",
-    r"(?:%\s*(?:Invalid|Unknown|Unrecognized|Incomplete|Ambiguous|Error|Authorization|Access denied)|\^)",
+    r"(?:%\s*(?:Invalid|Unknown|Unrecognized|Incomplete|Ambiguous|Error|Authorization|Command authorization|Access denied|Permission denied|Syntax error|Not supported)|\^)",
+    setup_commands=("terminal width 511",),
 )
 PROFILES = {
     "cisco_ios": _CISCO,

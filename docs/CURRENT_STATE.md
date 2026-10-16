@@ -755,3 +755,15 @@ children consolidate into existing parents without requiring parent trunk mode;
 missing parents, explicit access conflicts and invalid VSI bindings remain
 visible. Synthetic regressions include 13 Cisco conflicts, five NE05E parents,
 one unresolved Cisco case and invalid relationships. No live testing was run.
+
+## Cisco CLI width synchronization (Issue #114)
+
+Cisco temporary shells and borrowed shared CLI adapter/configuration-capture
+paths require session-only `terminal width 511`; shared acceptance is cached.
+Rejection blocks the shell and timeout invalidates synchronization. Strict echo
+checks and normalized identities remain intact. Synthetic tests cover wrapped
+and stale echoes, setup failures and full-interface ME3600X/ASR920 EVC lookups.
+Owner manual width tests succeeded on ME3600X/ASR920; automatic setup still needs
+live validation. NCS540/C3750X/C3850 width acceptance is pending. IOS-XR EXEC
+syntax is documented independently; no NCS540 live claim is made. See
+[verification instructions](user_manual/live-validation.md#cisco-terminal-width-issue-114).

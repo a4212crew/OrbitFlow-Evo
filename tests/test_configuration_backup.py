@@ -39,7 +39,9 @@ def test_commands_preservation_and_borrowed_lifecycle(device):
         with DeviceCLI(session) as cli:
             result = ConfigurationService().collect(session, SimpleNamespace(platform=device[1]), cli=cli)
             assert result == CONFIG
-            assert channel.sent[-2:] == [profile.paging, profile.command]
+            assert channel.sent[-1] == profile.command
+            if device[1].startswith("cisco_"):
+                assert channel.sent[-2] == "terminal width 511"
             assert not channel.close_calls
     assert client.opens == client.closes == channel.close_calls == 1
 

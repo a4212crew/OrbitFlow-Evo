@@ -61,7 +61,7 @@ with connect_device(
 
 `CiscoIOSCLI` uses an existing `DeviceSession`; it does not implement or bypass
 the transport layer. It dynamically recognizes prompts ending in `#` or `>`,
-disables paging with `terminal length 0`, and reads until each command's trailing
+disables paging with `terminal length 0`, requires `terminal width 511`, and reads until each command's trailing
 prompt using the requested timeout. Returned text excludes the command echo and
 trailing prompt.
 
@@ -73,8 +73,14 @@ with connect_device(device_host, credentials, config) as session:
     version = cli.run_command("show version", timeout=30)
 ```
 
-This class is specifically for IOS and IOS-XE. Future IOS-XR behavior belongs in
-a separate vendor module rather than being inferred from matching commands.
+`CiscoXRCLI` remains the separate IOS-XR adapter type; its session width syntax
+is independently documented by Cisco. Borrowed `DeviceCLI` shells initialize
+width at their first Cisco operation (including configuration backup), cache
+successful setup, and keep strict command echo/prompt checks. Inventory's short
+identity probes run before vendor setup. Width rejection fails the operation
+and blocks further commands on that shell; timeout also invalidates it.
+No apply/save commands are added. See [Cisco width validation](docs/user_manual/live-validation.md#cisco-terminal-width-issue-114)
+for validation status and Linux/Windows checks.
 
 On Windows, OrbitFlow starts `tsh ssh -N -L` and connects Paramiko to the local
 forward while retaining the device address for SSH host-key verification. On

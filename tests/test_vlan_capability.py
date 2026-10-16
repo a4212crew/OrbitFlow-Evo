@@ -36,6 +36,8 @@ def session_for(prompt, paging, command, output):
         [
             prompt.encode(),
             f"{paging}\r\n\r\n{prompt}".encode(),
+            *([f"terminal width 511\r\n{prompt}".encode()]
+              if paging == "terminal length 0" and not prompt.startswith("(") else []),
             f"{command}\r\n{output}\r\n{prompt}".encode(),
         ]
     )
@@ -349,7 +351,9 @@ def test_service_uses_only_approved_command_and_normalizes_identity(platform):
     state = VlanService(lambda: now).collect(
         session, device_ip="192.0.2.1", platform=platform
     )
-    assert channel.sent == [b"\n", f"{paging}\n".encode(), f"{command}\n".encode()]
+    assert channel.sent == [b"\n", f"{paging}\n".encode(),
+                            *([b"terminal width 511\n"] if platform.startswith("cisco_") else []),
+                            f"{command}\n".encode()]
     assert state.device_ip == "192.0.2.1" and state.collection_time == now
     assert state.configuration is not None
     assert state.configuration[0].source_filename == "running-config"

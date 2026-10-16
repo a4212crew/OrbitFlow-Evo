@@ -16,7 +16,7 @@ from orbitflow.vendors.prompts import is_structural_prompt
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _PROMPT = re.compile(r"(?m)^([^\r\n]+[>#])[ \t]*$")
 _REJECTED_COMMAND = re.compile(
-    r"(?:%\s*(?:Invalid input|Unknown command|Unrecognized command|Incomplete command)|"
+    r"(?:%\s*(?:Invalid input|Unknown command|Unrecognized command|Incomplete command|Ambiguous command|Error|Authorization|Command authorization|Access denied|Permission denied|Syntax error|Not supported)|"
     r"\^\s*$)",
     re.IGNORECASE | re.MULTILINE,
 )
@@ -60,8 +60,10 @@ def clean_output(output: str, command: str, prompt: str) -> str:
     while lines and not lines[-1].strip():
         lines.pop()
     command_echoes = (command.strip(), f"{prompt}{command}".strip())
-    if lines and lines[0].strip() in command_echoes:
-        lines.pop(0)
+    for index, line in enumerate(lines):
+        if line.strip() in command_echoes:
+            lines = lines[index + 1:]
+            break
     while lines and not lines[-1].strip():
         lines.pop()
     if lines and lines[-1].strip() == prompt:
@@ -79,6 +81,9 @@ def _contains_command_echo(output: str, command: str, prompt: str) -> bool:
 class CiscoIOSCLI:
     """An IOS/IOS-XE shell layered on an established OrbitFlow session.
 
+    Session setup requires paging off and terminal width 511 (also IOS-XR).
+    Rejection or timeout closes the owned shell; echo checking remains strict.
+
     The caller retains ownership of the ``DeviceSession`` and closes it.  This
     class owns only the interactive channel opened through that session.
     """
@@ -86,6 +91,7 @@ class CiscoIOSCLI:
     def __init__(self, session: DeviceSession, *, timeout: float = 10.0) -> None:
         if timeout <= 0:
             raise ValueError("timeout must be greater than zero")
+        self._synchronized = True
         self._channel: Any = session.invoke_shell()
         try:
             self._channel.sendall(b"\n")
@@ -93,11 +99,17 @@ class CiscoIOSCLI:
             self.prompt = ensure_privileged(
                 self._channel, self.prompt, getattr(session, "secret", None), timeout
             )
-            setup_output = self.run_command("terminal length 0", timeout=timeout)
-            if _REJECTED_COMMAND.search(setup_output):
-                raise CiscoIOSCLIError(
-                    "IOS/IOS-XE rejected required session setup command 'terminal length 0'"
-                )
+            for command in ("terminal length 0", "terminal width 511"):
+                try:
+                    setup_output = self.run_command(command, timeout=timeout)
+                except TimeoutError as exc:
+                    raise CiscoIOSCLITimeout(
+                        f"Cisco timed out during required session setup {command!r}"
+                    ) from exc
+                if _REJECTED_COMMAND.search(setup_output):
+                    raise CiscoIOSCLIError(
+                        f"Cisco rejected required session setup command {command!r}"
+                    )
         except BaseException:
             self.close()
             raise
@@ -150,11 +162,19 @@ class CiscoIOSCLI:
         """Run one command and return output without its echo or final prompt."""
         if not command or "\n" in command or "\r" in command:
             raise ValueError("command must be one non-empty line")
+        if timeout <= 0:
+            raise ValueError("timeout must be greater than zero")
+        if self._channel is None or not self._synchronized:
+            raise CiscoIOSCLIError("Cisco CLI is closed or unsynchronized")
         starting_prompt = self.prompt
-        self._channel.sendall((command + "\n").encode("utf-8"))
-        output, prompt = self._read_until_prompt(
-            timeout, command=command, starting_prompt=starting_prompt
-        )
+        try:
+            self._channel.sendall((command + "\n").encode("utf-8"))
+            output, prompt = self._read_until_prompt(
+                timeout, command=command, starting_prompt=starting_prompt
+            )
+        except BaseException:
+            self._synchronized = False
+            raise
         self.prompt = prompt
         return clean_output(output, command, prompt)
 
@@ -172,5 +192,6 @@ def open_cisco_cli(
         with open_prompt_cli(session, cli=cli, paging_command="terminal length 0",
                              prompt_pattern=_PROMPT.pattern,
                              rejected=lambda output: bool(_REJECTED_COMMAND.search(output)),
-                             platform_name="Cisco", timeout=timeout) as shared:
+                             platform_name="Cisco", timeout=timeout,
+                             setup_commands=("terminal width 511",)) as shared:
             yield shared
