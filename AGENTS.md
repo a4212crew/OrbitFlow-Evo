@@ -17,7 +17,7 @@ OrbitFlow-Evo is a multi-vendor network automation platform for ISP operations.
 11. Do not silently redesign architecture outside task scope.
 12. Normalized capability models are authoritative for reusable cross-vendor observation. A routed audit/analysis skill may derive validated audit facts from preserved saved-configuration relationships and evidence, but reporting/workflow layers must not perform ad-hoc vendor reinterpretation.
 13. Do not create synthetic interface identities solely from VLAN, L2VPN, VSI, bridge-domain, or other service references.
-14. Append meaningful completed features, behavioural changes, bug fixes, and orchestration changes to the current monthly `docs/devlog/YYYY-MM.md`. Update `CURRENT_STATE.md` only when the implemented/validated capability baseline changes.
+14. For every meaningful feature, fix or behaviour change, follow `.agents/skills/documentation-management/SKILL.md`: append the monthly devlog and update affected operator, public API, README and function documentation. Update `CURRENT_STATE.md` only when the implementation/validation baseline changes.
 15. Multi-device execution must use the shared OrbitFlow device-execution layer; feature modules must not create independent thread pools, worker pools, or equivalent concurrency mechanisms.
 16. The concurrency boundary is one target device. One execution worker owns that device's DeviceContext, DeviceSession/transport resources, CLI resources, per-device workflow, and intermediate results.
 17. Reusable capabilities remain single-device components and must not depend on whether other devices are executing concurrently.
@@ -36,11 +36,12 @@ Higher-level workflows must not recreate SSH/jumphost logic, vendor parsing, nor
 - Read-only operations may run normally; configuration changes require explicit user intent.
 - Never place production credentials in GitHub Issues, Codex prompts, logs, or repository files.
 - **User** — product owner, network architect, final technical and merge authority.
-- **Atlas** — architecture, scope, task planning, orchestration coordination, and PR review.
-- **Codex** — default implementation engineer for normal development work.
+- **Atlas** — architecture, documentation owner, scope, GitHub Issue orchestration and PR review; may make reviewable Markdown-only changes.
+- **Codex** — sole implementer of source code, executable scripts and tests; updates affected documentation in the same development work.
 - Codex implements/tests only; the controller owns Git/GitHub lifecycle operations.
 - Codex and the controller must not auto-merge. Atlas must not merge without explicit user approval.
-- Atlas should not normally implement feature code directly; small documentation-only edits or narrowly scoped orchestration repair may be performed directly when appropriate and remain reviewable.
+- Atlas does not change code, scripts or tests. Only Codex implements executable changes.
+- Only **one active Codex development Issue** at a time. Never create/materially update a development Issue without explicit owner instruction; never merge without explicit owner approval.
 
 ## 4. Context Loading
 
@@ -52,7 +53,7 @@ Keep default context small.
 - Treat adjacent-skill references as capability ownership guidance, not automatic context dependencies.
 - After targeted source inspection, load an additional skill only when the task actually modifies that capability or the implementation must cross that capability boundary.
 - Using another capability through its existing public interface is not, by itself, a reason to load that capability's skill.
-- Read `CURRENT_STATE.md` only when the task depends on current implementation/validation status, known limitations, or active state.
+- Read `CURRENT_STATE.md` only when current implementation/validation status, limitations or active state matters.
 - Read architecture documents only when the task changes or depends on that architecture.
 - Historical devlogs are write/history targets, not default implementation context; read them only when historical detail is directly relevant.
 - Prefer targeted searches/reads. Avoid broad repository ingestion and repeated full diffs/large command output.
@@ -78,8 +79,9 @@ Use this table to choose the skill(s) directly relevant to the task. Start there
 | Huawei VRP CLI behaviour | `.agents/skills/huawei-network-cli/SKILL.md` |
 | Ubiquiti EdgeSwitch CLI behaviour | `.agents/skills/ubiquiti-network-cli/SKILL.md` |
 | Controller, Codex invocation, task/revision lifecycle, PR/review orchestration | `.agents/skills/codex-orchestration/SKILL.md` |
+| Documentation updates for every meaningful development/fix; document relocation and references | `.agents/skills/documentation-management/SKILL.md` |
 
-The orchestration skill is for orchestration/controller work only. Normal feature tasks do not load it merely because Codex is the implementation worker.
+The documentation-management skill applies across meaningful development tasks; read only affected documentation. The orchestration skill is for controller work only, not all Codex tasks.
 
 
 ## 6. Orchestration Boundary
@@ -90,15 +92,10 @@ One GitHub Issue is one scoped task. Tasks use isolated branches/worktrees. The 
 
 Load `.agents/skills/codex-orchestration/SKILL.md` only when changing or troubleshooting this orchestration lifecycle.
 
-## 7. Documentation Responsibilities
+## 7. Documentation
 
-- `AGENTS.md` — permanent global rules and routing/context policy.
-- `CURRENT_STATE.md` — concise implemented/validated state.
-- `.agents/skills/*/SKILL.md` — task-specific implementation knowledge. For VLAN audit/compliance work, route to `.agents/skills/vlan-configuration-audit/SKILL.md`; keep Codex task/revision instructions concise and let the routed skill carry the detailed business rules.
-- `docs/architecture/` — durable architecture/cross-feature decisions.
-- `docs/devlog/YYYY-MM.md` — completed work/troubleshooting history; append without reading history unless needed.
-- `DEVLOG.md` — short index.
-- `ROADMAP.md` — future work.
-- `README.md` — operator/developer setup and usage.
-
-Do not duplicate long historical or task-specific detail into `AGENTS.md` or `CURRENT_STATE.md`.
+- Documentation ownership, monthly devlogs, operator-facing scripts/API descriptions and link maintenance: `.agents/skills/documentation-management/SKILL.md`.
+- Current documentation navigation: `docs/README.md`. **Existing paths remain unchanged until an approved migration.**
+- Atlas reconciles verified implementation and approved decisions in relevant Markdown **before creating or materially updating an authorized development Issue**, using safe, reviewable changes; avoid overlap with active Codex PRs.
+- Codex updates affected documentation and the devlog as part of implementation; Atlas checks completeness in PR review.
+- No new documentation-enforcement scripts or CI checks without owner request. Never load all historical documents by default.
