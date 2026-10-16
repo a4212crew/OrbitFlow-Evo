@@ -11,8 +11,8 @@
 | Writing / updating documentation | [Documentation management skill](../.agents/skills/documentation-management/SKILL.md) | Current instruction (Phase 2 branch; upon merge) |
 | Current implemented/validated capabilities | [CURRENT_STATE.md](CURRENT_STATE.md) | Current-state reference; needs editorial reconciliation |
 | Project usage and setup | [README.md](../README.md) | Operator entry point; some introductory wording outdated |
-| Architecture overview | [ARCHITECTURE.md](../ARCHITECTURE.md) | Architecture; iteration governance needs reconciliation |
-| Numbered decisions | [DECISIONS.md](../DECISIONS.md) | Decision history; later decisions override earlier rules |
+| Architecture overview | [architecture overview](architecture/README.md) | Architecture; iteration governance needs reconciliation |
+| Numbered decisions | [architecture decisions](architecture/DECISIONS.md) | Decision history; later decisions override earlier rules |
 | Future planning | [ROADMAP.md](ROADMAP.md) | Future plans; configuration v2 planning status reconciled |
 | Development history index | [devlog/README.md](devlog/README.md) | Monthly index including September and October |
 | September devlog | [2026-09.md](devlog/2026-09.md) | Historical |
