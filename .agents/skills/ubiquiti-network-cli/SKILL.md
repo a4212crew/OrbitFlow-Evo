@@ -108,3 +108,21 @@ vlan tagging 1101
 Interpret VLAN 445 as PVID/untagged, VLAN 1101 as tagged, and both as referenced VLANs.
 
 A trunk/uplink may participate in and tag the same broad VLAN set. Preserve observed membership/tagging facts and let the later analysis layer decide consistency.
+
+## Owner-approved execution requirements — 2026-10-17
+
+Read [approved device execution](../../../docs/architecture/configuration/approved-device-execution.md)
+for the initial Catalyst/EdgeSwitch milestone. **Approved design, not implemented.**
+Its exact template, prompt, switchport parsing, evidence, error and save requirements
+override older conceptual execution examples for these families. Preserve existing
+read-only behavior; new collectors must be independently callable through shared
+sessions, with pure parsers, typed facts, original fields and correlated logging.
+
+Use `show interfaces switchport <interface>`; General PVID, tagged, untagged and
+forbidden fields stay independent. Preserve overlap as observed with no warning or
+extra lookup solely for overlap. Optional Name and protection group 0 are supported
+requirements. Existing VLANs are prerequisites for PVID/Include/tagging execution.
+Recognize the supplied PVID/participation/tagging rejection strings even when a
+prompt returns. Support observed outer `(Vlan)` / `(Interface 0/3)` mode suffixes.
+`write memory` answers the recognized save question with `y`; original EXEC prompt
+return completes save, with output/errors retained separately.

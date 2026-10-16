@@ -1,10 +1,12 @@
 # Configuration Management Architecture (Proposed)
 
-Status: **offline Change Plans v1 and the separate configuration planning v2 workflow are implemented**. See [Offline Change Plans v1](offline-plans.md), [bulk planning v2 operator guide](../../operations/bulk-configuration-planning.md), and [template reference](../../operations/configuration-template-reference.md). Live configuration apply and subsequent execution phases remain proposed.
+Status: **offline Change Plans v1 and the separate configuration planning v2 workflow are implemented**. See [Offline Change Plans v1](offline-plans.md), [bulk planning v2 operator guide](../../user_manual/bulk-configuration-planning.md), and [template reference](../../operations/configuration-template-reference.md). Initial C3750X/C3850/EdgeSwitch execution is owner-approved design, not implemented; other execution phases remain proposed.
 
 OrbitFlow will accept operator-authored CLI, tabular bulk input, reusable templates and validated compliance findings into one deterministic Change Plan. The shared configuration execution boundary controls validation, approval, prechecks, backups, device application, verification, persistence, recovery and audit.
 
 ## Documents
+
+- [Approved device execution](approved-device-execution.md): 2026-10-17 owner-approved template execution, reusable collectors/parsers, confirmation, evidence/logging and save requirements. **Not implemented.**
 
 - [Approved template-based configuration planning (Gap C target)](guided-bulk-planning.md): 22 function-specific worksheets, live read-only validation for predefined templates, offline Manual CLI, evidence-rich per-row review and future apply boundary. **Planning implemented; live apply not implemented.**
 

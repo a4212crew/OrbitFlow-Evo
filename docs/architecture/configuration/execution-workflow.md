@@ -1,5 +1,12 @@
 # Configuration Execution Workflow — Proposed
 
+> **2026-10-17 scope override:** [Owner-approved device execution](approved-device-execution.md)
+> governs C3750X/C3850 and EdgeSwitch. It is approved design, not implementation.
+> Older policies below are retained as proposal history; for this milestone, per-IP
+> continuation replaces global batch pauses, device-task saving includes partial
+> changes, prompt return defines save completion, and EdgeSwitch is in initial scope.
+> Other families and general rollback/removal remain deferred.
+
 ## Gates
 
 1. **Create:** build a Change Plan from a supported source; no device write.
