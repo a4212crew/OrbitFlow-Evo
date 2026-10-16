@@ -17,7 +17,7 @@ OrbitFlow-Evo is a multi-vendor network automation platform for ISP operations.
 11. Do not silently redesign architecture outside task scope.
 12. Normalized capability models are authoritative for reusable cross-vendor observation. A routed audit/analysis skill may derive validated audit facts from preserved saved-configuration relationships and evidence, but reporting/workflow layers must not perform ad-hoc vendor reinterpretation.
 13. Do not create synthetic interface identities solely from VLAN, L2VPN, VSI, bridge-domain, or other service references.
-14. For every meaningful feature, fix or behaviour change, follow `.agents/skills/documentation-management/SKILL.md`: append the monthly devlog and update affected operator, public API, README and function documentation. Update `CURRENT_STATE.md` only when the implementation/validation baseline changes.
+14. For every meaningful feature, fix or behaviour change, follow `.agents/skills/documentation-management/SKILL.md`: append the monthly devlog and update affected operator, public API, README and function documentation. Update `docs/CURRENT_STATE.md` only when the implementation/validation baseline changes.
 15. All multi-device flows use shared device execution; feature modules must not create independent worker pools. Each worker owns one target device and that device's context, session, CLI and intermediate results; reusable capabilities stay single-device and independent of concurrency.
 16. Shared persistence, reporting and logging are synchronized or aggregated in their owning layer. Large runs use shared bounded execution-result spooling/consumption instead of retaining unbounded full-run results.
 17. Follow the approved target filesystem convention: persistent state under `data/` (e.g. `data/inventory/inventory.json`); generated files under `outputs/` (`reports/<report>/`, `backups/<type>/`, `validation/<type>/`, `logs/<module>/YYYY-MM-DD/`, `runs/<task>/<run-id>/`). Do not claim paths were migrated unless source confirms it.
@@ -48,7 +48,7 @@ Keep default context small.
 - Treat adjacent-skill references as capability ownership guidance, not automatic context dependencies.
 - After targeted source inspection, load an additional skill only when the task actually modifies that capability or the implementation must cross that capability boundary.
 - Using another capability through its existing public interface is not, by itself, a reason to load that capability's skill.
-- Read `CURRENT_STATE.md` only when current implementation/validation status, limitations or active state matters.
+- Read `docs/CURRENT_STATE.md` only when current implementation/validation status, limitations or active state matters.
 - Read architecture documents only when the task changes or depends on that architecture.
 - Historical devlogs are write/history targets, not default implementation context; read them only when historical detail is directly relevant.
 - Prefer targeted searches/reads. Avoid broad repository ingestion and repeated full diffs/large command output.
