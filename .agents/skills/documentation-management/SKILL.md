@@ -42,7 +42,7 @@ Document only supported, stable/public interfaces. An internal helper is not aut
 
 - `AGENTS.md`: only permanent cross-cutting rules and exact skill routing; no long business rules.
 - `docs/CURRENT_STATE.md`: current verified implementation and limitations; not a historical narrative.
-- `ARCHITECTURE.md`, `DECISIONS.md`, `docs/architecture/`: approved design and decisions; mark superseded statements rather than erasing provenance.
+- `docs/architecture/README.md`, `docs/architecture/DECISIONS.md`, `docs/architecture/`: approved design and decisions; mark superseded statements rather than erasing provenance.
 - `docs/ROADMAP.md`: future/planned work; not evidence a capability exists.
 - `docs/devlog/YYYY-MM.md`: append-only history, not current instructions.
 - `docs/user_manual/`: canonical user manuals for user-executable scripts/CLI workflows, maintained by Atlas and Codex; `docs/user_manual/README.md` is their index.
