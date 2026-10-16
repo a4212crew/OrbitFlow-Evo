@@ -22,7 +22,11 @@ Follow `AGENTS.md` and the routed capability skill. Consult [documentation index
 
 ## Public scripts, functions and APIs
 
-A **new or materially changed user-executable CLI/script or supported public Python/HTTP API** needs a discoverable reference in `docs/operations/`, with a link from the relevant index. Document, as applicable:
+**User-executable scripts and CLI workflows:** Maintain their canonical user guides in `doc/user_manual/`, indexed by `doc/user_manual/README.md`. Both **Atlas and Codex may create or update Markdown guides** there: Atlas through reviewable documentation-only changes (including pre-Issue reconciliation), and Codex within its authorized development Issue/PR whenever executable behaviour changes. Neither may edit application code outside their assigned authority. Maintain links to these guides from `docs/README.md` and relevant README/capability documents. Do not move existing guides or break their references without an approved migration and reference review.
+
+**Supported public Python/HTTP APIs:** Keep API/interface contracts discoverable from the existing operations/API documentation index until a separately approved structure change. A CLI and its underlying public API may have distinct references linked together.
+
+Each new or materially changed executable script or supported public API must document, as applicable:
 
 - Purpose, module/entry point, read-only/planning/apply classification and side effects.
 - Supported families, environment, dependencies, credentials/Teleport requirements without exposing secrets.
@@ -41,7 +45,8 @@ Document only supported, stable/public interfaces. An internal helper is not aut
 - `ARCHITECTURE.md`, `DECISIONS.md`, `docs/architecture/`: approved design and decisions; mark superseded statements rather than erasing provenance.
 - `ROADMAP.md`: future/planned work; not evidence a capability exists.
 - `docs/devlog/YYYY-MM.md`: append-only history, not current instructions.
-- `docs/operations/`: authoritative user-executable instructions and public API contracts.
+- `doc/user_manual/`: canonical user manuals for user-executable scripts/CLI workflows, maintained by Atlas and Codex; `doc/user_manual/README.md` is their index.
+- `docs/operations/`: existing operator and supported API references; preserve their paths and link to canonical user manuals during migration.
 - `docs/README.md`: navigation and document authority. **Until later migration phases, use current paths above; do not assume proposed relocated paths already exist.**
 
 ## Before finishing

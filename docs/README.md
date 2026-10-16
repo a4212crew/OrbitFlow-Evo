@@ -18,6 +18,10 @@
 | September devlog | [2026-09.md](devlog/2026-09.md) | Historical |
 | October devlog | [2026-10.md](devlog/2026-10.md) | Historical |
 
+## User manuals for executable scripts
+
+- [Canonical executable-script user manual index](../doc/user_manual/README.md) — guides maintained by both Atlas and Codex, with verified inputs, scenarios, commands and expected outputs. Existing guides remain at their current paths until an approved migration.
+
 ## Operations / executable features
 
 - [Inventory, interface/VLAN reporting and configuration backup usage](../README.md)
@@ -68,6 +72,6 @@ This is a **navigation index**, not a claim that every executable script and pub
 
 ## Editing contract
 
-For any meaningful source change or fix, Codex must follow [documentation-management/SKILL.md](../.agents/skills/documentation-management/SKILL.md), append a monthly devlog entry and update affected README, function/API/CLI guidance and indexes as needed. Atlas may correct and reorganize Markdown directly through reviewable documentation-only changes, without creating a Codex development Issue. **Neither Atlas nor Codex may merge a PR without the owner's explicit approval.**
+For user-executable scripts, Atlas and Codex maintain canonical guides under `doc/user_manual/`. For any meaningful source change or fix, Codex must follow [documentation-management/SKILL.md](../.agents/skills/documentation-management/SKILL.md), append a monthly devlog entry and update affected README, function/API/CLI guidance and indexes as needed. Atlas may correct and reorganize Markdown directly through reviewable documentation-only changes, without creating a Codex development Issue. **Neither Atlas nor Codex may merge a PR without the owner's explicit approval.**
 
 This Phase 2 index does **not** move, rename or delete any existing Markdown document.
