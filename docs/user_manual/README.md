@@ -7,8 +7,8 @@ This directory is the **canonical home for user guides for user-executable scrip
 Existing executable documentation is currently maintained elsewhere and **has not yet been moved**. Until the separately reviewed migration is complete, consult:
 
 - [Inventory, interface/VLAN reporting and backups](../../README.md) — existing executable examples.
-- [Bulk configuration planning v2](../../docs/operations/bulk-configuration-planning.md) — operator workflow and commands.
-- [Configuration template reference](../../docs/operations/configuration-template-reference.md) — detailed scenarios and output expectations.
+- [Bulk configuration planning v2](../operations/bulk-configuration-planning.md) — operator workflow and commands.
+- [Configuration template reference](../operations/configuration-template-reference.md) — detailed scenarios and output expectations.
 
 As each executable guide is reviewed and migrated, add a **script-named Markdown guide here** and a link in this index. Preserve existing source/test-dependent documents and their paths until all references are reconciled.
 
