@@ -8,7 +8,8 @@ For the concise current implementation and validation baseline, read:
 
 For detailed historical development records, read only the month relevant to the task:
 
-- `docs/devlog/2026-09.md` — initial transport, host-key behaviour, Cisco IOS/IOS-XE CLI, stale-prompt fix, and live validation.
+- `docs/devlog/2026-09.md` — September 2026 implementation history.
+- `docs/devlog/2026-10.md` — October 2026 implementation history.
 
 ## Logging Rule
 
