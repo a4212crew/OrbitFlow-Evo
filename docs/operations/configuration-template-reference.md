@@ -1,6 +1,6 @@
 # Configuration v2 template operator reference
 
-Use this reference with [bulk planning commands, output review and owner read-only smoke tests](bulk-configuration-planning.md). Templates 1–8 follow the [Catalyst signed-off contract](../architecture/configuration/approved-catalyst-templates.md); 9–16 follow the [ME3600X/ASR920/EdgeSwitch signed-off contract](../architecture/configuration/approved-me3600x-asr920-edgeswitch-templates.md). These contracts take precedence over generic catalogue notes. Templates 17–22 below are **catalogue/provisional, not owner-approved or live-validated**. Their descriptions report existing code, not a promise of device support.
+Use this reference with [bulk planning commands, output review and owner read-only smoke tests](../user_manual/bulk-configuration-planning.md). Templates 1–8 follow the [Catalyst signed-off contract](../architecture/configuration/approved-catalyst-templates.md); 9–16 follow the [ME3600X/ASR920/EdgeSwitch signed-off contract](../architecture/configuration/approved-me3600x-asr920-edgeswitch-templates.md). These contracts take precedence over generic catalogue notes. Templates 17–22 below are **catalogue/provisional, not owner-approved or live-validated**. Their descriptions report existing code, not a promise of device support.
 
 ## Rules for every worksheet
 
