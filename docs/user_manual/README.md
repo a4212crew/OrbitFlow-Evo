@@ -10,10 +10,10 @@ Executable guides are indexed below. Source/test-linked reference documents rema
 - [Interface/VLAN observation report](device-interface-vlan-report.md) — read-only collection and Excel reporting.
 - [VLAN compliance](device-vlan-compliance.md) — collection, methodology report, and offline re-export.
 - [Configuration backup](device-configuration-backup.md) — sensitive read-only backup collection.
-- [Offline configuration plans v1](configuration-plan.md) — create, validate, preview and locally approve plans.
+- [Retired v1 operator guide (compatibility link)](configuration-plan.md) — historical offline-plan CLI pointer; do not use as the current bulk workflow.
 - [Development orchestration controller](orchestration-controller.md) — dry-run, watch and task lifecycle.
 - [Live validation utilities](live-validation.md) — single-device inventory/VLAN and batch inventory validation helpers.
-- [Bulk configuration planning v2](bulk-configuration-planning.md) — executable operator workflow and commands (migrated manual; original operations path retained as a compatibility reference).
+- [Bulk configuration planning v2](bulk-configuration-planning.md) — **current** complete operator manual: purpose, all CLI flags, Linux/Windows commands, 22 templates, input schemas and expected results.
 - [Configuration template reference](../operations/configuration-template-reference.md) — detailed scenarios and output expectations.
 
 As each executable guide is reviewed and migrated, add a **script-named Markdown guide here** and a link in this index. Preserve existing source/test-dependent documents and their paths until all references are reconciled.
