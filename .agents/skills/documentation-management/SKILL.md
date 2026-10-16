@@ -47,7 +47,7 @@ Document only supported, stable/public interfaces. An internal helper is not aut
 - `docs/devlog/YYYY-MM.md`: append-only history, not current instructions.
 - `docs/user_manual/`: canonical user manuals for user-executable scripts/CLI workflows, maintained by Atlas and Codex; `docs/user_manual/README.md` is their index.
 - `docs/operations/`: existing operator and supported API references; preserve their paths and link to canonical user manuals during migration.
-- `docs/README.md`: navigation and document authority. **Until later migration phases, use current paths above; do not assume proposed relocated paths already exist.**
+- `docs/README.md`: navigation and document authority. **These paths describe the Phase 3 documentation layout on this branch. They become authoritative on `main` only after the migration PR is merged.**
 
 ## Before finishing
 
