@@ -1,6 +1,6 @@
 # OrbitFlow-Evo Documentation Index
 
-> **Authority and migration status:** This index lists the **existing paths on `main`**. Documentation relocation and historical deletion are future, separately reviewed phases. Do not interpret a planned destination as an existing file.
+> **Authority and migration status:** This index reflects the Phase 3 proposed branch layout. Relocated paths do not become available on `main` until the PR merges; source/test-dependent legacy paths remain preserved.
 
 ## Start here
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | Codex global safety rules and skill routing | [AGENTS.md](../AGENTS.md) | Current instruction |
 | Atlas issue workflow | [Issue creation rules](../.agents/ISSUE_CREATION_RULES.md) | Current instruction |
-| Writing / updating documentation | [Documentation management skill](../.agents/skills/documentation-management/SKILL.md) | Current instruction (Phase 2 branch; upon merge) |
+| Writing / updating documentation | [Documentation management skill](../.agents/skills/documentation-management/SKILL.md) | Current instruction |
 | Current implemented/validated capabilities | [CURRENT_STATE.md](CURRENT_STATE.md) | Current-state reference; needs editorial reconciliation |
 | Project usage and setup | [README.md](../README.md) | Operator entry point; some introductory wording outdated |
 | Architecture overview | [architecture overview](architecture/README.md) | Architecture; iteration governance needs reconciliation |
@@ -25,7 +25,7 @@
 ## Operations / executable features
 
 - [Inventory, interface/VLAN reporting and configuration backup usage](../README.md)
-- [Bulk configuration planning v2](operations/bulk-configuration-planning.md) — operator workflow, input generation, plan preparation and validation.
+- [Bulk configuration planning v2](user_manual/bulk-configuration-planning.md) — operator workflow, input generation, plan preparation and validation.
 - [Configuration v2 template reference](operations/configuration-template-reference.md) — template scenarios and expected results. **Referenced by current source and tests; preserve this path.**
 - [Methodology patterns 8–12](operations/methodology-patterns-8-12.md) — specialized audit reference.
 - [EdgeSwitch interface-status observations](operations/edgeswitch-interface-status-observations-2026-10-08.md) — dated diagnostic/reference evidence.
