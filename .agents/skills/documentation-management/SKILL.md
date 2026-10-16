@@ -15,14 +15,14 @@ Follow `AGENTS.md` and the routed capability skill. Consult [documentation index
 
 1. Identify changed observable behaviour, inputs, output, supported devices, commands and public contracts from **actual source and tests**.
 2. Append a **short dated entry** to `docs/devlog/YYYY-MM.md`: Issue/PR, change summary, affected modules, operator-visible effects, automated test evidence, live/operator validation status (pending unless owner confirmed), limitations and documentation changed. Do not load all preceding monthly devlogs; use targeted reads. Do not rewrite existing history.
-3. Maintain `DEVLOG.md` (until its approved relocation) as a **monthly index only**. Add missing month links and a new month when created; do not copy log entries into the index.
-4. Update the affected README, module/function description, operator guide, API reference, architecture and `CURRENT_STATE.md` **only where behaviour or the implemented/validated baseline changes**. Update `ROADMAP.md` when a planned capability changes status. Never describe unapproved intent or unvalidated functionality as implemented.
+3. Maintain `docs/devlog/README.md` as a **monthly index only**. Add missing month links and a new month when created; do not copy log entries into the index.
+4. Update the affected README, module/function description, operator guide, API reference, architecture and `CURRENT_STATE.md` **only where behaviour or the implemented/validated baseline changes**. Update `docs/ROADMAP.md` when a planned capability changes status. Never describe unapproved intent or unvalidated functionality as implemented.
 5. Add new documentation to the right index. Check every affected relative link, path and in-page anchor after edits. Preserve existing paths unless the task explicitly authorizes moves.
 6. In PR summary, list documentation changed, validations performed, and any required documentation still pending. Missing required docs are review findings; make revisions on the same Issue/PR.
 
 ## Public scripts, functions and APIs
 
-**User-executable scripts and CLI workflows:** Maintain their canonical user guides in `doc/user_manual/`, indexed by `doc/user_manual/README.md`. Both **Atlas and Codex may create or update Markdown guides** there: Atlas through reviewable documentation-only changes (including pre-Issue reconciliation), and Codex within its authorized development Issue/PR whenever executable behaviour changes. Neither may edit application code outside their assigned authority. Maintain links to these guides from `docs/README.md` and relevant README/capability documents. Do not move existing guides or break their references without an approved migration and reference review.
+**User-executable scripts and CLI workflows:** Maintain their canonical user guides in `docs/user_manual/`, indexed by `docs/user_manual/README.md`. Both **Atlas and Codex may create or update Markdown guides** there: Atlas through reviewable documentation-only changes (including pre-Issue reconciliation), and Codex within its authorized development Issue/PR whenever executable behaviour changes. Neither may edit application code outside their assigned authority. Maintain links to these guides from `docs/README.md` and relevant README/capability documents. Do not move existing guides or break their references without an approved migration and reference review.
 
 **Supported public Python/HTTP APIs:** Keep API/interface contracts discoverable from the existing operations/API documentation index until a separately approved structure change. A CLI and its underlying public API may have distinct references linked together.
 
@@ -43,9 +43,9 @@ Document only supported, stable/public interfaces. An internal helper is not aut
 - `AGENTS.md`: only permanent cross-cutting rules and exact skill routing; no long business rules.
 - `CURRENT_STATE.md`: current verified implementation and limitations; not a historical narrative.
 - `ARCHITECTURE.md`, `DECISIONS.md`, `docs/architecture/`: approved design and decisions; mark superseded statements rather than erasing provenance.
-- `ROADMAP.md`: future/planned work; not evidence a capability exists.
+- `docs/ROADMAP.md`: future/planned work; not evidence a capability exists.
 - `docs/devlog/YYYY-MM.md`: append-only history, not current instructions.
-- `doc/user_manual/`: canonical user manuals for user-executable scripts/CLI workflows, maintained by Atlas and Codex; `doc/user_manual/README.md` is their index.
+- `docs/user_manual/`: canonical user manuals for user-executable scripts/CLI workflows, maintained by Atlas and Codex; `docs/user_manual/README.md` is their index.
 - `docs/operations/`: existing operator and supported API references; preserve their paths and link to canonical user manuals during migration.
 - `docs/README.md`: navigation and document authority. **Until later migration phases, use current paths above; do not assume proposed relocated paths already exist.**
 
