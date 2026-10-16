@@ -4,12 +4,15 @@ This directory is the **canonical home for user guides for user-executable scrip
 
 ## Guide index
 
-Executable core operator guides are indexed below. More detailed or source-linked legacy documentation is retained for compatibility until a separate reference audit is complete. Until the separately reviewed migration is complete, consult:
+Executable guides are indexed below. Source/test-linked reference documents remain at their established locations for compatibility.
 
 - [Device inventory refresh](device-inventory-refresh.md) — CLI, options, report output and failures.
 - [Interface/VLAN observation report](device-interface-vlan-report.md) — read-only collection and Excel reporting.
 - [VLAN compliance](device-vlan-compliance.md) — collection, methodology report, and offline re-export.
 - [Configuration backup](device-configuration-backup.md) — sensitive read-only backup collection.
+- [Offline configuration plans v1](configuration-plan.md) — create, validate, preview and locally approve plans.
+- [Development orchestration controller](orchestration-controller.md) — dry-run, watch and task lifecycle.
+- [Live validation utilities](live-validation.md) — single-device inventory/VLAN and batch inventory validation helpers.
 - [Bulk configuration planning v2](bulk-configuration-planning.md) — executable operator workflow and commands (migrated manual; original operations path retained as a compatibility reference).
 - [Configuration template reference](../operations/configuration-template-reference.md) — detailed scenarios and output expectations.
 
