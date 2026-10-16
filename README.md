@@ -1,8 +1,10 @@
 # OrbitFlow
 
-OrbitFlow is a multi-vendor network automation platform. This version provides
-the shared SSH transport layer and a reusable Cisco IOS/IOS-XE interactive CLI;
-inventory, collection, and provisioning workflows are intentionally out of scope.
+OrbitFlow is a multi-vendor network automation platform providing shared
+Teleport/device transport, inventory refresh, read-only interface/VLAN reporting,
+VLAN compliance, configuration backup, and offline configuration planning.
+Live configuration apply is not implemented. Executable operator guides are indexed
+in [docs/user_manual/README.md](docs/user_manual/README.md).
 
 ## Setup
 
