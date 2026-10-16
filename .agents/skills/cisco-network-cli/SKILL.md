@@ -168,3 +168,19 @@ Keep encapsulation VLAN and bridge-domain/service identity separate; do not forc
 ### IOS-XR / NCS540
 
 Treat VLANs as service/subinterface constructs rather than assuming a classic VLAN database. The VLAN-observation collection command for IOS-XR is not yet approved; discuss it before implementation.
+
+## Owner-approved execution requirements — 2026-10-17
+
+Read [approved device execution](../../../docs/architecture/configuration/approved-device-execution.md)
+for the initial Catalyst/EdgeSwitch milestone. **Approved design, not implemented.**
+Its exact template, prompt, switchport parsing, evidence, error and save requirements
+override older conceptual execution examples for these families. Preserve existing
+read-only behavior; new collectors must be independently callable through shared
+sessions, with pure parsers, typed facts, original fields and correlated logging.
+
+Use `show interfaces <interface> switchport`: static access/access VLAN, or trunk/
+complete allowed set/native VLAN. Expand ranges, retain ALL and VLAN 1. Operational
+Down does not fail configured-intent verification. VLAN database non-active status
+is warning only. Accept learned-host VLAN modes config-vlan/config-vl. C3850 trunk
+CLI omits the encapsulation selector. `write memory` completes when the original
+EXEC prompt returns; record errors independently without requiring `[OK]`.

@@ -1,6 +1,6 @@
 ---
 name: configuration-management
-description: Use for offline Universal Change Plans, deterministic rendering, validation, inventory identity resolution, review and durable approval gates.
+description: Use for Change Plans, rendering, review/approval, and approved configuration execution, verification, save and reusable execution services.
 ---
 
 # Configuration Management
@@ -61,3 +61,18 @@ The owner also superseded the separate v2 review command/module: use **one gener
 ## Future creation/removal lifecycle guidance (proposed only)
 
 Read `docs/architecture/configuration/configuration-removal.md` for future removal/retirement planning. Distinguish interface VLAN membership withdrawal from deletion of shared VLAN, bridge-domain or VSI objects. Do not infer removal approval from creation approval; demand reverse-reference evidence and explicit recovery/unknown-state gates. No general destructive executor is implemented.
+
+## Owner-approved configuration execution milestone — 2026-10-17
+
+**Design only; no executor is implemented.** For apply, verification, save, reusable
+summary/confirmation or switchport observation, read
+[approved device execution](../../../docs/architecture/configuration/approved-device-execution.md).
+It supersedes older proposed global batch-stop/save-only-after-verification policy
+for C3750X/C3850 and EdgeSwitch. Preserve existing v1/v2 planning contracts above.
+Group ordered rows by IP through shared execution; explicit confirmation is separate
+from workbook decisions. Use independent collectors/parsers and vendor adapters,
+retain command/evidence/log records, and keep source review artifacts unchanged.
+EdgeSwitch missing global VLANs block dependent execution, not planning. Save at
+device-task end including partial changes; original EXEC prompt return is the
+approved save-completion criterion, with errors recorded separately. No Issue,
+apply or merge is authorized merely by this design.

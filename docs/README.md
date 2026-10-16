@@ -48,6 +48,7 @@ This is a **navigation index**, not a claim that every executable script and pub
 - [Configuration management proposal](architecture/configuration/configuration-management.md)
 - [Change Plan specification proposal](architecture/configuration/change-plan-specification.md)
 - [Configuration templates proposal](architecture/configuration/configuration-templates.md)
+- [Approved initial device execution](architecture/configuration/approved-device-execution.md) — owner-approved design, not implemented; initial Catalyst/EdgeSwitch execution and reusable capabilities.
 - [Execution workflow proposal](architecture/configuration/execution-workflow.md)
 - [Platform adapters proposal](architecture/configuration/platform-adapters.md)
 - [Drift detection proposal](architecture/configuration/drift-detection.md)

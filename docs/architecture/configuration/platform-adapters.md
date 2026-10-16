@@ -1,5 +1,12 @@
 # Configuration Platform Adapters — Proposed
 
+> **2026-10-17 scope override:** [Owner-approved device execution](approved-device-execution.md)
+> governs C3750X/C3850 and EdgeSwitch. It is approved design, not implementation.
+> Older policies below are retained as proposal history; for this milestone, per-IP
+> continuation replaces global batch pauses, device-task saving includes partial
+> changes, prompt return defines save completion, and EdgeSwitch is in initial scope.
+> Other families and general rollback/removal remain deferred.
+
 ## Contract
 
 A single-device adapter declares capabilities and implements operations appropriate to its OS and device family, rather than exposing one universal unsafe `send_config` assumption.
