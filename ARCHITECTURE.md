@@ -69,7 +69,7 @@ Each run has a unique directory and run ID. Failed/interrupted output generation
 
 The initial scale-hardening acceptance target is approximately 1,500 targets at a configured active-device limit of 5. This is an implementation/validation target, not a new hard-coded global concurrency rule.
 
-This spool architecture is approved but not yet implemented; current implementation state remains documented separately in `CURRENT_STATE.md`.
+This spool architecture is approved but not yet implemented; current implementation state remains documented separately in `docs/CURRENT_STATE.md`.
 
 Detailed implementation guidance belongs in `.agents/skills/device-execution/SKILL.md`.
 
@@ -214,7 +214,7 @@ Documentation should distinguish clearly between:
 
 Canonical continuity files are:
 - `AGENTS.md`
-- `CURRENT_STATE.md`
+- `docs/CURRENT_STATE.md`
 - `ARCHITECTURE.md`
 - `DECISIONS.md`
 - `docs/PROJECT_HANDOFF.md`
