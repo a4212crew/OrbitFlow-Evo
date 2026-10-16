@@ -209,7 +209,7 @@ sanitized parent evidence includes unrelated commands, all Cisco children throug
 `!`, and EdgeSwitch through `exit`. Service operational Down is informational;
 unparseable/rejected detail uses annotated reliable config fallback.
 
-## Issue #100 candidate changes — pending merge and live validation
+## Issue #100 candidate changes — historical validation notes (verify current merge and live-validation state)
 
 **Branch/version warning (2026-10-14):** The changes below are implemented in
 [PR #101](https://github.com/a4212crew/OrbitFlow-Evo/pull/101), **not yet in
