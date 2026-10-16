@@ -26,13 +26,20 @@ Keep IOS/IOS-XE and IOS-XR behaviour separate. Also keep OS family separate from
 
 ## Interactive CLI
 
-IOS/IOS-XE baseline paging disable:
+Cisco IOS, IOS-XE and IOS-XR CLI sessions use these EXEC session settings:
 
 ```text
 terminal length 0
+terminal width 511
 ```
 
-Prompt detection should remain dynamic rather than hostname-specific.
+These commands change only the interactive session, not running or saved device configuration. The selected Cisco adapter requires width setup before operational capability commands; short inventory identification probes continue to run before platform-specific setup.
+
+Temporary `CiscoIOSCLI` and `CiscoXRCLI` shells require both settings when opening their owned channel. Borrowed `DeviceCLI` sessions request width using `configure(..., setup_commands=("terminal width 511",))`, and cache successful width setup on that shell across subsequent adapter calls and service lookups. A rejected width command fails explicitly and prevents further use of the affected shared shell; a timeout invalidates synchronization. Temporary-shell setup failures close their channel while leaving ownership of the parent transport unchanged.
+
+Keep strict command-echo and prompt synchronization, dynamic prompt recognition, and normalized interface identities. Do not silently ignore setup rejection or add unverified wrapped-echo parsing. Deterministic wrapped-echo fixtures demonstrate a plausible timeout mechanism; the original live device echo bytes have not been captured.
+
+Cisco's IOS-XR EXEC command reference documents session-only `terminal width` with a range of 0–512, but acceptance of 511 on a particular NCS540 release still requires operator validation. Manual width-511 lookups have succeeded on ME3600X (IOS) and ASR920 (IOS-XE); automatic initialization has not been live-validated. Acceptance and workflow behavior on NCS540 (IOS-XR), C3750X (IOS) and C3850 (IOS-XE) remain pending. See [Cisco width operator validation](../../../docs/user_manual/live-validation.md#cisco-terminal-width-issue-114).
 
 ## Interface Collection
 
