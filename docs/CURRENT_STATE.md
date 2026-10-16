@@ -783,3 +783,11 @@ Owner manual width tests succeeded on ME3600X/ASR920; automatic setup still need
 live validation. NCS540/C3750X/C3850 width acceptance is pending. IOS-XR EXEC
 syntax is documented independently; no NCS540 live claim is made. See
 [verification instructions](user_manual/live-validation.md#cisco-terminal-width-issue-114).
+
+Issue #117 review corrections support real EdgeSwitch Interface VLAN headers with
+strict table completeness, require matching standalone switchport target headers,
+verify the approved C3750X dot1q change while preserving unrelated settings, and
+recognize supplied command-not-found/range rejections. C3850 omits the selector.
+Save remains prompt-based with errors separate. Optional capability correlation
+retains run/row/digest, target/command, elapsed timing and safe failure diagnostics;
+see the [API reference](operations/configuration-execution-api.md). Owner lab validation remains pending.

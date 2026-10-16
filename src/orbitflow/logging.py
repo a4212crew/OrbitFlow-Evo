@@ -71,6 +71,9 @@ class SafeFormatter(logging.Formatter):
             "error_category": _safe(getattr(record, "error_category", "-")),
             "message": message,
         }
+        for key in ('run_id', 'row_id', 'digest', 'interface', 'command', 'stage', 'elapsed_seconds', 'outcome'):
+            if hasattr(record, key):
+                data[key] = _safe(getattr(record, key))
         if record.exc_info and record.exc_info[1]:
             diagnostics = []
             exc = record.exc_info[1]
@@ -217,3 +220,10 @@ def transport_logging(management_ip):
                     _dependency_previous.clear()
                     _dependency_handler.close()
                     _dependency_handler = None
+
+
+def capability_metadata(context, correlation=None, **fields):
+    """Select optional scalar correlation fields; resource identity is authoritative."""
+    selected = {key: value for key, value in (correlation or {}).items()
+                if key in {'run_id', 'row_id', 'digest'} and isinstance(value, (str, int))}
+    return dict(selected, management_ip=context.management_ip, **fields)

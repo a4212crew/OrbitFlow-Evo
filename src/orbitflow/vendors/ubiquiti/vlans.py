@@ -201,7 +201,7 @@ def parse_vlan_lookup(output, vlan_id):
     table = False
     malformed = False
     for line in output.splitlines():
-        if re.search(r'Port\s+Current\s+Configured\s+Tagging', line, re.I):
+        if re.search(r'^\s*(?:Port|Interface)\s+Current\s+Configured\s+Tagging\s*$', line, re.I):
             table = True
             continue
         match = re.fullmatch(r"\s*(\d+/\d+|lag \d+)\s+(Include|Exclude|Auto)\s+(Include|Exclude|Auto)\s+(Tagged|Untagged)\s*", line, re.I)

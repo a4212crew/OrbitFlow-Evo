@@ -182,3 +182,11 @@ durable response cannot be made transactional. A new summary is not permission t
 repeat an uncertain write; reconcile equipment first.
 
 Supported standalone Python signatures/examples: [execution API](../operations/configuration-execution-api.md).
+
+Issue #117 review corrections support real EdgeSwitch Interface VLAN headers with
+strict table completeness, require matching standalone switchport target headers,
+verify the approved C3750X dot1q change while preserving unrelated settings, and
+recognize supplied command-not-found/range rejections. C3850 omits the selector.
+Save remains prompt-based with errors separate. Optional capability correlation
+retains run/row/digest, target/command, elapsed timing and safe failure diagnostics;
+see the [API reference](../operations/configuration-execution-api.md). Owner lab validation remains pending.

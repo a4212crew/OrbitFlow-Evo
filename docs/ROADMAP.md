@@ -45,3 +45,11 @@ Automated rollback must remain conditional on vendor capability and field-tested
 ## Approved documentation baseline: template-based configuration planning (2026-10-11)
 
 The earlier generic ordering above is exploratory, not a current implementation plan. Approved future target: [22-template Gap C configuration planning](architecture/configuration/guided-bulk-planning.md). It uses one input worksheet per family/function; live read-only observation and existing-CLI evidence for predefined templates; offline-only Manual CLI; common engineer review and digest-bound immutable plans; reusable service APIs. **Configuration planning v2 is now implemented on `main` as an offline/read-only planning workflow**; consult [the operator guide](operations/bulk-configuration-planning.md) and [template reference](operations/configuration-template-reference.md) for supported commands, scenarios and limitations. Issue #88 and PR #89 were superseded, and the later v2 implementation has merged. **Issue #117 now implements confirmed predefined Catalyst/EdgeSwitch apply, verification and save; rollback and other execution families remain future work. Owner live/lab validation is pending.**
+
+Issue #117 review corrections support real EdgeSwitch Interface VLAN headers with
+strict table completeness, require matching standalone switchport target headers,
+verify the approved C3750X dot1q change while preserving unrelated settings, and
+recognize supplied command-not-found/range rejections. C3850 omits the selector.
+Save remains prompt-based with errors separate. Optional capability correlation
+retains run/row/digest, target/command, elapsed timing and safe failure diagnostics;
+see the [API reference](operations/configuration-execution-api.md). Owner lab validation remains pending.

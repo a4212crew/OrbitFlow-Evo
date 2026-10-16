@@ -666,4 +666,12 @@ already released.
 Create the approved 22-template workbook with `python -m orbitflow.configuration.v2.cli input bulk-input.xlsx`.
 Predefined templates use live read-only evidence; Manual CLI remains offline.
 See [operator commands and review semantics](docs/operations/bulk-configuration-planning.md).
-No device apply/save/commit is implemented. The existing v1 CLI remains unchanged.
+The planner does not apply/save configuration; confirmed predefined execution is a separate command. The existing v1 CLI remains unchanged.
+
+Issue #117 review corrections support real EdgeSwitch Interface VLAN headers with
+strict table completeness, require matching standalone switchport target headers,
+verify the approved C3750X dot1q change while preserving unrelated settings, and
+recognize supplied command-not-found/range rejections. C3850 omits the selector.
+Save remains prompt-based with errors separate. Optional capability correlation
+retains run/row/digest, target/command, elapsed timing and safe failure diagnostics;
+see the [API reference](docs/operations/configuration-execution-api.md). Owner lab validation remains pending.

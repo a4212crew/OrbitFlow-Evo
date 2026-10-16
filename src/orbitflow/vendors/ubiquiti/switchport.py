@@ -20,3 +20,8 @@ def parse_switchport_output(text):
                                  group=int(match[2]) if match and match[2] is not None else None,
                                  raw=protection))
     return SwitchportObservation(fields, facts, text)
+
+
+def command_rejected(text):
+    """Recognize observed EdgeSwitch diagnostic lines without interpreting suggestions."""
+    return bool(re.search(r"(?im)^\s*(?:Command not found(?:\s*/\s*Incomplete command\. Use \? to list commands\.)?|Incomplete command\. Use \? to list commands\.|Value is out of range\. The valid range is 1 to 4093\.)\s*$", text))

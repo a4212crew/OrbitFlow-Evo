@@ -205,7 +205,7 @@ def _expected_mode(command, previous, exec_prompt, edge):
     return (edge_execution if edge else cisco_execution).expected_mode(command, previous, exec_prompt)
 
 
-def verify_row(session, context, cli, entry, before, *, timeout=30.0):
+def verify_row(session, context, cli, entry, before, *, timeout=30.0, correlation=None):
     """Reusable verification. Return Verified/Failed/Unknown and structured evidence."""
     from orbitflow.configuration.v2.evidence import scoped_evidence
     request, result = entry['request'], entry['result']
@@ -234,6 +234,9 @@ def verify_row(session, context, cli, entry, before, *, timeout=30.0):
         {'description', 'mode', 'access', 'routed'} if t.function == 'Access Port' else
         {'description', 'mode', 'allowed', 'allowed_add', 'allowed_remove', 'allowed_except', 'native'} if t.function == 'Trunk Port' else
         {'description', 'include', 'exclude', 'tagged', 'untagged_vlans', 'pvid'})
+    if t.function == 'Trunk Port' and context.device_family == 'C3750X' and 'switchport trunk encapsulation dot1q' in result['commands']:
+        modified.add('trunk_encapsulation')
+        checks.append([n['value'] for n in new if n['kind'] == 'trunk_encapsulation'] == ['dot1q'])
     # Compare stable fact values, not capture line numbers. Omitted fields remain
     # protected separately below; unrelated settings must survive every template.
     def signature(node):
@@ -243,7 +246,7 @@ def verify_row(session, context, cli, entry, before, *, timeout=30.0):
     checks.append(preserved(old) == preserved(new))
     evidence = dict(configuration=scoped_evidence(request, after), description=actual[0])
     if t.function != 'Interface Description':
-        switchport = SwitchportService(timeout=timeout).collect(session, context, target, cli=cli).to_dict()
+        switchport = SwitchportService(timeout=timeout).collect(session, context, target, cli=cli, correlation=correlation).to_dict()
         evidence['switchport'] = switchport
         f = switchport['facts']
         if t.function == 'Access Port':
@@ -387,7 +390,7 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
                                     if not rejected:
                                         row['status'] = 'Unknown'
                                     started = monotonic()
-                                    verification = verify_row(session, context, cli, entry, before, timeout=settings.command_timeout)
+                                    verification = verify_row(session, context, cli, entry, before, timeout=settings.command_timeout, correlation={'run_id': spool.path.name, 'digest': summary['source_digest'], 'row_id': rid})
                                     row.update(status='Failed' if rejected else verification['status'], verification=verification)
                                     row['verification_seconds'] = monotonic() - started
                                     if row['status'] == 'Verified':
@@ -412,7 +415,7 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
                                 event(ip, 'save_intent', command='write memory')
                                 save = dict(status='Unknown', error_category='SaveCapabilityIncomplete')
                                 try:
-                                    save = save_configuration(session, context, cli=cli, exec_prompt=exec_prompt, timeout=settings.save_timeout)
+                                    save = save_configuration(session, context, cli=cli, exec_prompt=exec_prompt, timeout=settings.save_timeout, correlation={'run_id': spool.path.name, 'digest': summary['source_digest']})
                                 except BaseException:
                                     event(ip, 'save_result', status='Unknown', error_category='SaveCapabilityIncomplete',
                                           response=_safe_source(getattr(cli, 'last_response', ''), context.platform))

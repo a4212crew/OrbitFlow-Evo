@@ -418,7 +418,7 @@ def test_standalone_collector_borrows_and_parses(family):
     target = '0/3' if family == 'EdgeSwitch' else 'GigabitEthernet1/0/1'
     prompt = '(<fixture>) #' if family == 'EdgeSwitch' else 'fixture#'
     command = f'show interfaces switchport {target}' if family == 'EdgeSwitch' else f'show interfaces {target} switchport'
-    text = 'General Mode PVID: 901\nGeneral Mode Untagged VLANs: 901\nGeneral Mode Tagged VLANs: 745,2449,4000-4001' if family == 'EdgeSwitch' else 'Name: Gi1/0/1\nSwitchport: Enabled\nAdministrative Mode: static access\nAccess Mode VLAN: 1033 (Customer)'
+    text = 'Port: 0/3\nGeneral Mode PVID: 901\nGeneral Mode Untagged VLANs: 901\nGeneral Mode Tagged VLANs: 745,2449,4000-4001' if family == 'EdgeSwitch' else 'Name: Gi1/0/1\nSwitchport: Enabled\nAdministrative Mode: static access\nAccess Mode VLAN: 1033 (Customer)'
     responses = [('terminal length 0\n' + prompt).encode()]
     if family != 'EdgeSwitch':
         responses.append(('terminal width 511\n' + prompt).encode())
@@ -478,7 +478,14 @@ def test_edge_verification_independent_current_configured(monkeypatch, configure
     approved = ex.evaluate_decisions(original, {r['row_id']: 'Approve'}, expected_digest=original.digest, now=NOW).to_dict()['results'][0]
     assert approved['deployment_ready']
     after = observation(ctx, config)
-    after['vlan_lookups'] = {'545': dict(status='present', ports_complete=complete, ports=[dict(interface='0/1', configured=configured, current=current, tagging=tagged)])}
+    text = f'VLAN ID: 545\nVLAN Name: Customer\nVLAN Type: Static\nInterface Current Configured Tagging\n--------- ------- ---------- --------\n0/1 {current} {configured} {tagged}\n'
+    if not complete:
+        text += '0/2 Include Include\n'
+    from orbitflow.capabilities.vlans import VlanService
+    session = object()
+    lookup_cli = SimpleNamespace(require_session=lambda s: None, configure=lambda **k: None, run_command=lambda *a, **k: text)
+    after['vlan_lookups'] = {'545': VlanService().lookup(session, ctx, 545, cli=lookup_cli)}
+    assert after['vlan_lookups']['545']['ports_complete'] == complete
     monkeypatch.setattr(ex, '_observe', lambda *args: after)
     facts = dict(pvid=445, tagged_vlans=[545], untagged_vlans=[445], forbidden_vlans=[545])
     monkeypatch.setattr(ex, 'SwitchportService', lambda **kwargs: SimpleNamespace(collect=lambda *a, **kw: SimpleNamespace(to_dict=lambda: dict(facts=facts))))
@@ -686,3 +693,100 @@ def test_failed_dependency_blocks_row_while_independent_row_continues(tmp_path, 
     assert rows[-1]['blocker'] == 'DEPENDENCY_FAILED'
     assert not any(c.startswith('switchport') for c in WorkerCLI.instances[0].sent)
     assert len(saves) == 1
+
+
+@pytest.mark.parametrize('family', ['EdgeSwitch', 'C3750X'])
+@pytest.mark.parametrize('header,ok', [('correct', True), ('missing', False), ('wrong', False), ('duplicate', False)])
+def test_collector_requires_unambiguous_target(family, header, ok):
+    from orbitflow.capabilities.switchport import SwitchportService, SwitchportCapabilityError
+    ctx = context(family)
+    target = '0/3' if family == 'EdgeSwitch' else 'Gi1/0/1'
+    label = 'Port' if family == 'EdgeSwitch' else 'Name'
+    name = target if header != 'wrong' else ('0/99' if family == 'EdgeSwitch' else 'Gi1/0/99')
+    text = '' if header == 'missing' else f'{label}: {name}\n'
+    if header == 'duplicate':
+        text += f'{label}: {name}\n'
+    text += 'General Mode PVID: 1\nGeneral Mode Tagged VLANs: \nGeneral Mode Untagged VLANs: 1' if family == 'EdgeSwitch' else 'Switchport: Enabled\nAdministrative Mode: static access'
+    session = object()
+    calls = []
+    cli = SimpleNamespace(require_session=lambda s: calls.append(s), configure=lambda **k: None,
+                          run_command=lambda *a, **k: text)
+    if ok:
+        SwitchportService().collect(session, ctx, target, cli=cli)
+    else:
+        with pytest.raises(SwitchportCapabilityError):
+            SwitchportService().collect(session, ctx, target, cli=cli)
+    assert calls == [session]
+
+
+@pytest.mark.parametrize('baseline', ['', ' switchport\n'])
+@pytest.mark.parametrize('family', ['C3750X', 'C3850X'])
+@pytest.mark.parametrize('damage', ['', ' shutdown\n', ' switchport trunk encapsulation isl\n'])
+def test_new_conversion_trunk_exact_encapsulation(monkeypatch, baseline, family, damage):
+    config = 'interface GigabitEthernet1/0/1\n description Customer\n' + baseline + '!\nend\n'
+    ctx, r, original = make_plan(family, 'Trunk Port', config,
+                               dict(interface='GigabitEthernet1/0/1', action='Replace', vlans=[445,545]))
+    approved = ex.evaluate_decisions(original, {r['row_id']: 'Approve'}, expected_digest=original.digest, now=NOW).to_dict()['results'][0]
+    assert approved['deployment_ready']
+    selector = 'switchport trunk encapsulation dot1q'
+    assert (selector in approved['commands']) == (family == 'C3750X')
+    after_config = 'interface GigabitEthernet1/0/1\n description Customer\n switchport mode trunk\n switchport trunk allowed vlan 445,545\n'
+    if baseline:
+        after_config += baseline
+    if family == 'C3750X' and 'encapsulation' not in damage:
+        after_config += ' ' + selector + '\n'
+    after = observation(ctx, after_config + damage + '!\nend\n')
+    monkeypatch.setattr(ex, '_observe', lambda *a: after)
+    facts = dict(enabled=True, administrative_mode='trunk', native_vlan=1, allowed_vlans=[445,545])
+    monkeypatch.setattr(ex, 'SwitchportService', lambda **k: SimpleNamespace(collect=lambda *a, **k: SimpleNamespace(to_dict=lambda: dict(facts=facts))))
+    assert ex.verify_row(object(), ctx, object(), dict(request=r,result=approved), original.to_dict()['observations'][IP])['status'] == ('Failed' if damage else 'Verified')
+
+
+@pytest.mark.parametrize('diagnostic', ['Command not found / Incomplete command. Use ? to list commands.', 'Value is out of range. The valid range is 1 to 4093.'])
+def test_supplied_rejections_application_and_save(tmp_path, monkeypatch, diagnostic):
+    from orbitflow.capabilities.save import save_configuration
+    run, saves, _ = run_prepared(tmp_path, monkeypatch)
+    WorkerCLI.rejection = diagnostic
+    spool = run()
+    assert next(spool.records())['payload']['rows'][0]['status'] == 'Failed'
+    events = list(ResultJournal(spool.path / 'events.jsonl').records())
+    assert any(e.get('status') == 'Rejected' and diagnostic in e['response'] for e in events)
+    prompt = '(<fixture>) #'
+    cli, channel = cli_with([('write memory\n' + diagnostic + '\n' + prompt).encode()], prompt)
+    result = save_configuration(cli.session, context('EdgeSwitch'), cli=cli, exec_prompt=prompt, timeout=20)
+    assert result['status'] == 'Saved' and result['explicit_error']
+    assert diagnostic in result['response']
+
+
+def test_concurrent_capability_metadata_and_safe_diagnostics(tmp_path):
+    from orbitflow.capabilities.switchport import SwitchportService, SwitchportCapabilityError
+    from orbitflow.capabilities.save import save_configuration
+    from orbitflow.logging import module_logger
+    def worker(index):
+        ctx = context('EdgeSwitch', f'192.0.2.{index}')
+        target = f'0/{index}'
+        session = object()
+        def command(*a, **k):
+            if index == 2:
+                raise RuntimeError('password=never-log-this')
+            return f'Port: {target}\nGeneral Mode PVID: 1'
+        cli = SimpleNamespace(require_session=lambda s: None, configure=lambda **k: None, run_command=command,
+                              save_configuration=lambda *a, **k: dict(status='Saved', response=''))
+        correlation = dict(run_id=f'run-{index}', row_id=f'row-{index}', digest='abc', password='never-log-this')
+        with module_logger('test', log_root=tmp_path):
+            try:
+                SwitchportService().collect(session, ctx, target, cli=cli, correlation=correlation)
+            except SwitchportCapabilityError:
+                pass
+            save_configuration(session, ctx, cli=cli, exec_prompt='fixture#', timeout=1, correlation=correlation)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(worker, [1,2]))
+    records = [json.loads(line) for p in tmp_path.rglob('*.log') for line in p.read_text().splitlines()]
+    for index in [1,2]:
+        selected = [r for r in records if r.get('run_id') == f'run-{index}']
+        assert selected and all(r['management_ip'] == f'192.0.2.{index}' and r['row_id'] == f'row-{index}' for r in selected)
+        completed = [r for r in selected if 'elapsed_seconds' in r]
+        assert len(completed) == 2 and all(float(r['elapsed_seconds']) >= 0 for r in completed)
+        assert any(r.get('interface') == f'0/{index}' and r['command'].endswith(f'0/{index}') for r in selected)
+    assert any(r.get('exception_chain') for r in records)
+    assert 'never-log-this' not in json.dumps(records)

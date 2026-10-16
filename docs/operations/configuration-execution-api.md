@@ -80,7 +80,7 @@ observed = SwitchportService(timeout=10.0).collect(
 payload = observed.to_dict()
 ```
 
-`SwitchportService(*, timeout=10.0).collect(session, context, interface, *, cli)`
+`SwitchportService(*, timeout=10.0).collect(session, context, interface, *, cli, correlation=None)`
 borrows the same live DeviceSession/DeviceCLI; it never reconnects or closes them.
 Supported family/platform/profile pairs: C3750X/cisco_ios/c3750x_switching,
 C3850/cisco_xe/c3850_switching, EdgeSwitch/ubiquiti_edgeswitch/edgeswitch (empty legacy
@@ -111,7 +111,7 @@ without the optional additions remain valid. Failed/unavailable lookup is never 
 
 ## Standalone verification and save
 
-`verify_row(session, context, cli, entry, before, *, timeout=30.0) -> dict` in
+`verify_row(session, context, cli, entry, before, *, timeout=30.0, correlation=None) -> dict` in
 `orbitflow.configuration.execution` performs only read-only verification; it sends
 no configuration or save commands. `entry` is a selected prepare-summary entry;
 `before` is a normalized `configuration.v2.observation.snapshot(context, interfaces,
@@ -131,7 +131,7 @@ result = save_configuration(session, context, cli=cli,
 ```
 
 Save is a separate **configuration-persistence action**; callers need explicit operator
-intent. `save_configuration(session, context, *, cli, exec_prompt, timeout)` requires
+intent. `save_configuration(session, context, *, cli, exec_prompt, timeout, correlation=None)` requires
 an already synchronized original privileged EXEC prompt and an approved family/profile.
 It returns status Saved/Unknown, sanitized response, answered (EdgeSwitch question),
 error_category and explicit_error separately. It borrows resources; no retry, reconnect
@@ -149,3 +149,19 @@ uses it for incremental progress alongside the existing central ResultSpool.
 
 Validation commands and pending owner lab checks for Linux/Windows are in the
 [canonical manual](../user_manual/configuration-execution.md#validation-and-remaining-limits).
+
+Optional `correlation` mappings on `collect`, `save_configuration` and `verify_row`
+(default None) select scalar `run_id`, `row_id`, `digest` metadata only. Example:
+`correlation={'run_id': 'lab-117', 'row_id': 'port-3'}`. Resource IP, normalized
+interface, collection command, stage, outcome and elapsed seconds are capability-owned.
+Save is device-wide; execution supplies run/digest and verification row IDs. Shared
+logs retain selected fields and safe exception types/frame locations without raw
+responses or arbitrary exception messages.
+
+Collectors require one Cisco `Name` / EdgeSwitch `Port` matching the normalized
+requested interface. Missing, duplicate or mismatched headers raise
+SwitchportCapabilityError without reconnecting or invalidating a synchronized shell.
+Pure parsers still accept incomplete observations. EdgeSwitch VLAN lookup recognizes
+Port and Interface headers and rejects malformed/truncated rows as incomplete.
+Supplied command-not-found, incomplete-command and VLAN-range diagnostics reject
+writes. Save still records Saved on original EXEC return, with explicit_error separate.
