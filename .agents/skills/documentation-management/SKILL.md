@@ -38,6 +38,10 @@ Each new or materially changed executable script or supported public API must do
 
 Document only supported, stable/public interfaces. An internal helper is not automatically a public API. Never invent flags, defaults, output filenames, scenarios, or supported platforms. Verify against actual signatures, parsers and tests.
 
+## Interactive Operations Console integration check
+
+For **every new or materially updated user-executable script or operator workflow**, assess console eligibility under [interactive-operations-console/SKILL.md](../interactive-operations-console/SKILL.md) and the [approved console design](../../../docs/architecture/interactive-operations-console.md). Eligible operator functionality must be integrated into the interactive menu **within the same owner-authorized development Issue/PR**, with applicable profile/default paths, per-run concurrency selection, safe confirmations, relevant deterministic tests, and updated individual and console user manuals. If not eligible (for example internal development/controller utilities), record the explicit owner-approved exclusion and rationale. Never describe menu integration as implemented unless verified in code and tests. If `.agents/` is not writable by Codex, report exact required skill/routing changes for Atlas's reviewable Markdown-only PR; never bypass permissions or claim the skill was updated. No documentation-enforcement CI jobs or scripts.
+
 ## Architecture and historical records
 
 - `AGENTS.md`: only permanent cross-cutting rules and exact skill routing; no long business rules.
