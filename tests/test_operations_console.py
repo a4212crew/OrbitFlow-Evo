@@ -117,7 +117,7 @@ def test_template_collision_and_sheets(settings):
 
 
 def test_cancel_before_session_or_service(settings):
-    ui, _ = console(['', 'n'], session_check=lambda _: pytest.fail('session checked after cancel'))
+    ui, _ = console(['', '', 'n'], session_check=lambda _: pytest.fail('session checked after cancel'))
     with pytest.raises(Cancelled):
         ui.network(settings, 'data/input/devices.xlsx', 'Read-only')
 
@@ -129,7 +129,7 @@ def test_dispatch(settings, monkeypatch, kind, module, function):
     import importlib
     calls = []
     monkeypatch.setattr(importlib.import_module(module), function, lambda *a, **kw: calls.append((a, kw)))
-    ui, _ = console(['', '2', 'y'], session_check=lambda _: None)
+    ui, _ = console(['', '', '2', 'y'], session_check=lambda _: None)
     ui.run_workflow(kind, methodology=True)
     assert calls[0][1]['execution_config'].max_concurrent_devices == 2
     assert calls[0][1]['inventory_path'] == PATHS['inventory']
@@ -143,7 +143,7 @@ def test_expired_session_stops_dispatch(settings, monkeypatch):
     monkeypatch.setattr(reporting, 'run_report', lambda *a, **k: pytest.fail('network dispatched'))
     def expired(_):
         raise ValueError('expired')
-    ui, _ = console(['', '', 'y'], session_check=expired)
+    ui, _ = console(['', '', '', 'y'], session_check=expired)
     with pytest.raises(ValueError):
         ui.run_workflow('report')
 
@@ -195,8 +195,8 @@ def test_execution_uses_bound_prepare_confirm(settings, monkeypatch, confirm):
     monkeypatch.setattr(ex, 'render_summary', lambda p: 'summary with safety policy')
     monkeypatch.setattr(ex, 'export_results', lambda *a: calls.append(('export', a)))
     monkeypatch.setattr(execution_cli, 'outcome_summary', lambda *a, **k: 'Completed')
-    monkeypatch.setattr(planning, 'load', lambda p: 'immutable plan')
-    ui, _ = console(['plan.json', '', 'original-digest', '', '3', confirm], session_check=lambda _: calls.append(('session', {})))
+    monkeypatch.setattr(planning, 'load', lambda p: SimpleNamespace(digest='original-digest'))
+    ui, _ = console(['plan.json', '', '', '3', confirm], session_check=lambda _: calls.append(('session', {})))
     if confirm == 'n':
         with pytest.raises(Cancelled):
             ui.execute()
@@ -281,3 +281,179 @@ def test_recovery_custom_output_or_invalid_profile_fallback(settings, monkeypatc
     ui, _ = console(['retained-run'], session_check=lambda _: pytest.fail('offline session'))
     ui.recover('execution')
     assert outputs[0].parent == Path('outputs/reports/configuration_execution' if corrupt else 'custom-reports')
+
+@pytest.mark.parametrize('bad', ['garbage-secret', 'nan', 'inf', '-1', '1e9999'])
+def test_setup_pacing_reprompts_without_echo(settings, bad):
+    before = Path('data/sys_config/configuration-profile.toml').read_bytes()
+    ui, output = console([''] * 6 + [bad, '2.5', 'b'])
+    with pytest.raises(Cancelled):
+        ui.setup()
+    assert Path('data/sys_config/configuration-profile.toml').read_bytes() == before
+    assert any('finite nonnegative' in line for line in output)
+    assert not any(bad in line for line in output)
+    ui, _ = console([''] * 6 + [bad, '2.5', ''] + [''] * 5)
+    ui.setup()
+    assert load_profile()['execution']['connection_start_interval'] == 2.5
+
+
+def test_subset_validation_and_cancel(settings):
+    from orbitflow.targets import load_targets
+    targets = load_targets('data/input/devices.xlsx') * 3
+    ui, output = console(['0', '4', '1,1', 'secret', '3,1'])
+    assert ui.select_targets(targets) == [0, 2]
+    assert not any('fixture-password' in line for line in output)
+    ui, _ = console(['b'])
+    with pytest.raises(Cancelled):
+        ui.select_targets(targets)
+
+
+@pytest.mark.parametrize('kind', ['inventory', 'report', 'backup', 'compliance'])
+def test_subset_dispatch(settings, monkeypatch, kind):
+    import importlib
+    book = load_workbook('data/input/devices.xlsx')
+    book.active.append(['192.0.2.2', 'fixture', 'fixture-password'])
+    book.save('data/input/devices.xlsx')
+    book.close()
+    module, function = {'inventory': ('inventory_refresh', 'refresh_inventory_from_excel'),
+                        'report': ('reporting', 'run_report'), 'backup': ('configuration_backup', 'run_backup'),
+                        'compliance': ('vlan_compliance', 'run_compliance')}[kind]
+    calls = []
+    monkeypatch.setattr(importlib.import_module('orbitflow.' + module), function, lambda *a, **kw: calls.append((a, kw)))
+    ui, _ = console(['', '2', '', 'y'], session_check=lambda _: None)
+    ui.run_workflow(kind)
+    if kind == 'inventory':
+        assert calls[0][1]['target_positions'] == [1]
+    else:
+        assert [r['management_ip'] for r in calls[0][0][0]] == ['192.0.2.2']
+
+
+def test_safe_diagnostics_are_fixed(settings, monkeypatch):
+    from orbitflow.menu import OperatorError
+    cases = [(PermissionError('password=hidden'), 'Permission denied'),
+             (FileNotFoundError('password=hidden'), 'Required input'),
+             (RuntimeError('password=hidden'), 'Operation failed')]
+    for error, expected in cases:
+        ui, output = console([])
+        def fail():
+            raise error
+        ui.safe(fail)
+        assert expected in output[-1] and 'hidden' not in str(output)
+    Path('data/sys_config/configuration-profile.toml').write_text('password=hidden')
+    ui, output = console([])
+    ui.safe(ui.settings)
+    assert 'Invalid environment profile' in output[-1] and 'hidden' not in str(output)
+
+
+def test_bad_session_and_spool_diagnostics(settings):
+    def expired(_):
+        raise ValueError('token=hidden raw device output')
+    ui, output = console(['', '', 'y'], session_check=expired)
+    ui.safe(lambda: ui.network(settings, 'data/input/devices.xlsx', 'Read-only'))
+    assert 'Teleport session' in output[-1] and 'hidden' not in str(output)
+    ui, output = console(['missing-run'])
+    ui.safe(lambda: ui.recover('execution'))
+    assert 'Invalid export' in output[-1] or 'Required input' in output[-1]
+
+
+def test_review_skips_invalid_workbooks(settings):
+    root = Path(PATHS['execution_reports'])
+    root.mkdir(parents=True)
+    for i in range(12):
+        (root / f'a{i:02}.xlsx').write_bytes(b'password=hidden')
+    book = Workbook()
+    book.save(root / 'b-not-report.xlsx')
+    book.active.title = 'Run Summary'
+    book.active.append(['Run', 'good-run'])
+    book.save(root / 'z-valid.xlsx')
+    book.close()
+    ui, output = console([], session_check=lambda _: pytest.fail('offline connected'))
+    ui.review()
+    assert 'Run: good-run' in output
+    assert sum('Skipped workbook #' in line for line in output) == 10
+    assert '3 additional invalid workbooks skipped.' in output
+    assert 'hidden' not in str(output)
+
+
+def test_real_offline_planner_and_review_adapter(settings):
+    from orbitflow.configuration.v2.catalogue import CATALOGUE
+    from orbitflow.configuration.v2.workbook import create_input
+    from orbitflow.configuration.v2.planning import load
+    t = next(t for t in CATALOGUE if t.family == 'All' and t.function == 'Manual CLI')
+    create_input('manual.xlsx')
+    book = load_workbook('manual.xlsx')
+    values = dict(management_ip='192.0.2.1', platform='cisco_ios', mode='interface', scope='Gi1/0/1', commands=' description Lab\n exit\n')
+    for col, name in enumerate(t.columns, 1):
+        book[t.sheet].cell(3, col, values[name])
+    book.save('manual.xlsx')
+    book.close()
+    ui, output = console(['manual.xlsx'], session_check=lambda _: pytest.fail('manual planning connected'))
+    ui.planning()
+    source = next(Path(PATHS['plans']).rglob('plan.json'))
+    original = load(source)
+    assert original.digest in output[-1]
+    assert source.with_suffix('.xlsx').is_file()
+    ui, output = console([str(source), '', '', '1', 'n'], session_check=lambda _: pytest.fail('declined execution connected'))
+    with pytest.raises(Cancelled):
+        ui.execute()
+    assert any(original.digest in line for line in output)
+    source.with_suffix('.xlsx').write_bytes(b'corrupt-secret')
+    ui, output = console([str(source), '', '', '1'])
+    ui.safe(ui.execute)
+    assert 'Plan/workbook invalid' in output[-1] and 'corrupt-secret' not in str(output)
+
+
+def test_real_report_recovery_and_corrupt_spool(settings):
+    from orbitflow.result_spool import ResultSpool
+    spool = ResultSpool.create('runs', 'interface_vlan_report', 0)
+    with spool.collection():
+        pass
+    ui, output = console([str(spool.path), 'n'], session_check=lambda _: pytest.fail('recovery connected'))
+    ui.recover('interface_vlan')
+    result = Path(output[-1])
+    book = load_workbook(result, read_only=True)
+    assert len(book.sheetnames) == 3
+    book.close()
+    assert (spool.path / 'results.jsonl').exists()
+    (spool.path / 'manifest.json').write_text('corrupt token=hidden')
+    ui, output = console([str(spool.path), 'n'])
+    ui.safe(lambda: ui.recover('interface_vlan'))
+    assert 'Invalid export' in output[-1] and 'hidden' not in str(output)
+
+
+def test_real_planner_subset(settings, monkeypatch):
+    from orbitflow.configuration.v2.catalogue import CATALOGUE
+    from orbitflow.configuration.v2.workbook import create_input
+    from orbitflow.configuration.v2.planning import load
+    from orbitflow.configuration.v2 import observation
+    t = next(t for t in CATALOGUE if t.family == 'C3750X' and t.function == 'VLAN Database')
+    create_input('subset.xlsx')
+    book = load_workbook('subset.xlsx')
+    for row, ip in enumerate(['192.0.2.1', '192.0.2.2'], 3):
+        values = dict(management_ip=ip, vlan_id='100', name='Lab')
+        for col, name in enumerate(t.columns, 1):
+            book[t.sheet].cell(row, col, values.get(name, ''))
+    book.save('subset.xlsx')
+    book.close()
+    book = load_workbook('data/input/devices.xlsx')
+    book.active.append(['192.0.2.2', 'fixture', 'fixture-password'])
+    book.save('data/input/devices.xlsx')
+    book.close()
+    captured = []
+    monkeypatch.setattr(observation, 'collect', lambda requests, credentials, *a, **kw: captured.append((list(requests), credentials)))
+    monkeypatch.setattr(observation, 'bounded_observations', lambda spool: {})
+    ui, _ = console(['subset.xlsx', '', '2', '', 'y'], session_check=lambda _: None)
+    ui.planning()
+    assert list(captured[0][1]) == ['192.0.2.2']
+    original = load(next(Path(PATHS['plans']).rglob('plan.json')))
+    assert [r['inputs']['management_ip'] for r in original.to_dict()['requests']] == ['192.0.2.2']
+
+
+@pytest.mark.parametrize('missing', [False, True])
+def test_plan_failure_diagnostic_before_session(settings, missing):
+    Path('bad.xlsx').touch()
+    if not missing:
+        Path('bad.json').write_text('{"token":"hidden"}')
+    ui, output = console(['bad.json', 'bad.xlsx'], session_check=lambda _: pytest.fail('bad plan connected'))
+    ui.safe(ui.execute)
+    assert ('Required input' if missing else 'Invalid immutable plan') in output[-1]
+    assert 'hidden' not in str(output)

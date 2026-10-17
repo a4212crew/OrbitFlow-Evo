@@ -705,3 +705,5 @@ Owner live/lab validation and protected skill reconciliation remain pending.
 ## Interactive Operations Console
 
 Set `PYTHONPATH` to `src` and run `python -m orbitflow.menu` (`--help` is offline). The [console manual](docs/user_manual/interactive-operations-console.md) documents first-use non-secret profile setup, per-run concurrency, all workflow menus and offline recovery. Existing direct CLIs/APIs remain supported. Default execution loaders prefer shared profile pacing at `data/sys_config/configuration-profile.toml`; legacy `orbitflow.toml` remains a compatibility fallback. Apply still requires the existing bound summary and separate explicit confirmation. Owner live validation and Linux execution remain pending.
+
+Console revision #123 adds validated all/subset device row selection for read-only runs, pacing re-prompts, fixed actionable diagnostics, resilient offline report listing and automatic immutable JSON digest display/verification. Execution decisions and confirmation remain unchanged; see the [console guide](docs/user_manual/interactive-operations-console.md).

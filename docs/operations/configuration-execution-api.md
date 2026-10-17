@@ -297,3 +297,5 @@ remains outstanding. See the manual's [validation instructions](../user_manual/c
 ## Console adapter
 
 Issue #123 adds `python -m orbitflow.menu` over the existing prepare/confirm/export APIs, without changing their signatures or execution gates. See the [console manual](../user_manual/interactive-operations-console.md). The console binds a separate 1-5 apply concurrency selection and original expected digest, renders the existing summary, and requires explicit confirmation before session validation and `confirm(..., apply=True)`. Offline recovery only calls exporters.
+
+Console adapter note (Issue #123): the interactive caller validates the chosen immutable plan JSON, derives/displays `original.digest`, and passes it as `expected_digest` to `prepare_workbook`. This does not alter this API, workbook verification, confirmation authority or apply behavior. Direct CLI digest arguments are unchanged.

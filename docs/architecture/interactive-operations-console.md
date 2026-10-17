@@ -74,3 +74,5 @@ Deterministic tests cover menu navigation, first-run/profile validation, Telepor
 ## Implemented compatibility note (Issue #123)
 
 `python -m orbitflow.menu` implements this adapter. Legacy root `orbitflow.toml` remains a fallback for compatible direct callers; default loaders prefer the validated shared profile pacing without persisting interactive concurrency. Explicit alternate configuration paths retain their contracts. Offline recovery does not require profile/session setup. See the [implemented manual](../user_manual/interactive-operations-console.md) for exact prompts, paths and validation commands. Linux and owner live validation remain pending.
+
+Implemented revision: read-only menus select all or unique loaded device row positions through the shared target loader; planning scopes predefined requests by selected addresses. Apply scope remains engineer-workbook decisions. The console derives the digest from validated immutable JSON and supplies it unchanged to workbook verification. Invalid reports are skipped with bounded fixed notices. No executor/preflight safety changes.

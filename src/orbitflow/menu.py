@@ -1,5 +1,7 @@
 """Interactive operator adapter. Run with python -m orbitflow.menu."""
 import argparse
+import math
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from time import monotonic
@@ -11,6 +13,20 @@ from orbitflow.config import ExecutionConfig
 
 class Cancelled(Exception):
     """Operator returned without starting a workflow."""
+
+
+class OperatorError(ValueError):
+    """Fixed, actionable console diagnostic; never contains underlying output."""
+
+
+@contextmanager
+def diagnostic(message):
+    try:
+        yield
+    except (Cancelled, PermissionError, FileNotFoundError):
+        raise
+    except Exception:
+        raise OperatorError(message) from None
 
 
 class Console:
@@ -48,31 +64,64 @@ class Console:
             value = self.ask(f'{key} (optional file path): ', old['teleport'].get(key))
             if value:
                 routing[key] = value
-        execution = {key: float(self.ask(f'{key} [{default}]: ', str(old['execution'].get(key, default))))
-                     for key, default in (('connection_start_interval', 1.0), ('connection_retry_delay', 5.0))}
+        execution = {}
+        for key, default in (('connection_start_interval', 1.0), ('connection_retry_delay', 5.0)):
+            while True:
+                value = self.ask(f'{key} [{old["execution"].get(key, default)}]: ',
+                                 str(old['execution'].get(key, default)))
+                try:
+                    number = float(value)
+                    if not math.isfinite(number) or number < 0:
+                        raise ValueError()
+                except ValueError:
+                    self.write('Enter finite nonnegative seconds, for example 1.0; b cancels.')
+                    continue
+                execution[key] = number
+                break
         paths = {key: self.ask(f'{key} [{old["paths"][key]}]: ', old['paths'][key]) for key in PATHS}
-        save_profile({'teleport': routing, 'execution': execution, 'paths': paths}, self.profile)
+        with diagnostic('Invalid environment profile. Check routing fields and destination paths; nothing was saved.'):
+            save_profile({'teleport': routing, 'execution': execution, 'paths': paths}, self.profile)
         self.write(f'Environment saved: {self.profile}')
 
     def settings(self):
         if not self.profile.exists():
             self.setup()
-        return load_profile(self.profile)
+        with diagnostic("Invalid environment profile. Open Environment Setting and correct routing, pacing and paths."):
+            return load_profile(self.profile)
 
     def choose_file(self, label, default):
         path = Path(self.ask(f'{label} [{default}] (b cancels): ', str(default)))
         if not path.is_file():
-            raise ValueError('Missing input file')
+            raise FileNotFoundError('Missing input file')
         return path
+
+    def select_targets(self, targets):
+        # Display positions only: workbook cells may contain secrets/control characters.
+        self.write(f'Validated device rows: {len(targets)} (numbered 1 through {len(targets)}).')
+        while True:
+            value = self.ask('Device rows [all, or comma-separated row numbers; default all]: ', 'all')
+            if value.lower() == 'all':
+                return list(range(len(targets)))
+            try:
+                positions = [int(part.strip()) - 1 for part in value.split(',')]
+                if not positions or len(set(positions)) != len(positions) or any(i < 0 or i >= len(targets) for i in positions):
+                    raise ValueError()
+                return sorted(positions)
+            except ValueError:
+                self.write('Choose all or unique device row numbers in the displayed range.')
 
     def network(self, settings, devices, label):
         from orbitflow.targets import load_targets
-        targets = load_targets(devices, isolate_invalid=True)
+        with diagnostic('Invalid device workbook. Check required management_ip, username and password columns.'):
+            targets = load_targets(devices, isolate_invalid=True)
+        self.target_positions = self.select_targets(targets)
+        targets = [targets[i] for i in self.target_positions]
         limit = self.concurrency()
         self.write(f'{label}; input={devices}; target rows={len(targets)}; concurrency={limit}; inventory={settings["paths"]["inventory"]}')
         if self.ask('Continue network operation? [y/N]: ').lower() != 'y':
             raise Cancelled()
-        self.session_check(settings)
+        with diagnostic('Teleport session unavailable, expired or routing mismatched. Run tsh login externally; check proxy, cluster and identity files.'):
+            self.session_check(settings)
         validate_paths(settings)
         from orbitflow.transport import TransportConfig
         return targets, TransportConfig(**settings['teleport']), ExecutionConfig(limit, **settings['execution'])
@@ -108,12 +157,16 @@ class Console:
         from orbitflow.configuration.v2.planning import plan, save
         settings = self.settings()
         workbook = self.choose_file('Configuration workbook', settings['paths']['templates'])
-        requests = read_input(workbook)
+        with diagnostic('Invalid configuration workbook. Check template sheets and required input columns.'):
+            requests = read_input(workbook)
         ips = {r['inputs']['management_ip'] for r in requests if BY_ID[r['template_id']].family != 'All'}
         observations = {}
         if ips:
             devices = self.choose_file('Device workbook', settings['paths']['devices'])
-            _, transport, execution = self.network(settings, devices, f'Read-only planning; selected targets={len(ips)}; output={settings["paths"]["plans"]}')
+            selected, transport, execution = self.network(settings, devices, f'Read-only planning; selected targets={len(ips)}; output={settings["paths"]["plans"]}')
+            selected_ips = {row['management_ip'] for row in selected}
+            requests[:] = [r for r in requests if BY_ID[r['template_id']].family == 'All' or r['inputs']['management_ip'] in selected_ips]
+            ips &= selected_ips
             from orbitflow.configuration.v2.observation import collect, bounded_observations
             from orbitflow.targets import load_device_credentials
             spool = collect(requests, load_device_credentials(devices, sorted(ips)), transport,
@@ -135,20 +188,26 @@ class Console:
         settings = self.settings()
         source = self.choose_file('Immutable plan JSON', settings['paths']['plans'])
         workbook = self.choose_file('Engineer-reviewed workbook', source.with_suffix('.xlsx'))
-        digest = self.ask('Expected original plan digest: ')
+        with diagnostic('Invalid immutable plan. Select the original intact plan JSON and matching reviewed workbook.'):
+            original = load(source)
+        digest = original.digest
+        self.write(f'Immutable plan digest: {digest}')
         devices = self.choose_file('Device workbook', settings['paths']['devices'])
-        load_targets(devices, isolate_invalid=True)
+        with diagnostic('Invalid device workbook. Check required management_ip, username and password columns.'):
+            load_targets(devices, isolate_invalid=True)
         self.write('Apply concurrency is separate from read-only execution settings.')
         limit = self.concurrency()
         service = ExecutionService('data/configuration/execution')
-        prepared = service.prepare_workbook(load(source), workbook, expected_digest=digest,
-                                           settings=ApplySettings(max_concurrent_devices=limit, **settings['execution']))
+        with diagnostic('Plan/workbook invalid or confirmation consumed. Check matching original artifacts and decisions; review retained runs before any fresh plan.'):
+            prepared = service.prepare_workbook(original, workbook, expected_digest=digest,
+                                               settings=ApplySettings(max_concurrent_devices=limit, **settings['execution']))
         self.write(render_summary(operator_summary(prepared)))
         if prepared['status'] != 'awaiting_confirmation':
-            raise ValueError('Confirmation already consumed')
+            raise OperatorError('Confirmation consumed. Review retained execution outcomes; do not replay.')
         if self.ask('Confirm execution? [y/N]: ').lower() != 'y':
             raise Cancelled()
-        self.session_check(settings)
+        with diagnostic('Teleport session unavailable, expired or routing mismatched. Run tsh login externally; check proxy, cluster and identity files.'):
+            self.session_check(settings)
         validate_paths(settings)
         ips = sorted({row['request']['inputs']['management_ip'] for row in prepared['summary']['selected']})
         started = monotonic()
@@ -183,7 +242,7 @@ class Console:
         if kind == 'inventory':
             from orbitflow.inventory_refresh import refresh_inventory_from_excel
             result = refresh_inventory_from_excel(devices, transport, export_path=self.output('outputs/reports/inventory', 'inventory'),
-                                                  spool_root='outputs/runs/inventory_refresh', **common)
+                                                  spool_root='outputs/runs/inventory_refresh', target_positions=self.target_positions, **common)
         elif kind == 'report':
             from orbitflow.reporting import run_report
             result = run_report(targets, transport, spool_root='outputs/runs/interface_vlan_report', **common)
@@ -227,23 +286,35 @@ class Console:
                 from orbitflow.reporting import export_report_spool
                 exporter = export_report_spool
             kwargs = {'cleanup': False, 'allow_partial': self.ask('Export partial run? [y/N]: ').lower() == 'y'}
-        self.write(str(exporter(run, self.output(root, kind), **kwargs)))
+        with diagnostic('Invalid export or retained spool. Check run type and completeness; retain originals and select partial export only when supported.'):
+            self.write(str(exporter(run, self.output(root, kind), **kwargs)))
 
     def review(self):
         root = Path('outputs/reports/configuration_execution')
         if self.profile.exists():
-            root = Path(load_profile(self.profile)['paths']['execution_reports'])
+            with diagnostic('Invalid environment profile. Correct execution report path in Environment Setting.'):
+                root = Path(load_profile(self.profile)['paths']['execution_reports'])
         self.write('Execution workbooks (open for complete/partial/Unknown outcomes; no commands are sent):')
-        for path in sorted(root.glob('*.xlsx')):
-            self.write(str(path))
-            from openpyxl import load_workbook
-            book = load_workbook(path, read_only=True, data_only=True)
+        skipped = 0
+        for index, path in enumerate(sorted(root.glob('*.xlsx')), 1):
+            book = None
             try:
-                for row in book['Run Summary'].iter_rows(values_only=True):
-                    if row[0] in ('Run', 'Selected / skipped rows', 'Rows by verification outcome', 'Devices by save outcome'):
+                from openpyxl import load_workbook
+                book = load_workbook(path, read_only=True, data_only=True)
+                rows = list(book['Run Summary'].iter_rows(values_only=True))
+                self.write(str(path))
+                for row in rows:
+                    if len(row) >= 2 and row[0] in ('Run', 'Selected / skipped rows', 'Rows by verification outcome', 'Devices by save outcome'):
                         self.write(f'{row[0]}: {row[1]}')
+            except Exception:
+                skipped += 1
+                if skipped <= 10:
+                    self.write(f'Skipped workbook #{index}: unreadable or missing Run Summary; check report file locally.')
             finally:
-                book.close()
+                if book is not None:
+                    book.close()
+        if skipped > 10:
+            self.write(f'{skipped - 10} additional invalid workbooks skipped.')
 
     def submenu(self, title, actions):
         while True:
@@ -263,6 +334,12 @@ class Console:
             self.write('Cancelled.')
         except SystemExit:
             self.write('Workflow ended; inspect its module logs.')
+        except OperatorError as error:
+            self.write(str(error))
+        except PermissionError:
+            self.write('Permission denied. Check access to input, profile and output directories; keep backup access restricted.')
+        except FileNotFoundError:
+            self.write('Required input or executable missing. Check selected files and that tsh is installed on PATH.')
         except Exception:
             self.write('Operation failed. Check profile, input files, module logs and retained runs. For Teleport expiry, run tsh login outside the console.')
 
