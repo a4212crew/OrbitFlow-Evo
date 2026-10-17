@@ -112,7 +112,7 @@ A trunk/uplink may participate in and tag the same broad VLAN set. Preserve obse
 ## Owner-approved execution requirements — 2026-10-17
 
 Read [approved device execution](../../../docs/architecture/configuration/approved-device-execution.md)
-for the initial Catalyst/EdgeSwitch milestone. **Approved design, not implemented.**
+for the initial Catalyst/EdgeSwitch milestone. **Implemented in PR #118 (Issue #117); owner lab validation and merge pending.**
 Its exact template, prompt, switchport parsing, evidence, error and save requirements
 override older conceptual execution examples for these families. Preserve existing
 read-only behavior; new collectors must be independently callable through shared
@@ -126,3 +126,25 @@ Recognize the supplied PVID/participation/tagging rejection strings even when a
 prompt returns. Support observed outer `(Vlan)` / `(Interface 0/3)` mode suffixes.
 `write memory` answers the recognized save question with `y`; original EXEC prompt
 return completes save, with output/errors retained separately.
+
+See [execution API](../../../docs/operations/configuration-execution-api.md) for
+standalone calls and optional shared run/row/digest logging correlation, command/
+target metadata, elapsed timing and safe failure diagnostics. Live validation of
+the executor remains owner-controlled; sample transcripts are not validation.
+Require matching Port evidence and recognize Interface or Port VLAN-table headers.
+Command-not-found/incomplete and supplied out-of-range responses are command errors
+even when the prompt returns; save completion and explicit errors remain separate.
+
+## Execution reporting and progress — reviewed iteration 4
+
+Default execution backup location is RUN/backups; explicit external root overrides
+remain supported without changing standalone backup defaults. Main report cells
+show target-port Current/Configured/Tagging; complete tables remain in linked detail.
+Suppress tagged/membership overlap warnings in execution summary/main report only,
+including nested EXISTING_VLAN_WARNING. Keep observed independent facts and original
+plan/compliance results intact. Display attempted commands and row-specific pre/post
+evidence; device save status remains separate.
+CLI progress exposes the recognized save question, y sent and waiting for original
+EXEC. Only the owning worker sends y. Optional timer/display never touches channels,
+extends timeouts or retries writes. Save Unknown/error and prompt-return criteria
+are unchanged. See the [progress API](../../../docs/operations/configuration-execution-api.md#structured-progress-subscription).

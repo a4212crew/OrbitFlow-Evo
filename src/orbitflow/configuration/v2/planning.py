@@ -309,10 +309,13 @@ def _build(requests, observations, decisions, now, max_age):
             require(type(obs.get("vlan_lookups", {})) is dict, "invalid VLAN lookups")
             for vid, lookup in obs.get("vlan_lookups", {}).items():
                 require(type(vid) is str and vid.isdigit() and 1 <= int(vid) <= 4094, "invalid lookup VLAN")
-                keys({k: v for k, v in lookup.items() if k not in {'ports', 'evidence'}}, "status name operational_status")
+                keys({k: v for k, v in lookup.items() if k not in {'ports', 'evidence', 'vlan_id', 'vlan_type', 'ports_complete'}}, "status name operational_status")
                 require(lookup["status"] in {"present", "absent", "unknown", "error"}
                         and type(lookup["name"]) is str and type(lookup["operational_status"]) is str, "invalid VLAN lookup")
-                require(set(lookup) <= {'status', 'name', 'operational_status', 'ports', 'evidence'}, 'invalid VLAN lookup')
+                require(set(lookup) <= {'status', 'name', 'operational_status', 'ports', 'evidence', 'vlan_id', 'vlan_type', 'ports_complete'}, 'invalid VLAN lookup')
+                require('vlan_id' not in lookup or type(lookup['vlan_id']) is int and lookup['vlan_id'] == int(vid), 'invalid lookup identity')
+                require('vlan_type' not in lookup or type(lookup['vlan_type']) is str, 'invalid VLAN type')
+                require('ports_complete' not in lookup or type(lookup['ports_complete']) is bool, 'invalid port completeness')
                 require(type(lookup.get('ports', [])) is list and type(lookup.get('evidence', [])) is list, 'invalid VLAN lookup details')
             require(type(obs.get('service_details', {})) is dict, 'invalid service details')
             for target, detail in obs.get('service_details', {}).items():

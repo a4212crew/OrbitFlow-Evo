@@ -1,5 +1,10 @@
 # Bulk configuration planning v2
 
+The planner remains read-only. Issue #117 adds a separate
+[confirmed Catalyst/EdgeSwitch executor](configuration-execution.md) and
+[standalone/public execution APIs](../operations/configuration-execution-api.md).
+Statements below about no apply command describe this planning CLI.
+
 ## Overview and safety
 
 **Purpose.** The v2 planner generates a 22-worksheet Excel request workbook, collects *read-only* device evidence for predefined templates, evaluates ordered changes and safety dependencies, renders proposed device CLI, and exports an immutable JSON plan alongside an Excel engineer-review workbook. Engineers can review differences, blockers, warnings and no-ops and record **Pending / Approve / Reject** in the generated review workbook. **There is no apply, save, commit or rollback command.** Offline decisions do not authorize device configuration. Manual CLI is offline-only and has no semantic or live validation.

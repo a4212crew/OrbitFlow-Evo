@@ -2,8 +2,11 @@
 
 OrbitFlow is a multi-vendor network automation platform providing shared
 Teleport/device transport, inventory refresh, read-only interface/VLAN reporting,
-VLAN compliance, configuration backup, and offline configuration planning.
-Live configuration apply is not implemented. Executable operator guides are indexed
+VLAN compliance, configuration backup, offline configuration planning, and confirmed
+predefined Catalyst/EdgeSwitch execution. The [execution guide](docs/user_manual/configuration-execution.md)
+and [public APIs](docs/operations/configuration-execution-api.md) cover prepare/confirm,
+standalone collectors/verification/save and offline report recovery. Device/lab
+validation remains owner-performed and pending. Executable operator guides are indexed
 in [docs/user_manual/README.md](docs/user_manual/README.md).
 
 ## Setup
@@ -663,4 +666,33 @@ already released.
 Create the approved 22-template workbook with `python -m orbitflow.configuration.v2.cli input bulk-input.xlsx`.
 Predefined templates use live read-only evidence; Manual CLI remains offline.
 See [operator commands and review semantics](docs/operations/bulk-configuration-planning.md).
-No device apply/save/commit is implemented. The existing v1 CLI remains unchanged.
+The planner does not apply/save configuration; confirmed predefined execution is a separate command. The existing v1 CLI remains unchanged.
+
+Issue #117 review corrections support real EdgeSwitch Interface VLAN headers with
+strict table completeness, require matching standalone switchport target headers,
+verify the approved C3750X dot1q change while preserving unrelated settings, and
+recognize supplied command-not-found/range rejections. C3850 omits the selector.
+Save remains prompt-based with errors separate. Optional capability correlation
+retains run/row/digest, target/command, elapsed timing and safe failure diagnostics;
+see the [API reference](docs/operations/configuration-execution-api.md). Owner lab validation remains pending.
+
+
+Issue #117 cumulative owner revision (2026-10-17): execution now uses a concise reusable
+operator summary without weakening digest-bound confirmation; protected backups default
+to the execution run's `backups/` with relative references (explicit external override
+remains supported). Reports group original template rows with fresh pre-row evidence,
+actual attempted commands, readable post evidence and independent apply/verification/save
+outcomes. Older missing pre-row evidence is Not captured. Short Catalyst access responses
+permit only reliable explicit exact-port configuration fallback, with source/warnings;
+pure parser unknowns and contradictory operational facts are preserved. Fixture validation
+and owner lab status are recorded in the [execution manual](docs/user_manual/configuration-execution.md).
+No completed configuration was replayed; owner lab validation and merge remain pending.
+
+Issue #117 iteration 3: execution summaries group findings by source sheet/row ranges
+without nested evidence; template reports expose individual input columns, compact
+checks and linked complete detail, and preserve manifest run identity after relocation.
+Presentation alone suppresses tagged/membership overlap warnings. Optional structured
+progress drives immediate flushed CLI stages and five-second waiting updates without
+accessing channels or replaying writes; Python API calls remain quiet by default.
+Fallback field/source and journal warning messages survive shared safe log formatting.
+Owner live/lab validation and protected skill reconciliation remain pending.

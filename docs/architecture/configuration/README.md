@@ -1,14 +1,14 @@
 # Configuration Management Architecture (Proposed)
 
-Status: **offline Change Plans v1 and the separate configuration planning v2 workflow are implemented**. See [Offline Change Plans v1](offline-plans.md), [bulk planning v2 operator guide](../../user_manual/bulk-configuration-planning.md), and [template reference](../../operations/configuration-template-reference.md). Initial C3750X/C3850/EdgeSwitch execution is owner-approved design, not implemented; other execution phases remain proposed.
+Status: **offline Change Plans v1 and the separate configuration planning v2 workflow are implemented**. See [Offline Change Plans v1](offline-plans.md), [bulk planning v2 operator guide](../../user_manual/bulk-configuration-planning.md), and [template reference](../../operations/configuration-template-reference.md). Initial C3750X/C3850/EdgeSwitch confirmed execution is implemented by Issue #117 with deterministic tests; owner lab validation is pending; other execution phases remain proposed.
 
 OrbitFlow will accept operator-authored CLI, tabular bulk input, reusable templates and validated compliance findings into one deterministic Change Plan. The shared configuration execution boundary controls validation, approval, prechecks, backups, device application, verification, persistence, recovery and audit.
 
 ## Documents
 
-- [Approved device execution](approved-device-execution.md): 2026-10-17 owner-approved template execution, reusable collectors/parsers, confirmation, evidence/logging and save requirements. **Not implemented.**
+- [Approved device execution](approved-device-execution.md): 2026-10-17 owner-approved template execution, reusable collectors/parsers, confirmation, evidence/logging and save requirements. **Implemented by Issue #117; live/lab validation pending.**
 
-- [Approved template-based configuration planning (Gap C target)](guided-bulk-planning.md): 22 function-specific worksheets, live read-only validation for predefined templates, offline Manual CLI, evidence-rich per-row review and future apply boundary. **Planning implemented; live apply not implemented.**
+- [Approved template-based configuration planning (Gap C target)](guided-bulk-planning.md): 22 function-specific worksheets, live read-only validation for predefined templates, offline Manual CLI, evidence-rich per-row review and future apply boundary. **Planning implemented; supported predefined apply uses the separate confirmed executor.**
 
 - [Configuration management](configuration-management.md): responsibilities, boundaries and lifecycle.
 - [Change Plan specification](change-plan-specification.md): canonical intent and provenance model.
@@ -21,8 +21,9 @@ OrbitFlow will accept operator-authored CLI, tabular bulk input, reusable templa
 
 The shared device-execution layer owns concurrency and device-scoped resources; DeviceContext and DeviceSession/transport are reused. Vendor behaviour stays behind adapters; observation/audit interpretation stays in its owning capability. Reuse existing backup, reporting and structured logging where available; do not assume an unimplemented capability exists. See [root architecture](../README.md) and [roadmap](../../ROADMAP.md).
 
-No device apply, remote approval service, rollback automation, or desired-state
-datastore is implemented. Later phases require separately scoped issues,
+Confirmed predefined Catalyst/EdgeSwitch apply is implemented; see the
+[execution manual](../../user_manual/configuration-execution.md). No remote approval
+service, rollback automation or desired-state datastore is implemented. Later phases require separately scoped issues,
 deterministic tests, and operator-controlled live testing.
 
 ## Methodology resolution and deferred engineering review

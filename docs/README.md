@@ -1,5 +1,8 @@
 # OrbitFlow-Evo Documentation Index
 
+- [Confirmed Catalyst/EdgeSwitch execution](user_manual/configuration-execution.md): CLI, recovery and pending owner validation.
+- [Execution and standalone APIs](operations/configuration-execution-api.md): prepare/confirm, collectors/parsers, verification and save.
+
  > **Current layout:** The documentation migration is present on `main`; canonical executable guides live under `docs/user_manual/`. Legacy reference paths remain where source/tests depend on them.
 
 ## Start here
@@ -48,7 +51,7 @@ This is a **navigation index**, not a claim that every executable script and pub
 - [Configuration management proposal](architecture/configuration/configuration-management.md)
 - [Change Plan specification proposal](architecture/configuration/change-plan-specification.md)
 - [Configuration templates proposal](architecture/configuration/configuration-templates.md)
-- [Approved initial device execution](architecture/configuration/approved-device-execution.md) — owner-approved design, not implemented; initial Catalyst/EdgeSwitch execution and reusable capabilities.
+- [Approved initial device execution](architecture/configuration/approved-device-execution.md) — implemented initial Catalyst/EdgeSwitch execution and reusable capabilities; owner lab validation pending.
 - [Execution workflow proposal](architecture/configuration/execution-workflow.md)
 - [Platform adapters proposal](architecture/configuration/platform-adapters.md)
 - [Drift detection proposal](architecture/configuration/drift-detection.md)
@@ -77,3 +80,7 @@ This is a **navigation index**, not a claim that every executable script and pub
 For user-executable scripts, Atlas and Codex maintain canonical guides under `docs/user_manual/`. For any meaningful source change or fix, Codex must follow [documentation-management/SKILL.md](../.agents/skills/documentation-management/SKILL.md), append a monthly devlog entry and update affected README, function/API/CLI guidance and indexes as needed. Atlas may correct and reorganize Markdown directly through reviewable documentation-only changes, without creating a Codex development Issue. **Neither Atlas nor Codex may merge a PR without the owner's explicit approval.**
 
 The documentation structure was merged in PR #110. This index tracks current canonical and retained reference paths.
+
+- [Issue #117 protected skill correction handoff](operations/issue-117-skill-corrections.md): historical filesystem denial; scoped skill corrections completed by Atlas on PR #118.
+
+Issue #117 [revision handoff history](operations/issue-117-revision-handoff.md): scoped skill corrections completed by Atlas after iteration 4; owner validation remains pending.

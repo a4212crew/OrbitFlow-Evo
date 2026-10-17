@@ -19,10 +19,26 @@ authority storage is required and actor labels are not authentication.
 Deterministic tests cover the lifecycle, expiry, mutations, tampering, secret
 rejection and socket-blocked CLI operation. No apply/live verification or device
 changes are implemented. See `docs/architecture/configuration/offline-plans.md`.
-The configuration-management skill is staged alongside that document pending
-controller installation into the session-protected `.agents/skills/` directory.
+The configuration-management skill is installed under `.agents/skills/`; it
+distinguishes this v1 contract from the separate predefined execution workflow.
 
 ## Bulk Configuration Planning v2
+
+Issue #117 adds separate confirmed predefined execution for C3750X, C3850 and
+EdgeSwitch through `orbitflow.configuration.execution` and `execution_cli`.
+Prepare validates immutable plan/review decisions without connecting; transactional
+summary-bound confirmation prevents replay. Shared per-IP execution uses a separate
+apply limit (default 1), fresh identity/state checks, protected backup, exact approved
+commands, per-row verification and partial-change saving at device-task end.
+New standalone switchport parsers/collectors preserve typed facts and independent
+EdgeSwitch Current/Configured/Tagging evidence. Incremental fsynced events and shared
+result spools support offline execution-workbook regeneration after interruption.
+Save completion is original EXEC prompt return; explicit errors remain separate.
+Deterministic coverage only; no owner live/lab validation is claimed. Other families,
+Manual CLI apply, HTTP, automatic rollback and write replay/resume remain unsupported.
+See [execution manual](user_manual/configuration-execution.md) and
+[public APIs](operations/configuration-execution-api.md). Planning paragraphs below
+describe the v2 planner boundary; apply is the separate explicitly confirmed service.
 
 Issue #106 adds structured ingress conflict evidence and workbook explanations
 with service-instance IDs, canonical interfaces, selectors and projected row
@@ -48,7 +64,7 @@ excluded from ME3600X/ASR920 workbook evidence presentation. The representative
 11-row scenario retains the row 13 incompatible-parent blocker. Owner read-only
 ME3600X validation confirmed rows 3–12 consistent and row 13 blocked before these
 presentation corrections; repeat live read-only validation remains pending.
-No device apply is implemented by this revision.
+That planning revision did not implement apply; the separate Issue #117 executor is described above.
 
 Ordered planning permits a description alongside another interface operation on
 all device families in either workbook order, with explicit compatible-overlap
@@ -146,8 +162,8 @@ dependencies, no-ops and impact/conflict findings are digest-bound. Workbook
 decisions remain separate unauthenticated intent pinned to that source digest. Decision consumption rejects other edits and re-evaluates prerequisites
 and evidence age. Unresolved evidence/ownership/conflicting overlaps and unknown Manual CLI
 effects cannot become deployment-ready. Collection uses recoverable shared
-spools; bounded single-workbook limits are documented. No apply/save/commit or
-execution authorization exists. Deterministic tests cover all 22 templates,
+spools; bounded single-workbook limits are documented. Planning supplies no execution
+authorization; the separate Issue #117 service above requires confirmation. Deterministic tests cover all 22 templates,
 workbook integrity lifecycle, collection reuse and v1 regressions. No live smoke
 test has been run. Commands and limits:
 `docs/operations/bulk-configuration-planning.md`.
@@ -767,3 +783,42 @@ Owner manual width tests succeeded on ME3600X/ASR920; automatic setup still need
 live validation. NCS540/C3750X/C3850 width acceptance is pending. IOS-XR EXEC
 syntax is documented independently; no NCS540 live claim is made. See
 [verification instructions](user_manual/live-validation.md#cisco-terminal-width-issue-114).
+
+Issue #117 review corrections support real EdgeSwitch Interface VLAN headers with
+strict table completeness, require matching standalone switchport target headers,
+verify the approved C3750X dot1q change while preserving unrelated settings, and
+recognize supplied command-not-found/range rejections. C3850 omits the selector.
+Save remains prompt-based with errors separate. Optional capability correlation
+retains run/row/digest, target/command, elapsed timing and safe failure diagnostics;
+see the [API reference](operations/configuration-execution-api.md). Owner lab validation remains pending.
+
+
+Issue #117 cumulative owner revision (2026-10-17): execution now uses a concise reusable
+operator summary without weakening digest-bound confirmation; protected backups default
+to the execution run's `backups/` with relative references (explicit external override
+remains supported). Reports group original template rows with fresh pre-row evidence,
+actual attempted commands, readable post evidence and independent apply/verification/save
+outcomes. Older missing pre-row evidence is Not captured. Short Catalyst access responses
+permit only reliable explicit exact-port configuration fallback, with source/warnings;
+pure parser unknowns and contradictory operational facts are preserved. See the
+[execution manual](user_manual/configuration-execution.md). No completed configuration was replayed; owner lab validation
+and merge remain pending.
+
+Issue #117 iteration 3: execution summaries group findings by source sheet/row ranges
+without nested evidence; template reports expose individual input columns, compact
+checks and linked complete detail, and preserve manifest run identity after relocation.
+Presentation alone suppresses tagged/membership overlap warnings. Optional structured
+progress drives immediate flushed CLI stages and five-second waiting updates without
+accessing channels or replaying writes; Python API calls remain quiet by default.
+Fallback field/source and journal warning messages survive shared safe log formatting.
+Owner live/lab validation and protected skill reconciliation remain pending.
+
+Issue #117 recovery validation on 2026-10-17: executor regressions pass (133);
+Windows controller gate currently reports 2,577 passed and two inventory/reporting
+failures under its deeply nested temporary root. Extended-length spelling did not
+resolve relative workbook creation. See the monthly devlog/revision handoff for
+separate short-temp full-suite evidence; do not treat it as a passed controller gate.
+Owner lab validation and protected-skill reconciliation remain pending.
+
+Separate shorter-temp full suite: 2,579 passed in 184.13s (Windows); both failing
+controller-path tests pass there. The nested-temp controller gate remains failed.

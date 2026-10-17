@@ -23,6 +23,14 @@ Items here are not automatically approved implementation tasks. Move an item int
 
 ## Universal Configuration Management (Proposed)
 
+Issue #117 implements the initial approved C3750X/C3850/EdgeSwitch predefined
+execution milestone with summary confirmation, fresh preflight, independent
+verification/save and durable report recovery. See the
+[execution manual](user_manual/configuration-execution.md). Deterministic validation
+is implemented; owner lab/live validation remains pending. The generic delivery
+order below is historical: IOS-XR/other-family execution, Manual CLI execution,
+HTTP integration, automatic rollback and drift reconciliation remain future work.
+
 Architecture: [docs/architecture/configuration/](architecture/configuration/README.md). These are prospective phases, not approved implementation issues or completed features.
 
 1. Define and validate a versioned shared Change Plan contract for manual CLI, Excel/CSV, templates and compliance-derived proposals.
@@ -36,4 +44,33 @@ Automated rollback must remain conditional on vendor capability and field-tested
 
 ## Approved documentation baseline: template-based configuration planning (2026-10-11)
 
-The earlier generic ordering above is exploratory, not a current implementation plan. Approved future target: [22-template Gap C configuration planning](architecture/configuration/guided-bulk-planning.md). It uses one input worksheet per family/function; live read-only observation and existing-CLI evidence for predefined templates; offline-only Manual CLI; common engineer review and digest-bound immutable plans; reusable service APIs. **Configuration planning v2 is now implemented on `main` as an offline/read-only planning workflow**; consult [the operator guide](operations/bulk-configuration-planning.md) and [template reference](operations/configuration-template-reference.md) for supported commands, scenarios and limitations. Issue #88 and PR #89 were superseded, and the later v2 implementation has merged. **C5/C6 live device apply, save, rollback and related execution gates remain future work and are not implemented.**
+The earlier generic ordering above is exploratory, not a current implementation plan. Approved future target: [22-template Gap C configuration planning](architecture/configuration/guided-bulk-planning.md). It uses one input worksheet per family/function; live read-only observation and existing-CLI evidence for predefined templates; offline-only Manual CLI; common engineer review and digest-bound immutable plans; reusable service APIs. **Configuration planning v2 is now implemented on `main` as an offline/read-only planning workflow**; consult [the operator guide](operations/bulk-configuration-planning.md) and [template reference](operations/configuration-template-reference.md) for supported commands, scenarios and limitations. Issue #88 and PR #89 were superseded, and the later v2 implementation has merged. **Issue #117 now implements confirmed predefined Catalyst/EdgeSwitch apply, verification and save; rollback and other execution families remain future work. Owner live/lab validation is pending.**
+
+Issue #117 review corrections support real EdgeSwitch Interface VLAN headers with
+strict table completeness, require matching standalone switchport target headers,
+verify the approved C3750X dot1q change while preserving unrelated settings, and
+recognize supplied command-not-found/range rejections. C3850 omits the selector.
+Save remains prompt-based with errors separate. Optional capability correlation
+retains run/row/digest, target/command, elapsed timing and safe failure diagnostics;
+see the [API reference](operations/configuration-execution-api.md). Owner lab validation remains pending.
+
+
+Issue #117 cumulative owner revision (2026-10-17): execution now uses a concise reusable
+operator summary without weakening digest-bound confirmation; protected backups default
+to the execution run's `backups/` with relative references (explicit external override
+remains supported). Reports group original template rows with fresh pre-row evidence,
+actual attempted commands, readable post evidence and independent apply/verification/save
+outcomes. Older missing pre-row evidence is Not captured. Short Catalyst access responses
+permit only reliable explicit exact-port configuration fallback, with source/warnings;
+pure parser unknowns and contradictory operational facts are preserved. See the
+[execution manual](user_manual/configuration-execution.md). No completed configuration was replayed; owner lab validation
+and merge remain pending.
+
+Issue #117 iteration 3: execution summaries group findings by source sheet/row ranges
+without nested evidence; template reports expose individual input columns, compact
+checks and linked complete detail, and preserve manifest run identity after relocation.
+Presentation alone suppresses tagged/membership overlap warnings. Optional structured
+progress drives immediate flushed CLI stages and five-second waiting updates without
+accessing channels or replaying writes; Python API calls remain quiet by default.
+Fallback field/source and journal warning messages survive shared safe log formatting.
+Owner live/lab validation and protected skill reconciliation remain pending.

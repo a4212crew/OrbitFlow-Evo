@@ -2,6 +2,10 @@
 
 # Bulk configuration planning v2
 
+Issue #117 adds a separate [confirmed executor](../user_manual/configuration-execution.md)
+and [public execution/capability API reference](configuration-execution-api.md).
+The no-apply boundary below continues to describe the planning CLI.
+
 The separate `orbitflow.configuration.v2` API implements the 22-template
 catalogue from [the approved design](../architecture/configuration/guided-bulk-planning.md).
 Existing `orbitflow.configuration` v1 JSON plans, commands, validation and
