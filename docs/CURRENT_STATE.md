@@ -34,7 +34,8 @@ New standalone switchport parsers/collectors preserve typed facts and independen
 EdgeSwitch Current/Configured/Tagging evidence. Incremental fsynced events and shared
 result spools support offline execution-workbook regeneration after interruption.
 Save completion is original EXEC prompt return; explicit errors remain separate.
-Deterministic coverage only; no owner live/lab validation is claimed. Other families,
+Owner C3750X/EdgeSwitch lab validation following PR #118 is reported; C3850
+live validation remains outstanding. Other families,
 Manual CLI apply, HTTP, automatic rollback and write replay/resume remain unsupported.
 See [execution manual](user_manual/configuration-execution.md) and
 [public APIs](operations/configuration-execution-api.md). Planning paragraphs below
@@ -822,3 +823,14 @@ Owner lab validation and protected-skill reconciliation remain pending.
 
 Separate shorter-temp full suite: 2,579 passed in 184.13s (Windows); both failing
 controller-path tests pass there. The nested-temp controller gate remains failed.
+
+
+Issue #119 presentation follow-up: confirmation renders totals and numbered devices
+with selected-row counts, a warning/blocker detail pointer and one execution policy
+line. CLI progress retains stage/source/command index and actionable outcomes while
+omitting commands, counters and durations; structured subscribers retain full timing
+and correlation. One final actual device/row outcome summary includes execution elapsed
+time before report generation. Execution/verification behavior and replay gates remain
+unchanged. Owner C3750X/EdgeSwitch lab validation following merged PR #118 is reported;
+C3850 live validation remains outstanding. Historical run/gate results above are retained.
+No live device testing was performed by Codex for this follow-up.

@@ -103,15 +103,18 @@ class Progress:
 
 
 def console_progress(event):
-    """CLI renderer; delivery is serialized by Progress and always flushed."""
+    """Compact CLI stages; timing/commands remain in events, output is flushed.
+
+    Progress serializes delivery across workers and the waiting timer.
+    """
     parts = [f"{event['management_ip']} {event['hostname']} [{event['stage']}]"]
     if event.get('source'):
         parts.append(event['source'])
-    if event.get('command'):
-        index = f" {event['command_index']}/{event.get('command_total', '?')}" if event.get('command_index') else ''
-        parts.append(f"command{index}: {event['command']}")
-    for key in ('status', 'error_category', 'awaited_stage', 'waiting_seconds', 'timeout_seconds', 'remaining_seconds', 'command_timeout_seconds'):
-        if key in event:
+    if event.get('command_index'):
+        parts.append(f"command {event['command_index']}/{event.get('command_total', '?')}")
+    for key in ('status', 'error_category'):
+        if event.get(key):
             parts.append(f"{key}={event[key]}")
-    parts.append(f"rows={event['rows_completed']}/{event.get('rows_total', '?')} devices={event['devices_completed']}/{event.get('devices_total', '?')} elapsed={event['elapsed_seconds']}s")
+    if event['stage'] == 'verification_warning':
+        parts.append('warning: see configuration logs and report details')
     print(' | '.join(parts), flush=True)
