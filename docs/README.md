@@ -82,3 +82,5 @@ For user-executable scripts, Atlas and Codex maintain canonical guides under `do
 The documentation structure was merged in PR #110. This index tracks current canonical and retained reference paths.
 
 - [Issue #117 protected skill correction handoff](operations/issue-117-skill-corrections.md): historical filesystem denial; scoped skill corrections completed by Atlas on PR #118.
+
+Issue #117 controller/Atlas follow-up: [revision handoff and protected skill corrections](operations/issue-117-revision-handoff.md).

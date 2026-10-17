@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 import json
 import socket
 from types import SimpleNamespace
@@ -380,7 +381,7 @@ def test_execution_exact_commands_partial_save_and_unknown(tmp_path, monkeypatch
     assert 'description test-user' in capture and 'hidden' not in capture
     path = ex.export_results(spool.path, tmp_path / 'results.xlsx')
     book = load_workbook(path)
-    assert book['Execution Results'].max_row == 2
+    assert book[template('C3750X', 'VLAN Database').sheet].max_row == 2
     assert all(c.data_type != 'f' for s in book for row in s for c in row)
 
 
@@ -622,7 +623,7 @@ def test_report_oversized_literal_and_torn_event(tmp_path, monkeypatch):
         stream.write('{"torn":')
     output = ex.export_results(spool.path, tmp_path / 'oversized.xlsx')
     book = load_workbook(output)
-    parts = [str(row[2].value) for row in list(book['Event Details'].rows)[1:]]
+    parts = [str(row[3].value) for row in list(book['Evidence Details'].rows)[1:]]
     assert marker in ''.join(parts).replace('\\n', '\n')
     assert all(c.data_type != 'f' for s in book for row in s for c in row)
 
@@ -790,3 +791,201 @@ def test_concurrent_capability_metadata_and_safe_diagnostics(tmp_path):
         assert any(r.get('interface') == f'0/{index}' and r['command'].endswith(f'0/{index}') for r in selected)
     assert any(r.get('exception_chain') for r in records)
     assert 'never-log-this' not in json.dumps(records)
+
+@pytest.mark.parametrize('explicit, operational, enabled, reliable, expected', [
+    ('445', None, True, True, 'Verified'), ('4001', None, True, True, 'Failed'),
+    ('', None, True, True, 'Unknown'), ('445', None, None, True, 'Unknown'),
+    ('445', None, True, False, 'Unknown'), ('445', 201, True, True, 'Failed'),
+    ('445\n switchport access vlan 201', None, True, True, 'Unknown')])
+def test_short_access_fallback_boundaries(monkeypatch, explicit, operational, enabled, reliable, expected):
+    config = 'interface GigabitEthernet1/1/1\n description OrbitflowTest1\n switchport mode access\n switchport access vlan 545\n shutdown\n!\nend\n'
+    ctx, r, original = make_plan(function='Access Port', config=config, inputs=dict(interface='GigabitEthernet1/1/1', vlan_id=445, description='OrbitflowTest1'))
+    before = original.to_dict()['observations'][IP]
+    after_config = config.replace(' switchport access vlan 545\n', (' switchport access vlan ' + explicit + '\n') if explicit else '')
+    after = observation(ctx, after_config)
+    after['configuration_reliable'] = reliable
+    after['vlan_lookups'] = {}
+    monkeypatch.setattr(ex, '_observe', lambda *a: after)
+    facts = dict(enabled=enabled, administrative_mode='static access', access_vlan=operational)
+    monkeypatch.setattr(ex, 'SwitchportService', lambda **k: SimpleNamespace(collect=lambda *a, **k: SimpleNamespace(to_dict=lambda: dict(facts=facts))))
+    value = ex.verify_row(object(), ctx, object(), dict(request=r, result=original.to_dict()['results'][0]), before)
+    assert value['status'] == expected
+    assert facts['access_vlan'] == operational  # parser observation stays unknown
+    if operational is None:
+        assert value['evidence']['missing_fields'] == ['Access Mode VLAN']
+    if expected == 'Verified':
+        assert 'explicit configuration' in value['evidence']['access_vlan_source']
+
+
+def test_default_backup_relative_movable_and_pre_row_durable(tmp_path, monkeypatch):
+    ctx, r, original = make_plan()
+    fake_runtime(monkeypatch, ctx, original.to_dict()['observations'][IP])
+    service = ex.ExecutionService(tmp_path / 'authority')
+    prepared = service.prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)
+    spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
+                            credentials={IP: DeviceCredentials('test-user', 'hidden')}, run_root=tmp_path/'runs', inventory_path=tmp_path/'inventory.json')
+    events = list(ResultJournal(spool.path/'events.jsonl').records())
+    backup = next(e for e in events if e['stage'] == 'backup_complete')
+    assert Path(backup['backup_reference']).parts[0] == 'backups'
+    assert (spool.path / backup['backup_reference']).is_file()
+    assert (spool.path/'backups'/'.gitignore').read_text() == '*\n'
+    assert next(i for i,e in enumerate(events) if e['stage']=='pre_row_evidence') < next(i for i,e in enumerate(events) if e['stage']=='command_intent')
+    import shutil
+    moved = tmp_path/'moved'
+    shutil.copytree(spool.path, moved)
+    assert (moved/backup['backup_reference']).is_file()
+    monkeypatch.setattr(ex, 'connect_device', lambda *a: pytest.fail('offline export'))
+    ex.export_results(moved, tmp_path/'moved.xlsx')
+
+
+@pytest.mark.parametrize('failure', ['', 'reject', 'timeout'])
+def test_readable_report_actual_commands_and_evidence(tmp_path, monkeypatch, failure):
+    run, _, original = run_prepared(tmp_path, monkeypatch)
+    WorkerCLI.rejection = '% Invalid input' if failure == 'reject' else ''
+    WorkerCLI.timeout = failure == 'timeout'
+    spool = run()
+    path = ex.export_results(spool.path, tmp_path/'readable.xlsx')
+    book = load_workbook(path)
+    sheet = book[template('C3750X', 'VLAN Database').sheet]
+    row = dict(zip([c.value for c in sheet[1]], [c.value for c in sheet[2]]))
+    assert 'command:' in row['Config Sent']
+    assert row['Apply Status'] == {'': 'Applied', 'reject': 'Rejected', 'timeout': 'Unknown'}[failure]
+    assert row['Pre-config'] != 'Not captured'
+    if failure:
+        assert 'end' not in row['Config Sent']
+    assert row['Original Inputs'] and row['IP'] == IP
+
+
+def test_operator_projection_counts_order_and_no_evidence_dump(tmp_path):
+    ctx, r, original = make_plan()
+    service = ex.ExecutionService(tmp_path/'authority')
+    prepared = service.prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)
+    projection = ex.operator_summary(prepared)
+    assert (projection['changes'], projection['no_ops'], projection['skipped'], projection['device_count']) == (1,0,0,1)
+    assert projection['devices'][0]['ip'] == IP
+    rendered = ex.render_summary(projection)
+    assert 'Offline selection only' in rendered and 'partial changes' in rendered
+    assert 'observations' not in rendered and 'configure terminal' not in rendered
+    assert service.prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)['summary_digest'] == prepared['summary_digest']
+    rejected = service.prepare(original, {r['row_id']: 'Reject'}, expected_digest=original.digest)
+    projection = ex.operator_summary(rejected)
+    assert projection['skipped'] == 1 and projection['device_count'] == 0
+    assert IP == rejected['summary']['skipped'][0]['request']['inputs']['management_ip']
+
+
+def test_old_report_does_not_fabricate_pre_config(tmp_path):
+    _, r, original = make_plan()
+    prepared = ex.ExecutionService(tmp_path/'authority').prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)
+    run = tmp_path/'old'; run.mkdir()
+    (run/'summary.json').write_text(json.dumps(prepared['summary']))
+    ResultJournal(run/'events.jsonl').append(dict(stage='row_result', management_ip=IP, row_id=r['row_id'], status='Verified', verification=dict(status='Verified', evidence='old scoped evidence')))
+    path = ex.export_results(run, tmp_path/'old.xlsx')
+    sheet = load_workbook(path)[template('C3750X', 'VLAN Database').sheet]
+    values = dict(zip([c.value for c in sheet[1]], [c.value for c in sheet[2]]))
+    assert values['Pre-config'] == 'Not captured'
+    assert values['Config Evidence (post-row)'] == 'old scoped evidence'
+
+
+def test_summary_and_report_order_noop_skipped_and_row_specific_evidence(tmp_path):
+    ctx = context()
+    obs = observation(ctx, 'vlan 545\n name Customer\n!\nend\n')
+    rows = [request(template('C3750X', 'VLAN Database').id, dict(management_ip=IP, vlan_id=v, name='Customer'), sheet_order=1, row=i+3) for i,v in enumerate((445,545,201))]
+    original = plan(rows, {IP: obs}, now=NOW)
+    prepared = ex.ExecutionService(tmp_path/'authority').prepare(original, {r['row_id']: 'Reject' if i==2 else 'Approve' for i,r in enumerate(rows)}, expected_digest=original.digest)
+    projection = ex.operator_summary(prepared)
+    assert (projection['changes'], projection['no_ops'], projection['skipped']) == (1,1,1)
+    assert projection['devices'][0]['actions'] == {'VLAN Database: Set': 2}
+    run = tmp_path/'run'; run.mkdir()
+    (run/'summary.json').write_text(json.dumps(prepared['summary']))
+    journal = ResultJournal(run/'events.jsonl')
+    for i,r in enumerate(rows[:2]):
+        journal.append(dict(stage='pre_row_evidence', row_id=r['row_id'], management_ip=IP, evidence=f'pre row {i}'))
+        journal.append(dict(stage='row_result', row_id=r['row_id'], management_ip=IP, status='Verified', verification=dict(status='Verified', evidence=f'post row {i}')))
+    output = ex.export_results(run, tmp_path/'rows.xlsx')
+    sheet = load_workbook(output)[template('C3750X','VLAN Database').sheet]
+    headers = [c.value for c in sheet[1]]
+    values = [dict(zip(headers,[c.value for c in row])) for row in list(sheet.rows)[1:]]
+    assert [v['Row ID'] for v in values] == [r['row_id'] for r in rows]
+    assert [v['Pre-config'] for v in values[:2]] == ['pre row 0','pre row 1']
+    assert [v['Config Evidence (post-row)'] for v in values[:2]] == ['post row 0','post row 1']
+    assert values[1]['Apply Status'] == 'No-op' and values[1]['Config Sent'] == 'None (no-op)'
+    assert values[2]['Apply Status'] == 'Skipped' and values[2]['IP'] == IP and 'Reject' in values[2]['Error']
+
+
+def test_unavailable_switchport_keeps_scoped_post_configuration(monkeypatch):
+    config = 'interface GigabitEthernet1/1/1\n description OrbitflowTest1\n switchport mode access\n switchport access vlan 445\n!\nend\n'
+    ctx, r, original = make_plan(function='Access Port', config=config, inputs=dict(interface='GigabitEthernet1/1/1', vlan_id=445))
+    obs = original.to_dict()['observations'][IP]
+    monkeypatch.setattr(ex, '_observe', lambda *a: obs)
+    class Unavailable(Exception):
+        pass
+    def unavailable(*args, **kwargs):
+        raise Unavailable()
+    monkeypatch.setattr(ex, 'SwitchportService', lambda **k: SimpleNamespace(collect=unavailable))
+    value = ex.verify_row(object(), ctx, object(), dict(request=r, result=original.to_dict()['results'][0]), obs)
+    assert value['status'] == 'Unknown'
+    assert any('switchport access vlan 445' in e['excerpt'] for e in value['evidence']['configuration'])
+    assert 'Unavailable' in value['evidence']['warnings'][0]
+    short = cisco('Name: Gi1/1/1\nSwitchport: Enabled\nAdministrative Mode: static access')
+    assert short.facts['access_vlan'] is None and short.facts['enabled'] is True
+
+
+def test_report_warning_and_apply_verification_separation(tmp_path):
+    _, r, original = make_plan()
+    prepared = ex.ExecutionService(tmp_path/'authority').prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)
+    run=tmp_path/'run';run.mkdir()
+    (run/'summary.json').write_text(json.dumps(prepared['summary']))
+    journal=ResultJournal(run/'events.jsonl')
+    journal.append(dict(stage='command_intent', management_ip=IP, row_id=r['row_id'], command='vlan 445'))
+    journal.append(dict(stage='command_result', management_ip=IP, row_id=r['row_id'], status='Returned', response='fixture#'))
+    journal.append(dict(stage='row_result', management_ip=IP, row_id=r['row_id'], status='Verified', preflight_findings=['GLOBAL_VLAN_REQUIRED'], verification=dict(status='Verified', warnings=['VLAN_INACTIVE'], evidence=dict(warnings=['ACCESS_VLAN_CONFIG_FALLBACK'], configuration='scoped post config'))))
+    output=ex.export_results(run,tmp_path/'warnings.xlsx')
+    sheet=load_workbook(output)[template('C3750X','VLAN Database').sheet]
+    value=dict(zip([c.value for c in sheet[1]],[c.value for c in sheet[2]]))
+    assert value['Apply Status']=='Applied' and 'Verified' in value['Status Verification']
+    assert value['Error'] is None
+    assert all(w in value['Warning'] for w in ('GLOBAL_VLAN_REQUIRED','VLAN_INACTIVE','ACCESS_VLAN_CONFIG_FALLBACK'))
+
+
+def test_pre_revision_confirmation_metadata_cannot_bypass_replay(tmp_path):
+    import hashlib
+    _, r, original = make_plan()
+    service=ex.ExecutionService(tmp_path/'authority')
+    prepared=service.prepare(original,{r['row_id']:'Reject'},expected_digest=original.digest)
+    with service._db() as db:
+        raw=db.execute('SELECT payload FROM confirmations').fetchone()[0]
+        payload=json.loads(raw)
+        for skipped in payload['summary']['skipped']:
+            skipped.pop('request');skipped.pop('identity')
+        legacy_digest=hashlib.sha256(ex.canonical(payload['summary']).encode()).hexdigest()
+        db.execute("UPDATE confirmations SET digest=?,payload=?,state='completed'",(legacy_digest,ex.canonical(payload)))
+    repeated=service.prepare(original,{r['row_id']:'Reject'},expected_digest=original.digest)
+    assert repeated['reference']==prepared['reference']
+    assert repeated['summary_digest']==legacy_digest and repeated['status']=='completed'
+    with pytest.raises(PlanError):
+        service.confirm(repeated['reference'],summary_digest=legacy_digest,apply=True)
+
+
+def test_malformed_operational_access_field_does_not_use_missing_field_fallback(monkeypatch):
+    config='interface GigabitEthernet1/1/1\n switchport mode access\n switchport access vlan 445\n!\nend\n'
+    ctx,r,original=make_plan(function='Access Port',config=config,inputs=dict(interface='GigabitEthernet1/1/1',vlan_id=445))
+    obs=original.to_dict()['observations'][IP]
+    monkeypatch.setattr(ex,'_observe',lambda *a:obs)
+    parsed=cisco('Name: Gi1/1/1\nSwitchport: Enabled\nAdministrative Mode: static access\nAccess Mode VLAN: malformed')
+    monkeypatch.setattr(ex,'SwitchportService',lambda **k:SimpleNamespace(collect=lambda *a,**k:parsed))
+    value=ex.verify_row(object(),ctx,object(),dict(request=r,result=original.to_dict()['results'][0]),obs)
+    assert value['status']=='Unknown'
+    assert value['evidence']['invalid_fields']==['Access Mode VLAN']
+    assert 'access_vlan_source' not in value['evidence']
+
+
+def test_external_backup_override_different_drive_reference(tmp_path, monkeypatch):
+    run,_,_=run_prepared(tmp_path,monkeypatch)
+    def different_drive(*args):
+        raise ValueError('different drives')
+    monkeypatch.setattr(ex.os.path,'relpath',different_drive)
+    spool=run()
+    events=list(ResultJournal(spool.path/'events.jsonl').records())
+    backup=next(e for e in events if e['stage']=='backup_complete')
+    assert Path(backup['backup_reference']).is_absolute()
+    assert next(spool.records())['payload']['rows'][0]['status']=='Verified'

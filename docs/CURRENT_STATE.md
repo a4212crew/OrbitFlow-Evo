@@ -791,3 +791,15 @@ recognize supplied command-not-found/range rejections. C3850 omits the selector.
 Save remains prompt-based with errors separate. Optional capability correlation
 retains run/row/digest, target/command, elapsed timing and safe failure diagnostics;
 see the [API reference](operations/configuration-execution-api.md). Owner lab validation remains pending.
+
+
+Issue #117 cumulative owner revision (2026-10-17): execution now uses a concise reusable
+operator summary without weakening digest-bound confirmation; protected backups default
+to the execution run's `backups/` with relative references (explicit external override
+remains supported). Reports group original template rows with fresh pre-row evidence,
+actual attempted commands, readable post evidence and independent apply/verification/save
+outcomes. Older missing pre-row evidence is Not captured. Short Catalyst access responses
+permit only reliable explicit exact-port configuration fallback, with source/warnings;
+pure parser unknowns and contradictory operational facts are preserved. See the
+[execution manual](user_manual/configuration-execution.md). No completed configuration was replayed; owner lab validation
+and merge remain pending.

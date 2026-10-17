@@ -93,12 +93,16 @@ def filename_component(value):
 
 
 class BackupWriter:
-    """Own filename allocation; exclusive creation also protects existing files."""
-    def __init__(self, root, started):
+    """Own protected capture allocation; exact_directory supports an owning run.
+
+    Default allocation retains the standalone dated-run layout. Exclusive file
+    creation and synchronized naming protect existing captures in either mode.
+    """
+    def __init__(self, root, started, *, exact_directory=False):
         root = Path(root)
-        root.mkdir(parents=True, exist_ok=True)
-        self.path = root / (started.strftime('%Y%m%dT%H%M%S_%fZ') + '_' + uuid4().hex)
-        self.path.mkdir(mode=0o700)
+        root.mkdir(mode=0o700 if exact_directory else 0o777, parents=True, exist_ok=True)
+        self.path = root if exact_directory else root / (started.strftime('%Y%m%dT%H%M%S_%fZ') + '_' + uuid4().hex)
+        self.path.mkdir(mode=0o700, exist_ok=exact_directory)
         # A custom root inside a repository must also ignore sensitive captures.
         (self.path / '.gitignore').write_text('*\n', encoding='utf-8')
         self._lock = Lock()

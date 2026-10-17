@@ -1,9 +1,8 @@
 """Explicit approved predefined apply, or offline execution-report recovery."""
 import argparse
-import json
 from pathlib import Path
 
-from orbitflow.configuration.execution import ApplySettings, ExecutionService, export_results
+from orbitflow.configuration.execution import ApplySettings, ExecutionService, export_results, operator_summary, render_summary
 from orbitflow.configuration.v2.planning import load
 from orbitflow.configuration.plans import require
 from orbitflow.logging import module_logger
@@ -28,7 +27,7 @@ def main(argv=None):
     apply.add_argument('--authority-dir', default='data/configuration/execution')
     apply.add_argument('--inventory-path', default='data/inventory/inventory.json')
     apply.add_argument('--run-root', default='outputs/runs/configuration_execution')
-    apply.add_argument('--backups-dir', default='outputs/backups/configuration')
+    apply.add_argument('--backups-dir', help='Explicit external backup root; default: RUN/backups')
     for name in ('proxy', 'cluster', 'bastion-host', 'bastion-user'):
         apply.add_argument('--' + name, required=True)
     apply.add_argument('--teleport-key-path', type=Path)
@@ -43,7 +42,7 @@ def main(argv=None):
                                      args.connection_start_interval, args.connection_retry_delay)
             service = ExecutionService(args.authority_dir)
             prepared = service.prepare_workbook(load(args.plan), args.workbook, expected_digest=args.expected_digest, settings=settings)
-            print(json.dumps(prepared, indent=2))
+            print(render_summary(operator_summary(prepared)))
             require(prepared['status'] == 'awaiting_confirmation', 'confirmation already consumed')
             if input('Confirm execution? [y/N]: ').strip().lower() != 'y':
                 logger.info('Execution declined')

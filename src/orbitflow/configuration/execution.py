@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from contextlib import contextmanager
 import hashlib
 import math
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -18,7 +19,7 @@ from orbitflow.configuration.plans import canonical, decode, identity, require
 from orbitflow.configuration.v2.catalogue import BY_ID
 from orbitflow.configuration.v2.planning import BulkPlan, evaluate_decisions, plan
 from orbitflow.config import ExecutionConfig
-from orbitflow.logging import module_logger, sanitize_text
+from orbitflow.logging import module_logger, sanitize_text, capability_metadata
 from orbitflow.result_spool import ResultSpool, ResultJournal
 from orbitflow.execution import execute_devices
 from orbitflow.capabilities.save import command_rejected, save_configuration
@@ -115,7 +116,7 @@ class ExecutionService:
                          identity=data['observations'].get(request['inputs']['management_ip'], {}).get('identity'),
                          verification_commands=verification_commands(request, result))
             if reason:
-                skipped.append(dict(row_id=request['row_id'], decision=result['decision'], reason=reason, blockers=result.get('blockers', result['findings'])))
+                skipped.append(dict(row_id=request['row_id'], decision=result['decision'], reason=reason, request=request, identity=entry['identity'], blockers=result.get('blockers', result['findings'])))
             else:
                 selected.append(entry)
         # Dependency closure is evaluated against executable rows, in order.
@@ -123,7 +124,7 @@ class ExecutionService:
         executable = []
         for entry in selected:
             if not set(entry['result']['dependencies']) <= ready:
-                skipped.append(dict(row_id=entry['request']['row_id'], decision=entry['result']['decision'], reason='DEPENDENCY_NOT_EXECUTABLE'))
+                skipped.append(dict(row_id=entry['request']['row_id'], decision=entry['result']['decision'], reason='DEPENDENCY_NOT_EXECUTABLE', request=entry['request'], identity=entry['identity']))
             else:
                 executable.append(entry)
                 ready.add(entry['request']['row_id'])
@@ -133,9 +134,17 @@ class ExecutionService:
         digest = hashlib.sha256(canonical(summary).encode()).hexdigest()
         payload = canonical(dict(summary=summary, plan=data, decisions=intent['decisions']))
         reference = uuid4().hex
+        # Added presentation metadata must not make a consumed pre-revision
+        # confirmation executable again. Reuse its exact original bound payload.
+        legacy = dict(summary, skipped=[{k: v for k, v in e.items() if k not in {'request', 'identity'}} for e in skipped])
+        legacy_digest = hashlib.sha256(canonical(legacy).encode()).hexdigest()
         with self._db() as db:
-            db.execute('INSERT OR IGNORE INTO confirmations VALUES (?, ?, ?, ?, ?)', (reference, digest, payload, 'awaiting_confirmation', ''))
-            row = db.execute('SELECT reference, state, run_path FROM confirmations WHERE digest=?', (digest,)).fetchone()
+            row = db.execute("SELECT reference, state, run_path, digest, payload FROM confirmations WHERE digest IN (?, ?) ORDER BY CASE WHEN state='awaiting_confirmation' THEN 1 ELSE 0 END", (digest, legacy_digest)).fetchone()
+            if row is None:
+                db.execute('INSERT OR IGNORE INTO confirmations VALUES (?, ?, ?, ?, ?)', (reference, digest, payload, 'awaiting_confirmation', ''))
+                row = db.execute('SELECT reference, state, run_path, digest, payload FROM confirmations WHERE digest=?', (digest,)).fetchone()
+        digest = row[3]
+        summary = decode(row[4])['summary']
         with module_logger('configuration', 'execution') as (logger, _):
             logger.info(f'Prepare; digest={original.digest}; confirmation={row[0]}; summary={digest}')
         return dict(status=row[1], reference=row[0], summary_digest=digest, summary=summary, run_path=row[2])
@@ -148,8 +157,12 @@ class ExecutionService:
 
     def confirm(self, reference, *, summary_digest, apply=False, credentials=None,
                 transport_config=None, inventory_path='data/inventory/inventory.json',
-                run_root='outputs/runs/configuration_execution', backups_dir='outputs/backups/configuration'):
-        """Atomically consume confirmation before connecting. Replay never starts work."""
+                run_root='outputs/runs/configuration_execution', backups_dir=None):
+        """Consume confirmation before connecting; replay never starts work.
+
+        backups_dir=None stores captures in the run; explicit overrides allocate
+        an external ROOT/run-id directory and retain relative references.
+        """
         require(apply is True, 'explicit apply intent required')
         with self._db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -206,7 +219,11 @@ def _expected_mode(command, previous, exec_prompt, edge):
 
 
 def verify_row(session, context, cli, entry, before, *, timeout=30.0, correlation=None):
-    """Reusable verification. Return Verified/Failed/Unknown and structured evidence."""
+    """Read-only verification returning Verified/Failed/Unknown and scoped evidence.
+
+    Access-only missing operational VLAN may use reliable explicit exact-target
+    normalized config; preserve parser unknowns and disclose the fallback source.
+    """
     from orbitflow.configuration.v2.evidence import scoped_evidence
     request, result = entry['request'], entry['result']
     t, p = BY_ID[request['template_id']], request['inputs']
@@ -244,30 +261,52 @@ def verify_row(session, context, cli, entry, before, *, timeout=30.0, correlatio
     def preserved(nodes):
         return [signature(n) for n in nodes if n['kind'] not in modified]
     checks.append(preserved(old) == preserved(new))
-    evidence = dict(configuration=scoped_evidence(request, after), description=actual[0])
+    evidence = dict(configuration=scoped_evidence(request, after), description=actual[0], preservation='Matched' if all(checks) else 'Description or unrelated setting mismatch')
     if t.function != 'Interface Description':
-        switchport = SwitchportService(timeout=timeout).collect(session, context, target, cli=cli, correlation=correlation).to_dict()
+        try:
+            switchport = SwitchportService(timeout=timeout).collect(session, context, target, cli=cli, correlation=correlation).to_dict()
+        except Exception as exc:
+            evidence['warnings'] = ['Operational switchport evidence unavailable: ' + type(exc).__name__]
+            return dict(status='Unknown', error_category=type(exc).__name__, evidence=evidence)
         evidence['switchport'] = switchport
         f = switchport['facts']
         if t.function == 'Access Port':
-            required = [f['enabled'], f['administrative_mode'], f['access_vlan']]
+            access = f['access_vlan']
+            if access is None:
+                missing_access_field = 'Access Mode VLAN' not in switchport.get('fields', {})
+                evidence['missing_fields' if missing_access_field else 'invalid_fields'] = ['Access Mode VLAN']
+                explicit = [n['value'] for n in new if n['kind'] == 'access']
+                if missing_access_field and after.get('configuration_reliable') is True and f['enabled'] is True and f['administrative_mode'] == 'static access' and len(explicit) == 1 and isinstance(explicit[0], list) and len(explicit[0]) == 1 and type(explicit[0][0]) is int and 1 <= explicit[0][0] <= 4094:
+                    access = explicit[0][0]
+                    evidence['access_vlan_source'] = 'fresh exact-interface explicit configuration'
+                    evidence['warnings'] = ['ACCESS_VLAN_CONFIG_FALLBACK: Access Mode VLAN not reported']
+                else:
+                    evidence['warnings'] = [('Access Mode VLAN not reported' if missing_access_field else 'Access Mode VLAN malformed') + '; unambiguous explicit configuration fallback unavailable']
+                with module_logger('configuration', 'execution') as (logger, _):
+                    logger.warning('Access Mode VLAN %s; verification source=%s',
+                                   'not reported' if missing_access_field else 'malformed', evidence.get('access_vlan_source', 'unavailable'),
+                                   extra=capability_metadata(context, correlation, interface=target, stage='verification', outcome='Fallback' if access is not None else 'Unknown'))
+            evidence['access_vlan_check'] = dict(actual=access, requested=p['vlan_id'])
+            required = [f['enabled'], f['administrative_mode'], access]
             if any(v is None for v in required):
-                return dict(status='Unknown', evidence=evidence)
-            checks += [f['enabled'] is True, f['administrative_mode'] == 'static access', f['access_vlan'] == p['vlan_id']]
+                return dict(status='Failed' if not all(checks) or f['enabled'] is False or f['administrative_mode'] not in (None, 'static access') else 'Unknown', evidence=evidence)
+            checks += [f['enabled'] is True, f['administrative_mode'] == 'static access', access == p['vlan_id']]
             evidence['vlan_lookup'] = after['vlan_lookups'].get(str(p['vlan_id']))
             lookup = evidence['vlan_lookup'] or {}
-            evidence['warnings'] = ['GLOBAL_VLAN_NOT_ACTIVE'] if lookup.get('status') == 'absent' or lookup.get('operational_status') in {'inactive', 'suspended', 'act/lshut'} else []
+            evidence.setdefault('warnings', []).extend(['GLOBAL_VLAN_NOT_ACTIVE'] if lookup.get('status') == 'absent' or lookup.get('operational_status') in {'inactive', 'suspended', 'act/lshut'} else [])
         elif t.function == 'Trunk Port':
             desired = result['desired_allowed_state']
             values = set(desired['values'])
             allowed = set(range(1, 4095)) - values if desired['all'] else values
             native = result['projected_state']['native']
             if any(f[k] is None for k in ('enabled', 'administrative_mode', 'allowed_vlans', 'native_vlan')) or len(native) != 1:
+                evidence['warnings'] = ['Missing operational fields: ' + ', '.join(k for k in ('enabled', 'administrative_mode', 'allowed_vlans', 'native_vlan') if f[k] is None)]
                 return dict(status='Unknown', evidence=evidence)
             checks += [f['enabled'] is True, f['administrative_mode'] == 'trunk', _set(f['allowed_vlans']) == allowed, f['native_vlan'] == native[0]]
         else:
             desired = result['projected_state']
             if any(f[k] is None for k in ('pvid', 'tagged_vlans', 'untagged_vlans')):
+                evidence['warnings'] = ['Missing operational fields: ' + ', '.join(k for k in ('pvid', 'tagged_vlans', 'untagged_vlans') if f[k] is None)]
                 return dict(status='Unknown', evidence=evidence)
             checks += [f['pvid'] == desired['pvid'], _set(f['tagged_vlans']) == set(desired['tagged'])]
             # PVID untagged handling is checked independently from participation.
@@ -304,14 +343,14 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
         on_started(spool.path)
     (spool.path / 'summary.json').write_text(canonical(summary), encoding='utf-8')
     journal = ResultJournal(spool.path / 'events.jsonl', clean=clean)
-    backup = BackupWriter(backups_dir, datetime.now(timezone.utc))
+    backup = BackupWriter(Path(backups_dir) / spool.path.name if backups_dir else spool.path / 'backups', datetime.now(timezone.utc), exact_directory=True)
     store = JsonInventoryStore(inventory_path)
     with module_logger('configuration', 'execution') as (logger, log_path):
         def event(ip, stage, **values):
             item = dict(run_id=spool.path.name, digest=summary['source_digest'], management_ip=ip,
                         stage=stage, timestamp=_now(), log_reference=str(log_path), **values)
             journal.append(item)
-            logger.info(clean(f"run={spool.path.name}; digest={summary['source_digest']}; ip={ip}; stage={stage}; row={values.get('row_id', '-')}; command={values.get('command_index', '-')}; status={values.get('status', '-')}; category={values.get('error_category', '-') }"))
+            logger.info(clean(f"run={spool.path.name}; digest={summary['source_digest']}; ip={ip}; stage={stage}; row={values.get('row_id', '-')}; command={values.get('command_index', '-')}; status={values.get('status', '-')}; category={values.get('error_category', '-') }; backup={values.get('backup_path', '-')}"))
         def worker(ip):
             entries = groups[ip]
             attempted, rows, usable = False, [], True
@@ -332,7 +371,12 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
                         for secret in capture_secrets:
                             content = content.replace(secret, '[REDACTED]')
                         path = backup.write(context.hostname, context.platform, content)
-                        event(ip, 'backup_complete', backup_reference=str(path))
+                        try:
+                            backup_reference = Path(os.path.relpath(path, spool.path)).as_posix()
+                        except ValueError:
+                            # Windows external overrides may be on another drive.
+                            backup_reference = path.resolve().as_posix()
+                        event(ip, 'backup_complete', backup_reference=backup_reference, backup_path=str(path.resolve()))
                         completed = set()
                         try:
                             for entry in entries:
@@ -346,13 +390,18 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
                                     event(ip, 'row_preflight', row_id=rid)
                                     # A fresh snapshot per row incorporates preceding verified effects.
                                     before = _observe(session, context, cli, [entry], settings.command_timeout)
+                                    from orbitflow.configuration.v2.evidence import scoped_evidence
+                                    row['pre_config'] = scoped_evidence(r, before)
+                                    event(ip, 'pre_row_evidence', row_id=rid, evidence=row['pre_config'])
                                     fresh = plan([r], {ip: before}, decisions={rid: 'Approve'}).to_dict()['results'][0]
+                                    row['preflight_findings'] = fresh.get('findings', [])
                                     _gate(fresh['deployment_ready'], 'FRESH_PREFLIGHT_BLOCKED')
                                     _gate(fresh.get('resolved_target') == approved.get('resolved_target'), 'TARGET_DRIFT')
                                     _gate(fresh['commands'] == approved['commands'] and fresh['no_op'] == approved['no_op'], 'APPROVED_COMMAND_DRIFT')
                                     _gate(fresh.get('projected_state') == approved.get('projected_state'), 'APPROVED_RESULT_DRIFT')
                                     if BY_ID[r['template_id']].function == 'VLAN Port' and r['inputs']['action'] != 'Remove':
-                                        _gate(all(v['status'] == 'present' for v in before['vlan_lookups'].values()), 'VLAN_PREREQUISITE_UNAVAILABLE')
+                                        row['missing_prerequisite_vlans'] = [v for v, lookup in before['vlan_lookups'].items() if lookup['status'] != 'present']
+                                        _gate(not row['missing_prerequisite_vlans'], 'VLAN_PREREQUISITE_UNAVAILABLE')
                                     rejected = False
                                     for index, command in enumerate(approved['commands'], 1):
                                         cli.execution_mode(exec_prompt, context.platform)
@@ -392,6 +441,8 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
                                     started = monotonic()
                                     verification = verify_row(session, context, cli, entry, before, timeout=settings.command_timeout, correlation={'run_id': spool.path.name, 'digest': summary['source_digest'], 'row_id': rid})
                                     row.update(status='Failed' if rejected else verification['status'], verification=verification)
+                                    for warning in verification.get('evidence', {}).get('warnings', []) if isinstance(verification.get('evidence'), dict) else []:
+                                        event(ip, 'verification_warning', row_id=rid, warning=warning)
                                     row['verification_seconds'] = monotonic() - started
                                     if row['status'] == 'Verified':
                                         completed.add(rid)
@@ -450,51 +501,160 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
     return spool
 
 
+def operator_summary(prepared):
+    """Pure presentation projection; full confirmation payload/digest remain unchanged."""
+    source = prepared['summary']
+    devices = {}
+    changes = no_ops = 0
+    reasons = []
+    for entry in source['selected']:
+        r, result = entry['request'], entry['result']
+        ip = r['inputs']['management_ip']
+        t = BY_ID[r['template_id']]
+        device = devices.setdefault(ip, dict(ip=ip, hostname=(entry.get('identity') or {}).get('hostname', ''), family=t.family, actions={}))
+        action = t.function + ': ' + r['inputs'].get('action', 'Set')
+        device['actions'][action] = device['actions'].get(action, 0) + 1
+        no_ops += bool(result['no_op'])
+        changes += not result['no_op']
+        for finding in result.get('findings', []):
+            reasons.append(dict(row_id=r['row_id'], source=f"{t.sheet} row {r.get('row', '?')} / {ip} / {r['inputs'].get('interface', '')}", reason=finding, details={k: r['inputs'][k] for k in ('vlan_id', 'pvid', 'native_vlan', 'vlans', 'tagged_vlans') if k in r['inputs']}))
+    for entry in source['skipped']:
+        r = entry.get('request', {})
+        reasons.append(dict(row_id=entry['row_id'], source=f"{BY_ID[r['template_id']].sheet} row {r.get('row', '?')} / {r['inputs']['management_ip']}" if r else 'retained row', reason=entry['reason'], details=entry.get('blockers', [])))
+    return dict(reference=prepared['reference'], source_digest=source['source_digest'], summary_digest=prepared['summary_digest'],
+                device_count=len(devices), changes=changes, no_ops=no_ops, skipped=len(source['skipped']),
+                concurrency=source['settings']['max_concurrent_devices'], devices=list(devices.values()), reasons=reasons,
+                save_behavior=source['save_behavior'], fresh_checks='Offline selection only. Fresh identity, state, VLAN prerequisites and protected backup are checked after confirmation.')
+
+
+def render_summary(summary):
+    """Concise text for CLI or other operator surfaces, without nested evidence."""
+    lines = [f"Execution reference: {summary['reference']}",
+             f"Plan: {summary['source_digest'][:12]} (full digest in preparation/summary.json)",
+             f"Devices: {summary['device_count']} | Changes: {summary['changes']} | No-op: {summary['no_ops']} | Skipped: {summary['skipped']} | Concurrency: {summary['concurrency']}"]
+    for device in summary['devices']:
+        actions = ', '.join(f"{name}={count}" for name, count in device['actions'].items())
+        lines.append(f"{device['hostname']} {device['ip']} {device['family']} | {actions}")
+    for reason in summary['reasons']:
+        lines.append(f"{reason['source']} / {reason['row_id']}: {readable(reason['reason'])}" + (f"; {readable(reason['details'])}" if reason.get('details') else ''))
+    lines.extend([summary['fresh_checks'], summary['save_behavior']])
+    return '\n'.join(lines)
+
+
+def readable(value):
+    """Readable retained facts/evidence; no JSON encoding in operator cells."""
+    if value is None:
+        return 'Unknown'
+    if isinstance(value, list):
+        return '\n'.join(readable(v) for v in value)
+    if isinstance(value, dict):
+        if 'excerpt' in value:
+            return f"{value.get('source_filename', '')}:{value.get('line', '')}: {value['excerpt']}"
+        return '\n'.join(f"{k}: {readable(v)}" for k, v in value.items())
+    return str(value)
+
+
 def export_results(run_path, output):
-    """Regenerate a separate literal workbook from durable events, without devices."""
+    """Offline literal report grouped by original template, from retained journal only."""
     from openpyxl import Workbook
     from openpyxl.cell import WriteOnlyCell
+    from openpyxl.styles import Alignment
+    from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
     require(not Path(output).exists(), 'output already exists')
     run_path = Path(run_path)
     source = decode((run_path / 'summary.json').read_text(encoding='utf-8'))
-    run_id = run_path.name
     book = Workbook(write_only=True)
     summary = book.create_sheet('Run Summary')
-    summary.append(['Source', 'Value'])
-    rows = book.create_sheet('Execution Results')
-    rows.append(['Run ID', 'IP', 'Row ID', 'Decision', 'No-op', 'Apply Status', 'Verification Status', 'Save Status', 'Timestamp', 'Error Category', 'Evidence Reference', 'Log Reference'])
-    details = book.create_sheet('Event Details')
-    details.append(['Event', 'Part', 'JSON (literal; complete event across parts)'])
-    def literal_row(sheet, values):
+    details = book.create_sheet('Evidence Details')
+    details.append(['Row / Event', 'Field', 'Part', 'Complete readable text'])
+    def literal_row(sheet, values, reference=''):
         cells = []
-        for value in values:
-            cell = WriteOnlyCell(sheet, value=str(value))
+        for column, value in enumerate(values, 1):
+            text = ILLEGAL_CHARACTERS_RE.sub('', sanitize_text(str(value)))
+            if len(text) > 30000:
+                for offset in range(0, len(text), 30000):
+                    literal_row(details, [reference, column, offset // 30000 + 1, text[offset:offset + 30000]])
+                text = text[:29000] + f"\nContinued completely in Evidence Details: {reference}, field {column}"
+            cell = WriteOnlyCell(sheet, value=text)
             cell.data_type = 's'
+            cell.alignment = Alignment(wrap_text=True, vertical='top')
             cells.append(cell)
         sheet.append(cells)
-    for name in ('manifest.json', 'summary.json'):
-        text = (run_path / name).read_text(encoding='utf-8')
-        for index in range(0, len(text), 30000):
-            literal_row(summary, [name + f' part {index // 30000 + 1}', text[index:index + 30000]])
-    latest, saves = {}, {}
+    literal_row(summary, ['Run', run_path.name])
+    literal_row(summary, ['Plan digest', source['source_digest']])
+    literal_row(summary, ['Save policy', source.get('save_behavior', '')])
+    saves, backups, row_offsets = {}, {}, {}
     for index, event in enumerate(ResultJournal(run_path / 'events.jsonl').records(), 1):
-        text = canonical(event)
-        for offset in range(0, len(text), 30000):
-            literal_row(details, [index, offset // 30000 + 1, text[offset:offset + 30000]])
-        if event['stage'] == 'save_result':
-            saves[event['management_ip']] = (event['status'], index)
-        elif event['stage'] in {'command_intent', 'row_result'}:
-            latest[event['row_id']] = (dict(event, status='Unknown') if event['stage'] == 'command_intent' else event, index)
-    # Metadata is bounded by the validated plan row limit. Full evidence remains
-    # streamed into Event Details; unfinished command intents remain Unknown.
-    for entry in source['selected']:
-        request, result = entry['request'], entry['result']
-        rid, ip = request['row_id'], request['inputs']['management_ip']
-        event, index = latest.get(rid, ({}, 'none'))
-        save_status, save_index = saves.get(ip, ('Unknown' if event.get('status') == 'Unknown' else 'Not recorded', 'none'))
-        literal_row(rows, [run_id, ip, rid, result['decision'], result['no_op'], event.get('status', 'Not executed'), event.get('verification', {}).get('status', 'Not recorded'), save_status, event.get('timestamp', ''), event.get('error_category', ''), f'Event Details: {index}; save {save_index}', event.get('log_reference', '')])
-    for entry in source['skipped']:
-        literal_row(rows, [run_id, '', entry['row_id'], entry.get('decision', ''), '', 'Skipped', '', 'Not required', '', entry['reason'], 'Run Summary', ''])
+        stage, ip, rid = event['stage'], event.get('management_ip', ''), event.get('row_id')
+        literal_row(details, [f'Event {index}', stage, 1, readable(event)], f'Event {index}')
+        if stage == 'save_result':
+            saves[ip] = {k: event[k] for k in ('status', 'explicit_error', 'error_category') if k in event}
+        elif stage == 'backup_complete':
+            backups[ip] = event.get('backup_reference', '')
+        elif rid:
+            # Only journal positions are retained across the run; evidence is read per row.
+            row_offsets.setdefault(rid, []).append(index)
+    for ip in dict.fromkeys([e['request']['inputs']['management_ip'] for e in source['selected']]):
+        literal_row(summary, [ip, 'Save: ' + readable(saves.get(ip, {'status': 'Not recorded'})), 'Backup: ' + backups.get(ip, 'Not recorded')])
+    sheets = {}
+    headers = ['Run ID', 'IP', 'Row ID', 'Source row', 'Hostname', 'Family', 'Original Inputs', 'Decision', 'No-op', 'Pre-config', 'Config Sent', 'Config Evidence (post-row)', 'Apply Status', 'Status Verification', 'Error', 'Warning', 'Save Status', 'Backup Reference', 'Log Reference']
+    entries = [(entry, False) for entry in source['selected']] + [(entry, True) for entry in source['skipped']]
+    entries.sort(key=lambda pair: (pair[0].get('request', {}).get('sheet_order', 999), pair[0].get('request', {}).get('row', 999)))
+    for entry, skipped in entries:
+        r, result = entry.get('request', {}), entry.get('result', {})
+        t = BY_ID.get(r.get('template_id'))
+        title = t.sheet if t else 'Legacy Skipped'
+        if title not in sheets:
+            sheet = book.create_sheet(title)
+            sheet.freeze_panes = 'D2'
+            for col in ('G', 'J', 'K', 'L', 'N', 'O', 'P'):
+                sheet.column_dimensions[col].width = 55
+            literal_row(sheet, headers)
+            sheets[title] = sheet
+        rid = entry.get('row_id', r.get('row_id'))
+        ip = r.get('inputs', {}).get('management_ip', '')
+        event, pre_config, sent = {}, 'Not captured', []
+        positions = set(row_offsets.get(rid, []))
+        for index, item in enumerate(ResultJournal(run_path / 'events.jsonl').records(), 1):
+            if index not in positions:
+                continue
+            stage = item['stage']
+            if stage == 'pre_row_evidence':
+                pre_config = item['evidence']
+            elif stage == 'command_intent':
+                sent.append(dict(command=item['command'], status='Pending / uncertain'))
+                event = dict(item, status='Unknown')
+            elif stage in {'command_result', 'command_unknown'} and sent:
+                sent[-1].update(status=item.get('status', 'Unknown'), response=item.get('response', ''))
+            elif stage == 'row_result':
+                event = item
+                pre_config = item.get('pre_config', pre_config)
+        verification = event.get('verification', {})
+        evidence = verification.get('evidence', verification.get('lookup', 'Not captured'))
+        errors = {k: event[k] for k in ('error_category', 'blocker', 'missing_prerequisite_vlans') if event.get(k)}
+        if event.get('blocker'):
+            errors['Preflight findings'] = event.get('preflight_findings', [])
+        if verification.get('error_category'):
+            errors['Verification error'] = verification['error_category']
+        if skipped:
+            errors.update(reason=entry['reason'], details=entry.get('blockers', []))
+        for command in sent:
+            if command['status'] == 'Rejected':
+                errors['Rejected command'] = command
+            elif command['status'] in {'Unknown', 'Pending / uncertain'}:
+                errors['Uncertain command'] = command
+        if verification.get('status') == 'Failed':
+            errors['Verification'] = evidence
+        warnings = list(evidence.get('warnings', [])) if isinstance(evidence, dict) else []
+        warnings.extend(verification.get('warnings', []))
+        if not event.get('blocker'):
+            warnings.extend(event.get('preflight_findings', []))
+        apply_status = ('Skipped' if skipped else 'Unknown' if any(c['status'] in {'Unknown', 'Pending / uncertain'} for c in sent) else 'Rejected' if any(c['status'] == 'Rejected' for c in sent) else 'Applied' if sent else 'No-op' if result.get('no_op') and verification else 'Not executed')
+        literal_row(sheets[title], [run_path.name, ip, rid, r.get('row', ''), (entry.get('identity') or {}).get('hostname', ''), t.family if t else '',
+            readable(r.get('source_inputs') or r.get('inputs', {})), entry.get('decision', result.get('decision', '')), result.get('no_op', ''),
+            readable(pre_config), readable(sent) if sent else 'None (no-op)' if result.get('no_op') else 'None attempted', readable(evidence),
+            apply_status, readable(dict(requested=result.get('projected_state') or r.get('inputs', {}), actual_checks=verification)) if verification else 'Not performed', readable(errors), readable(warnings),
+            saves.get(ip, {}).get('status', 'Not recorded'), backups.get(ip, ''), event.get('log_reference', '')], rid)
     with Path(output).open('xb') as stream:
         book.save(stream)
     return Path(output)

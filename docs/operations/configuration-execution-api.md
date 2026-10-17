@@ -14,7 +14,10 @@ prepared = service.prepare(original, {'SOURCE_ROW_ID': 'Approve'},
                            expected_digest=original.digest,
                            settings=ApplySettings(max_concurrent_devices=1))
 # Alternative: service.prepare_workbook(original, 'plan.xlsx', expected_digest=original.digest)
-# Display prepared['summary']; await the caller's separate explicit confirmation.
+from orbitflow.configuration.execution import operator_summary, render_summary
+projection = operator_summary(prepared)
+print(render_summary(projection))
+# Await separate confirmation; retain the complete prepared object/digest.
 ```
 
 `prepare(original: BulkPlan, decisions: dict, *, expected_digest: str,
@@ -48,7 +51,7 @@ export_results(spool.path, spool.path / 'api-execution-results.xlsx')
 `confirm(reference, *, summary_digest, apply=False, credentials=None,
 transport_config=None, inventory_path='data/inventory/inventory.json',
 run_root='outputs/runs/configuration_execution',
-backups_dir='outputs/backups/configuration') -> ResultSpool` consumes the reference
+backups_dir=None) -> ResultSpool` consumes the reference
 transactionally before connection. `apply is True` is mandatory. No actor label is
 authentication. Digest mismatch, missing reference, corruption and replay raise
 `PlanError` before device access. A run interruption consumes confirmation permanently
@@ -165,3 +168,51 @@ Pure parsers still accept incomplete observations. EdgeSwitch VLAN lookup recogn
 Port and Interface headers and rejects malformed/truncated rows as incomplete.
 Supplied command-not-found, incomplete-command and VLAN-range diagnostics reject
 writes. Save still records Saved on original EXEC return, with explicit_error separate.
+
+## Owner revision: reusable operator projection and retained report
+
+`operator_summary(prepared: dict) -> dict` is a pure XLSX/HTTP-independent projection:
+reference, source_digest, summary_digest, device_count, changes, no_ops, skipped,
+concurrency, ordered devices (ip/hostname/family/action counts), source-row reasons,
+save_behavior and fresh_checks. `render_summary(projection) -> str` gives concise text.
+Neither changes the full `prepared['summary']` nor its confirmation digest/replay guard.
+Prepare/confirm remain the authoritative complete programmatic contract.
+
+`confirm(backups_dir=None)` defaults to `spool.path/backups/`; an explicit path still
+allocates `PATH/RUN_ID/`. BackupWriter's optional `exact_directory=False` allocation
+option is used internally for this run-owned directory; standalone backup keeps its
+existing dated allocation. Metadata stores run-relative backup_reference and logs the
+usable backup_path. Moving an intact default run preserves references; external overrides
+require retaining the external tree in its relative position. Captures never enter Excel.
+
+`verify_row` keeps parser facts intact. Access-only fallback requires missing (not malformed) operational
+access_vlan, enabled/static-access, reliable fresh normalized exact-target config and
+exactly one explicit singleton access fact. Evidence adds missing_fields,
+access_vlan_source, access_vlan_check(actual/requested) and warnings; contradictory
+operational values fail. No implicit VLAN 1 or intent-derived fact is allowed.
+
+`export_results` now creates Run Summary, original template-named row sheets and readable
+Evidence Details, as documented in the manual. Pre-config comes only from durable
+pre_row_evidence or retained pre_config, otherwise Not captured. Config Sent uses
+command_intent/result/unknown events, including pending sends and partial responses.
+Apply/verification/save remain separate. Old runs preserve readable available fields;
+legacy skipped entries without request identity cannot reconstruct original inputs.
+The exporter streams journal diagnostics and keeps positions rather than whole-run
+response bodies; it rereads the journal per row. Existing output paths are refused.
+
+
+Pre-revision confirmations are matched using their original metadata shape as well as
+the current summary digest. Adding skipped-row presentation identity cannot create a
+second executable reference for already claimed/completed/interrupted work. Existing
+records return their original fully bound summary/digest; older missing skipped identity
+is not invented. The confirmation store must still be retained and protected.
+
+Backup references use forward slashes. Explicit Windows external overrides on another drive
+retain an absolute reference because no run-relative path exists; default run-local
+captures always retain relative references.
+
+If switchport collection fails after normalized post-row capture, verify_row returns
+Unknown with that scoped configuration retained and a safe category/warning. Status
+Verification in Excel shows requested/projected state alongside actual checks; apply
+status remains based on attempted command outcomes. Planning warnings and verification
+warnings appear under Warning rather than being mislabeled as execution errors.

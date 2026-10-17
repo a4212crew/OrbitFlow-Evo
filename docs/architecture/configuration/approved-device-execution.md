@@ -39,7 +39,8 @@ commands, skipped rows/reasons, prerequisites/blockers, configured apply concurr
 and save behavior. Disclose whole-running-config persistence, partial-change saving,
 and EdgeSwitch's potential management interruption and automatic save answer `y`.
 
-CLI renders this summary and asks `Confirm execution? [y/N]:`. Future web/API callers
+CLI renders a concise reusable projection of this full digest-bound summary (counts,
+ordered device/template actions, source warnings/blockers and save scope) and asks `Confirm execution? [y/N]:`. Future web/API callers
 receive `awaiting_confirmation`; a subsequent explicit call confirms the exact
 selection. Bind the reference to plan digest, row selection, commands and execution
 settings; changes require a new summary. Duplicate confirmation must not start a
@@ -305,7 +306,10 @@ outcome/error category. Standalone collectors remain usable without an execution
 run/row. Pure parser logging must not require Excel/CLI state or install handlers.
 Detailed sanitized evidence belongs in results, not raw secret-bearing log output.
 Never persist credentials, arbitrary unsafe exceptions or full sensitive backup
-content in logs/Excel/Issues. Protected backups remain separate.
+content in logs/Excel/Issues. Protected backups remain separate files inside the
+execution run at `backups/<safe-device-filename>.txt` by default (owner revision
+2026-10-17); run-relative references survive moving an intact run. An explicit
+external backups_dir override remains honored and must be retained separately.
 
 ## Implementation delivery obligations
 
@@ -324,3 +328,22 @@ usage, prerequisites, inputs/defaults, scenarios, Linux/Windows commands where
 applicable, outputs/log paths, failures and limitations. Final names/options must
 match source/tests; future web integration does not imply an HTTP server is part
 of this milestone. No automatic merge.
+
+## Cumulative owner revision, 2026-10-17
+
+The owner revision supersedes earlier JSON-centric operator presentation: detailed
+programmatic preparation remains digest-bound, while CLI uses `operator_summary` /
+`render_summary`. Execution Excel is plan-like with template-named sheets and original
+inputs/decisions, fresh per-row Pre-config persisted before sends, actual Config Sent,
+post-row Config Evidence, independent Apply/Status Verification/Save, meaningful errors
+and warnings and readable continuation evidence. Old missing pre-row evidence is Not
+captured. Source workbook and immutable plan remain unchanged. Exact implementation,
+external backup override compatibility and older-run limits are in the manual/API.
+
+Access-only missing operational VLAN may narrowly use fresh reliable exact-interface
+explicit normalized configuration, with matching switchport identity/enabled/static
+access. Preserve pure parser unknowns, operational contradictions, description/admin/
+unrelated checks and missing/ambiguous Unknown outcomes. Retain fallback source and
+missing-field warnings in results/logs. These revisions are fixture-validated; owner
+lab checks remain pending and completed configuration must not be replayed to diagnose
+reports.

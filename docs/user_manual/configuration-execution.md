@@ -22,11 +22,13 @@ the pinned JSON digest, protected workbook cells/dimensions/order, row identitie
 decisions and dependencies. Unsupported, blocked, Pending and Reject rows are
 listed as skipped. Review intent is unauthenticated and never alone authorizes apply.
 
-`execute` prepares without connecting, displays JSON containing the source digest,
-identity/IP/family, selected ordered rows, exact CLI, verification commands,
-dependencies/blockers, skipped rows, concurrency/timeouts and save behavior. It asks
-`Confirm execution? [y/N]:`. Only `y` (case-insensitive) confirms. Any other response
-declines without connecting. Review the entire summary before answering.
+`execute` prepares without connecting and renders a concise operator summary: execution
+reference, short plan digest (full digest retained programmatically and in summary.json),
+device/change/no-op/skipped counts, concurrency, ordered hostname/IP/family and template/
+action counts, source-row warnings and blockers. Offline known state is distinguished
+from fresh identity/state/prerequisite/backup checks after confirmation. Full approved
+CLI and evidence remain in the reviewed plan and digest-bound preparation result.
+It asks `Confirm execution? [y/N]:`; only `y` confirms. Declining opens no connection.
 
 The local confirmation reference binds the exact summary. It is consumed
 transactionally before connecting; duplicate confirmation fails without a new run.
@@ -55,7 +57,7 @@ Entry point: `python -m orbitflow.configuration.execution_cli`.
 | `--inventory-path PATH` | Default `data/inventory/inventory.json` |
 | `--authority-dir PATH` | Default `data/configuration/execution`; transactional confirmation database |
 | `--run-root PATH` | Default `outputs/runs/configuration_execution`; unique shared spool per run |
-| `--backups-dir PATH` | Default `outputs/backups/configuration`; protected unique backup run |
+| `--backups-dir PATH` | Default unset: `RUN/backups/<safe-device-filename>.txt`; explicit PATH uses `PATH/RUN_ID/` |
 | `report RUN_PATH OUTPUT.xlsx` | Required retained run directory and new workbook destination; entirely offline; rejects existing output |
 
 There is no `--yes`, HTTP endpoint, rollback, automatic write retry or resume/apply
@@ -137,13 +139,42 @@ and log references. A crash between intent and response must be treated as Unkno
 The incremental journal survives incomplete device outcomes; recovery ignores a
 torn final journal line. No automatic resume or rollback is available.
 
-The CLI writes a separate `execution-results.xlsx`. `report` regenerates from retained
-files without credentials, reconnecting or reapplying. Sheets: Run Summary (manifest
-and approved summary), Execution Results (row identity/decision/no-op/apply/verification/
-device save status), Event Details (full literal JSON in numbered 30,000-character
-parts). Interrupted command intents appear Unknown; untouched selected rows appear
-Not executed. Original plan/review files are never edited. Excel values are literal;
-long evidence is continued, not silently truncated. Keep complete run files for audit.
+The CLI writes a separate `execution-results.xlsx`. Offline `report` requires only the
+retained run and a new output filename; it performs no reconnect/apply/save. Run Summary
+contains readable run/device/save/backup metadata. Original template-named sheets retain
+row identity, source row, original inputs and decisions, including skipped/unsupported
+rows with actual target identity. Main columns: Pre-config, Config Sent, Config Evidence
+(post-row), Apply Status, Status Verification, Error, Warning, Save Status and Backup
+Reference. Apply (Applied/Rejected/Unknown/No-op/Not executed/Skipped), verification and
+save are independent. Config Sent lists actual attempted commands and responses, never
+unsent approved proposals. Interrupted send intents remain pending/uncertain.
+
+Pre-config is fresh scoped configuration captured and fsynced before that row's first
+write, incorporating earlier same-device changes. Each row retains its own post evidence.
+Older runs without pre-row records display **Not captured**; they cannot recover that
+missing historical state. Older skipped records without request metadata remain visible
+in Legacy Skipped with their retained row ID/reason; missing identity is not invented.
+Evidence Details contains readable diagnostic records and complete continuation parts
+for cells over 30,000 characters. All cells are literal, sanitized and wrapped. Export
+streams diagnostics and retains only per-row event positions across the run; row evidence
+is consumed separately (journal rescans trade export time for bounded evidence memory).
+Original plan/review files are unchanged; retain the complete run for audit.
+
+Execution defaults to protected `outputs/runs/configuration_execution/RUN_ID/backups/`.
+Backup metadata/report references are relative to the run, so moving an intact default
+run preserves them. Logs include usable absolute paths, never backup contents. Explicit
+`--backups-dir PATH` / `confirm(backups_dir=PATH)` remains supported as an external root
+with `PATH/RUN_ID/` allocation; relative metadata then points outside the run (an absolute reference is retained for
+Windows overrides on another drive), and moving
+only the run cannot preserve external captures. Omit the override for self-contained
+runs. Standalone configuration-backup defaults and layout are unchanged.
+
+For short Catalyst switchport responses, the pure parser still reports a missing Access
+Mode VLAN as unknown. Only with matching target, Enabled, static access and reliable fresh
+exact-interface configuration may verification use one explicit access VLAN fact. Malformed operational VLAN fields are not eligible for fallback. No
+defaults are inferred and operational contradictions are never overridden. Results/logs
+retain the missing field and fallback warning/source. Description, admin and unrelated
+settings remain checked; a confirmed mismatch fails. Missing/ambiguous evidence is Unknown.
 
 Shared sanitized diagnostics: `outputs/logs/configuration/YYYY-MM-DD/execution.log`
 and `outputs/logs/switchport/YYYY-MM-DD/switchport.log` (UTC date), plus existing
@@ -158,7 +189,7 @@ setup (no devices or credentials needed):
 
 ```text
 python -m pytest tests/test_configuration_execution.py -q
-python -m pytest tests/test_configuration_plans.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py tests/test_shared_cli.py tests/test_result_spool.py -q
+python -m pytest tests/test_configuration_plans.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py tests/test_shared_cli.py tests/test_result_spool.py tests/test_configuration_backup.py -q
 python -m pytest -q
 python -m orbitflow.configuration.execution_cli execute --help
 python -m orbitflow.configuration.execution_cli report --help
@@ -190,3 +221,40 @@ recognize supplied command-not-found/range rejections. C3850 omits the selector.
 Save remains prompt-based with errors separate. Optional capability correlation
 retains run/row/digest, target/command, elapsed timing and safe failure diagnostics;
 see the [API reference](../operations/configuration-execution-api.md). Owner lab validation remains pending.
+
+### Revision validation without replaying completed changes
+
+Owner evidence reports 32 Verified, 3 Unknown, 1 Not executed and 10 skipped across two
+devices, with both saves returning. These corrections use fixtures only. Do not replay
+those changes for presentation diagnosis. Owner may regenerate the existing report:
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -m orbitflow.configuration.execution_cli report /secure/retained/RUN_ID /secure/revised-results.xlsx
+python -m pytest tests/test_configuration_execution.py -q
+python -m pytest -q
+```
+
+```powershell
+$env:PYTHONPATH = "$PWD/src"
+python -m orbitflow.configuration.execution_cli report C:/secure/retained/RUN_ID C:/secure/revised-results.xlsx
+python -m pytest tests/test_configuration_execution.py -q
+python -m pytest -q
+```
+
+Owner read-only validation can call `verify_row` with a fresh normalized baseline and
+approved entry (API reference), comparing short switchport output to explicit exact-port
+configuration. Recheck Gi1/1/1 description OrbitflowTest1 and access VLANs 445/4001/201
+on the respective ports. New backup/pre-row records require a separately authorized
+future lab change; old runs cannot gain them through export. No live device work was
+performed by Codex.
+
+
+Pre-revision confirmations are matched using their original metadata shape as well as
+the current summary digest. Adding skipped-row presentation identity cannot create a
+second executable reference for already claimed/completed/interrupted work. Existing
+records return their original fully bound summary/digest; older missing skipped identity
+is not invented. The confirmation store must still be retained and protected.
+
+Older warning/category detail is limited to retained fields. Export does not rerun
+verification, infer successful fallback or reclassify historical Unknown outcomes.
