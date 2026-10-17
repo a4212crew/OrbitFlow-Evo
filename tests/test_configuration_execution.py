@@ -876,7 +876,7 @@ def test_operator_projection_counts_order_and_no_evidence_dump(tmp_path):
     assert (projection['changes'], projection['no_ops'], projection['skipped'], projection['device_count']) == (1,0,0,1)
     assert projection['devices'][0]['ip'] == IP
     rendered = ex.render_summary(projection)
-    assert 'Offline selection only' in rendered and 'partial changes' in rendered
+    assert 'backup before writes' in rendered and 'partial changes' in rendered
     assert 'observations' not in rendered and 'configure terminal' not in rendered
     assert service.prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)['summary_digest'] == prepared['summary_digest']
     rejected = service.prepare(original, {r['row_id']: 'Reject'}, expected_digest=original.digest)
@@ -1020,10 +1020,10 @@ def test_real_shaped_findings_grouping_and_overlap_presentation(tmp_path):
     prepared['summary']['selected'] = entries
     prepared['summary']['skipped'] = [dict(request=dict(entries[0]['request'], row=50+i), row_id=f'skipped-{i}', reason='Reject') for i in range(10)]
     text = ex.render_summary(ex.operator_summary(prepared))
-    assert 'Skipped: 10' in text and 'Reject (10)' in text
-    assert '745-747' in text and '(36)' in text and 'rows 3-21' in text
+    assert 'Skipped: 10' in text and 'Warnings/blockers' in text
+    assert 'selected rows: 36' in text and len(text.splitlines()) == 4
     assert 'opaque-' not in text and 'evidence' not in text and 'TAGGED_VLAN_NOT_IN_MEMBERSHIP' not in text
-    assert 'PVID_NOT_IN_MEMBERSHIP' in text and 'EdgeSwitch' in text
+    assert 'PVID_NOT_IN_MEMBERSHIP' not in text and 'row 3' not in text
     assert entries[0]['result']['findings'] == [sample, overlap]
 
 
@@ -1236,5 +1236,173 @@ def test_console_progress_is_concise_and_flushed(monkeypatch):
     args,kwargs=printed[0]
     assert kwargs['flush'] is True
     assert IP in args[0] and 'fixture' in args[0] and '[command_intent]' in args[0]
-    assert '2/4' in args[0] and 'rows=0/3 devices=0/2' in args[0]
+    assert 'command 2/4' in args[0]
+    assert all(value not in args[0] for value in ('rows=', 'devices=', 'elapsed=', 'vlan 445', 'timeout'))
     assert 'opaque-' not in args[0]
+
+
+@pytest.mark.parametrize('stage', ['row_preflight', 'command_intent', 'waiting', 'device_failure', 'verification_warning'])
+def test_compact_progress_retains_context_and_errors(stage, capsys):
+    from orbitflow.progress import console_progress
+    event = dict(management_ip=IP, hostname='fixture', stage=stage,
+                 source='C3750X VLAN Database row 3', command_index=1, command_total=4,
+                 command='secret-free raw command', error_category='TimeoutError',
+                 elapsed_seconds=10, waiting_seconds=5, remaining_seconds=20,
+                 timeout_seconds=30, rows_completed=2, devices_completed=1)
+    console_progress(event)
+    line = capsys.readouterr().out.strip()
+    assert line.startswith(f'{IP} fixture [{stage}] | C3750X VLAN Database row 3 | command 1/4')
+    assert 'error_category=TimeoutError' in line
+    assert all(value not in line for value in ('raw command', 'seconds', 'elapsed', 'rows=', 'devices='))
+    if stage == 'verification_warning':
+        assert 'warning: see configuration logs' in line
+
+
+def test_compact_console_concurrent_delivery(monkeypatch):
+    from orbitflow.progress import Progress, console_progress
+    from threading import Lock
+    lock = Lock()
+    active = [False]
+    lines = []
+    def output(line, *, flush):
+        assert flush
+        assert lock.acquire(blocking=False), 'overlapping console writes'
+        try:
+            assert not active[0]
+            active[0] = True
+            lines.append(line)
+            active[0] = False
+        finally:
+            lock.release()
+    monkeypatch.setattr('builtins.print', output)
+    with Progress(console_progress) as progress:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda i: progress.emit(str(i), 'connect', hostname=f'host-{i}'), range(40)))
+    assert len(lines) == 40
+    assert set(lines) == {f'{i} host-{i} [connect]' for i in range(40)}
+
+
+@pytest.mark.parametrize('statuses,save,record_status,label', [
+    (['Verified'], 'Saved', 'success', 'Completed'),
+    (['Verified', 'Failed'], 'Saved', 'failed', 'Partial'),
+    (['Failed'], 'Saved', 'failed', 'Failed'),
+    (['Unknown'], 'Saved', 'failed', 'Unknown'),
+    (['Verified'], 'Unknown', 'failed', 'Unknown'),
+    (['Verified'], 'Saved', 'failed', 'Partial'),
+])
+def test_final_outcome_uses_results(statuses, save, record_status, label):
+    from orbitflow.configuration.execution_cli import outcome_summary
+    records = [dict(status=record_status, payload=dict(rows=[dict(status=s) for s in statuses], save=dict(status=save)))]
+    spool = SimpleNamespace(records=lambda: iter(records), manifest=dict(target_count=1, collection_complete=True))
+    text = outcome_summary(spool, 12.34, skipped=2)
+    assert text.startswith(f'Execution {label} |')
+    assert 'total elapsed: 12.3s' in text and 'skipped=2' in text
+    for status in set(statuses):
+        assert f'{status}={statuses.count(status)}' in text
+
+
+def test_final_outcome_interrupted_missing_devices():
+    from orbitflow.configuration.execution_cli import outcome_summary
+    spool = SimpleNamespace(records=lambda: iter([]), manifest=dict(target_count=2, collection_complete=False))
+    text = outcome_summary(spool, 4)
+    assert text.startswith('Execution Interrupted') and 'Unknown=2' in text
+
+
+def test_compact_summary_first_appearance_order_and_retained_detail(tmp_path):
+    import copy
+    _, r, original = make_plan()
+    prepared = ex.ExecutionService(tmp_path/'authority').prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)
+    first = prepared['summary']['selected'][0]
+    second = copy.deepcopy(first)
+    second['request']['inputs']['management_ip'] = '192.0.2.1'
+    second['identity']['hostname'] = 'second'
+    prepared['summary']['selected'] = [first, second, copy.deepcopy(first)]
+    before = copy.deepcopy(prepared)
+    text = ex.render_summary(ex.operator_summary(prepared))
+    assert text.splitlines()[1].startswith(f'1. {IP} ')
+    assert text.splitlines()[1].endswith('selected rows: 2')
+    assert text.splitlines()[2] == '2. 192.0.2.1 second | selected rows: 1'
+    assert prepared == before
+
+@pytest.mark.parametrize('failure', [None, RuntimeError, KeyboardInterrupt])
+def test_cli_final_elapsed_once_before_report(tmp_path, monkeypatch, capsys, failure):
+    from orbitflow.configuration import execution_cli as cli
+    _, r, original = make_plan()
+    prepared = ex.ExecutionService(tmp_path/'authority').prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)
+    spool = SimpleNamespace(path=tmp_path, manifest=dict(target_count=1, collection_complete=True),
+        records=lambda: iter([dict(status='failed', payload=dict(rows=[dict(status='Verified'), dict(status='Failed')], save=dict(status='Saved')))]))
+    def confirm(*args, **kwargs):
+        assert kwargs['apply'] is True and callable(kwargs['progress'])
+        if failure:
+            raise failure()
+        return spool
+    service = SimpleNamespace(prepare_workbook=lambda *a, **kw: prepared, confirm=confirm)
+    monkeypatch.setattr(cli, 'ExecutionService', lambda *a: service)
+    monkeypatch.setattr(cli, 'load', lambda *a: original)
+    monkeypatch.setattr('orbitflow.targets.load_device_credentials', lambda *a: {})
+    monkeypatch.setattr('builtins.input', lambda prompt: 'y')
+    times = iter([100., 112.3])
+    monkeypatch.setattr(cli, 'monotonic', lambda: next(times))
+    monkeypatch.setattr(cli, 'export_results', lambda *a: tmp_path/'execution-results.xlsx' if not failure else pytest.fail('failed run report'))
+    args = ['execute', 'plan.json', 'plan.xlsx', '--expected-digest', original.digest,
+            '--proxy', 'example', '--cluster', 'example', '--bastion-host', 'example', '--bastion-user', 'example']
+    if failure:
+        with pytest.raises(KeyboardInterrupt if failure is KeyboardInterrupt else SystemExit):
+            cli.main(args)
+    else:
+        cli.main(args)
+    text = capsys.readouterr().out
+    assert text.count('total elapsed:') == 1
+    assert 'total elapsed: 12.3s' in text
+    if failure:
+        assert 'Execution interrupted/failed' in text and 'Execution Completed' not in text
+        assert 'report_generation' not in text
+        assert 'devices: Unknown/incomplete=1' in text and 'rows: Unknown/incomplete=1' in text
+    else:
+        assert 'Execution Partial' in text and 'Failed=1' in text
+        assert text.index('total elapsed:') < text.index('[report_generation]')
+
+
+def test_multitemplate_ip_dispatch_row_order_one_backup_and_save(tmp_path, monkeypatch):
+    ips = [IP, '192.0.2.1']  # Deliberately different from sorted IP order.
+    contexts = {ip: replace(context(ip=ip), hostname=f'fixture-{i}') for i, ip in enumerate(ips)}
+    config = 'hostname fixture\ninterface GigabitEthernet1/0/1\n description old\n!\nend\n'
+    observations = {ip: observation(contexts[ip], config) for ip in ips}
+    rows = [request(template('C3750X', 'VLAN Database').id,
+                    dict(management_ip=ip, vlan_id=445, name='Customer'), sheet_order=1, row=i+3)
+            for i, ip in enumerate(ips)]
+    rows += [request(template('C3750X', 'Interface Description').id,
+                     dict(management_ip=ip, interface='GigabitEthernet1/0/1', description='new'), sheet_order=4, row=i+3)
+             for i, ip in enumerate(ips)]
+    original = plan(rows, observations, now=NOW)
+    saves = fake_runtime(monkeypatch, contexts[IP], observations[IP])
+    connected, collected = [], []
+    @contextmanager
+    def connect(ip, *args):
+        connected.append(ip)
+        yield SimpleNamespace(ip=ip)
+    monkeypatch.setattr(ex, 'connect_device', connect)
+    monkeypatch.setattr(ex, 'DeviceInventoryResolver', lambda *a, **kw: SimpleNamespace(resolve=lambda session, **kw: contexts[session.ip]))
+    def observe(session, context, cli, entries, timeout):
+        collected.append((session.ip, [e['request']['row_id'] for e in entries]))
+        return observations[session.ip]
+    monkeypatch.setattr(ex, '_observe', observe)
+    service = ex.ExecutionService(tmp_path/'authority')
+    prepared = service.prepare(original, {r['row_id']: 'Approve' for r in rows}, expected_digest=original.digest,
+                               settings=ex.ApplySettings(connection_start_interval=0))
+    assert len(prepared['summary']['selected']) == 4
+    events = []
+    spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
+        credentials={ip: DeviceCredentials('user', 'hidden') for ip in ips}, run_root=tmp_path/'runs',
+        inventory_path=tmp_path/'inventory.json', progress=events.append)
+    assert connected == ips
+    assert len(saves) == 2
+    for ip in ips:
+        expected = [r['row_id'] for r in rows if r['inputs']['management_ip'] == ip]
+        record = next(r for r in spool.records() if r['target'] == ip)
+        assert [r['row_id'] for r in record['payload']['rows']] == expected
+        assert all(r['status'] == 'Verified' for r in record['payload']['rows'])
+        assert [row_ids for target, row_ids in collected if target == ip] == [expected, [expected[0]], [expected[1]]]
+        stages = [e['stage'] for e in events if e['management_ip'] == ip]
+        assert stages.count('backup_complete') == stages.count('save_result') == 1
+        assert stages.index('backup_complete') < stages.index('command_intent')
