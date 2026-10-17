@@ -134,3 +134,17 @@ the executor remains owner-controlled; sample transcripts are not validation.
 Require matching Port evidence and recognize Interface or Port VLAN-table headers.
 Command-not-found/incomplete and supplied out-of-range responses are command errors
 even when the prompt returns; save completion and explicit errors remain separate.
+
+## Execution reporting and progress — reviewed iteration 4
+
+Default execution backup location is RUN/backups; explicit external root overrides
+remain supported without changing standalone backup defaults. Main report cells
+show target-port Current/Configured/Tagging; complete tables remain in linked detail.
+Suppress tagged/membership overlap warnings in execution summary/main report only,
+including nested EXISTING_VLAN_WARNING. Keep observed independent facts and original
+plan/compliance results intact. Display attempted commands and row-specific pre/post
+evidence; device save status remains separate.
+CLI progress exposes the recognized save question, y sent and waiting for original
+EXEC. Only the owning worker sends y. Optional timer/display never touches channels,
+extends timeouts or retries writes. Save Unknown/error and prompt-return criteria
+are unchanged. See the [progress API](../../../docs/operations/configuration-execution-api.md#structured-progress-subscription).

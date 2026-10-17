@@ -191,3 +191,18 @@ target metadata, elapsed timing and safe failure diagnostics. Live validation of
 the executor remains owner-controlled; sample transcripts are not validation.
 Require matching normalized Name evidence. The approved C3750X trunk selector
 change must verify without failing preservation; unrelated settings remain checked.
+
+## Short access output and execution progress — reviewed iteration 4
+
+Supported short output has matching Name, Switchport Enabled and Administrative
+Mode static access but no Access Mode VLAN. Preserve parser unknowns. Access-only
+verification may use reliable fresh exact-interface config with one explicit
+singleton access VLAN fact when that operational field is absent. No inferred
+defaults or overriding contradictory/malformed operational fields. Preserve target,
+description, admin and unrelated checks; ambiguous/unavailable evidence is Unknown,
+confirmed mismatches Failed. Retain missing-field/fallback source and warnings.
+Fallback logs use fixed safe values rather than positional arguments omitted by
+SafeFormatter; verification_warning text remains useful in configuration logs.
+CLI progress shows command index/total, verification, original-EXEC save and cleanup.
+A waiting heartbeat is not proof of device liveness; Returned is exchange completion.
+See the [execution API](../../../docs/operations/configuration-execution-api.md).

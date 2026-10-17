@@ -83,4 +83,4 @@ The documentation structure was merged in PR #110. This index tracks current can
 
 - [Issue #117 protected skill correction handoff](operations/issue-117-skill-corrections.md): historical filesystem denial; scoped skill corrections completed by Atlas on PR #118.
 
-Issue #117 controller/Atlas follow-up: [revision handoff and protected skill corrections](operations/issue-117-revision-handoff.md).
+Issue #117 [revision handoff history](operations/issue-117-revision-handoff.md): scoped skill corrections completed by Atlas after iteration 4; owner validation remains pending.

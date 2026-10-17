@@ -1,4 +1,12 @@
-# Issue #117 revision handoff for controller / Atlas
+# Issue #117 revision handoff history
+
+**Atlas resolution after iteration 4:** the scoped configuration-management, Cisco
+and EdgeSwitch skill corrections have been applied on this same PR. Earlier
+protected-edit denials and pending notes below are retained as historical handoff
+records. The PR description/review records final validation; owner validation and
+merge remain pending. No application code was changed by Atlas.
+
+## Original controller / Atlas handoff (historical)
 
 Implementation only; no commit, push, PR update, label change or merge was performed.
 The controller owns PR #118 description updates. Suggested final description:

@@ -87,3 +87,26 @@ Require matching normalized Cisco Name/EdgeSwitch Port identity. Preserve the
 approved C3750X dot1q change and detect unrelated changes. Use optional shared
 run/row/digest correlation and elapsed timing for standalone capability logs.
 The executor is separate from v1/v2 planning; no production validation is implied.
+
+## Execution presentation and progress — reviewed iteration 4
+
+Implemented on PR #118, pending owner validation/merge: `operator_summary` groups
+short findings/skips by category and source sheet/row ranges; `render_summary` uses
+compact VLAN lists with no nested evidence or primary opaque row IDs. Full bound
+preparation and replay protections remain unchanged. Execution display filters only
+TAGGED_VLAN_NOT_IN_MEMBERSHIP; source plan/compliance findings stay unchanged.
+
+Default protected captures are RUN/backups with run-relative references; explicit
+backups_dir overrides retain ROOT/RUN_ID. Reports use template/input columns, fresh
+durable pre-row config, attempted commands, scoped post CLI, concise actual/expected
+checks and fallback source, linked complete detail and canonical manifest run_id.
+Older missing pre-row evidence is Not captured; offline reporting never connects
+or reclassifies historical Unknown outcomes. Do not replay completed owner changes.
+
+`confirm(..., progress=None)` accepts an optional serialized scalar-event subscriber.
+No subscriber means quiet/no timer. CLI flushes stages and five-second waiting
+snapshots with IP/hostname, row/command counts and elapsed/deadline information where
+known. Waiting is not device liveness and Returned is not verified success. The
+optional timer never accesses channels, extends deadlines or retries writes. Display
+exceptions disable the subscriber; mandatory audit failures remain failures. See
+the supported [progress API](../../../docs/operations/configuration-execution-api.md#structured-progress-subscription).
