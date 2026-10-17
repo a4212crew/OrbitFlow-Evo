@@ -49,7 +49,7 @@ Canonical references: [manual](../user_manual/configuration-execution.md),
 [API](configuration-execution-api.md),
 [approved design](../architecture/configuration/approved-device-execution.md).
 
-## Final deterministic validation
+## Prior revision deterministic validation (before iteration 3)
 
 Windows host with this worktree's PYTHONPATH=src: executor 118 passed; focused/shared
 687 passed; full controller `python -m pytest -q` 2,564 passed in 222.82 seconds.
@@ -58,3 +58,86 @@ Linux commands were source-verified; no Linux-host or device/lab run is claimed.
 The canonical manual includes copy-ready Linux/PowerShell setup, test and offline
 report commands. Owner lab validation and the three protected skill edits above
 remain pending. No commit, push, PR update, labels or merge was performed.
+
+## Iteration 3 final corrections for Atlas/controller
+
+The earlier protected skill additions above remain pending; this revision does not
+claim they were applied or newly denied. Apply these additional exact corrections in
+Atlas's permitted Markdown workflow on this same Issue/PR:
+
+- configuration-management SKILL.md: "Iteration 3: operator_summary groups short
+  finding/skip categories with source sheet/row ranges and compact VLAN lists; never
+  show nested evidence or opaque row IDs as primary summary content. Keep full bound
+  preparation and replay protections. Reports expose per-template input columns,
+  scoped CLI, concise actual/expected checks and fallback source, linked complete
+  event/continuation detail, outcome counts and canonical manifest run_id after moving
+  a run. Execution presentation filters TAGGED_VLAN_NOT_IN_MEMBERSHIP only; original
+  plan/compliance findings remain unchanged. confirm(..., progress=None) accepts a
+  serialized optional scalar-event subscriber; no subscriber means quiet/no timer.
+  CLI flushes stages and five-second wait snapshots. Display failures disable display;
+  mandatory journal failures remain failures. Timer threads never touch channels,
+  extend deadlines or retry writes. Completed owner changes must not be replayed."
+- cisco-network-cli SKILL.md: "Fallback logs must retain fixed safe field/source
+  values without positional formatting arguments; shared SafeFormatter deliberately
+  omits args. verification_warning journal text must also be useful in configuration
+  logs. Progress Returned is exchange completion, not verified success. Show command
+  index/total, verification outcome, save start/original-EXEC completion and cleanup;
+  heartbeat waiting is not device liveness. Preserve short-access fallback gates."
+- ubiquiti-network-cli SKILL.md: "Suppress tagged/membership overlap warnings only
+  in execution summary/main report presentation, including nested EXISTING_VLAN_WARNING;
+  retain independent observed lists and complete evidence. Report only target-port
+  actual Current/Configured/Tagging in main checks; full tables belong in linked detail.
+  Show recognized save question and y-sent/waiting-original-EXEC stages. The owning
+  worker alone sends y; optional timer/display never accesses the channel. Save
+  Unknown/error and prompt-return semantics remain unchanged."
+
+Replace the PR description through the controller with this final behavior (do not
+append abandoned implementation history):
+
+> Execute reviewed predefined Catalyst/EdgeSwitch plans through digest-bound explicit
+> confirmation, shared per-IP ownership, fresh preflight/protected run backups, exact
+> approved CLI and reusable verification/save. Keep concise category/source summaries
+> and template reports with original input columns, scoped CLI, actual/expected checks,
+> separate apply/verification/save, linked full detail and stable manifest run identity.
+> Preserve observed overlap facts without presentation warnings; retain safe fallback
+> diagnostics in shared logs. Add reusable optional scalar progress callbacks, flushed
+> CLI stages and five-second waiting updates; display cannot retry writes or touch
+> sessions. No completed configuration was replayed. Owner lab validation, protected
+> skill reconciliation and merge remain pending.
+
+Workbook QA is equivalent deterministic openpyxl inspection rather than a desktop
+screenshot: actual compact cells/absent nested duplicates, complete linked operational
+rows, explicit input columns, literal values, canonical renamed-run identity, hyperlink
+references, row heights and column widths are asserted. Source fixtures use synthetic
+IPs only; owner production artifacts were not accessed. Linux/PowerShell test and
+report-only commands remain in the canonical manual. No apply/save, commit, push,
+PR/label update or merge was performed. Final validation evidence follows below.
+
+### 2026-10-17 - Issue #117 recovery validation
+
+- Verified HEAD 1717429017b867d7550fd52ce7d5c0879025bd0e, recovery sizes
+  (74,431-byte tracked patch; 5,149-byte progress.py) and clean initial worktree.
+  git apply --check passed; restored working files only, leaving recovery/stash intact.
+- Reviewed restored implementation and corrected waiting snapshots to show current
+  batch row/device counters when other devices finish; deterministic concurrency
+  assertion added. Focused executor suite: 133 passed in 9.41s (Windows).
+- Controller run_tests gate: 2,577 passed / 2 failed in 187.95s; extended-length
+  Windows temporary-path rerun: 2,577 passed / 2 failed in 178.83s. Failures:
+  test_inventory_refresh.py::test_operator_command_full_export_and_recoverable_failure
+  and test_production_paths.py::test_default_report_recovery_paths. Deep Windows
+  temporary paths exceed path limits during inventory/reporting workbook/recovery
+  operations; extended spelling does not repair relative-path workbook creation.
+  Controller gate remains failed; no guards, shared report code or tests were weakened.
+- CLI execute/report help, affected local documentation link targets and diff whitespace
+  checks passed. Workbook QA is deterministic openpyxl content/link/dimension inspection,
+  not desktop rendering. No Linux-host or live/lab device validation is claimed.
+  Protected skill additions remain pending Atlas in the revision handoff.
+
+- Separate final full deterministic suite with a shorter authorized temporary path:
+  `PYTHONPATH=src python -m pytest -q --basetemp <authorized-temp>/short-tests`:
+  **2,579 passed in 184.13 seconds** (Windows). Both controller-path failures passed
+  here. PowerShell invocation used `$env:PYTHONPATH='src'` before pytest. Actual
+  basetemp: `C:/Users/a4212/AppData/Local/Temp/orbitflow-issue-117-codex-cneo7pti/short-tests`.
+  The controller gate itself is still failed under its longer nested temp path;
+  controller/owner environment resolution is required before claiming that gate passed.
+  No controller code/guards or unrelated inventory/report behavior was changed.

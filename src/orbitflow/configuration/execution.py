@@ -15,6 +15,7 @@ import sqlite3
 from time import monotonic
 from uuid import uuid4
 
+from orbitflow.progress import Progress
 from orbitflow.configuration.plans import canonical, decode, identity, require
 from orbitflow.configuration.v2.catalogue import BY_ID
 from orbitflow.configuration.v2.planning import BulkPlan, evaluate_decisions, plan
@@ -157,7 +158,7 @@ class ExecutionService:
 
     def confirm(self, reference, *, summary_digest, apply=False, credentials=None,
                 transport_config=None, inventory_path='data/inventory/inventory.json',
-                run_root='outputs/runs/configuration_execution', backups_dir=None):
+                run_root='outputs/runs/configuration_execution', backups_dir=None, progress=None):
         """Consume confirmation before connecting; replay never starts work.
 
         backups_dir=None stores captures in the run; explicit overrides allocate
@@ -181,7 +182,7 @@ class ExecutionService:
                 with self._db() as db:
                     db.execute('UPDATE confirmations SET run_path=? WHERE reference=?', (str(path), reference))
             spool = _run(summary, credentials or {}, transport_config, inventory_path=inventory_path,
-                         run_root=run_root, backups_dir=backups_dir, on_started=started)
+                         run_root=run_root, backups_dir=backups_dir, on_started=started, progress=progress)
             with self._db() as db:
                 db.execute("UPDATE confirmations SET state='completed', run_path=? WHERE reference=?", (str(spool.path), reference))
             return spool
@@ -283,8 +284,7 @@ def verify_row(session, context, cli, entry, before, *, timeout=30.0, correlatio
                 else:
                     evidence['warnings'] = [('Access Mode VLAN not reported' if missing_access_field else 'Access Mode VLAN malformed') + '; unambiguous explicit configuration fallback unavailable']
                 with module_logger('configuration', 'execution') as (logger, _):
-                    logger.warning('Access Mode VLAN %s; verification source=%s',
-                                   'not reported' if missing_access_field else 'malformed', evidence.get('access_vlan_source', 'unavailable'),
+                    logger.warning('Access Mode VLAN ' + ('not reported' if missing_access_field else 'malformed') + '; verification source=' + evidence.get('access_vlan_source', 'unavailable'),
                                    extra=capability_metadata(context, correlation, interface=target, stage='verification', outcome='Fallback' if access is not None else 'Unknown'))
             evidence['access_vlan_check'] = dict(actual=access, requested=p['vlan_id'])
             required = [f['enabled'], f['administrative_mode'], access]
@@ -327,7 +327,15 @@ def verify_row(session, context, cli, entry, before, *, timeout=30.0, correlatio
     return dict(status='Verified' if all(checks) else 'Failed', evidence=evidence)
 
 
-def _run(summary, credentials, transport_config, *, inventory_path, run_root, backups_dir, on_started=None):
+def _run(summary, credentials, transport_config, *, inventory_path, run_root, backups_dir, on_started=None, progress=None):
+    with Progress(progress) as reporter:
+        reporter.emit('-', 'confirmed_start', rows_total=len(summary['selected']),
+                      devices_total=len({e['request']['inputs']['management_ip'] for e in summary['selected']}))
+        return _run_with_progress(summary, credentials, transport_config, inventory_path=inventory_path,
+                                  run_root=run_root, backups_dir=backups_dir, on_started=on_started, reporter=reporter)
+
+
+def _run_with_progress(summary, credentials, transport_config, *, inventory_path, run_root, backups_dir, on_started, reporter):
     settings = ApplySettings(**summary['settings'])
     groups = {}
     for entry in summary['selected']:
@@ -339,6 +347,7 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
         text = sanitize_text(text)
         return pattern.sub('[REDACTED]', text) if pattern else text
     spool = ResultSpool.create(run_root, 'configuration_execution', len(groups), clean=clean)
+    reporter.correlation.update(run_id=spool.path.name, digest=summary['source_digest'])
     if on_started:
         on_started(spool.path)
     (spool.path / 'summary.json').write_text(canonical(summary), encoding='utf-8')
@@ -346,12 +355,36 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
     backup = BackupWriter(Path(backups_dir) / spool.path.name if backups_dir else spool.path / 'backups', datetime.now(timezone.utc), exact_directory=True)
     store = JsonInventoryStore(inventory_path)
     with module_logger('configuration', 'execution') as (logger, log_path):
-        def event(ip, stage, **values):
+        locations = {e['request']['row_id']: f"{BY_ID[e['request']['template_id']].sheet} row {e['request'].get('row', '?')}" for e in summary['selected']}
+        hostnames = {ip: clean((entries[0].get('identity') or {}).get('hostname', '')) for ip, entries in groups.items()}
+        def event(ip, stage, *, _display=True, **values):
             item = dict(run_id=spool.path.name, digest=summary['source_digest'], management_ip=ip,
                         stage=stage, timestamp=_now(), log_reference=str(log_path), **values)
             journal.append(item)
-            logger.info(clean(f"run={spool.path.name}; digest={summary['source_digest']}; ip={ip}; stage={stage}; row={values.get('row_id', '-')}; command={values.get('command_index', '-')}; status={values.get('status', '-')}; category={values.get('error_category', '-') }; backup={values.get('backup_path', '-')}"))
+            display = {k: clean(str(values[k])) for k in ('status', 'command', 'command_index', 'command_total', 'error_category') if k in values}
+            if values.get('row_id'):
+                display['source'] = locations.get(values['row_id'], 'retained row')
+            timeout = settings.save_timeout if stage == 'save_intent' else settings.command_timeout if stage in {'command_intent', 'mode_intent'} else None
+            if stage in {'preflight', 'row_preflight', 'backup', 'verification_intent'}:
+                display['command_timeout_seconds'] = settings.command_timeout
+            if _display:
+                reporter.emit(ip, stage, hostname=hostnames.get(ip, ''), timeout=timeout, **display)
+            logger.info(clean(f"run={spool.path.name}; digest={summary['source_digest']}; ip={ip}; stage={stage}; row={values.get('row_id', '-')}; command={values.get('command_index', '-')}; status={values.get('status', '-')}; category={values.get('error_category', '-') }; backup={values.get('backup_path', '-')}; warning={'; '.join(short_findings([values['warning']])) if values.get('warning') else '-'}"))
+        @contextmanager
+        def owned_cli(session, ip):
+            with DeviceCLI(session) as cli:
+                try:
+                    yield cli
+                finally:
+                    event(ip, 'cleanup_start')
+
         def worker(ip):
+            try:
+                return device_worker(ip)
+            finally:
+                event(ip, 'cleanup', status='Completed')
+
+        def device_worker(ip):
             entries = groups[ip]
             attempted, rows, usable = False, [], True
             save = dict(status='Not required')
@@ -359,10 +392,11 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
             try:
                 require(ip in credentials, 'credentials unavailable')
                 with connect_device(ip, credentials[ip], transport_config) as session:
-                    with DeviceCLI(session) as cli:
-                        event(ip, 'preflight')
+                    with owned_cli(session, ip) as cli:
+                        event(ip, 'identify')
                         context = DeviceInventoryResolver(store, sanitize_fact=clean).resolve(session, management_ip=ip, cli=cli)
                         _gate(all(identity(context) == e['identity'] for e in entries), 'FRESH_IDENTITY_MISMATCH')
+                        event(ip, 'preflight')
                         before = _observe(session, context, cli, entries, settings.command_timeout)
                         exec_prompt = cli.prompt
                         require(exec_prompt.endswith('#'), 'privileged EXEC required')
@@ -405,7 +439,7 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
                                     rejected = False
                                     for index, command in enumerate(approved['commands'], 1):
                                         cli.execution_mode(exec_prompt, context.platform)
-                                        event(ip, 'command_intent', row_id=rid, command_index=index, command=command)
+                                        event(ip, 'command_intent', row_id=rid, command_index=index, command_total=len(approved['commands']), command=command)
                                         attempted = True
                                         row['status'] = 'Unknown'
                                         previous_prompt = cli.prompt
@@ -466,7 +500,9 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
                                 event(ip, 'save_intent', command='write memory')
                                 save = dict(status='Unknown', error_category='SaveCapabilityIncomplete')
                                 try:
-                                    save = save_configuration(session, context, cli=cli, exec_prompt=exec_prompt, timeout=settings.save_timeout, correlation={'run_id': spool.path.name, 'digest': summary['source_digest']})
+                                    with reporter.save_scope(ip, clean(context.hostname), settings.save_timeout,
+                                                             audit=lambda stage: event(ip, stage, _display=False)):
+                                        save = save_configuration(session, context, cli=cli, exec_prompt=exec_prompt, timeout=settings.save_timeout, correlation={'run_id': spool.path.name, 'digest': summary['source_digest']})
                                 except BaseException:
                                     event(ip, 'save_result', status='Unknown', error_category='SaveCapabilityIncomplete',
                                           response=_safe_source(getattr(cli, 'last_response', ''), context.platform))
@@ -474,7 +510,6 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
                             elif attempted:
                                 save = dict(status='Unknown', error_category='SessionUnusable')
                             event(ip, 'save_result', **save)
-                event(ip, 'cleanup', status='Completed')
                 return dict(rows=rows, save=save)
             except Exception as exc:
                 event(ip, 'device_failure', error_category=type(exc).__name__)
@@ -494,11 +529,70 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
                       or value.get('save', {}).get('explicit_error')
                       or any(r['status'] != 'Verified' for r in value.get('rows', [])))
             spool.append(outcome, target=ip, failed=bool(failed))
+            event(ip, 'device_complete', status='Failed' if failed else 'Completed')
         event('-', 'confirm', status='Claimed')
+        reporter.active.pop('-', None)
         with spool.collection():
             execute_devices(list(groups), worker, config=ExecutionConfig(settings.max_concurrent_devices, settings.connection_start_interval, settings.connection_retry_delay), on_outcome=persist)
         event('-', 'recording', status='Completed')
     return spool
+
+
+def compact(value):
+    """Compact scalar/list presentation; integer lists use inclusive ranges."""
+    if isinstance(value, list) and value and all(type(v) is int for v in value):
+        values = sorted(set(value))
+        groups = []
+        start = end = values[0]
+        for v in values[1:]:
+            if v == end + 1:
+                end = v
+            else:
+                groups.append(str(start) if start == end else f'{start}-{end}')
+                start = end = v
+        groups.append(str(start) if start == end else f'{start}-{end}')
+        return ','.join(groups)
+    if isinstance(value, dict):
+        return '; '.join(f'{k}={compact(v)}' for k, v in value.items())
+    if isinstance(value, list):
+        return ', '.join(compact(v) for v in value)
+    return readable(value)
+
+
+def short_findings(findings):
+    """Execution presentation only: retain plan findings unchanged in bound data."""
+    messages = []
+    def project(value):
+        if isinstance(value, list):
+            for item in value:
+                project(item)
+        elif isinstance(value, dict):
+            code = value.get('code') or value.get('category')
+            if code == 'TAGGED_VLAN_NOT_IN_MEMBERSHIP':
+                return
+            if code:
+                detail = {k: v for k, v in value.items() if k in {'message', 'vlan', 'vlan_id', 'vlans', 'interface', 'reason'}}
+                messages.append(str(code) + (': ' + compact(detail) if detail else ''))
+            else:
+                messages.append('Existing VLAN finding (see retained detail)')
+        else:
+            text = str(value)
+            category, sep, payload = text.partition(': ')
+            if category == 'TAGGED_VLAN_NOT_IN_MEMBERSHIP':
+                return
+            if sep and payload[:1] in '{[':
+                try:
+                    before = len(messages)
+                    project(decode(payload))
+                    if len(messages) > before and category != 'EXISTING_VLAN_WARNING':
+                        messages[before] = category + ': ' + messages[before]
+                    return
+                except (ValueError, TypeError):
+                    text = category + ' (see retained detail)'
+            messages.append(text)
+    for finding in findings:
+        project(finding)
+    return list(dict.fromkeys(messages))
 
 
 def operator_summary(prepared):
@@ -507,6 +601,14 @@ def operator_summary(prepared):
     devices = {}
     changes = no_ops = 0
     reasons = []
+    categories = {}
+    def reason(source, findings):
+        for message in short_findings(findings):
+            category, _, detail = message.partition(': ')
+            group = categories.setdefault(category, dict(sources=[], details=[]))
+            group['sources'].append(source)
+            if detail and detail not in group['details']:
+                group['details'].append(detail)
     for entry in source['selected']:
         r, result = entry['request'], entry['result']
         ip = r['inputs']['management_ip']
@@ -516,11 +618,14 @@ def operator_summary(prepared):
         device['actions'][action] = device['actions'].get(action, 0) + 1
         no_ops += bool(result['no_op'])
         changes += not result['no_op']
-        for finding in result.get('findings', []):
-            reasons.append(dict(row_id=r['row_id'], source=f"{t.sheet} row {r.get('row', '?')} / {ip} / {r['inputs'].get('interface', '')}", reason=finding, details={k: r['inputs'][k] for k in ('vlan_id', 'pvid', 'native_vlan', 'vlans', 'tagged_vlans') if k in r['inputs']}))
+        reason(f"{t.sheet} row {r.get('row', '?')} / {ip}", result.get('findings', []))
     for entry in source['skipped']:
         r = entry.get('request', {})
-        reasons.append(dict(row_id=entry['row_id'], source=f"{BY_ID[r['template_id']].sheet} row {r.get('row', '?')} / {r['inputs']['management_ip']}" if r else 'retained row', reason=entry['reason'], details=entry.get('blockers', [])))
+        location = f"{BY_ID[r['template_id']].sheet} row {r.get('row', '?')} / {r['inputs']['management_ip']}" if r else 'retained row'
+        reason(location, [entry['reason'], *entry.get('blockers', [])])
+    reasons = [dict(reason=category + (': ' + '; '.join(group['details']) if group['details'] else ''),
+                    count=len(group['sources']), sources=list(dict.fromkeys(group['sources'])))
+               for category, group in categories.items()]
     return dict(reference=prepared['reference'], source_digest=source['source_digest'], summary_digest=prepared['summary_digest'],
                 device_count=len(devices), changes=changes, no_ops=no_ops, skipped=len(source['skipped']),
                 concurrency=source['settings']['max_concurrent_devices'], devices=list(devices.values()), reasons=reasons,
@@ -536,7 +641,15 @@ def render_summary(summary):
         actions = ', '.join(f"{name}={count}" for name, count in device['actions'].items())
         lines.append(f"{device['hostname']} {device['ip']} {device['family']} | {actions}")
     for reason in summary['reasons']:
-        lines.append(f"{reason['source']} / {reason['row_id']}: {readable(reason['reason'])}" + (f"; {readable(reason['details'])}" if reason.get('details') else ''))
+        refs = {}
+        for source in reason['sources']:
+            match = re.fullmatch(r'(.*?) row (\d+) / (.*)', source)
+            if match:
+                refs.setdefault((match[1], match[3]), []).append(int(match[2]))
+            else:
+                refs.setdefault((source, ''), [])
+        reason = dict(reason, sources=[f'{sheet} rows {compact(rows)} / {ip}' if rows else sheet for (sheet, ip), rows in refs.items()])
+        lines.append(f"{reason['reason']} ({reason['count']}): " + "; ".join(reason['sources']))
     lines.extend([summary['fresh_checks'], summary['save_behavior']])
     return '\n'.join(lines)
 
@@ -554,6 +667,37 @@ def readable(value):
     return str(value)
 
 
+def raw_config(value):
+    if isinstance(value, list):
+        return '\n'.join(str(v.get('excerpt', '')) if isinstance(v, dict) else str(v) for v in value)
+    return readable(value)
+
+
+def verification_text(verification, result, request):
+    if not verification:
+        return 'Not performed'
+    evidence = verification.get('evidence', {})
+    lines = [verification.get('status', 'Unknown'), 'Expected: ' + compact(result.get('projected_state') or request.get('inputs', {}))]
+    if isinstance(evidence, dict):
+        for name in ('access_vlan_check', 'access_vlan_source', 'preservation', 'missing_fields', 'invalid_fields'):
+            if name in evidence:
+                lines.append(name + ': ' + compact(evidence[name]))
+        facts = evidence.get('switchport', {}).get('facts', {})
+        if facts:
+            lines.append('Actual: ' + compact(facts))
+        if evidence.get('description'):
+            lines.append('Description: ' + compact(evidence['description'].get('port_description')))
+        target = result.get('resolved_target', request.get('inputs', {}).get('interface'))
+        for vid, lookup in evidence.get('lookups', {}).items():
+            for port in lookup.get('ports', []):
+                if port.get('interface') == target:
+                    lines.append(f'VLAN {vid}: ' + compact(port))
+    lookup = verification.get('lookup')
+    if lookup:
+        lines.append('Actual: ' + compact({k: lookup.get(k) for k in ('status', 'vlan_id', 'name', 'operational_status')}))
+    return '\n'.join(lines)
+
+
 def export_results(run_path, output):
     """Offline literal report grouped by original template, from retained journal only."""
     from openpyxl import Workbook
@@ -563,30 +707,52 @@ def export_results(run_path, output):
     require(not Path(output).exists(), 'output already exists')
     run_path = Path(run_path)
     source = decode((run_path / 'summary.json').read_text(encoding='utf-8'))
+    manifest_path = run_path / 'manifest.json'
+    run_id = decode(manifest_path.read_text(encoding='utf-8')).get('run_id', run_path.name) if manifest_path.exists() else run_path.name
     book = Workbook(write_only=True)
     summary = book.create_sheet('Run Summary')
     details = book.create_sheet('Evidence Details')
+    details.column_dimensions['A'].width = 28
+    details.column_dimensions['B'].width = 28
+    details.column_dimensions['C'].width = 8
+    details.column_dimensions['D'].width = 110
     details.append(['Row / Event', 'Field', 'Part', 'Complete readable text'])
+    sheet_rows = {details.title: 1}
     def literal_row(sheet, values, reference=''):
         cells = []
         for column, value in enumerate(values, 1):
             text = ILLEGAL_CHARACTERS_RE.sub('', sanitize_text(str(value)))
+            if sheet is details and column == 4 and len(text) > 2400:
+                for offset in range(0, len(text), 2400):
+                    literal_row(details, [values[0], values[1], offset // 2400 + 1, text[offset:offset + 2400]])
+                return
             if len(text) > 30000:
                 for offset in range(0, len(text), 30000):
                     literal_row(details, [reference, column, offset // 30000 + 1, text[offset:offset + 30000]])
                 text = text[:29000] + f"\nContinued completely in Evidence Details: {reference}, field {column}"
             cell = WriteOnlyCell(sheet, value=text)
             cell.data_type = 's'
+            if text.startswith('Evidence Details!A'):
+                cell.hyperlink = "#'Evidence Details'!" + text.split('!')[1]
+                cell.style = 'Hyperlink'
             cell.alignment = Alignment(wrap_text=True, vertical='top')
             cells.append(cell)
+        sheet_rows[sheet.title] = sheet_rows.get(sheet.title, 0) + 1
+        sheet.row_dimensions[sheet_rows[sheet.title]].height = (300 if sheet is details else 90 if reference else 30)
         sheet.append(cells)
-    literal_row(summary, ['Run', run_path.name])
+    literal_row(summary, ['Run', run_id])
     literal_row(summary, ['Plan digest', source['source_digest']])
     literal_row(summary, ['Save policy', source.get('save_behavior', '')])
-    saves, backups, row_offsets = {}, {}, {}
+    saves, backups, row_offsets, detail_refs = {}, {}, {}, {}
+    row_counts, device_counts = {}, {}
     for index, event in enumerate(ResultJournal(run_path / 'events.jsonl').records(), 1):
         stage, ip, rid = event['stage'], event.get('management_ip', ''), event.get('row_id')
+        detail_refs[index] = sheet_rows.get(details.title, 1) + 1
         literal_row(details, [f'Event {index}', stage, 1, readable(event)], f'Event {index}')
+        if stage in {'row_result', 'save_result'}:
+            counts = row_counts if stage == 'row_result' else device_counts
+            status = event.get('status', 'Unknown')
+            counts[status] = counts.get(status, 0) + 1
         if stage == 'save_result':
             saves[ip] = {k: event[k] for k in ('status', 'explicit_error', 'error_category') if k in event}
         elif stage == 'backup_complete':
@@ -596,6 +762,9 @@ def export_results(run_path, output):
             row_offsets.setdefault(rid, []).append(index)
     for ip in dict.fromkeys([e['request']['inputs']['management_ip'] for e in source['selected']]):
         literal_row(summary, [ip, 'Save: ' + readable(saves.get(ip, {'status': 'Not recorded'})), 'Backup: ' + backups.get(ip, 'Not recorded')])
+    literal_row(summary, ['Selected / skipped rows', f"{len(source['selected'])} / {len(source['skipped'])}"])
+    literal_row(summary, ['Rows by verification outcome', compact(row_counts)])
+    literal_row(summary, ['Devices by save outcome', compact(device_counts)])
     sheets = {}
     headers = ['Run ID', 'IP', 'Row ID', 'Source row', 'Hostname', 'Family', 'Original Inputs', 'Decision', 'No-op', 'Pre-config', 'Config Sent', 'Config Evidence (post-row)', 'Apply Status', 'Status Verification', 'Error', 'Warning', 'Save Status', 'Backup Reference', 'Log Reference']
     entries = [(entry, False) for entry in source['selected']] + [(entry, True) for entry in source['skipped']]
@@ -607,9 +776,14 @@ def export_results(run_path, output):
         if title not in sheets:
             sheet = book.create_sheet(title)
             sheet.freeze_panes = 'D2'
-            for col in ('G', 'J', 'K', 'L', 'N', 'O', 'P'):
-                sheet.column_dimensions[col].width = 55
-            literal_row(sheet, headers)
+            from openpyxl.utils import get_column_letter
+            input_columns = list(t.columns) if t else []
+            template_headers = headers[:9] + input_columns + headers[9:] + ['Full detail']
+            for col, name in enumerate(template_headers, 1):
+                sheet.column_dimensions[get_column_letter(col)].width = 48 if name in {'Pre-config', 'Config Sent', 'Config Evidence (post-row)', 'Status Verification', 'Error', 'Warning'} else 24
+            sheet.column_dimensions['G'].hidden = bool(t)
+            sheet.column_dimensions['C'].hidden = True
+            literal_row(sheet, template_headers)
             sheets[title] = sheet
         rid = entry.get('row_id', r.get('row_id'))
         ip = r.get('inputs', {}).get('management_ip', '')
@@ -640,21 +814,30 @@ def export_results(run_path, output):
             errors.update(reason=entry['reason'], details=entry.get('blockers', []))
         for command in sent:
             if command['status'] == 'Rejected':
-                errors['Rejected command'] = command
+                errors['Rejected command'] = command['command'] + ' (see response detail)'
             elif command['status'] in {'Unknown', 'Pending / uncertain'}:
-                errors['Uncertain command'] = command
+                errors['Uncertain command'] = command['command'] + ' (outcome unknown; see detail)'
         if verification.get('status') == 'Failed':
-            errors['Verification'] = evidence
+            errors['Verification'] = 'Failed; compare expected/actual checks and linked detail'
         warnings = list(evidence.get('warnings', [])) if isinstance(evidence, dict) else []
         warnings.extend(verification.get('warnings', []))
         if not event.get('blocker'):
             warnings.extend(event.get('preflight_findings', []))
+        warnings = short_findings(warnings)
+        errors = {k: short_findings(v) if k in {'Preflight findings', 'details'} else v for k, v in errors.items()}
         apply_status = ('Skipped' if skipped else 'Unknown' if any(c['status'] in {'Unknown', 'Pending / uncertain'} for c in sent) else 'Rejected' if any(c['status'] == 'Rejected' for c in sent) else 'Applied' if sent else 'No-op' if result.get('no_op') and verification else 'Not executed')
-        literal_row(sheets[title], [run_path.name, ip, rid, r.get('row', ''), (entry.get('identity') or {}).get('hostname', ''), t.family if t else '',
+        values = [run_id, ip, rid, r.get('row', ''), (entry.get('identity') or {}).get('hostname', ''), t.family if t else '',
             readable(r.get('source_inputs') or r.get('inputs', {})), entry.get('decision', result.get('decision', '')), result.get('no_op', ''),
-            readable(pre_config), readable(sent) if sent else 'None (no-op)' if result.get('no_op') else 'None attempted', readable(evidence),
-            apply_status, readable(dict(requested=result.get('projected_state') or r.get('inputs', {}), actual_checks=verification)) if verification else 'Not performed', readable(errors), readable(warnings),
-            saves.get(ip, {}).get('status', 'Not recorded'), backups.get(ip, ''), event.get('log_reference', '')], rid)
+            raw_config(pre_config), '\n'.join('command: ' + c['command'] + ' [' + c['status'] + ']' for c in sent) if sent else 'None (no-op)' if result.get('no_op') else 'None attempted', raw_config(evidence.get('configuration', evidence.get('evidence', []))) if isinstance(evidence, dict) else readable(evidence),
+            apply_status, verification_text(verification, result, r), compact(errors), '\n'.join(warnings),
+            saves.get(ip, {}).get('status', 'Not recorded'), backups.get(ip, ''), event.get('log_reference', '')]
+        if not positions:
+            detail_start = sheet_rows.get(details.title, 1) + 1
+            literal_row(details, [rid, 'Retained source / review', 1, readable(entry)], rid)
+        else:
+            detail_start = detail_refs[min(positions)]
+        input_values = [compact((r.get('source_inputs') or r.get('inputs', {})).get(k, '')) for k in (t.columns if t else [])]
+        literal_row(sheets[title], values[:9] + input_values + values[9:] + [f"Evidence Details!A{detail_start}"], rid)
     with Path(output).open('xb') as stream:
         book.save(stream)
     return Path(output)

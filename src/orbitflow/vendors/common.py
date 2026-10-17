@@ -305,7 +305,10 @@ class DeviceCLI(PromptCLI):
                         continue
                 text = normalize_output(raw)
                 if platform == 'ubiquiti_edgeswitch' and not answered and text.rstrip().endswith('Are you sure you want to save? (y/n)'):
+                    from orbitflow.progress import save_progress
+                    save_progress('save_confirmation_recognized')
                     self._channel.sendall(b'y\n')
+                    save_progress('save_answer_y_waiting_original_exec')
                     answered = True
                     continue
                 if text.rstrip('\n').split('\n')[-1].strip() == exec_prompt:

@@ -803,3 +803,22 @@ permit only reliable explicit exact-port configuration fallback, with source/war
 pure parser unknowns and contradictory operational facts are preserved. See the
 [execution manual](user_manual/configuration-execution.md). No completed configuration was replayed; owner lab validation
 and merge remain pending.
+
+Issue #117 iteration 3: execution summaries group findings by source sheet/row ranges
+without nested evidence; template reports expose individual input columns, compact
+checks and linked complete detail, and preserve manifest run identity after relocation.
+Presentation alone suppresses tagged/membership overlap warnings. Optional structured
+progress drives immediate flushed CLI stages and five-second waiting updates without
+accessing channels or replaying writes; Python API calls remain quiet by default.
+Fallback field/source and journal warning messages survive shared safe log formatting.
+Owner live/lab validation and protected skill reconciliation remain pending.
+
+Issue #117 recovery validation on 2026-10-17: executor regressions pass (133);
+Windows controller gate currently reports 2,577 passed and two inventory/reporting
+failures under its deeply nested temporary root. Extended-length spelling did not
+resolve relative workbook creation. See the monthly devlog/revision handoff for
+separate short-temp full-suite evidence; do not treat it as a passed controller gate.
+Owner lab validation and protected-skill reconciliation remain pending.
+
+Separate shorter-temp full suite: 2,579 passed in 184.13s (Windows); both failing
+controller-path tests pass there. The nested-temp controller gate remains failed.

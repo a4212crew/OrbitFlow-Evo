@@ -347,3 +347,16 @@ unrelated checks and missing/ambiguous Unknown outcomes. Retain fallback source 
 missing-field warnings in results/logs. These revisions are fixture-validated; owner
 lab checks remain pending and completed configuration must not be replayed to diagnose
 reports.
+
+## Issue #117 iteration 3 implementation reconciliation
+
+The original bound summary remains authoritative. Operator projection groups short
+finding/skip categories with source sheet/row ranges, excluding nested evidence and
+presentation-only overlap warnings. Reports retain full operational detail in linked
+continuation areas and put scoped CLI/checks plus per-template inputs in main cells;
+manifest run_id survives relocation. Original plans/compliance are unchanged.
+Optional scalar progress callbacks serve CLI and future API consumers; CLI flushes
+stages and five-second wait snapshots. A presentation timer never accesses sessions,
+changes deadlines or retries device writes. Save question/y labels originate in the
+owning worker; original EXEC return still defines Saved. See the supported API/manual
+for exact callback fields and limitations. No live validation or merge is implied.

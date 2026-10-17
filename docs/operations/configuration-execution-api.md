@@ -51,7 +51,7 @@ export_results(spool.path, spool.path / 'api-execution-results.xlsx')
 `confirm(reference, *, summary_digest, apply=False, credentials=None,
 transport_config=None, inventory_path='data/inventory/inventory.json',
 run_root='outputs/runs/configuration_execution',
-backups_dir=None) -> ResultSpool` consumes the reference
+backups_dir=None, progress=None) -> ResultSpool` consumes the reference
 transactionally before connection. `apply is True` is mandatory. No actor label is
 authentication. Digest mismatch, missing reference, corruption and replay raise
 `PlanError` before device access. A run interruption consumes confirmation permanently
@@ -216,3 +216,59 @@ Unknown with that scoped configuration retained and a safe category/warning. Sta
 Verification in Excel shows requested/projected state alongside actual checks; apply
 status remains based on attempted command outcomes. Planning warnings and verification
 warnings appear under Warning rather than being mislabeled as execution errors.
+
+## Structured progress subscription
+
+`ExecutionService.confirm(..., progress=None)` accepts an optional synchronous
+`Callable[[dict], None]`. It is called only after successful explicit confirmation;
+preparation, declined CLI input and replay rejection emit no execution progress.
+Default None installs no timer and produces no console output. XLSX is independent.
+For future API callers, consume the same scalar event dictionaries directly:
+
+```python
+# Only after the caller explicitly confirms the exact prepared summary:
+def on_progress(event):
+    # Copy/enqueue promptly; do not perform device operations in a subscriber.
+    print(event['management_ip'], event['stage'], event['elapsed_seconds'])
+
+# Supply progress=on_progress to the confirm call shown above.
+```
+
+Each event contains `management_ip`, `hostname`, `stage`, `elapsed_seconds`,
+`rows_completed`, `devices_completed`. Run allocation adds `run_id` and `digest`.
+`confirmed_start` includes `rows_total` and `devices_total`. Command events optionally
+include `source` (template sheet and source row), `command`, `command_index`,
+`command_total`, `status`, `error_category`. These are sanitized scalar presentation
+fields; raw responses, credentials and nested evidence are never progress payloads.
+
+Stages: confirmed_start, connect, identify, preflight, backup, backup_complete,
+row_preflight, pre_row_evidence, command_intent, command_result/command_unknown,
+mode_intent/mode_result, verification_intent, verification_warning, row_result,
+save_intent, save_confirmation_recognized, save_answer_y_waiting_original_exec,
+save_result, device_failure, cleanup_start/cleanup, device_complete and recording. The CLI also
+uses report_generation/report_complete with IP `-` for offline reporting.
+`row_result.status` is the verification outcome; command_result Returned is only exchange
+progress. Totals count completed row/device outcomes, including failures, not success.
+
+A single optional timer emits `waiting` every 5 seconds for active blocking stages,
+with `awaited_stage`, `waiting_seconds`. Individual command/save waits include
+`timeout_seconds` and nonnegative `remaining_seconds`; compound observation stages
+instead include `command_timeout_seconds`. No deadline is invented for connection or
+identification. The clock is elapsed wall time, not device liveness. Delivery is
+serialized across device workers and timer; subscribers must return promptly.
+Subscriber exceptions disable that subscriber without affecting device writes or
+mandatory journal recording. Cancellation/error joins the timer in finally; it never
+owns a device session, sends data or retries writes. No progress is retained after
+reporter closure. The owner worker alone emits recognized save-question/y stages.
+Progress is best-effort display; the fsynced ResultJournal remains authoritative.
+
+The shared renderer is `orbitflow.progress.console_progress(event)`; it prints one
+flushed line. `Progress(subscriber=None, *, interval=5.0, clock=monotonic)` is the
+context-managed dispatcher used by execution and offline CLI reporting. Its `emit`
+and deterministic `tick` are presentation mechanisms; they do not authorize actions.
+See the [manual](../user_manual/configuration-execution.md#iteration-3-presentation-and-live-progress-issue-117)
+for compact workbook fields, linked detail, canonical run identity and Linux/PowerShell
+report/test commands. Owner device validation remains pending.
+
+Waiting snapshots use current batch completion counters, including outcomes from
+other devices completed since the awaited stage began.

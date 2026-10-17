@@ -258,3 +258,83 @@ is not invented. The confirmation store must still be retained and protected.
 
 Older warning/category detail is limited to retained fields. Export does not rerun
 verification, infer successful fallback or reclassify historical Unknown outcomes.
+
+### Iteration 3 presentation and live progress (Issue #117)
+
+Confirmation groups repeated finding/skip categories with counts and source sheet/row
+ranges. VLAN lists use compact inclusive ranges. Nested JSON evidence and opaque row
+IDs are absent from the display; material blockers remain visible. The full preparation
+and digest/replay rules are unchanged. Execution presentation suppresses only
+TAGGED_VLAN_NOT_IN_MEMBERSHIP, including nested EXISTING_VLAN_WARNING findings.
+Independent tagged/forbidden facts and the original plan/compliance findings remain.
+
+Template reports show input fields as individual columns before configuration columns.
+The legacy Original Inputs and internal Row ID columns are hidden, retained for audit.
+Pre-config and Config Evidence contain scoped CLI excerpts; Config Sent lists attempted
+commands and exchange outcomes. Status Verification shows status, expected/actual facts,
+preservation and fallback source without copying nested evidence or whole-device port
+tables. Full detail hyperlinks lead to readable event/continuation rows containing
+complete responses, metadata and operational tables. Run Summary includes row verification
+and device-save outcome counts. Manifest run_id is authoritative after moving/renaming
+an intact run; legacy runs without manifests fall back to the directory name.
+Main rows are wrapped at 90 points, configuration/check columns 48 characters wide;
+detail text uses a wider column with continuation chunks. Expand row height or follow
+Full detail for long excerpts; no assertion that every long value fits the main grid.
+Fallback and verification-warning diagnostics retain useful field/source text in shared
+sanitized configuration logs.
+
+After `y`, CLI progress is immediate and flushed. Every device line identifies IP,
+hostname and stage, with elapsed seconds and cumulative completed device/row counts.
+Source template/row and command index/total accompany command starts. For example
+(abbreviated fields; sample IP only):
+
+```text
+192.0.2.117 fixture [connect] | rows=0/2 devices=0/1 elapsed=0.1s
+192.0.2.117 fixture [command_intent] | EdgeSwitch VLAN Database row 3 | command 2/4: vlan 445 | timeout_seconds=30.0 | rows=0/2 devices=0/1 elapsed=0.5s
+192.0.2.117 fixture [command_result] | status=Returned | rows=0/2 devices=0/1 elapsed=0.7s
+192.0.2.117 fixture [verification_intent] | command_timeout_seconds=30.0 | rows=0/2 devices=0/1 elapsed=1.0s
+192.0.2.117 fixture [row_result] | status=Verified | rows=1/2 devices=0/1 elapsed=2.0s
+192.0.2.117 fixture [save_confirmation_recognized] | rows=2/2 devices=0/1 elapsed=3.0s
+192.0.2.117 fixture [save_answer_y_waiting_original_exec] | rows=2/2 devices=0/1 elapsed=3.0s
+192.0.2.117 fixture [waiting] | awaited_stage=save_answer_y_waiting_original_exec | waiting_seconds=5.0 | rows=2/2 devices=0/1 elapsed=8.0s
+192.0.2.117 fixture [save_result] | status=Saved | rows=2/2 devices=0/1 elapsed=9.0s
+192.0.2.117 fixture [cleanup] | status=Completed | rows=2/2 devices=0/1 elapsed=9.1s
+```
+
+Connect/identify/preflight, backup start/completion, row preflight, command exchanges,
+verification, save and cleanup start/completion are visible. Run-wide lines use IP `-`; report_generation
+and report_complete are also shown by the offline report command. Returned means an
+exchange returned, not verified success. Saved still means original EXEC prompt return;
+explicit errors remain separate. Timeout/disconnect remains Unknown.
+
+An optional display timer wakes every 5 seconds while a subscribed blocking stage is
+active. It reports the awaited stage and elapsed wait, plus configured timeout/remaining
+stage budget for individual command/save exchanges. Multi-command observation stages
+show the configured per-command timeout, without inventing a total-stage deadline.
+Connect/identify may have no known deadline in this layer. Heartbeats do not probe the
+device, extend deadlines, retry writes, or prove responsiveness. Save-question labels
+are emitted by the device-owning worker; the timer never accesses channels. Subscriber
+exceptions disable display only; durable journal failures remain execution failures.
+This uses Python threading/contextvars on Linux and Windows, with no additional feature
+worker pool. Standalone/API execution is quiet unless a subscriber is supplied.
+
+Workbook QA for this revision uses an equivalent deterministic structural/content
+inspection with openpyxl: check actual cell content, compact ranges, full detail and
+hyperlink targets, preserved manifest identity, input columns, widths, wrapping and
+row heights. No Excel desktop screenshot or Linux-host execution is claimed. Owner
+read-only verification and offline report regeneration remain sufficient for reassessing
+previously applied access rows; no live apply/save was performed by Codex.
+
+
+Validation limitation on this Windows host: the controller's nested temporary root
+causes two inventory/reporting tests to fail with long-path errors. Extended-length
+spelling did not resolve relative-path workbook creation. The gate remains failed;
+no controller guard was changed. A separate full deterministic suite can use
+`python -m pytest -q --basetemp <short-unused-directory>` under an authorized
+temporary root. Pytest owns/clears that directory; use a dedicated new test directory.
+This separate run does not change the controller gate's recorded failure.
+
+Recovery validation: executor 133 passed; separate shorter-temp full suite 2,579
+passed in 184.13s on Windows. Both nested-temp controller runs had 2,577 passed /
+2 failed; do not report those gates as passed. Linux commands are source-verified
+only. Exact invocation/evidence is retained in the monthly devlog and revision handoff.

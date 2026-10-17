@@ -2,6 +2,7 @@
 import argparse
 from pathlib import Path
 
+from orbitflow.progress import Progress, console_progress
 from orbitflow.configuration.execution import ApplySettings, ExecutionService, export_results, operator_summary, render_summary
 from orbitflow.configuration.v2.planning import load
 from orbitflow.configuration.plans import require
@@ -36,7 +37,10 @@ def main(argv=None):
     with module_logger('configuration', 'execution') as (logger, _):
         try:
             if args.command == 'report':
-                print(export_results(args.run_path, args.output))
+                with Progress(console_progress) as progress:
+                    progress.emit('-', 'report_generation')
+                    print(export_results(args.run_path, args.output))
+                    progress.emit('-', 'report_complete')
                 return
             settings = ApplySettings(args.apply_concurrency, args.command_timeout, args.save_timeout,
                                      args.connection_start_interval, args.connection_retry_delay)
@@ -54,10 +58,21 @@ def main(argv=None):
             credentials = load_device_credentials(args.devices, ips) if ips else {}
             transport = TransportConfig(args.proxy, args.cluster, args.bastion_host, args.bastion_user,
                                         teleport_key_path=args.teleport_key_path, teleport_cert_path=args.teleport_cert_path)
+            latest_progress = {}
+            def show_progress(event):
+                latest_progress.update(event)
+                console_progress(event)
             spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
                                     credentials=credentials, transport_config=transport, inventory_path=args.inventory_path,
-                                    run_root=args.run_root, backups_dir=args.backups_dir)
-            print(export_results(spool.path, spool.path / 'execution-results.xlsx'))
+                                    run_root=args.run_root, backups_dir=args.backups_dir, progress=show_progress)
+            with Progress(console_progress) as progress:
+                progress.rows_completed = latest_progress.get('rows_completed', 0)
+                progress.devices_completed = latest_progress.get('devices_completed', 0)
+                progress.started -= latest_progress.get('elapsed_seconds', 0)
+                progress.correlation.update({k: latest_progress[k] for k in ('run_id', 'digest', 'rows_total', 'devices_total') if k in latest_progress})
+                progress.emit('-', 'report_generation')
+                print(export_results(spool.path, spool.path / 'execution-results.xlsx'))
+                progress.emit('-', 'report_complete')
         except Exception as exc:
             logger.error('Execution command failed', extra={'error_category': type(exc).__name__})
             parser.exit(2, f'Execution failed ({type(exc).__name__}); see configuration module logs.\n')

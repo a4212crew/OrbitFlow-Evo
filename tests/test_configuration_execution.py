@@ -525,15 +525,23 @@ def test_safe_continuation_after_failed_row_and_device_isolation(tmp_path, monke
     monkeypatch.setattr(ex, 'DeviceInventoryResolver', lambda *a, **kw: SimpleNamespace(resolve=lambda session, **kw: ctx if session.ip == IP else other_ctx))
     monkeypatch.setattr(ex, '_observe', lambda session, *a: obs if session.ip == IP else other_obs)
     monkeypatch.setattr(ex, 'verify_row', lambda session, context, cli, entry, *a, **kw: dict(status='Failed' if entry['request']['inputs']['vlan_id'] == 445 and session.ip == IP else 'Verified'))
+    progress_events = []
     spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
                            credentials={ip: DeviceCredentials('user','hidden') for ip in (IP,other_ip)},
-                           run_root=tmp_path / 'runs', backups_dir=tmp_path / 'backups', inventory_path=tmp_path / 'inventory.json')
+                           run_root=tmp_path / 'runs', backups_dir=tmp_path / 'backups', inventory_path=tmp_path / 'inventory.json', progress=progress_events.append)
     records = {v['target']: v['payload'] for v in spool.records()}
     assert [v['status'] for v in records[IP]['rows']] == ['Failed','Verified']
     assert records[other_ip]['rows'][0]['status'] == 'Verified'
     assert len(saves) == 2 and len(WorkerCLI.instances) == 2
     assert WorkerCLI.instances[0].session is not WorkerCLI.instances[1].session
     assert all(cli.closed for cli in WorkerCLI.instances)
+
+    for ip, entries in ((IP, requests), (other_ip, [other])):
+        sources = {f"{template('C3750X','VLAN Database').sheet} row {e.get('row', '?')}" for e in entries}
+        selected = [e for e in progress_events if e['management_ip'] == ip and e['stage'] == 'command_intent']
+        assert selected and all(e['source'] in sources for e in selected)
+        assert all(e['run_id'] == spool.path.name for e in selected)
+    assert progress_events[-2]['devices_completed'] == 2
 
 
 def test_backup_failure_blocks_all_writes(tmp_path, monkeypatch):
@@ -835,7 +843,11 @@ def test_default_backup_relative_movable_and_pre_row_durable(tmp_path, monkeypat
     shutil.copytree(spool.path, moved)
     assert (moved/backup['backup_reference']).is_file()
     monkeypatch.setattr(ex, 'connect_device', lambda *a: pytest.fail('offline export'))
-    ex.export_results(moved, tmp_path/'moved.xlsx')
+    moved_report = ex.export_results(moved, tmp_path/'moved.xlsx')
+    moved_book = load_workbook(moved_report)
+    assert moved_book['Run Summary']['B1'].value == spool.manifest['run_id']
+    moved_sheet = moved_book[template('C3750X', 'VLAN Database').sheet]
+    assert moved_sheet['A2'].value == spool.manifest['run_id']
 
 
 @pytest.mark.parametrize('failure', ['', 'reject', 'timeout'])
@@ -989,3 +1001,240 @@ def test_external_backup_override_different_drive_reference(tmp_path, monkeypatc
     backup=next(e for e in events if e['stage']=='backup_complete')
     assert Path(backup['backup_reference']).is_absolute()
     assert next(spool.records())['payload']['rows'][0]['status']=='Verified'
+
+
+def test_real_shaped_findings_grouping_and_overlap_presentation(tmp_path):
+    _, r, original = make_plan()
+    prepared = ex.ExecutionService(tmp_path/'authority').prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)
+    import copy
+    sample = 'EXISTING_VLAN_WARNING: ' + json.dumps(dict(code='PVID_NOT_IN_MEMBERSHIP', vlans=[745,746,747], evidence=[dict(excerpt='opaque raw evidence', line=12)]))
+    overlap = 'EXISTING_VLAN_WARNING: ' + json.dumps(dict(code='TAGGED_VLAN_NOT_IN_MEMBERSHIP', vlans=[746], evidence=[dict(excerpt='retained overlap')]))
+    entries = []
+    for i in range(36):
+        entry = copy.deepcopy(prepared['summary']['selected'][0])
+        entry['request'].update(row=i+3, row_id=f'opaque-{i}')
+        entry['result']['findings'] = [sample, overlap]
+        if i > 18:
+            entry['request']['template_id'] = template('EdgeSwitch', 'Interface Description').id
+        entries.append(entry)
+    prepared['summary']['selected'] = entries
+    prepared['summary']['skipped'] = [dict(request=dict(entries[0]['request'], row=50+i), row_id=f'skipped-{i}', reason='Reject') for i in range(10)]
+    text = ex.render_summary(ex.operator_summary(prepared))
+    assert 'Skipped: 10' in text and 'Reject (10)' in text
+    assert '745-747' in text and '(36)' in text and 'rows 3-21' in text
+    assert 'opaque-' not in text and 'evidence' not in text and 'TAGGED_VLAN_NOT_IN_MEMBERSHIP' not in text
+    assert 'PVID_NOT_IN_MEMBERSHIP' in text and 'EdgeSwitch' in text
+    assert entries[0]['result']['findings'] == [sample, overlap]
+
+
+def test_report_compact_main_cells_complete_linked_detail_and_canonical_run(tmp_path):
+    _, r, original = make_plan()
+    prepared = ex.ExecutionService(tmp_path/'authority').prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)
+    run = tmp_path/'renamed'; run.mkdir()
+    (run/'summary.json').write_text(json.dumps(prepared['summary']))
+    (run/'manifest.json').write_text(json.dumps(dict(run_id='canonical-execution-identity')))
+    overlap = 'EXISTING_VLAN_WARNING: ' + json.dumps(dict(code='TAGGED_VLAN_NOT_IN_MEMBERSHIP', vlans=[746]))
+    evidence = dict(configuration=[dict(excerpt='interface 0/3'), dict(excerpt=' vlan pvid 901')],
+                    access_vlan_check=dict(actual=901, requested=901), access_vlan_source='explicit configuration',
+                    lookups={'901': dict(ports=[dict(interface=f'0/{i}', current='Include', configured='Include', tagging='Tagged') for i in range(100)])})
+    ResultJournal(run/'events.jsonl').append(dict(stage='row_result', management_ip=IP, row_id=r['row_id'], status='Verified',
+       preflight_findings=[overlap, 'GLOBAL_VLAN_REQUIRED'], verification=dict(status='Verified', evidence=evidence)))
+    book = load_workbook(ex.export_results(run, tmp_path/'report.xlsx'))
+    sheet = book[template('C3750X', 'VLAN Database').sheet]
+    values = dict(zip([c.value for c in sheet[1]], [c.value for c in sheet[2]]))
+    assert values['Run ID'] == 'canonical-execution-identity'
+    assert book['Run Summary']['B1'].value == values['Run ID']
+    assert values['vlan_id'] == '445' and values['name'] == 'Customer'
+    assert values['Config Evidence (post-row)'] == 'interface 0/3\n vlan pvid 901'
+    assert 'actual=901' in values['Status Verification'] and 'requested=901' in values['Status Verification']
+    assert 'explicit configuration' in values['Status Verification']
+    assert '0/99' not in values['Status Verification'] and len(values['Status Verification']) < 500
+    assert values['Warning'] == 'GLOBAL_VLAN_REQUIRED'
+    assert sheet.cell(2, sheet.max_column).hyperlink.target.startswith("#'Evidence Details'!A")
+    detail = '\n'.join(str(c.value) for row in book['Evidence Details'] for c in row)
+    assert '0/99' in detail and 'TAGGED_VLAN_NOT_IN_MEMBERSHIP' in detail
+    assert sheet.row_dimensions[2].height == 90 and sheet.column_dimensions[__import__('openpyxl').utils.get_column_letter(list(values).index('Config Evidence (post-row)')+1)].width == 48
+
+
+@pytest.mark.parametrize('failure', ['', 'timeout', 'interrupt'])
+def test_progress_order_confirmation_cleanup_and_optional_failure(tmp_path, monkeypatch, failure):
+    from orbitflow.progress import Progress
+    ctx, r, original = make_plan()
+    fake_runtime(monkeypatch, ctx, original.to_dict()['observations'][IP])
+    WorkerCLI.timeout = failure == 'timeout'
+    WorkerCLI.interrupt = failure == 'interrupt'
+    service = ex.ExecutionService(tmp_path/'authority')
+    prepared = service.prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)
+    events=[]
+    assert not WorkerCLI.instances and not events
+    kwargs=dict(summary_digest=prepared['summary_digest'], apply=True, credentials={IP: DeviceCredentials('test-user','hidden')},
+                run_root=tmp_path/'runs', inventory_path=tmp_path/'inventory.json', progress=events.append)
+    if failure == 'interrupt':
+        with pytest.raises(KeyboardInterrupt):
+            service.confirm(prepared['reference'], **kwargs)
+    else:
+        service.confirm(prepared['reference'], **kwargs)
+    stages=[e['stage'] for e in events]
+    assert stages[0]=='confirmed_start'
+    assert stages.index('connect') < stages.index('identify') < stages.index('preflight') < stages.index('backup') < stages.index('backup_complete') < stages.index('command_intent')
+    assert 'cleanup' in stages and WorkerCLI.instances[0].closed
+    assert all(e['management_ip']==IP for e in events if e['stage'] in {'connect','command_intent','cleanup'})
+    if not failure:
+        assert stages.index('verification_intent') < stages.index('row_result') < stages.index('save_intent') < stages.index('save_result')
+        assert events[-2]['devices_completed']==1
+    before=len(events)
+    with pytest.raises(PlanError):
+        service.confirm(prepared['reference'], **kwargs)
+    assert len(events)==before
+    assert not any(t.name=='configuration-progress' for t in __import__('threading').enumerate())
+    with Progress(lambda e: (_ for _ in ()).throw(ValueError())) as reporter:
+        reporter.emit(IP,'command_intent')
+        reporter.emit(IP,'command_result')
+    assert reporter.subscriber is None
+
+
+def test_progress_waiting_clock_concurrent_attribution_and_stop():
+    from orbitflow.progress import Progress
+    clock=[0.0]; events=[]
+    with Progress(events.append, clock=lambda:clock[0]) as reporter:
+        def start(ip):
+            reporter.emit(ip, 'command_intent', hostname='host-'+ip, timeout=10, command_index=1)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(start, ['192.0.2.1','192.0.2.2']))
+        clock[0]=5
+        reporter.tick()
+        waits=[e for e in events if e['stage']=='waiting']
+        assert {e['management_ip'] for e in waits}=={'192.0.2.1','192.0.2.2'}
+        assert all(e['remaining_seconds']==5 and e['awaited_stage']=='command_intent' for e in waits)
+        assert not any(e.get('status')=='Verified' for e in events)
+        reporter.emit('192.0.2.1','command_unknown',status='Unknown')
+        reporter.emit('192.0.2.1','row_result',status='Unknown')
+        reporter.emit('192.0.2.1','device_complete',status='Failed')
+        clock[0]=11; reporter.tick()
+        assert events[-1]['management_ip']=='192.0.2.2' and events[-1]['remaining_seconds']==0
+        assert events[-1]['rows_completed']==1 and events[-1]['devices_completed']==1
+    assert not reporter.thread.is_alive() and reporter.active=={}
+
+
+def test_save_progress_recognized_question_and_original_prompt_only():
+    from orbitflow.progress import Progress
+    prompt='(<fixture>) #'
+    cli, channel=cli_with([b'write memory\nAre you sure you want to save? (y/n)', ('\n'+prompt).encode()],prompt)
+    events=[]
+    with Progress(events.append) as reporter, reporter.save_scope(IP,'fixture',20):
+        result=cli.save_configuration(prompt,'ubiquiti_edgeswitch',timeout=20)
+    assert result['status']=='Saved'
+    assert [e['stage'] for e in events]==['save_confirmation_recognized','save_answer_y_waiting_original_exec']
+    assert channel.sent.count(b'y\n')==1
+    assert all(e['management_ip']==IP for e in events)
+
+
+@pytest.mark.parametrize('explicit, source', [('445', 'fresh exact-interface explicit configuration'), ('', 'unavailable')])
+def test_fallback_actual_formatted_log_values(tmp_path, monkeypatch, explicit, source):
+    from orbitflow.logging import module_logger
+    config='interface GigabitEthernet1/1/1\n switchport mode access\n switchport access vlan 545\n!\nend\n'
+    ctx,r,original=make_plan(function='Access Port',config=config,inputs=dict(interface='GigabitEthernet1/1/1',vlan_id=445))
+    before=original.to_dict()['observations'][IP]
+    after=observation(ctx,config.replace(' switchport access vlan 545\n',f' switchport access vlan {explicit}\n' if explicit else ''))
+    after.update(configuration_reliable=True,vlan_lookups={})
+    monkeypatch.setattr(ex,'_observe',lambda *a:after)
+    monkeypatch.setattr(ex,'SwitchportService',lambda **k:SimpleNamespace(collect=lambda *a,**kw:SimpleNamespace(to_dict=lambda:dict(facts=dict(enabled=True,administrative_mode='static access',access_vlan=None)))))
+    with module_logger('test', log_root=tmp_path):
+        ex.verify_row(object(),ctx,object(),dict(request=r,result=original.to_dict()['results'][0]),before,correlation=dict(run_id='test-run',row_id=r['row_id']))
+    logs=[json.loads(line) for path in tmp_path.rglob('*.log') for line in path.read_text().splitlines()]
+    message=next(v for v in logs if 'verification source=' in v['message'])
+    assert f'not reported; verification source={source}' in message['message']
+    assert '%s' not in message['message'] and 'arguments omitted' not in message['message']
+    assert message['management_ip']==IP and message['run_id']=='test-run'
+
+
+def test_verification_warning_journal_logged_as_useful_message(tmp_path, monkeypatch):
+    from orbitflow.logging import module_logger
+    run, _, _ = run_prepared(tmp_path, monkeypatch)
+    monkeypatch.setattr(ex, 'verify_row', lambda *a, **kw: dict(status='Verified', evidence=dict(warnings=['ACCESS_VLAN_CONFIG_FALLBACK: Access Mode VLAN not reported'])))
+    with module_logger('test', log_root=tmp_path/'logs'):
+        spool=run()
+    events=list(ResultJournal(spool.path/'events.jsonl').records())
+    warning=next(e for e in events if e['stage']=='verification_warning')
+    logs=[json.loads(line) for path in (tmp_path/'logs').rglob('*.log') for line in path.read_text().splitlines()]
+    message=next(v['message'] for v in logs if 'stage=verification_warning' in v['message'])
+    assert warning['warning'] in message and 'Access Mode VLAN not reported' in message
+
+
+def test_cli_decline_emits_no_progress_or_device_access(tmp_path, monkeypatch, capsys):
+    from orbitflow.configuration import execution_cli
+    _, _, original=make_plan()
+    json_path=tmp_path/'plan.json'
+    # Use the same artifact format as the supported planner writer.
+    from orbitflow.configuration.v2.planning import save
+    save(original, json_path)
+    workbook=tmp_path/'plan.xlsx'; export_plan(original,workbook)
+    monkeypatch.setattr('builtins.input',lambda *a:'n')
+    monkeypatch.setattr(execution_cli,'console_progress',lambda e:pytest.fail('decline progress'))
+    monkeypatch.setattr(ex,'connect_device',lambda *a:pytest.fail('decline connect'))
+    execution_cli.main(['execute',str(json_path),str(workbook),'--expected-digest',original.digest,
+        '--authority-dir',str(tmp_path/'authority'),'--proxy','fixture','--cluster','fixture','--bastion-host','fixture','--bastion-user','fixture'])
+    assert 'Execution declined' in capsys.readouterr().out
+
+
+def test_slow_save_wait_is_visible_but_timeout_is_unknown():
+    from orbitflow.progress import Progress
+    events=[]; clock=[0.0]
+    cli, channel=cli_with([b'write memory\nBuilding configuration...',socket.timeout()])
+    original_recv=channel.recv
+    with Progress(events.append,clock=lambda:clock[0]) as reporter:
+        reporter.emit(IP,'save_intent',timeout=10)
+        def recv(size):
+            clock[0]+=5
+            reporter.tick()
+            return original_recv(size)
+        channel.recv=recv
+        result=cli.save_configuration('fixture#','cisco_ios',timeout=10)
+        reporter.emit(IP,'save_result',status=result['status'])
+    assert result['status']=='Unknown'
+    assert any(e['stage']=='waiting' and e['awaited_stage']=='save_intent' for e in events)
+    assert not any(e.get('status')=='Saved' for e in events)
+    assert channel.sent.count(b'write memory\n')==1
+
+
+def test_progress_display_failure_does_not_repeat_writes(tmp_path,monkeypatch):
+    ctx,r,original=make_plan()
+    fake_runtime(monkeypatch,ctx,original.to_dict()['observations'][IP])
+    service=ex.ExecutionService(tmp_path/'authority')
+    prepared=service.prepare(original,{r['row_id']:'Approve'},expected_digest=original.digest)
+    def failed(event):
+        raise OSError('display unavailable')
+    spool=service.confirm(prepared['reference'],summary_digest=prepared['summary_digest'],apply=True,
+        credentials={IP:DeviceCredentials('user','hidden')},run_root=tmp_path/'runs',inventory_path=tmp_path/'inventory.json',progress=failed)
+    assert WorkerCLI.instances[0].sent==prepared['summary']['selected'][0]['result']['commands']
+    assert next(spool.records())['payload']['rows'][0]['status']=='Verified'
+
+
+def test_save_question_audit_precedes_y_and_mandatory_failure_cannot_retry():
+    from orbitflow.progress import Progress
+    prompt='(<fixture>) #'
+    cli,channel=cli_with([b'write memory\nAre you sure you want to save? (y/n)', ('\n'+prompt).encode()],prompt)
+    audited=[]
+    def audit(stage):
+        assert b'y\n' not in channel.sent
+        audited.append(stage)
+        raise OSError('journal unavailable')
+    with Progress() as reporter,reporter.save_scope(IP,'fixture',20,audit=audit):
+        result=cli.save_configuration(prompt,'ubiquiti_edgeswitch',timeout=20)
+    assert result['status']=='Unknown' and b'y\n' not in channel.sent
+    assert audited==['save_confirmation_recognized']
+    assert channel.sent.count(b'write memory\n')==1
+
+
+def test_console_progress_is_concise_and_flushed(monkeypatch):
+    from orbitflow.progress import Progress, console_progress
+    printed=[]
+    monkeypatch.setattr('builtins.print',lambda *args,**kwargs:printed.append((args,kwargs)))
+    with Progress(console_progress) as reporter:
+        reporter.correlation.update(run_id='opaque-run',digest='opaque-digest',rows_total=3,devices_total=2)
+        reporter.emit(IP,'command_intent',hostname='fixture',command='vlan 445',command_index=2,command_total=4)
+    args,kwargs=printed[0]
+    assert kwargs['flush'] is True
+    assert IP in args[0] and 'fixture' in args[0] and '[command_intent]' in args[0]
+    assert '2/4' in args[0] and 'rows=0/3 devices=0/2' in args[0]
+    assert 'opaque-' not in args[0]
