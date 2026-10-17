@@ -22,12 +22,14 @@ the pinned JSON digest, protected workbook cells/dimensions/order, row identitie
 decisions and dependencies. Unsupported, blocked, Pending and Reject rows are
 listed as skipped. Review intent is unauthenticated and never alone authorizes apply.
 
-`execute` prepares without connecting and renders a concise operator summary: execution
-reference, short plan digest (full digest retained programmatically and in summary.json),
-device/change/no-op/skipped counts, concurrency, ordered hostname/IP/family and template/
-action counts, source-row warnings and blockers. Offline known state is distinguished
-from fresh identity/state/prerequisite/backup checks after confirmation. Full approved
-CLI and evidence remain in the reviewed plan and digest-bound preparation result.
+`execute` prepares without connecting and renders totals for devices, changes,
+no-op rows, skipped rows and concurrency, then one numbered IP/hostname/selected-row
+count per device in first-appearance order. A brief warnings/blockers indication
+points to preparation findings and configuration logs without listing sources.
+One policy line discloses fresh checks, backup before writes, approved execution,
+whole-running-configuration save after attempted writes (including partial changes),
+and EdgeSwitch management interruption/save answer. Complete intent and findings
+remain in digest-bound preparation; no per-row commands or evidence are printed.
 It asks `Confirm execution? [y/N]:`; only `y` confirms. Declining opens no connection.
 
 The local confirmation reference binds the exact summary. It is consumed
@@ -283,23 +285,27 @@ Full detail for long excerpts; no assertion that every long value fits the main 
 Fallback and verification-warning diagnostics retain useful field/source text in shared
 sanitized configuration logs.
 
-After `y`, CLI progress is immediate and flushed. Every device line identifies IP,
-hostname and stage, with elapsed seconds and cumulative completed device/row counts.
-Source template/row and command index/total accompany command starts. For example
-(abbreviated fields; sample IP only):
+After `y`, CLI progress is immediate, serialized and flushed. Each line identifies
+IP, hostname and stage. Row stages add template sheet/source row; command stages add
+index/total. Raw commands, timing/deadline fields, completion counters and correlation
+metadata remain in structured callbacks/diagnostics rather than normal console output.
+Statuses, error categories and warning pointers remain visible. For example:
 
 ```text
-192.0.2.117 fixture [connect] | rows=0/2 devices=0/1 elapsed=0.1s
-192.0.2.117 fixture [command_intent] | EdgeSwitch VLAN Database row 3 | command 2/4: vlan 445 | timeout_seconds=30.0 | rows=0/2 devices=0/1 elapsed=0.5s
-192.0.2.117 fixture [command_result] | status=Returned | rows=0/2 devices=0/1 elapsed=0.7s
-192.0.2.117 fixture [verification_intent] | command_timeout_seconds=30.0 | rows=0/2 devices=0/1 elapsed=1.0s
-192.0.2.117 fixture [row_result] | status=Verified | rows=1/2 devices=0/1 elapsed=2.0s
-192.0.2.117 fixture [save_confirmation_recognized] | rows=2/2 devices=0/1 elapsed=3.0s
-192.0.2.117 fixture [save_answer_y_waiting_original_exec] | rows=2/2 devices=0/1 elapsed=3.0s
-192.0.2.117 fixture [waiting] | awaited_stage=save_answer_y_waiting_original_exec | waiting_seconds=5.0 | rows=2/2 devices=0/1 elapsed=8.0s
-192.0.2.117 fixture [save_result] | status=Saved | rows=2/2 devices=0/1 elapsed=9.0s
-192.0.2.117 fixture [cleanup] | status=Completed | rows=2/2 devices=0/1 elapsed=9.1s
+192.0.2.117 fixture [connect]
+192.0.2.117 fixture [row_preflight] | EdgeSwitch VLAN Database row 3
+192.0.2.117 fixture [command_intent] | EdgeSwitch VLAN Database row 3 | command 1/4
+192.0.2.117 fixture [waiting]
+192.0.2.117 fixture [row_result] | EdgeSwitch VLAN Database row 3 | status=Verified
 ```
+
+At execution completion, a single outcome line streams actual recorded device and row
+outcomes and total elapsed seconds, before report generation. Devices distinguish
+Completed, Partial, Failed and Unknown; an uncertain row or save is Unknown, and
+verified rows plus a failure are Partial. Row counts retain actual verification
+statuses and the skipped selection count. Interruptions/exceptions show observed completed outcomes and mark the remaining
+devices/rows Unknown/incomplete, include elapsed time and propagate failure; they never claim
+success. Offline report generation prints no execution-duration footer.
 
 Connect/identify/preflight, backup start/completion, row preflight, command exchanges,
 verification, save and cleanup start/completion are visible. Run-wide lines use IP `-`; report_generation
@@ -308,10 +314,10 @@ exchange returned, not verified success. Saved still means original EXEC prompt 
 explicit errors remain separate. Timeout/disconnect remains Unknown.
 
 An optional display timer wakes every 5 seconds while a subscribed blocking stage is
-active. It reports the awaited stage and elapsed wait, plus configured timeout/remaining
-stage budget for individual command/save exchanges. Multi-command observation stages
-show the configured per-command timeout, without inventing a total-stage deadline.
-Connect/identify may have no known deadline in this layer. Heartbeats do not probe the
+active. The console prints a concise waiting stage with available row/command context.
+Structured subscribers retain awaited stage, elapsed wait and configured timeout/remaining
+budget; no total-stage deadline is invented for compound observation or connection.
+Heartbeats do not probe the
 device, extend deadlines, retry writes, or prove responsiveness. Save-question labels
 are emitted by the device-owning worker; the timer never accesses channels. Subscriber
 exceptions disable display only; durable journal failures remain execution failures.
@@ -338,3 +344,35 @@ Recovery validation: executor 133 passed; separate shorter-temp full suite 2,579
 passed in 184.13s on Windows. Both nested-temp controller runs had 2,577 passed /
 2 failed; do not report those gates as passed. Linux commands are source-verified
 only. Exact invocation/evidence is retained in the monthly devlog and revision handoff.
+
+
+### Issue #119 validation status
+
+Owner lab validation of C3750X and EdgeSwitch execution was reported following PR #118;
+C3850 live validation remains outstanding. This presentation follow-up does not replay
+those changes or alter historical run results. No live device operations were performed
+by Codex. Fresh row collection/verification, per-IP ordering, one backup before writes
+and one save after attempted writes remain unchanged.
+
+Source-verified deterministic validation from the repository root (use a fresh dedicated
+pytest directory; pytest clears its basetemp):
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m pytest tests/test_configuration_execution.py -q
+python -m pytest -q --basetemp "$env:TEMP/of119-tests"
+python -m orbitflow.configuration.execution_cli execute --help
+python -m orbitflow.configuration.execution_cli report --help
+```
+
+```bash
+export PYTHONPATH=src
+python -m pytest tests/test_configuration_execution.py -q
+python -m pytest -q --basetemp /tmp/of119-tests
+python -m orbitflow.configuration.execution_cli execute --help
+python -m orbitflow.configuration.execution_cli report --help
+```
+
+These commands require no device access. Linux commands are source-verified; Linux-host
+execution and C3850 live validation are not claimed. The controller-required test set is
+the full `python -m pytest -q` suite, with its own managed temporary directory.

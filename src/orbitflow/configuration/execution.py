@@ -634,23 +634,12 @@ def operator_summary(prepared):
 
 def render_summary(summary):
     """Concise text for CLI or other operator surfaces, without nested evidence."""
-    lines = [f"Execution reference: {summary['reference']}",
-             f"Plan: {summary['source_digest'][:12]} (full digest in preparation/summary.json)",
-             f"Devices: {summary['device_count']} | Changes: {summary['changes']} | No-op: {summary['no_ops']} | Skipped: {summary['skipped']} | Concurrency: {summary['concurrency']}"]
-    for device in summary['devices']:
-        actions = ', '.join(f"{name}={count}" for name, count in device['actions'].items())
-        lines.append(f"{device['hostname']} {device['ip']} {device['family']} | {actions}")
-    for reason in summary['reasons']:
-        refs = {}
-        for source in reason['sources']:
-            match = re.fullmatch(r'(.*?) row (\d+) / (.*)', source)
-            if match:
-                refs.setdefault((match[1], match[3]), []).append(int(match[2]))
-            else:
-                refs.setdefault((source, ''), [])
-        reason = dict(reason, sources=[f'{sheet} rows {compact(rows)} / {ip}' if rows else sheet for (sheet, ip), rows in refs.items()])
-        lines.append(f"{reason['reason']} ({reason['count']}): " + "; ".join(reason['sources']))
-    lines.extend([summary['fresh_checks'], summary['save_behavior']])
+    lines = [f"Devices: {summary['device_count']} | Changes: {summary['changes']} | No-op: {summary['no_ops']} | Skipped: {summary['skipped']} | Concurrency: {summary['concurrency']}"]
+    for index, device in enumerate(summary['devices'], 1):
+        lines.append(f"{index}. {device['ip']} {device['hostname']} | selected rows: {sum(device['actions'].values())}")
+    if summary['reasons']:
+        lines.append('Warnings/blockers or skipped selections: see preparation findings and configuration logs for details.')
+    lines.append('Fresh checks + backup before writes; execute approved rows; save entire running config once when usable after attempted writes (including partial changes). EdgeSwitch may interrupt management; save answer: y.')
     return '\n'.join(lines)
 
 

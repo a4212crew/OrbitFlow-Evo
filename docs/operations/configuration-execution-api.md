@@ -174,7 +174,10 @@ writes. Save still records Saved on original EXEC return, with explicit_error se
 `operator_summary(prepared: dict) -> dict` is a pure XLSX/HTTP-independent projection:
 reference, source_digest, summary_digest, device_count, changes, no_ops, skipped,
 concurrency, ordered devices (ip/hostname/family/action counts), source-row reasons,
-save_behavior and fresh_checks. `render_summary(projection) -> str` gives concise text.
+save_behavior and fresh_checks. `render_summary(projection) -> str` gives compact totals, numbered IP/hostname/selected
+row counts in first-appearance order, a brief warnings/blockers pointer and one
+backup/execute/save policy line. It does not expand action categories, commands or
+finding source lists; these remain available in the structured projection/preparation.
 Neither changes the full `prepared['summary']` nor its confirmation digest/replay guard.
 Prepare/confirm remain the authoritative complete programmatic contract.
 
@@ -268,7 +271,25 @@ context-managed dispatcher used by execution and offline CLI reporting. Its `emi
 and deterministic `tick` are presentation mechanisms; they do not authorize actions.
 See the [manual](../user_manual/configuration-execution.md#iteration-3-presentation-and-live-progress-issue-117)
 for compact workbook fields, linked detail, canonical run identity and Linux/PowerShell
-report/test commands. Owner device validation remains pending.
+report/test commands. See the Issue #119 status below for reported owner lab validation
+and remaining live checks.
 
 Waiting snapshots use current batch completion counters, including outcomes from
 other devices completed since the awaited stage began.
+
+
+## Issue #119 console presentation
+
+`console_progress(event)` renders IP, hostname and stage, optional source sheet/row,
+command index/total, statuses and error categories; verification warnings point to
+retained details. It omits raw commands, counters, correlation and all timing fields.
+`Progress` delivery, scalar event keys, waiting heartbeat and independent subscribers
+are unchanged: API consumers retain elapsed/wait/deadline diagnostics. Delivery remains
+serialized and flushed. No execution collection, verification or transport changes.
+
+The CLI prints one final recorded device/row outcome summary and execution elapsed
+seconds before exporting the report. Partial, failed, unknown and interrupted outcomes
+are distinguished; report-only operation adds no execution elapsed footer. This console
+format is independent of `confirm`'s unchanged ResultSpool return contract.
+Owner C3750X/EdgeSwitch lab validation of PR #118 was reported; C3850 live validation
+remains outstanding. See the manual's [validation instructions](../user_manual/configuration-execution.md#issue-119-validation-status).

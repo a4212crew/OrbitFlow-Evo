@@ -1,12 +1,44 @@
 """Explicit approved predefined apply, or offline execution-report recovery."""
 import argparse
 from pathlib import Path
+from time import monotonic
+from collections import Counter
 
 from orbitflow.progress import Progress, console_progress
 from orbitflow.configuration.execution import ApplySettings, ExecutionService, export_results, operator_summary, render_summary
 from orbitflow.configuration.v2.planning import load
 from orbitflow.configuration.plans import require
 from orbitflow.logging import module_logger
+
+
+def _counts(values):
+    return ', '.join(f'{key}={value}' for key, value in sorted(values.items()) if value) or 'none'
+
+
+def outcome_summary(spool, elapsed, *, skipped=0):
+    """Stream actual durable outcomes; verification and save failures remain distinct."""
+    devices, rows = Counter(), Counter()
+    for record in spool.records():
+        payload = record.get('payload') or {}
+        statuses = [row.get('status', 'Unknown') for row in payload.get('rows', [])]
+        rows.update(statuses)
+        save = payload.get('save') or {}
+        if 'Unknown' in statuses or save.get('status') == 'Unknown':
+            status = 'Unknown'
+        elif record['status'] == 'success':
+            status = 'Completed'
+        elif 'Verified' in statuses:
+            status = 'Partial'
+        else:
+            status = 'Failed'
+        devices[status] += 1
+    missing = max(0, spool.manifest['target_count'] - sum(devices.values()))
+    devices['Unknown'] += missing
+    interrupted = not spool.manifest.get('collection_complete', False)
+    label = ('Interrupted' if interrupted else 'Unknown' if devices['Unknown'] else
+             'Partial' if devices['Partial'] or (devices['Completed'] and devices['Failed']) else
+             'Failed' if devices['Failed'] else 'Completed')
+    return f'Execution {label} | devices: {_counts(devices)} | rows: {_counts(rows)}; skipped={skipped} | total elapsed: {elapsed:.1f}s'
 
 
 def main(argv=None):
@@ -58,18 +90,25 @@ def main(argv=None):
             credentials = load_device_credentials(args.devices, ips) if ips else {}
             transport = TransportConfig(args.proxy, args.cluster, args.bastion_host, args.bastion_user,
                                         teleport_key_path=args.teleport_key_path, teleport_cert_path=args.teleport_cert_path)
-            latest_progress = {}
+            completed_rows, completed_devices = Counter(), Counter()
             def show_progress(event):
-                latest_progress.update(event)
+                if event['stage'] == 'row_result':
+                    completed_rows[event.get('status', 'Unknown')] += 1
+                elif event['stage'] == 'device_complete':
+                    completed_devices[event.get('status', 'Unknown')] += 1
                 console_progress(event)
-            spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
-                                    credentials=credentials, transport_config=transport, inventory_path=args.inventory_path,
-                                    run_root=args.run_root, backups_dir=args.backups_dir, progress=show_progress)
+            started = monotonic()
+            try:
+                spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
+                                        credentials=credentials, transport_config=transport, inventory_path=args.inventory_path,
+                                        run_root=args.run_root, backups_dir=args.backups_dir, progress=show_progress)
+            except BaseException:
+                completed_devices['Unknown/incomplete'] += max(0, len(ips)-sum(completed_devices.values()))
+                completed_rows['Unknown/incomplete'] += max(0, len(prepared['summary']['selected'])-sum(completed_rows.values()))
+                print(f'Execution interrupted/failed | devices: {_counts(completed_devices)} | rows: {_counts(completed_rows)}; skipped={len(prepared["summary"]["skipped"])}; see retained run and logs | total elapsed: {monotonic()-started:.1f}s', flush=True)
+                raise
+            print(outcome_summary(spool, monotonic()-started, skipped=len(prepared['summary']['skipped'])), flush=True)
             with Progress(console_progress) as progress:
-                progress.rows_completed = latest_progress.get('rows_completed', 0)
-                progress.devices_completed = latest_progress.get('devices_completed', 0)
-                progress.started -= latest_progress.get('elapsed_seconds', 0)
-                progress.correlation.update({k: latest_progress[k] for k in ('run_id', 'digest', 'rows_total', 'devices_total') if k in latest_progress})
                 progress.emit('-', 'report_generation')
                 print(export_results(spool.path, spool.path / 'execution-results.xlsx'))
                 progress.emit('-', 'report_complete')
