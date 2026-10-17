@@ -74,6 +74,7 @@ Use this table to choose the skill(s) directly relevant to the task. Start there
 | Huawei VRP CLI behaviour | `.agents/skills/huawei-network-cli/SKILL.md` |
 | Ubiquiti EdgeSwitch CLI behaviour | `.agents/skills/ubiquiti-network-cli/SKILL.md` |
 | Controller, Codex invocation, task/revision lifecycle, PR/review orchestration | `.agents/skills/codex-orchestration/SKILL.md` |
+| Interactive operations console, local environment profile and menu registration of user-executable workflows | `.agents/skills/interactive-operations-console/SKILL.md` |
 | Documentation updates for every meaningful development/fix; document relocation and references | `.agents/skills/documentation-management/SKILL.md` |
 
 The documentation-management skill applies across meaningful development tasks; read only affected documentation. The orchestration skill is for controller work only, not all Codex tasks.
