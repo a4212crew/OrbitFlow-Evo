@@ -307,6 +307,28 @@ def test_subset_validation_and_cancel(settings):
         ui.select_targets(targets)
 
 
+@pytest.mark.parametrize('answers', [['b'], ['4,3,1', '', 'n']])
+def test_target_identity_mapping_and_cancel(settings, monkeypatch, answers):
+    from orbitflow import targets as target_loader
+    rows = [dict(management_ip=address, username='hidden-user', password='hidden-password',
+                 secret='hidden-secret', display_hint='hidden-hint\x1b[2J')
+            for address in ('192.0.2.1', 'hidden-address\x1b[2J\r\n', '192.0.2.1',
+                            '2001:0db8::1', 'fe80::1%hidden-scope\x1b[2J', '')]
+    monkeypatch.setattr(target_loader, 'load_targets', lambda *a, **kw: rows)
+    ui, output = console(answers, session_check=lambda _: pytest.fail('session checked after cancellation'))
+    with pytest.raises(Cancelled):
+        ui.network(settings, 'data/input/devices.xlsx', 'Read-only')
+    assert output[1:7] == [
+        '  Row 1: 192.0.2.1', '  Row 2: [missing or invalid IP address]',
+        '  Row 3: 192.0.2.1', '  Row 4: 2001:db8::1',
+        '  Row 5: [missing or invalid IP address]', '  Row 6: [missing or invalid IP address]']
+    assert all('hidden' not in line and not any(ord(c) < 32 for c in line) for line in output)
+    assert rows[1]['management_ip'] == 'hidden-address\x1b[2J\r\n'
+    if answers[0] != 'b':
+        assert ui.target_positions == [0, 2, 3]
+        assert output[-1] == 'Selected targets: Row 1: 192.0.2.1, Row 3: 192.0.2.1, Row 4: 2001:db8::1'
+
+
 @pytest.mark.parametrize('kind', ['inventory', 'report', 'backup', 'compliance'])
 def test_subset_dispatch(settings, monkeypatch, kind):
     import importlib

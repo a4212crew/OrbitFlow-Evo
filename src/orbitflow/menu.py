@@ -1,6 +1,7 @@
 """Interactive operator adapter. Run with python -m orbitflow.menu."""
 import argparse
 import math
+from ipaddress import ip_address
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -96,8 +97,10 @@ class Console:
         return path
 
     def select_targets(self, targets):
-        # Display positions only: workbook cells may contain secrets/control characters.
+        """Show safe address identities without changing loaded row positions."""
         self.write(f'Validated device rows: {len(targets)} (numbered 1 through {len(targets)}).')
+        for index, target in enumerate(targets, 1):
+            self.write(f'  Row {index}: {self.target_address(target)}')
         while True:
             value = self.ask('Device rows [all, or comma-separated row numbers; default all]: ', 'all')
             if value.lower() == 'all':
@@ -110,6 +113,18 @@ class Console:
             except ValueError:
                 self.write('Choose all or unique device row numbers in the displayed range.')
 
+    @staticmethod
+    def target_address(target):
+        """Render only canonical IP literals; never echo arbitrary workbook text."""
+        value = target.get('management_ip', '')
+        try:
+            # IPv6 scope identifiers permit arbitrary text, including controls.
+            if not isinstance(value, str) or '%' in value:
+                raise ValueError()
+            return str(ip_address(value))
+        except ValueError:
+            return '[missing or invalid IP address]'
+
     def network(self, settings, devices, label):
         from orbitflow.targets import load_targets
         with diagnostic('Invalid device workbook. Check required management_ip, username and password columns.'):
@@ -118,6 +133,9 @@ class Console:
         targets = [targets[i] for i in self.target_positions]
         limit = self.concurrency()
         self.write(f'{label}; input={devices}; target rows={len(targets)}; concurrency={limit}; inventory={settings["paths"]["inventory"]}')
+        self.write('Selected targets: ' + ', '.join(
+            f'Row {position + 1}: {self.target_address(target)}'
+            for position, target in zip(self.target_positions, targets)))
         if self.ask('Continue network operation? [y/N]: ').lower() != 'y':
             raise Cancelled()
         with diagnostic('Teleport session unavailable, expired or routing mismatched. Run tsh login externally; check proxy, cluster and identity files.'):
