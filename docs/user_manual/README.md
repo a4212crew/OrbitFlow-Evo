@@ -2,9 +2,9 @@
 
 This directory is the **canonical home for user guides for user-executable scripts and command-line workflows**. Both **Atlas** (documentation-only, reviewable GitHub changes) and **Codex** (during authorized implementation/fixes) can create and maintain these Markdown guides. Atlas owns consistency and PR review.
 
-## Planned Interactive Operations Console
+## Interactive Operations Console
 
-- [Interactive Operations Console — proposed operator guide](interactive-operations-console.md): approved future menus, environment settings and workflow examples; **not yet implemented**. Continue using current direct CLI manuals until release.
+- [Interactive Operations Console — operator guide](interactive-operations-console.md): implemented menus, environment profile, cancellation, recovery and validation commands; direct CLIs remain supported.
 
 ## Guide index
 

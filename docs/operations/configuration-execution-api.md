@@ -293,3 +293,7 @@ are distinguished; report-only operation adds no execution elapsed footer. This 
 format is independent of `confirm`'s unchanged ResultSpool return contract.
 Owner C3750X/EdgeSwitch lab validation of PR #118 was reported; C3850 live validation
 remains outstanding. See the manual's [validation instructions](../user_manual/configuration-execution.md#issue-119-validation-status).
+
+## Console adapter
+
+Issue #123 adds `python -m orbitflow.menu` over the existing prepare/confirm/export APIs, without changing their signatures or execution gates. See the [console manual](../user_manual/interactive-operations-console.md). The console binds a separate 1-5 apply concurrency selection and original expected digest, renders the existing summary, and requires explicit confirmation before session validation and `confirm(..., apply=True)`. Offline recovery only calls exporters.

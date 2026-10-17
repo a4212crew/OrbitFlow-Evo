@@ -376,3 +376,7 @@ python -m orbitflow.configuration.execution_cli report --help
 These commands require no device access. Linux commands are source-verified; Linux-host
 execution and C3850 live validation are not claimed. The controller-required test set is
 the full `python -m pytest -q` suite, with its own managed temporary directory.
+
+## Interactive console adapter (Issue #123)
+
+This workflow is also available through `python -m orbitflow.menu`; see the [console manual](interactive-operations-console.md) for environment profile, target workbook selection, per-run concurrency, confirmation and output/recovery behavior. Direct CLI flags and service contracts remain supported. Default `orbitflow.toml` execution loading now prefers validated shared profile pacing when present; explicit alternate config files retain their semantics.

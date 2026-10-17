@@ -628,3 +628,7 @@ dependency for distinct SIs with disjoint ingress. Parent descriptions and actua
 parent conversions retain ordered review; same-interface ingress overlaps and
 duplicate SI intent remain blocked. ME3600X initial trunk conversion still
 requires its parent-initialization dependency. Planning preserves shutdown state.
+
+## Interactive console adapter (Issue #123)
+
+This workflow is also available through `python -m orbitflow.menu`; see the [console manual](interactive-operations-console.md) for environment profile, target workbook selection, per-run concurrency, confirmation and output/recovery behavior. Direct CLI flags and service contracts remain supported. Default `orbitflow.toml` execution loading now prefers validated shared profile pacing when present; explicit alternate config files retain their semantics.

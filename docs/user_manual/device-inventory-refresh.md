@@ -19,3 +19,7 @@ python scripts/device_inventory_refresh.py .\outputs\devices.xlsx --proxy telepo
 ```
 ## Expected outcomes and troubleshooting
 Successful runs update the configured inventory JSON and create a uniquely named `inventory_<UTC timestamp>_<UUID>.xlsx` in the reports directory. Terminal prints `Inventory refresh started.` and `Inventory workbook saved in the configured reports directory. Review Run_Attempts for target failures.` Review the workbook `Run_Attempts` sheet for per-target failures. Missing/bad input, transport failures or output-path problems can produce a sanitized `Inventory refresh/export failed` message; inspect application/inventory logs and retained spool. Device changes are not performed. See [repository setup](../../README.md).
+
+## Interactive console adapter (Issue #123)
+
+This workflow is also available through `python -m orbitflow.menu`; see the [console manual](interactive-operations-console.md) for environment profile, target workbook selection, per-run concurrency, confirmation and output/recovery behavior. Direct CLI flags and service contracts remain supported. Default `orbitflow.toml` execution loading now prefers validated shared profile pacing when present; explicit alternate config files retain their semantics.

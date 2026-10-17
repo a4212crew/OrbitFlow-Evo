@@ -25,8 +25,16 @@ class ExecutionConfig:
 
 
 def load_execution_config(path="orbitflow.toml"):
-    """Read the application execution table; an absent default file uses defaults."""
+    """Read execution settings; the shared profile supersedes the legacy default.
+
+    Explicit alternate configuration files retain their existing semantics.
+    Profile pacing never changes the direct CLI concurrency default of five.
+    """
     path = Path(path)
+    profile = Path('data/sys_config/configuration-profile.toml')
+    if path == Path('orbitflow.toml') and profile.exists():
+        from orbitflow.environment import load_profile
+        return ExecutionConfig(**load_profile(profile)['execution'])
     if not path.exists() and path == Path("orbitflow.toml"):
         return ExecutionConfig()
     with path.open("rb") as source:

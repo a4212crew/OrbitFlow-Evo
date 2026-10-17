@@ -1,62 +1,77 @@
-# Interactive Operations Console — proposed operator guide
+# Interactive Operations Console
 
-**Status: approved target workflow, NOT an available command on current main.** The entry point and precise console messages will be documented against implemented CLI and tests in Issue #121. Until then use existing guides in [the user manual index](README.md). This page specifies expected scenarios; commands below are **examples only, not executable today**.
+Implemented for Issue #123. The console is a terminal adapter over existing services; direct CLIs and public APIs remain supported. Deterministic Windows validation is recorded in the devlog; Linux and owner-operated live validation remain pending.
 
-## Planned prerequisites
-Python 3.11+ and repository requirements, `src` importable or installed package, supported device credential workbook, existing interactive Teleport `tsh` authentication for live operations and permission to create report/run files. Never store passwords, OTP, tokens or private keys in the new profile. For Linux direct transport identity behavior and Windows forwarding setup consult [repository setup](../../README.md) and individual manuals.
+## Launch and cancellation
 
-## Proposed launch (after implementation)
+Install repository requirements with Python 3.11+ and run from the repository root.
+
 Linux:
 ```bash
 export PYTHONPATH="$PWD/src"
+python -m orbitflow.menu --help
+printf '7\n' | python -m orbitflow.menu
 python -m orbitflow.menu
 ```
+
 Windows PowerShell:
 ```powershell
 $env:PYTHONPATH = "$PWD/src"
+python -m orbitflow.menu --help
+'7' | python -m orbitflow.menu
 python -m orbitflow.menu
 ```
 
-Actual module path must be verified against the resulting implementation before marking this manual operational.
+The only option is `--profile PATH` (optional Path, default `data/sys_config/configuration-profile.toml`). Relative paths resolve from the working directory. Enter `b`, `back` or `cancel` at any prompt to return without starting the selected workflow. EOF/Ctrl+C exits; interrupting an active executor can leave partial/Unknown outcomes and requires retained-run review, never replay.
 
-## Main menu
-1. Configuration Management
-2. Device Inventory
-3. Interface & VLAN Reporting
-4. VLAN Compliance
-5. Configuration Backup
-6. Environment Setting
-7. Exit
+## Menus
 
-Environment Setting runs a first-use wizard or edits the non-secret profile `data/sys_config/configuration-profile.toml`, storing Teleport routing details and default directories. Before relevant live operations it checks Teleport validity, device Excel and paths; expired `tsh` sessions require operator reauthentication. It never attempts to supply an OTP.
+Main: Configuration Management; Device Inventory; Interface & VLAN Reporting; VLAN Compliance; Configuration Backup; Environment Setting; Exit.
 
-Whenever a menu workflow supports multi-device execution, prompt `Concurrent devices [1-5, default 1]:`; blank=1, 2–5 allowed, invalid input reprompts. Prompt again on each run, not once per launch; do not save concurrency. No prompt for offline report generation.
+Configuration Management: Generate Input Template; Generate Configuration Plan; Execute Approved Plan; Review Executed Plan; Regenerate Execution Report; Back. There is no Review Plans action: edit only Engineer Decision cells in the generated workbook outside the console.
 
-## Configuration Management scenario
-1. **Generate Input Template** creates `data/input/generated_template/config_template_YYYYMMDD_NNN.xlsx` with 22 existing template worksheets. Unique sequence, no overwrite.
-2. **Generate Configuration Plan** selects the input workbook, uses existing read-only v2 planning and writes adjacent `plan.json` and `plan.xlsx` under a unique folder in `outputs/reports/plan_configuration/`. Console shows exact paths and source digest. Device collection uses the saved non-secret profile and separately protected `data/input/devices.xlsx`.
-3. **Manual engineer review:** open `plan.xlsx` in its folder and edit only Engineer Decision cells (Pending/Approve/Reject). Leave all evidence/identities unchanged. The console has no Review Plans option.
-4. **Execute Approved Plan** selects the plan pair, validates protected workbook and immutable source digest, eligible rows and dependencies; shows exact summary and asks `Confirm execution? [y/N]:`. Declining connects to no device. Approved spreadsheet rows alone do not authorize apply. Actual execution retains fresh device safety preflight, protected backup, exact approved commands, verification, save and replay prevention.
-5. **Review Executed Plan** locates user-facing execution workbooks in `outputs/reports/configuration_execution/`, identifies complete/partial/Unknown results and preserved run identifiers; viewing never executes.
-6. **Regenerate Execution Report** selects a retained run under `outputs/runs/configuration_execution/` and writes a new workbook offline without device connections or retries.
+Inventory and Interface & VLAN Reporting each offer Run, offline report regeneration and Back. Configuration Backup offers Run and Back. VLAN Compliance offers standard Run, Run with Methodology Report, offline regeneration and Back. Recovery offers explicit partial export for supported read-only spools; compliance recovery can export either compliance or methodology records. Original spools are retained.
 
-Expected outputs: original source Excel unchanged; immutable plan/review pair; independent execution workbook with row status, actual attempted commands, verification evidence, backup/save metadata, and retained protected journal/backups. See [execution guide](configuration-execution.md) for implemented current semantics and partial/Unknown recovery.
+## Environment profile
 
-## VLAN Compliance scenario
-Choose **VLAN Compliance → Run VLAN Compliance + Methodology Report**; select all targets from `data/input/devices.xlsx` or supported specific targets/alternate workbook, enter concurrency 1–5 (blank 1), review summary/policy `policies/vlan_compliance.json`, confirm read-only run. Underlying compliance uses the established rule engine and produces compliance and methodology workbooks in its current report directory `outputs/reports/vlan_compliance/`; source/row/device statuses are not invented. **Regenerate Previous Report** uses retained spools offline without connecting.
+First use of a profile-dependent action opens Environment Setting. All fields are prompted, with current/default values used on blank input; save is atomic after schema validation. Cancellation saves nothing. Routing fields are `proxy` (host[:port], without URL scheme), `cluster`, `bastion_host`, `bastion_user`. Optional `teleport_key_path` and `teleport_cert_path` contain filenames only, required for Linux transport. Passwords, OTPs, tokens, private key content and raw output never belong in this profile; unknown fields and persisted concurrency are rejected. The default local profile is Git-ignored; protect alternate profiles yourself.
 
-For normal compliance run choose the standard option; see [VLAN compliance manual](device-vlan-compliance.md) for exact current policy, outputs, error categories and recovery behavior. A device unable to be assessed does not mean compliant.
+Execution settings `connection_start_interval` (default 1.0) and `connection_retry_delay` (default 5.0) accept finite nonnegative seconds. First-use setup imports legacy `orbitflow.toml` pacing. The shipped root `orbitflow.toml` is retired; existing local legacy files remain supported as fallback: existing loaders using their default `orbitflow.toml` name prefer the new validated profile when present, otherwise use legacy settings. Explicit alternate `--config` files keep their behavior. Direct CLI concurrency remains five when using the profile; interactive concurrency is always separately selected.
 
-## Other operations
-**Device Inventory:** choose credential targets and supported refresh/export, select concurrency, confirm read-only session; inspect inventory export and persistent inventory status. **Interface & VLAN Reporting:** select targets/concurrency and generate existing Excel interface/VLAN report. **Configuration Backup:** select targets/concurrency, confirm sensitive read-only backup capture, restrict file access and inspect per-device failures. Refer to each existing guide for actual current filenames/fields/errors; console must not invent output.
+Profile paths:
 
-## Errors, safety and limitations
-- Missing/invalid profile, credential workbook or expired Teleport session: explain issue without exposing secrets; no network operation until prerequisites are satisfied.
-- Invalid concurrency: reprompt; cancellation/back makes no network changes.
-- Corrupt/mismatched plan and workbook, ineligible dependencies, and unapproved rows: fail closed or skip according to existing executor; do not silently generate a new plan or approve rows.
-- Post-send timeout/lost synchronization is Unknown; do not replay. Review retained events/results and reconcile with device before a new authorized attempt.
-- Configuration saves may include unrelated running changes; existing complete-running-config backup, partial-save and EdgeSwitch interruption disclosures remain mandatory.
-- No automatic rollback, unattended apply, extra vendor support or performance optimization is included in this proposal.
-- Only deterministic tests can be run by Codex; real equipment checks and configuration validation are owner-operated. This design document is not proof the menu has been implemented.
+| Field | Default |
+|---|---|
+| devices | data/input/devices.xlsx |
+| templates | data/input/generated_template |
+| plans | outputs/reports/plan_configuration |
+| execution_reports | outputs/reports/configuration_execution |
+| inventory | data/inventory/inventory.json |
 
-The definitive CLI syntax, output workbook filenames and precise interactive prompts must be updated from Codex's source/tests before the feature is reported as implemented.
+Each applicable live operation prompts `Concurrent devices [1-5, default 1]:`. Blank means one; other than integers 1-5 reprompt. Selection is never persisted. Apply concurrency is a separate selection bound into executor preparation. Offline work never prompts concurrency or checks Teleport.
+
+Before connecting, the console validates the device workbook through the shared loader (`management_ip`, `username`, `password` headers), displays input/target count/concurrency/safety/output scope, and requires confirmation. It checks destination access and `tsh status --format=json`: active proxy, cluster and timezone-aware unexpired `valid_until` must match. Missing tsh, malformed output, expiry or routing mismatch stops the run. Authenticate externally with operator-controlled `tsh login`; the console never handles OTPs. Optional identity files must be readable. Device-row failures remain isolated by existing services.
+
+## Configuration lifecycle
+
+Generate Input Template writes the existing Introduction plus 22 template sheets to `config_template_YYYYMMDD_NNN.xlsx`, using local calendar date and collision-safe sequence without overwriting. Generate Configuration Plan asks for an existing configuration workbook and, when predefined requests require observation, a device workbook and read-only run confirmation. Manual-only planning stays offline. Output is a uniquely reserved directory containing immutable `plan.json` and matching editable `plan.xlsx`; their exact paths and digest are printed. The source workbook is unchanged.
+
+Manually edit Engineer Decision cells to Pending/Approve/Reject. Execute Approved Plan asks for the plan JSON, reviewed workbook, original expected digest, device workbook and apply concurrency. Existing preparation validates immutable content, protected cells, decisions/dependencies and eligibility. Its safety summary precedes the separate `Confirm execution? [y/N]:` prompt. Declining never connects. The unchanged executor owns fresh identity/state/drift and privilege checks, protected backup, ordered approved commands, independent verification/save, durable journals, replay prevention and Unknown/partial recovery. Whole-running-config saves can include unrelated changes and partial changes; EdgeSwitch can interrupt management. No unattended apply or automatic rollback is supported.
+
+Completed execution exports a uniquely named workbook under the configured execution report directory. Protected runs/journals/backups remain under `outputs/runs/configuration_execution/`; local confirmation authority remains at `data/configuration/execution/`. Review Executed Plan lists workbooks with their stored run and outcome counts. Regenerate Execution Report takes a retained run directory and generates a new workbook offline; it never reconnects, retries writes or changes Unknown outcomes. Recovery remains available without a valid profile/session. See [execution guide](configuration-execution.md) and [execution API](../operations/configuration-execution-api.md).
+
+## Read-only workflows and recovery
+
+Choose the default or an alternate device workbook to select targets. Inventory refresh exports to `outputs/reports/inventory/` with the configured persistent inventory. Interface/VLAN reports use `outputs/reports/interface_vlan/`. Compliance uses the existing `policies/vlan_compliance.json` policy and `outputs/reports/vlan_compliance/`; methodology is an additional workbook. Compliance retains its spool for later export. Backups contain sensitive configuration under `outputs/backups/configuration/`; restrict access. These workflows preserve existing service fields, statuses, failure handling and logs under `outputs/logs/`. Recovery reads existing run directories; input files are not guessed or relocated.
+
+Consult [inventory](device-inventory-refresh.md), [interface/VLAN](device-interface-vlan-report.md), [compliance](device-vlan-compliance.md), [backup](device-configuration-backup.md) and [planning](bulk-configuration-planning.md) for family support and workbook fields. Service-level errors show fixed diagnostics; inspect relevant module logs and retained run artifacts without exposing credentials.
+
+## Validation
+
+Windows and Linux deterministic command (after setting PYTHONPATH as above):
+```text
+python -m pytest tests/test_operations_console.py tests/test_configuration_execution.py tests/test_device_execution.py tests/test_cli_lifecycle.py -q
+python -m pytest -q
+```
+
+Owner-operated live validation only, on separately authorized lab targets: run `tsh login --proxy=<proxy>`, then `python -m orbitflow.menu`. Configure Environment Setting; run inventory, interface/VLAN, both compliance variants and backup against a lab-only workbook, checking outputs and per-device failures. Repeat with blank and maximum concurrency and verify the next run prompts again. Expire/logout tsh and verify a live run stops while offline recovery still succeeds. For explicitly authorized lab apply, generate/review a fresh plan and first decline confirmation; then separately confirm the reviewed plan, inspect backups/journals/verification/save and offline regeneration. Do not replay historical completed or Unknown changes. No production or lab device testing was performed by Codex for this issue.

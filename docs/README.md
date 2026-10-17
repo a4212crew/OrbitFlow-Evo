@@ -21,10 +21,10 @@
 | September devlog | [2026-09.md](devlog/2026-09.md) | Historical |
 | October devlog | [2026-10.md](devlog/2026-10.md) | Historical |
 
-## Interactive console (approved target; not yet implemented)
+## Interactive operations console
 
-- [Interactive Operations Console architecture](architecture/interactive-operations-console.md) — owner-approved menus, environment profile, concurrency, migration and safety requirements for Issue #121.
-- [Proposed console operator guide](user_manual/interactive-operations-console.md) — example workflows; launch command is not available until implemented.
+- [Interactive Operations Console architecture](architecture/interactive-operations-console.md) — owner-approved menus, environment profile, concurrency, migration and safety requirements implemented by Issue #123.
+- [Console operator guide](user_manual/interactive-operations-console.md) — implemented CLI, profile schema and Windows/Linux validation commands.
 - [Interactive console skill](../.agents/skills/interactive-operations-console/SKILL.md) — mandatory routing for eligible new user-executable workflows.
 
 ## User manuals for executable scripts

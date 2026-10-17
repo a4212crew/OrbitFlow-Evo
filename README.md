@@ -565,8 +565,11 @@ live validation remains operator-controlled.
 ## Read-only device concurrency
 
 Inventory refresh/export and Interface/VLAN reporting use
-`orbitflow.execution.execute_devices`. Configure the application in
-`orbitflow.toml` in the working directory:
+`orbitflow.execution.execute_devices`. The interactive console uses the shared
+non-secret environment profile and prompts concurrency on every live run (1-5,
+default 1). Direct CLIs retain default concurrency 5. Their default loader uses
+shared profile pacing when present. For legacy deployments without that profile,
+or an explicit alternate `--config` file, the execution table remains supported:
 
 ```toml
 [execution]
@@ -575,7 +578,9 @@ connection_start_interval = 1.0
 connection_retry_delay = 5.0
 ```
 
-The default is 5 when the file is absent. The setting must be a positive integer;
+The shipped root `orbitflow.toml` is retired; existing local legacy files remain
+a fallback when no shared profile exists. The legacy/alternate concurrency
+setting must be a positive integer;
 use 1 for sequential execution on the caller thread. Reporting accepts
 `--config <path>` for an alternative TOML file. Programmatic callers of either
 workflow may pass `execution_config=ExecutionConfig(3)` or
@@ -696,3 +701,7 @@ progress drives immediate flushed CLI stages and five-second waiting updates wit
 accessing channels or replaying writes; Python API calls remain quiet by default.
 Fallback field/source and journal warning messages survive shared safe log formatting.
 Owner live/lab validation and protected skill reconciliation remain pending.
+
+## Interactive Operations Console
+
+Set `PYTHONPATH` to `src` and run `python -m orbitflow.menu` (`--help` is offline). The [console manual](docs/user_manual/interactive-operations-console.md) documents first-use non-secret profile setup, per-run concurrency, all workflow menus and offline recovery. Existing direct CLIs/APIs remain supported. Default execution loaders prefer shared profile pacing at `data/sys_config/configuration-profile.toml`; legacy `orbitflow.toml` remains a compatibility fallback. Apply still requires the existing bound summary and separate explicit confirmation. Owner live validation and Linux execution remain pending.

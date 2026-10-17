@@ -1,0 +1,283 @@
+"""Deterministic console boundaries; no device connections or tsh authentication."""
+from copy import deepcopy
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from openpyxl import Workbook, load_workbook
+
+from orbitflow.environment import PATHS, load_profile, save_profile, validate, validate_session
+from orbitflow.menu import Console, Cancelled, main
+from orbitflow.config import load_execution_config, ExecutionConfig
+from orbitflow.configuration import execution_cli
+
+
+@pytest.fixture
+def settings(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    values = dict(teleport=dict(proxy='proxy.example:443', cluster='cluster.example', bastion_host='bastion', bastion_user='operator'),
+                  execution=dict(connection_start_interval=1.0, connection_retry_delay=5.0), paths=PATHS.copy())
+    path = Path('data/sys_config/configuration-profile.toml')
+    save_profile(values, path)
+    workbook = Workbook()
+    workbook.active.append(['management_ip', 'username', 'password'])
+    workbook.active.append(['192.0.2.1', 'fixture', 'fixture-password'])
+    Path('data/input').mkdir(parents=True, exist_ok=True)
+    workbook.save('data/input/devices.xlsx')
+    return values
+
+
+def console(answers, **kwargs):
+    responses = iter(answers)
+    output = []
+    return Console(read=lambda _: next(responses), write=output.append, **kwargs), output
+
+
+def test_menu_navigation(settings):
+    ui, output = console(['bad', '1', '6', '4', '4', '2', '3', '3', '3', '5', '2', '7'])
+    ui.run()
+    assert any('Invalid selection' in line for line in output)
+    assert any('Generate Input Template' in line for line in output)
+    assert not any('Review Plans' in line for line in output)
+
+
+def test_concurrency_repeated_and_cancel():
+    ui, _ = console(['0', '6', '-1', '2.0', 'x', '5', '', 'b'])
+    assert ui.concurrency() == 5
+    assert ui.concurrency() == 1
+    with pytest.raises(Cancelled):
+        ui.concurrency()
+
+
+@pytest.mark.parametrize('section,key,value', [('teleport', 'password', 'secret'), ('execution', 'max_concurrent_devices', 5),
+                                              ('execution', 'connection_retry_delay', float('nan')), ('paths', 'token', 'secret')])
+def test_profile_closed_schema(settings, section, key, value):
+    values = deepcopy(settings)
+    values[section][key] = value
+    with pytest.raises(ValueError):
+        validate(values)
+    with pytest.raises(ValueError):
+        save_profile(values)
+    assert load_profile() == settings
+
+
+def test_profile_precedence_legacy_compatibility(settings):
+    Path('orbitflow.toml').write_text('[execution]\nmax_concurrent_devices=3\nconnection_retry_delay=8.0\n')
+    assert load_execution_config() == ExecutionConfig(5, 1.0, 5.0)
+    alternate = Path('alternate.toml')
+    alternate.write_text('[execution]\nmax_concurrent_devices=2\n')
+    assert load_execution_config(alternate).max_concurrent_devices == 2
+    Path('data/sys_config/configuration-profile.toml').unlink()
+    assert load_execution_config().max_concurrent_devices == 3
+
+
+@pytest.mark.parametrize('expiry,proxy,cluster,code', [('2030-01-01T00:00:00Z', 'proxy.example:443', 'cluster.example', 0),
+    ('2020-01-01T00:00:00Z', 'proxy.example:443', 'cluster.example', 0),
+    ('2030-01-01T00:00:00Z', 'other', 'cluster.example', 0),
+    ('2030-01-01T00:00:00Z', 'proxy.example:443', 'other', 0),
+    ('2030-01-01T00:00:00Z', 'proxy.example:443', 'cluster.example', 1)])
+def test_session(settings, monkeypatch, expiry, proxy, cluster, code):
+    monkeypatch.setattr('orbitflow.environment.platform.system', lambda: 'Windows')
+    def runner(args, **kwargs):
+        assert args == ['tsh', 'status', '--format=json']
+        assert kwargs['capture_output']
+        return SimpleNamespace(returncode=code, stdout=json.dumps({'active': dict(valid_until=expiry, proxy_url=proxy, cluster=cluster)}))
+    if expiry.startswith('2030') and proxy == 'proxy.example:443' and cluster == 'cluster.example' and code == 0:
+        validate_session(settings, runner=runner, now=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    else:
+        with pytest.raises(ValueError):
+            validate_session(settings, runner=runner)
+
+
+def test_first_use_cancel_and_atomic_setup(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    ui, _ = console(['b'])
+    with pytest.raises(Cancelled):
+        ui.settings()
+    assert not ui.profile.exists()
+    ui, _ = console(['proxy.example:443', 'cluster', 'bastion', 'user', '', '', '', '', '', '', '', '', ''])
+    assert ui.settings()['paths'] == PATHS
+    assert 'max_concurrent_devices' not in ui.profile.read_text()
+
+
+def test_template_collision_and_sheets(settings):
+    ui, output = console([])
+    ui.template()
+    first = Path(output[-1])
+    original = first.read_bytes()
+    ui.template()
+    second = Path(output[-1])
+    assert first != second and first.read_bytes() == original
+    assert first.name.endswith('_001.xlsx') and second.name.endswith('_002.xlsx')
+    book = load_workbook(second, read_only=True)
+    assert len(book.sheetnames) == 23
+    book.close()
+
+
+def test_cancel_before_session_or_service(settings):
+    ui, _ = console(['', 'n'], session_check=lambda _: pytest.fail('session checked after cancel'))
+    with pytest.raises(Cancelled):
+        ui.network(settings, 'data/input/devices.xlsx', 'Read-only')
+
+
+@pytest.mark.parametrize('kind,module,function', [('inventory', 'orbitflow.inventory_refresh', 'refresh_inventory_from_excel'),
+    ('report', 'orbitflow.reporting', 'run_report'), ('backup', 'orbitflow.configuration_backup', 'run_backup'),
+    ('compliance', 'orbitflow.vlan_compliance', 'run_compliance')])
+def test_dispatch(settings, monkeypatch, kind, module, function):
+    import importlib
+    calls = []
+    monkeypatch.setattr(importlib.import_module(module), function, lambda *a, **kw: calls.append((a, kw)))
+    ui, _ = console(['', '2', 'y'], session_check=lambda _: None)
+    ui.run_workflow(kind, methodology=True)
+    assert calls[0][1]['execution_config'].max_concurrent_devices == 2
+    assert calls[0][1]['inventory_path'] == PATHS['inventory']
+    if kind == 'compliance':
+        assert calls[0][1]['methodology_report'] and not calls[0][1]['cleanup']
+    assert 'max_concurrent_devices' not in ui.profile.read_text()
+
+
+def test_expired_session_stops_dispatch(settings, monkeypatch):
+    from orbitflow import reporting
+    monkeypatch.setattr(reporting, 'run_report', lambda *a, **k: pytest.fail('network dispatched'))
+    def expired(_):
+        raise ValueError('expired')
+    ui, _ = console(['', '', 'y'], session_check=expired)
+    with pytest.raises(ValueError):
+        ui.run_workflow('report')
+
+
+@pytest.mark.parametrize('kind,module,function,answers', [('execution', 'orbitflow.configuration.execution', 'export_results', ['run']),
+    ('vlan_compliance', 'orbitflow.compliance_report', 'export_compliance_spool', ['run', 'n', 'y']),
+    ('inventory', 'orbitflow.inventory_refresh', 'export_inventory_spool', ['run', 'n']),
+    ('interface_vlan', 'orbitflow.reporting', 'export_report_spool', ['run', 'n'])])
+def test_offline_recovery_without_profile(tmp_path, monkeypatch, kind, module, function, answers):
+    import importlib
+    monkeypatch.chdir(tmp_path)
+    calls = []
+    monkeypatch.setattr(importlib.import_module(module), function, lambda *a, **kw: calls.append((a, kw)))
+    ui, _ = console(answers, session_check=lambda _: pytest.fail('offline session'))
+    ui.recover(kind)
+    assert len(calls) == 1 and not ui.profile.exists()
+    if kind != 'execution':
+        assert calls[0][1]['cleanup'] is False
+
+
+def test_help(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(['--help'])
+    assert exc.value.code == 0
+    assert '--profile' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('confirm', ['n', 'y'])
+def test_execution_uses_bound_prepare_confirm(settings, monkeypatch, confirm):
+    from orbitflow.configuration import execution as ex
+    from orbitflow.configuration.v2 import planning
+    Path('plan.json').touch()
+    Path('plan.xlsx').touch()
+    calls = []
+    prepared = dict(status='awaiting_confirmation', reference='bound-reference', summary_digest='bound-digest',
+                    summary=dict(selected=[dict(request=dict(inputs=dict(management_ip='192.0.2.1')))]))
+    class Service:
+        def __init__(self, authority):
+            assert authority == 'data/configuration/execution'
+        def prepare_workbook(self, plan, workbook, **kwargs):
+            calls.append(('prepare', kwargs))
+            return prepared
+        def confirm(self, reference, **kwargs):
+            assert reference == 'bound-reference'
+            calls.append(('confirm', kwargs))
+            return SimpleNamespace(path=Path('retained-run'))
+    monkeypatch.setattr(ex, 'ExecutionService', Service)
+    monkeypatch.setattr(ex, 'operator_summary', lambda p: p)
+    monkeypatch.setattr(ex, 'render_summary', lambda p: 'summary with safety policy')
+    monkeypatch.setattr(ex, 'export_results', lambda *a: calls.append(('export', a)))
+    monkeypatch.setattr(execution_cli, 'outcome_summary', lambda *a, **k: 'Completed')
+    monkeypatch.setattr(planning, 'load', lambda p: 'immutable plan')
+    ui, _ = console(['plan.json', '', 'original-digest', '', '3', confirm], session_check=lambda _: calls.append(('session', {})))
+    if confirm == 'n':
+        with pytest.raises(Cancelled):
+            ui.execute()
+        assert [c[0] for c in calls] == ['prepare']
+    else:
+        ui.execute()
+        assert [c[0] for c in calls] == ['prepare', 'session', 'confirm', 'export']
+        assert calls[2][1]['summary_digest'] == 'bound-digest'
+        assert calls[2][1]['apply'] is True
+    assert calls[0][1]['expected_digest'] == 'original-digest'
+    assert calls[0][1]['settings'].max_concurrent_devices == 3
+
+
+def test_corrupt_plan_fails_before_session(settings):
+    Path('corrupt.json').write_text('{}')
+    Path('corrupt.xlsx').touch()
+    ui, _ = console(['corrupt.json', '', 'digest', '', '1'], session_check=lambda _: pytest.fail('corrupt plan connected'))
+    with pytest.raises(Exception):
+        ui.execute()
+
+
+def test_missing_headers_and_missing_file_fail_without_session(settings):
+    workbook = Workbook()
+    workbook.active.append(['wrong'])
+    workbook.save('invalid.xlsx')
+    ui, _ = console([], session_check=lambda _: pytest.fail('bad workbook connected'))
+    with pytest.raises(ValueError):
+        ui.network(settings, 'invalid.xlsx', 'Read-only')
+    with pytest.raises(FileNotFoundError):
+        ui.network(settings, 'missing.xlsx', 'Read-only')
+
+
+def test_linux_identity_and_malformed_session(settings, monkeypatch):
+    monkeypatch.setattr('orbitflow.environment.platform.system', lambda: 'Linux')
+    status = dict(active=dict(proxy_url='proxy.example:443', cluster='cluster.example', valid_until='2030-01-01T00:00:00Z'))
+    runner = lambda *a, **k: SimpleNamespace(returncode=0, stdout=json.dumps(status))
+    with pytest.raises(ValueError):
+        validate_session(settings, runner=runner)
+    for key in ('teleport_key_path', 'teleport_cert_path'):
+        Path(key).touch()
+        settings['teleport'][key] = key
+    validate_session(settings, runner=runner)
+    status['active']['valid_until'] = 'invalid'
+    with pytest.raises(ValueError):
+        validate_session(settings, runner=runner)
+
+
+def test_parallel_template_names(settings):
+    from concurrent.futures import ThreadPoolExecutor
+    def generate(_):
+        ui, output = console([])
+        ui.template()
+        return output[-1]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        paths = list(pool.map(generate, range(2)))
+    assert len(set(paths)) == 2
+    assert all(Path(path).stat().st_size > 0 for path in paths)
+
+
+def test_review_offline_summary(settings):
+    root = Path(PATHS['execution_reports'])
+    root.mkdir(parents=True)
+    book = Workbook()
+    book.active.title = 'Run Summary'
+    book.active.append(['Run', 'fixture-run'])
+    book.active.append(['Rows by verification outcome', 'Unknown: 1'])
+    book.save(root / 'execution.xlsx')
+    ui, output = console([], session_check=lambda _: pytest.fail('review connected'))
+    ui.review()
+    assert 'Rows by verification outcome: Unknown: 1' in output
+
+
+@pytest.mark.parametrize('corrupt', [False, True])
+def test_recovery_custom_output_or_invalid_profile_fallback(settings, monkeypatch, corrupt):
+    from orbitflow.configuration import execution
+    settings['paths']['execution_reports'] = 'custom-reports'
+    save_profile(settings)
+    if corrupt:
+        Path('data/sys_config/configuration-profile.toml').write_text('invalid TOML')
+    outputs = []
+    monkeypatch.setattr(execution, 'export_results', lambda run, output: outputs.append(output))
+    ui, _ = console(['retained-run'], session_check=lambda _: pytest.fail('offline session'))
+    ui.recover('execution')
+    assert outputs[0].parent == Path('outputs/reports/configuration_execution' if corrupt else 'custom-reports')

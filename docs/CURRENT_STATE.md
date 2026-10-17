@@ -834,3 +834,7 @@ time before report generation. Execution/verification behavior and replay gates 
 unchanged. Owner C3750X/EdgeSwitch lab validation following merged PR #118 is reported;
 C3850 live validation remains outstanding. Historical run/gate results above are retained.
 No live device testing was performed by Codex for this follow-up.
+
+## Interactive Operations Console (Issue #123)
+
+`python -m orbitflow.menu` provides configuration template/planning/confirmed execution, stored execution review/recovery, inventory, interface/VLAN reporting, compliance/methodology/recovery, backup and environment settings. Strict non-secret profile schema, atomic setup, Teleport routing/expiry checks, exclusive daily template naming and nonpersistent per-run concurrency 1-5 are implemented. Shared services and executor safety are unchanged. Legacy root settings remain a fallback behind shared profile pacing for default callers. Windows full-suite validation passed 2,629 tests, with 34 focused console tests also passing; Linux and owner-operated live validation remain pending. See the [manual](user_manual/interactive-operations-console.md).

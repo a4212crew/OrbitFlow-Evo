@@ -14,6 +14,7 @@ outputs/
 logs/
 devices.xlsx
 reports/
+data/sys_config/configuration-profile.toml
 
 # Sensitive device configuration captures
 backups/
