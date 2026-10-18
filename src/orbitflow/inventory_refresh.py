@@ -42,10 +42,12 @@ def refresh_inventory_from_excel(
     clock=None,
     execution_config=None,
     spool_root=None,
+    target_positions=None,
 ) -> Path:
     """Refresh only input targets, then export all latest-known stable facts.
 
     The shared loader's required columns are management_ip, username, password.
+    target_positions optionally selects unique zero-based loaded device row positions.
     Bad rows are isolated. Successful membership follows the resolved physical
     device ID; failed attempts use the store's observed-address matching rule.
     For repeated/alias targets, the last attempt affecting an identity wins.
@@ -60,6 +62,12 @@ def refresh_inventory_from_excel(
     if len({path.resolve() for path in (source, inventory, destination)}) != 3:
         raise ValueError("Input, inventory and export paths must be distinct")
     targets = load_targets(source, isolate_invalid=True)
+    if target_positions is not None:
+        positions = list(target_positions)
+        if (not positions or any(type(i) is not int or i < 0 or i >= len(targets) for i in positions)
+                or len(set(positions)) != len(positions)):
+            raise ValueError('Invalid target positions')
+        targets = [targets[i] for i in sorted(positions)]
     clock = clock or (lambda: datetime.now(timezone.utc))
     sensitive = {target[field] for target in targets for field in ("username", "password", "secret")
                  if target.get(field)}

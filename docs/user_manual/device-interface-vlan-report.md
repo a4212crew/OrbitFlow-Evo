@@ -19,3 +19,9 @@ python scripts/device_interface_vlan_report.py .\outputs\devices.xlsx --proxy te
 ```
 ## Expected outcomes
 Creates report output in `outputs/reports/interface_vlan` by default; device failures may be isolated rather than aborting every target. Inspect workbook for interface/VLAN observations and run/error records. Input or run-level errors print `Interface/VLAN report failed. Check application logs and retained run spool.` Detailed report sheet contract remains in the [main executable reference](../../README.md#batch-interface-and-vlan-report). No device configuration changes.
+
+## Interactive console adapter (Issue #123)
+
+This workflow is also available through `python -m orbitflow.menu`; see the [console manual](interactive-operations-console.md) for environment profile, target workbook selection, per-run concurrency, confirmation and output/recovery behavior. Direct CLI flags and service contracts remain supported. Default `orbitflow.toml` execution loading now prefers validated shared profile pacing when present; explicit alternate config files retain their semantics.
+
+Console target selection (Issue #123 revision): after choosing a device workbook, choose all (blank) or unique comma-separated nonempty device row numbers, counted from 1 after the header. Only selected rows are dispatched; concurrency is still prompted every run. See the [console guide](interactive-operations-console.md) for cancellation and fixed actionable failure diagnostics. Direct CLI input selection is unchanged.

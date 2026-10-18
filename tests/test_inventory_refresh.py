@@ -521,3 +521,20 @@ def test_1500_inventory_attempts_stream_at_concurrency_five(tmp_path, monkeypatc
     assert len(connected) == len(closed) == 1500
     assert len(JsonInventoryStore(tmp_path / 'inventory.json').contexts()) == 1
     assert list((tmp_path / 'runs').iterdir()) == []
+
+@pytest.mark.parametrize('positions', [[], [0, 0], [-1], [2], [True]])
+def test_refresh_invalid_subset_before_connect(tmp_path, monkeypatch, positions):
+    source = input_file(tmp_path, [target('192.0.2.1'), target('192.0.2.2')])
+    monkeypatch.setattr(refresh, 'connect_device', lambda *a, **k: pytest.fail('invalid subset connected'))
+    with pytest.raises(ValueError, match='Invalid target positions'):
+        refresh.refresh_inventory_from_excel(source, CONFIG, inventory_path=tmp_path / 'inventory.json',
+                                             export_path=tmp_path / 'report.xlsx', target_positions=positions)
+
+
+def test_refresh_subset_connects_only_selected(tmp_path, monkeypatch):
+    source = input_file(tmp_path, [target('192.0.2.1'), target('192.0.2.2')])
+    connected, _, _ = setup_network(monkeypatch, {'192.0.2.2': ('SERIAL2', 'selected')})
+    output = refresh.refresh_inventory_from_excel(source, CONFIG, inventory_path=tmp_path / 'inventory.json',
+                                                 export_path=tmp_path / 'report.xlsx', target_positions=[1], clock=lambda: NOW)
+    assert connected == ['192.0.2.2']
+    assert len(sheets(output)['Run_Attempts']) == 1

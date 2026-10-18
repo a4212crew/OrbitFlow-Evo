@@ -565,8 +565,11 @@ live validation remains operator-controlled.
 ## Read-only device concurrency
 
 Inventory refresh/export and Interface/VLAN reporting use
-`orbitflow.execution.execute_devices`. Configure the application in
-`orbitflow.toml` in the working directory:
+`orbitflow.execution.execute_devices`. The interactive console uses the shared
+non-secret environment profile and prompts concurrency on every live run (1-5,
+default 1). Direct CLIs retain default concurrency 5. Their default loader uses
+shared profile pacing when present. For legacy deployments without that profile,
+or an explicit alternate `--config` file, the execution table remains supported:
 
 ```toml
 [execution]
@@ -575,7 +578,9 @@ connection_start_interval = 1.0
 connection_retry_delay = 5.0
 ```
 
-The default is 5 when the file is absent. The setting must be a positive integer;
+The shipped root `orbitflow.toml` is retired; existing local legacy files remain
+a fallback when no shared profile exists. The legacy/alternate concurrency
+setting must be a positive integer;
 use 1 for sequential execution on the caller thread. Reporting accepts
 `--config <path>` for an alternative TOML file. Programmatic callers of either
 workflow may pass `execution_config=ExecutionConfig(3)` or
@@ -696,3 +701,13 @@ progress drives immediate flushed CLI stages and five-second waiting updates wit
 accessing channels or replaying writes; Python API calls remain quiet by default.
 Fallback field/source and journal warning messages survive shared safe log formatting.
 Owner live/lab validation and protected skill reconciliation remain pending.
+
+## Interactive Operations Console
+
+Set `PYTHONPATH` to `src` and run `python -m orbitflow.menu` (`--help` is offline). The [console manual](docs/user_manual/interactive-operations-console.md) documents first-use non-secret profile setup, per-run concurrency, all workflow menus and offline recovery. Existing direct CLIs/APIs remain supported. Default execution loaders prefer shared profile pacing at `data/sys_config/configuration-profile.toml`; legacy `orbitflow.toml` remains a compatibility fallback. Apply still requires the existing bound summary and separate explicit confirmation. Owner live validation and Linux execution remain pending.
+
+Console revision #123 adds validated all/subset device row selection with bounded sanitized row/IP confirmation for explicit subsets and count-only confirmation for all-selection on read-only runs, pacing re-prompts, fixed actionable diagnostics, resilient offline report listing and automatic immutable JSON digest display/verification. Planning offers newest-first numbered workbook selection with explicit-path fallback; Teleport validation accepts both `profile_url` and `proxy_url` with strict routing/expiry checks. Execution decisions and confirmation remain unchanged; see the [console guide](docs/user_manual/interactive-operations-console.md).
+
+The interactive console provides compact terminal progress with durable outcome counts where available and elapsed activity for unknown-duration phases and numbered immutable-plan selection; see the [operator guide](docs/user_manual/interactive-operations-console.md#progress-and-evidence-presentation-pr-124-ux-revision). Execution safeguards and direct CLI contracts are unchanged.
+
+Confirmed console execution additionally shows sanitized per-device/row stages and waiting updates after explicit confirmation; read-only progress remains compact. See the [console guide](docs/user_manual/interactive-operations-console.md#confirmed-execution-stage-visibility-final-owner-revision).

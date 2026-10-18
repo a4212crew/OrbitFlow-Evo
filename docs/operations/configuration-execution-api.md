@@ -293,3 +293,14 @@ are distinguished; report-only operation adds no execution elapsed footer. This 
 format is independent of `confirm`'s unchanged ResultSpool return contract.
 Owner C3750X/EdgeSwitch lab validation of PR #118 was reported; C3850 live validation
 remains outstanding. See the manual's [validation instructions](../user_manual/configuration-execution.md#issue-119-validation-status).
+
+## Console adapter
+
+Issue #123 adds `python -m orbitflow.menu` over the existing prepare/confirm/export APIs, without changing their signatures or execution gates. See the [console manual](../user_manual/interactive-operations-console.md). The console binds a separate 1-5 apply concurrency selection and original expected digest, renders the existing summary, and requires explicit confirmation before session validation and `confirm(..., apply=True)`. Offline recovery only calls exporters.
+
+Console adapter note (Issue #123): the interactive caller validates the chosen immutable plan JSON, derives/displays `original.digest`, and passes it as `expected_digest` to `prepare_workbook`. This does not alter this API, workbook verification, confirmation authority or apply behavior. Direct CLI digest arguments are unchanged.
+
+
+Console presentation (Issue #123 / PR #124): `python -m orbitflow.menu` wraps offline `prepare_workbook` with elapsed preparation notices and still requires its separate explicit confirmation before `confirm`. It subscribes to existing structured execution progress and displays measured durable device/elapsed counts; report export has a separate completion indicator. The console filters only its own rendering of the two long summary prose lines and retains a short caution. `render_summary`, direct execution CLI output, public service signatures, confirmation/digest binding and all apply safeguards are unchanged. See the [console guide](../user_manual/interactive-operations-console.md#progress-and-evidence-presentation-pr-124-ux-revision).
+
+The final Issue #123 console revision renders allowlisted existing structured stages, source sheet/row and outcome statuses, plus periodic waiting snapshots after confirmation. Hostnames and arbitrary payloads are suppressed. No public callback schema, executor behavior or direct CLI rendering changes. See the [console stage guide](../user_manual/interactive-operations-console.md#confirmed-execution-stage-visibility-final-owner-revision).
