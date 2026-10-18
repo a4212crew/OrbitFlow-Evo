@@ -60,7 +60,7 @@ def enrich(snapshot, context, interfaces=(), vlans=None, bridges=None):
         domains = (entry.domain,) if entry.domain else ()
         candidates = () if bridges is None else bridges.for_destination(entry.attachment)
         if context.platform == 'cisco_xr':
-            domains = (candidates[0].name,) if len(candidates) == 1 else ()
+            domains = (f'{candidates[0].group}/{candidates[0].name}',) if len(candidates) == 1 else ()
         tags = set()
         classic = context.device_family in {'C3750X', 'C3850', 'EdgeSwitch'}
         if (classic or context.platform == 'huawei_vrp') and entry.domain.isdecimal():
@@ -78,7 +78,8 @@ def enrich(snapshot, context, interfaces=(), vlans=None, bridges=None):
                 if efp:
                     continue  # Aggregate profiles do not retain exact EFP identity.
                 if context.platform == 'cisco_xr':
-                    allowed = len(candidates) == 1 and any(key(a.interface) == key(detail.interface_name) for a in candidates[0].attachments)
+                    allowed = (len(candidates) == 1 and getattr(detail, 'service_binding_name', '') == domains[0]
+                               and getattr(detail, 'service_binding_type', '') == 'bridge-domain') and any(key(a.interface) == key(detail.interface_name) for a in candidates[0].attachments)
                     if not entry.attachment.startswith('(') and not re.match(r'(?i)(?:BD id:|BVI?\d)', entry.attachment):
                         allowed = allowed and key(detail.interface_name) == key(entry.attachment)
                 else:
@@ -87,7 +88,7 @@ def enrich(snapshot, context, interfaces=(), vlans=None, bridges=None):
                     continue
                 for mapping in detail.service_mappings:
                     source, sep, destination = mapping.partition(' -> ')
-                    if sep and destination in domains and source.isdecimal() and 1 <= int(source) <= 4094:
+                    if sep and destination in ((candidates[0].name,) if context.platform == 'cisco_xr' and len(candidates) == 1 else domains) and source.isdecimal() and 1 <= int(source) <= 4094:
                         tags.add(int(source))
         result.append(EnrichedMac(entry, resolution, domains, tuple(sorted(tags)),
                                   'resolved' if tags else 'unknown VLAN mapping'))

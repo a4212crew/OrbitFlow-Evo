@@ -37,12 +37,18 @@ PEVLAN/CEVLAN/LSP fields are retained in this destination-detail field).
 requires at least one exact key; neighbor requires PW pair. `for_destination(str)`
 handles XR local, remote tuple and routed internal-ID destinations. Results are
 tuples: zero and multiple results remain unresolved. Domains expose attachments,
-state and counts; references do not create InterfaceRecords.
+state and counts; references do not create InterfaceRecords. Counts retain reported
+ACs/VFIs/PWs/PBBs/VNIs totals and `<kind> up` values without comparison.
+Malformed attachment content and unsupported sections raise ValueError; recognized
+empty AC/PW sections succeed.
 
 `resolve_attachment(attachment, platform, interfaces, vlans=None)` returns
 attachment/physical/classification/port_type/semantics. `enrich(snapshot, context,
 interfaces=(), vlans=None, bridges=None)` returns one EnrichedMac per input entry,
-including normalized domains, VLANs and explicit mapping outcome. `lookup_vlan`
+including normalized domains (XR: full group/domain), VLANs and explicit mapping outcome.
+XR VLAN proof requires the exact normalized configured bridge-domain binding
+identity to agree with the unique operational group/domain, for local and remote
+MAC destinations. Same domain names in different groups do not prove a match. `lookup_vlan`
 requires an integer 1-4094, returns only proven matching observations.
 
 Application entry points in `orbitflow.mac_lookup`:
@@ -63,4 +69,7 @@ Application entry points in `orbitflow.mac_lookup`:
 
 Direct API callers supply credentials through normal target/transport interfaces;
 never put them in source or logs. Known target credentials are removed from persisted
-normalized values. Export failure preserves the spool and propagates the error.
+normalized values. Details includes full display Observed Attachment and separate
+Raw Attachment; the six main columns are unchanged. Empty operational domains
+retain a Bridge Domains row with blank attachment identity fields and supplied counts.
+Export failure preserves the spool and propagates the error.

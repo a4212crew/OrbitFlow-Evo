@@ -194,7 +194,7 @@ def test_xr_vlan_requires_explicit_relationship_and_unique_join():
     from orbitflow.capabilities.mac_forwarding import lookup_vlan
     table = parse_mac_table(XR, 'cisco_xr')
     bridge = parse_bridge_domains(BRIDGE)
-    profile = NS(interface_name='TenGigE0/0/0/19.445', service_details=(), service_mappings=('860 -> LBB-PPPOE',), port_type='service')
+    profile = NS(interface_name='TenGigE0/0/0/19.445', service_details=(), service_mappings=('860 -> LBB-PPPOE',), port_type='service', service_binding_name='LBB-PPPOE/LBB-PPPOE', service_binding_type='bridge-domain')
     context = NS(platform='cisco_xr', device_family='NCS540')
     enriched = enrich(table, context, [], NS(interfaces=[profile], configuration=()), bridge)
     assert [r.entry.mac for r in lookup_vlan(enriched, 860)] == ['ae:78:d1:32:d8:7b']
@@ -288,3 +288,69 @@ def test_actual_configured_parent_is_identity_but_service_reference_is_not():
     reference = observe_configuration('bridge-domain 4001\n member GigabitEthernet0/24 service-instance 3999', 'cisco_ios')
     assert resolve_attachment('Gi0/24+Efp3999', 'cisco_ios', [], NS(interfaces=[], configuration=actual)).physical == 'GigabitEthernet0/24'
     assert resolve_attachment('Gi0/24+Efp3999', 'cisco_ios', [], NS(interfaces=[], configuration=reference)).physical == ''
+
+@pytest.mark.parametrize('group,expected', [('G1', (860,)), ('G2', ())])
+@pytest.mark.parametrize('destination', ['Te0/0/0/19.445', '(192.0.2.20, 2445)'])
+def test_xr_group_identity_real_vlan_service(monkeypatch, group, expected, destination):
+    from orbitflow.capabilities.vlans import VlanService
+    import orbitflow.vendors.cisco.vlans as vendor
+    config = f'''interface TenGigE0/0/0/19.445 l2transport
+ encapsulation dot1q 860
+!
+l2vpn
+ bridge group {group}
+  bridge-domain SAME
+   interface TenGigE0/0/0/19.445
+!
+'''
+    @contextmanager
+    def opened(*args, **kwargs):
+        yield NS(prompt='RP/0/RP0/CPU0:lab#', run_command=lambda *a, **k: config)
+    monkeypatch.setattr(vendor, 'open_cisco_cli', opened)
+    context = NS(platform='cisco_xr', device_family='NCS540', hostname='lab', management_ip='192.0.2.1')
+    state = VlanService().collect(None, context)
+    assert state.interfaces[0].service_binding_name == f'{group}/SAME'
+    bridges = parse_bridge_domains('''Bridge group: G1, bridge-domain: SAME, id: 0, state: up
+ List of ACs:
+ Te0/0/0/19.445, state: up
+ List of Access PWs:
+ Neighbor 192.0.2.20 pw-id 2445, state: up, backup
+Bridge group: G2, bridge-domain: SAME, id: 1, state: down
+ List of ACs:
+ Te0/0/0/20.445, state: down''')
+    table = parse_mac_table(XR.splitlines()[0] + f'\naabb.ccdd.eeff dynamic {destination} N/A N/A N/A', 'cisco_xr')
+    row = enrich(table, context, (), state, bridges)[0]
+    assert row.domains == ('G1/SAME',)
+    assert row.vlans == expected
+    assert row.mapping == ('resolved' if expected else 'unknown VLAN mapping')
+    duplicate = parse_bridge_domains('\n'.join(['Bridge group: G2, bridge-domain: SAME, id: 2, state: up', ' List of ACs:', ' Te0/0/0/19.445, state: up']))
+    from orbitflow.capabilities.bridge_domains import BridgeSnapshot
+    if not destination.startswith('('):
+        assert not enrich(table, context, (), state, BridgeSnapshot(bridges.domains + duplicate.domains))[0].vlans
+
+
+def test_bridge_complete_summary_and_empty_sections():
+    output = '''Bridge group: G, bridge-domain: D, id: 0, state: up
+ ACs: 9 (8 up), VFIs: 0, PWs: 0 (0 up), PBBs: 0 (0 up), VNIs: 0 (0 up)
+ List of ACs:
+ BV545, state: up, BVI MAC addresses: 1
+ Te0/0/0/19.445, state: down, Static MAC addresses: 2
+ Te0/0/0/20.445, state: unresolved
+ List of Access PWs:
+ Neighbor 192.0.2.1 pw-id 445, state: down, backup
+Bridge group: G, bridge-domain: EMPTY, id: 1, state: down
+ ACs: 0 (0 up), VFIs: 0, PWs: 0 (0 up), PBBs: 0 (0 up), VNIs: 0 (0 up)
+ List of ACs:
+ List of Access PWs:
+'''
+    domains = parse_bridge_domains(output).domains
+    assert dict(domains[0].counts) == {'ACs': 9, 'ACs up': 8, 'VFIs': 0, 'PWs': 0, 'PWs up': 0, 'PBBs': 0, 'PBBs up': 0, 'VNIs': 0, 'VNIs up': 0}
+    assert domains[1].attachments == ()
+    assert domains[0].attachments[-1].backup
+    assert domains[0].attachments[2].state == 'unresolved'
+
+
+@pytest.mark.parametrize('content', ['nonsense-truncated', 'Te0/0/0/19.445, state:', 'Neighbor 192.0.2.1 pw-id 1, state: up', 'List of VFIs:\n vfi, state: up'])
+def test_bridge_rejects_malformed_or_wrong_section(content):
+    with pytest.raises(ValueError):
+        parse_bridge_domains('Bridge group: G, bridge-domain: D, id: 0, state: up\n List of ACs:\n ' + content)

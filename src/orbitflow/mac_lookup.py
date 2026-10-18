@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 from uuid import uuid4
 
-from orbitflow.capabilities.mac import MacService, normalize_mac
+from orbitflow.capabilities.mac import MacService, normalize_mac, display_interface
 from orbitflow.capabilities.bridge_domains import BridgeDomainService
 from orbitflow.capabilities.mac_forwarding import enrich
 from orbitflow.capabilities.interfaces import InterfaceService
@@ -19,7 +19,7 @@ from orbitflow.transport import connect_device, DeviceCredentials
 from orbitflow.vendors.common import DeviceCLI
 
 MAIN_COLUMNS = ('Device IP', 'Device Name', 'Equipment Type', 'Physical Interface name', 'Port Type', 'Mac address')
-DETAIL_COLUMNS = ('Observation', 'Device IP', 'MAC', 'Observed Attachment', 'Domain', 'VLANs', 'Original Type', 'Normalized Type', 'Scope', 'Destination Detail', 'Mapping', 'Classification', 'Forwarding Semantics', 'Physical Interface', 'Port Type', 'Selected Device Row', 'Source')
+DETAIL_COLUMNS = ('Observation', 'Device IP', 'MAC', 'Observed Attachment', 'Domain', 'VLANs', 'Original Type', 'Normalized Type', 'Scope', 'Destination Detail', 'Mapping', 'Classification', 'Forwarding Semantics', 'Physical Interface', 'Port Type', 'Selected Device Row', 'Source', 'Raw Attachment')
 
 
 class TargetResolutionError(ValueError):
@@ -87,11 +87,11 @@ def collect_device(target, transport_config, store, *, mac=None, vlan=None, xr_l
         entry, resolution = item.entry, item.resolution
         matches = (mac is None or entry.mac == mac) and (vlan is None or vlan in item.vlans)
         # Supporting sheet includes unselected/unmapped evidence, never as matches.
-        details.append([f'{ip}/{position}', ip, entry.mac, entry.attachment, '; '.join(item.domains),
+        details.append([f'{ip}/{position}', ip, entry.mac, display_interface(context.platform, entry.attachment), '; '.join(item.domains),
                         ', '.join(map(str, item.vlans)), entry.original_type, entry.kind, entry.scope,
                         entry.ifindex, item.mapping + ('; selected' if matches else '; not selected'),
                         resolution.classification, resolution.semantics, resolution.physical, resolution.port_type,
-                        selected + 1 if matches else '', snapshot.source])
+                        selected + 1 if matches else '', snapshot.source, entry.attachment])
         if matches:
             selected += 1
             main.append([ip, context.hostname, context.hardware_model or context.device_family, resolution.physical,
@@ -101,7 +101,10 @@ def collect_device(target, transport_config, store, *, mac=None, vlan=None, xr_l
     bridge_rows = []
     if bridges is not None:
         for domain in bridges.domains:
-            for attachment in domain.attachments:
+            for attachment in domain.attachments or (None,):
+                if attachment is None:
+                    from orbitflow.capabilities.bridge_domains import BridgeAttachment
+                    attachment = BridgeAttachment()
                 bridge_rows.append([ip, domain.group, domain.name, domain.internal_id, domain.state,
                                     attachment.interface, attachment.neighbor, attachment.pw_id, attachment.state,
                                     attachment.backup, attachment.static_count if attachment.static_count is not None else '',

@@ -741,3 +741,24 @@ def test_planning_export_failure_never_claims_complete(settings, monkeypatch, fa
     assert 'Plan and review export complete.' not in output
     assert not any('private diagnostic' in text for text in output)
     assert any('stopped; completion not established' in text for text in output)
+
+
+def test_mac_search_correlates_each_observation(settings, monkeypatch, tmp_path):
+    import orbitflow.mac_lookup as app
+    from orbitflow.excel_output import write_tables
+    path = tmp_path / 'matches.xlsx'
+    details = []
+    for i, (domain, physical, mode) in enumerate([('G1/SAME', 'TenGigE0/0/0/19', 'trunk'), ('G2/SAME', 'TenGigE0/0/0/20', 'access')], 1):
+        details.append([f'192.0.2.1/{i}', '192.0.2.1', 'aa:bb:cc:dd:ee:ff', physical + '.445', domain,
+                        '860', 'dynamic', 'dynamic', '', '', 'resolved; selected', 'physical', 'service', physical, mode, i, 'fixture'])
+    write_tables(path, [('Details', app.DETAIL_COLUMNS, details),
+                        ('MAC Addresses', app.MAIN_COLUMNS, []),
+                        ('Run Errors', ('Device IP', 'Stage', 'Error Category'), [])])
+    monkeypatch.setattr(app, 'run_lookup', lambda *a, **k: path)
+    ui, output = console(['aabb.ccdd.eeff', '192.0.2.1', '', 'y'], session_check=lambda _: None)
+    ui.mac_lookup(True)
+    records = [line for line in output if line.startswith('Observation ')]
+    assert len(records) == 2
+    for row, text in zip(details, records):
+        assert all(value in text for value in [row[0], row[2], row[3], row[4], row[13], row[14]])
+    assert 'Matches: 2' in output[-1]

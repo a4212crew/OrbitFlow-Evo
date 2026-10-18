@@ -69,21 +69,32 @@ def parse_bridge_domains(output):
         if header is None:
             continue
         if line.startswith('List of '):
+            if line not in {'List of ACs:', 'List of Access PWs:'}:
+                raise ValueError('Unsupported bridge attachment section')
             section = line
             continue
         if not line:
             continue
         count = re.search(r'(Static|BVI) MAC addresses:\s*(\d+)', line)
-        pw = re.match(r'Neighbor (\S+) pw-id (\d+), state: (\w+)', line)
-        ac = re.match(r'(\S+), state: (\w+)', line)
-        if pw:
+        pw = re.fullmatch(r'Neighbor (\S+) pw-id (\d+), state: (\w+)(?:, Static MAC addresses: \d+)?(?:, backup)?', line)
+        ac = re.fullmatch(r'(\S+), state: (\w+)(?:, (?:Static|BVI) MAC addresses: \d+)?', line)
+        if pw and section == 'List of Access PWs:':
             attachments.append(BridgeAttachment(neighbor=pw[1], pw_id=pw[2], state=pw[3], backup=bool(re.search(r'\bbackup\b', line)), static_count=int(count[2]) if count and count[1] == 'Static' else None))
-        elif ac:
+        elif ac and section == 'List of ACs:':
             attachments.append(BridgeAttachment(interface=ac[1], state=ac[2], static_count=int(count[2]) if count and count[1] == 'Static' else None,
                                                 bvi_count=int(count[2]) if count and count[1] == 'BVI' else None))
+        elif re.match(r'(?:ACs|VFIs|PWs|PBBs|VNIs):', line):
+            for part in line.split(','):
+                summary = re.fullmatch(r'\s*(ACs|VFIs|PWs|PBBs|VNIs):\s*(\d+)(?:\s*\((\d+) up\))?\s*', part)
+                if not summary:
+                    raise ValueError('Malformed bridge summary')
+                counts.append((summary[1], int(summary[2])))
+                if summary[3] is not None:
+                    counts.append((summary[1] + ' up', int(summary[3])))
+            section = ''
         elif line.startswith('Number of'):
             counts.extend((k.strip(), int(v)) for k, v in re.findall(r'([^:,]+):\s*(\d+)', line))
-        elif section and ('state:' in line or re.match(r'(?:Neighbor|BV|Te|Gi|Hu|BE|Bundle|TenGigE|GigabitEthernet)', line)):
+        elif section:
             raise ValueError('Malformed bridge attachment')
     finish()
     if not domains:

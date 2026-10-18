@@ -468,10 +468,11 @@ class Console:
                 matches = 0
                 for row in book['Details'].iter_rows(min_row=2, values_only=True):
                     if row[2] == mac and row[10].endswith('; selected'):
-                        self.write(sanitize_text(f'MAC {row[2]}; attachment {row[3]}; domain {row[4]}; mapping {row[10]}; classification {row[11]}'))
+                        self.write(sanitize_text(f'Observation {row[0]}; MAC {row[2]}; attachment {row[3]}; '
+                                                 f'domain {row[4] or "unknown"}; mapping {row[10]}; '
+                                                 f'Physical interface: {row[13] or "unresolved/nonphysical"}; '
+                                                 f'Port Type: {row[14]}; classification {row[11]}'))
                         matches += 1
-                for row in book['MAC Addresses'].iter_rows(min_row=2, values_only=True):
-                    self.write(sanitize_text(f'Physical interface: {row[3] or "unresolved/nonphysical"}; Port Type: {row[4]}'))
                 errors = list(book['Run Errors'].iter_rows(min_row=2, values_only=True))
                 if any(row[1] == 'collection' for row in errors):
                     self.write('MAC collection failed; no successful no-match result is available.')

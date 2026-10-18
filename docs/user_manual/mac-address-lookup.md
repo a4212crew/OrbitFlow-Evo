@@ -11,9 +11,12 @@ Launch `python -m orbitflow.menu`, choose **7. MAC Address Lookup**, then:
 1. **Search MAC Address**: enter dotted or colon MAC (case-insensitive) and device
    IP. Invalid input stops before network access. Choose the existing credential
    workbook; exactly one matching IP row is required (duplicates are ambiguous).
-   Confirm network collection. No concurrency prompt. Every match prints normalized
-   MAC, attachment, domain/mapping, physical name or unresolved/nonphysical, and
-   evidenced port type. Match and error counts distinguish no-match from failure.
+   Confirm network collection. No concurrency prompt. Every match prints one
+   cohesive record with observation key, normalized
+   MAC, full attachment, group/domain and mapping, physical name or
+   unresolved/nonphysical, and evidenced port type. Repeated MACs in different
+   domains/ports remain separate records. Match and error counts distinguish
+   no-match from failure.
 2. **List All MAC Addresses**: enter VLAN 1-4094, select workbook and all or unique
    loaded device row positions, choose concurrency 1-5 (blank=1), then confirm.
    Only proven VLAN matches enter the main sheet. Unknown mappings are explicit
@@ -34,7 +37,7 @@ Equipment Type; Physical Interface name; Port Type; Mac address. Equipment Type
 uses observed hardware model, falling back to family. Each observation gets its own
 row, including repeated MACs and four separate rows for four entries on one trunk.
 **Details** keys observations by target position/IP/source position, with selected per-device row
-ordinal, attachment, domain, VLANs, original/normalized type, source scope, destination
+ordinal, full attachment and separate raw attachment, domain, VLANs, original/normalized type, source scope, destination
 detail, mapping/classification, physical identity and forwarding semantics and collection source. **Bridge Domains** preserves XR group/domain/internal ID, AC/PW attachment states, backup flags and counts, keyed by device and domain. **Totals**
 separates table, local selection and supplied slot scopes. **Run Errors** contains
 device/stage/category only. Cells are literal text, headers frozen and filterable.
@@ -117,3 +120,29 @@ Do not use production credentials in reports supplied for review.
 
 See [API](../operations/mac-address-lookup-api.md) and
 [architecture](../architecture/mac-address-lookup.md).
+
+Revision validation scenarios (owner execution remains pending on both OSes):
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m orbitflow.menu
+python -m orbitflow.mac_cli search --mac aabb.ccdd.eeff --ip 192.0.2.1 --confirm
+python -m orbitflow.mac_cli list --vlan 860 --rows 1 --concurrency 1 --confirm
+```
+
+```bash
+export PYTHONPATH=src
+python -m orbitflow.menu
+python -m orbitflow.mac_cli search --mac aabb.ccdd.eeff --ip 192.0.2.1 --confirm
+python -m orbitflow.mac_cli list --vlan 860 --rows 1 --concurrency 1 --confirm
+```
+
+Replace example IP/MAC/VLAN with authorized lab targets and known observations.
+In menu Search, verify a multi-hit MAC shows its own attachment/domain/physical
+port/type on each keyed line. In List, choose an encapsulation VLAN different
+from EFP/BD/subinterface suffix; those identifiers alone must never match.
+For NCS, compare Details group/domain with the exact configured binding and
+Bridge Domains evidence. Contradictory groups with identical domain names must
+remain unknown and absent from the VLAN selection. Summary counts and up counts
+are reported facts, including empty domains; they are never compared or recomputed.
+No new command or live data is required for the deterministic revision tests.
