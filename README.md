@@ -720,3 +720,8 @@ reads/lookups and all execution safety gates remain. See the
 [profiling, offline benchmark and owner lab comparison guide](docs/user_manual/configuration-execution.md#execution-profiling-and-safe-reuse-issue-125).
 Synthetic count improvements are not live performance claims; owner validation of
 these optimizations is pending on C3750X, C3850 and EdgeSwitch.
+
+The owner-evidence revision adds offline run/family/IP and optional template/row
+timing groups, rotation warnings and duplicate-record protection. It retains full
+fresh reads; the requested meaningful full-configuration-read reduction remains
+unmet. Pooled owner timings cannot establish per-device gains.

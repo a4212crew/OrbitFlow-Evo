@@ -866,3 +866,12 @@ Offline extraction and synthetic baseline/reuse comparisons are documented in th
 [execution manual](user_manual/configuration-execution.md#execution-profiling-and-safe-reuse-issue-125).
 Owner lab validation of these optimizations on all three families and Linux validation
 remain pending; previously reported PR #118 validation is not optimization validation.
+
+The Issue #125 owner-evidence revision adds bounded offline run/approved-family/IP
+and optional template/row grouping, sanitized identifiers, missing/omitted rotation
+warnings and exact timestamped-record/path deduplication. Legacy missing fields
+remain unknown; physical configuration-read spans are analyzed separately from
+nested parent spans. Full fresh reads remain unchanged: targeted reads cannot
+prove absence of external changes outside scope, and no supported adapter has a
+validated whole-device change marker. The meaningful full-read-reduction review
+gate remains unmet; this revision is partial, not completion of Issue #125.

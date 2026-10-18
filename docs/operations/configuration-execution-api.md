@@ -326,8 +326,17 @@ Transport admission/retry stages retain existing retry/pacing semantics.
 
 Internal `orbitflow.timing` / `execution_observation` helpers are not new supported
 public execution APIs. The offline developer script
-`scripts/configuration_execution_timings.py LOG [LOG ...] [--run-id ID]` exposes only
-bounded numeric aggregates, not an apply/resume interface. See the
+`scripts/configuration_execution_timings.py LOG [LOG ...] [--run-id ID]
+[--group-by run_id device_family management_ip template_id row_id]` exposes
+bounded stage distributions with sanitized correlation, not an apply/resume interface.
+Default grouping is run/family/IP. Family comes from approved bound identity;
+fresh identity failures remain failures. Legacy missing fields are unknown, never
+inferred across devices. Custom run/row IDs are hashed; templates/families are
+allowlisted. Duplicate paths/exact timestamped records are ignored; missing files,
+omitted rotations and unprovable retention completeness warn on stderr.
+Only `cli_command/configuration_read` counts physical configuration exchanges;
+nested collector/observation spans must never be summed. Full reads remain unchanged
+and the meaningful full-read-reduction review gate is unmet. See the
 [profiling guide](../user_manual/configuration-execution.md#execution-profiling-and-safe-reuse-issue-125)
 for arguments, limits, Windows/Linux tests/extraction, synthetic benchmark methodology
 and the owner-controlled lab comparison. Console execution uses the same service;

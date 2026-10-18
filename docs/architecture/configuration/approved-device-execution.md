@@ -386,3 +386,23 @@ and synthetic benchmark are documented in the
 They add no operator workflow, confirmation gate or console menu entry. This change
 has deterministic Windows validation only; owner C3750X/C3850/EdgeSwitch optimization
 validation and Linux execution remain outstanding.
+
+### Issue #125 owner-evidence revision
+
+Offline extraction now isolates run/approved-family/IP, optionally template/row,
+without attributing pooled live measurements to individual devices. Missing legacy
+dimensions remain unknown; physical reads are counted only at
+`cli_command/configuration_read`, separately from overlapping parent spans.
+Retention warnings, bounded parsing and timestamped-record/path deduplication
+prevent silently presenting known partial/overlapping inputs as complete.
+
+Full-state freshness still comes from full VlanService configuration collection;
+InterfaceService, VLAN lookup and SwitchportService remain independent fresh facts.
+Targeted reads alone cannot prove absence of external changes outside their scope.
+There is no validated whole-device change marker in the supported adapters.
+Consequently every row class retains its current full-read boundary, including
+description preservation, trunk full sets/ownership and EdgeSwitch database and
+participation dependencies. No stale configuration replaces durable pre-row evidence.
+The revision implements diagnostic attribution but **does not satisfy the requested
+meaningful full-configuration-read reduction**. Owner lab timings remain separate
+from synthetic evidence; no new device writes or live validation were performed.

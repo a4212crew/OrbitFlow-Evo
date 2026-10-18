@@ -174,6 +174,8 @@ def test_execution_timing_outcomes_and_safe_correlation(tmp_path, monkeypatch, f
             'scoped_evidence', 'approved_command', 'row_total', 'device_total', 'run_total'} <= stages
     for record in timings:
         assert record['digest'] == original.digest
+        if record['stage'] != 'run_total':
+            assert record['device_family'] == 'C3750X'
         assert math.isfinite(float(record['elapsed_seconds'])) and float(record['elapsed_seconds']) >= 0
         assert 'command' not in record and len(record['run_id']) <= 128
         if 'device_wait_seconds' in record:
@@ -258,6 +260,64 @@ def test_offline_timing_extraction_only_safe_numeric_aggregates(tmp_path, capsys
     assert main([str(path), '--run-id', 'run']) == 0
     assert 'sensitive-output' not in capsys.readouterr().out
     assert summarize([path], 'different-run') == []
+
+
+def test_offline_device_row_attribution_rotation_and_overlap(tmp_path, capsys):
+    from scripts.configuration_execution_timings import main, summarize, DIMENSIONS
+    records = []
+    for device, family, elapsed in [('192.0.2.1', 'C3750X', 4), ('192.0.2.2', 'EdgeSwitch', 9)]:
+        for stage_name in ('full_observation', 'vlan_config_collection', 'cli_command'):
+            records.append(dict(message='Execution timing', timestamp=f'{device}/{stage_name}',
+                                run_id='a'*32, management_ip=device, device_family=family,
+                                row_id='b'*24, template_id=('edgeswitch' if family == 'EdgeSwitch' else 'c3750x')+'.vlan_database.v2',
+                                stage=stage_name, command_category='configuration_read' if stage_name == 'cli_command' else '-',
+                                elapsed_seconds=elapsed, response='password=do-not-reflect'))
+    path = tmp_path/'execution.log'
+    rotation = tmp_path/'execution.log.1'
+    text = '\n'.join(json.dumps(r) for r in records)+'\n'
+    path.write_text(text, encoding='utf-8')
+    rotation.write_text(text, encoding='utf-8')  # overlapping retained copy
+    warnings = []
+    result = summarize([path, rotation, path, tmp_path/'missing'], group_by=DIMENSIONS, warnings=warnings)
+    assert len(result) == 6
+    reads = [r for r in result if r['stage'] == 'cli_command']
+    assert [(r['management_ip'], r['median_seconds'], r['count']) for r in reads] == [('192.0.2.1', 4, 1), ('192.0.2.2', 9, 1)]
+    assert all(r['run_id'] == 'a'*32 and r['row_id'] == 'b'*24 for r in result)
+    assert any('missing' in w for w in warnings) and any('Duplicate' in w for w in warnings)
+    assert main([str(path)]) == 0
+    captured = capsys.readouterr()
+    assert 'Nested stages overlap' in captured.err and 'rotation omitted' in captured.err
+    assert 'do-not-reflect' not in captured.out + captured.err
+
+
+def test_offline_unknown_fields_and_bounded_corrupt_line(tmp_path, monkeypatch):
+    from scripts.configuration_execution_timings import summarize, DIMENSIONS
+    path = tmp_path/'execution.log'
+    record = dict(message='Execution timing', stage='cli_command', command_category='configuration_read',
+                  elapsed_seconds=3, run_id='password=private', management_ip='token=private',
+                  device_family='password=private', template_id='password=private', row_id='password=private')
+    path.write_text('x'*70000+'\n'+json.dumps(record), encoding='utf-8')
+    result = summarize([path], group_by=DIMENSIONS)
+    assert len(result) == 1 and result[0]['management_ip'] == result[0]['device_family'] == result[0]['template_id'] == '-'
+    assert result[0]['run_id'].startswith('sha256:')
+    assert 'private' not in json.dumps(result)
+    with pytest.raises(ValueError):
+        summarize([path], group_by=['response'])
+    monkeypatch.setattr('scripts.configuration_execution_timings.MAX_SAMPLES', 2)
+    path.write_text('\n'.join([json.dumps(record)]*3), encoding='utf-8')
+    with pytest.raises(ValueError, match='sample limit'):
+        summarize([path])
+
+
+def test_offline_generated_run_identity_and_large_finite_durations(tmp_path):
+    from scripts.configuration_execution_timings import summarize
+    path = tmp_path/'execution.log'
+    run_id = '20261018T120000_123456Z_'+'a'*32
+    record = dict(message='Execution timing', stage='cli_command', elapsed_seconds=1e308, run_id=run_id)
+    path.write_text('\n'.join([json.dumps(record)]*2), encoding='utf-8')
+    result = summarize([path], group_by=['run_id'])
+    assert result[0]['run_id'] == run_id and result[0]['median_seconds'] == 1e308
+    json.dumps(result, allow_nan=False)
 
 
 def test_noop_and_unknown_save_timing_remain_independent(tmp_path, monkeypatch):

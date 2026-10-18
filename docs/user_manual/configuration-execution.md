@@ -478,11 +478,80 @@ python scripts/configuration_execution_timings.py outputs/logs/configuration/YYY
 The extraction script is entirely offline and needs only Python's standard library.
 Required positional `logs` accepts one or more UTF-8 shared log files; optional
 `--run-id` selects an exact manifest ID (default all runs in supplied logs). It prints
-JSON per allowlisted stage/category with count/min/median/nearest-rank p95/max seconds.
+JSON per run/device family/IP and allowlisted stage/category with
+count/min/median/nearest-rank p95/max seconds. `device_family` is the approved bound
+identity family, not a claim that fresh identification succeeded; inspect outcomes.
+Old logs without this field retain `-`, without guessing a family from other devices.
+Use `--group-by run_id device_family management_ip template_id row_id` for row
+attribution. Device-level stages retain unknown row/template fields; they are never
+allocated proportionally to rows. Missing fields remain `-`. Valid IPs, allowlisted
+families/templates and generated hex IDs are printed; custom identifiers are stable
+SHA-256 labels, so arbitrary log text cannot be reflected. No hostname is printed.
 It ignores malformed/torn/non-timing records and invalid durations; at 100,000 samples
 it fails closed with exit 2, as for unreadable input. Empty selection returns `[]`.
-It outputs no device text, credentials or raw CLI. Use disjoint retained files to
-avoid double-counting; missing rotations make a comparison incomplete.
+Parsing is limited to 65,536-character lines and 100,000 valid samples (including duplicate
+records). Duplicate resolved paths and exact timestamped records in overlapping
+files are ignored. Copied records without timestamps cannot be deduplicated reliably.
+Requested missing files and omitted surviving rotations emit fixed warnings to stderr;
+missing files are skipped. No surviving log set can prove retention completeness,
+so the CLI always warns about that limitation. Other unreadable input fails with exit 2.
+No commands, raw output or arbitrary exception text are printed.
+
+Compare `cli_command` / `configuration_read` counts/distributions to identify physical
+configuration-read exchanges per device. `vlan_config_collection`, `full_observation`
+and `pre_row_observation` contain those exchanges: **do not add their durations or
+counts together**. Compare collectors separately within each device, then rows;
+missing row IDs do not establish which row incurred a device-level stage.
+
+PowerShell in the Issue #125 worktree (offline, no device access):
+
+```powershell
+Set-Location 'C:\Users\a4212\OneDrive\Personal\Lightning Broadband\Projects\Python Project\OrbitFlow-Evo-worktrees\issue-125'
+$env:PYTHONPATH = "$PWD/src"
+python scripts/configuration_execution_timings.py outputs/logs/configuration/YYYY-MM-DD/execution.log --run-id RUN_ID --group-by run_id device_family management_ip template_id row_id
+```
+
+Linux Bash from the checked-out repository:
+
+```bash
+python scripts/configuration_execution_timings.py outputs/logs/configuration/YYYY-MM-DD/execution.log --run-id RUN_ID --group-by run_id device_family management_ip template_id row_id
+```
+
+### Revision evidence and remaining performance gate
+
+Owner-supplied live evidence is pooled across two devices: 273.075 s run, 36 rows,
+53 full observations; configuration-read CLI median 3.699 s / p95 7.151 s. These
+numbers cannot be attributed to individual families/devices without the original
+logs, which were not supplied in this workspace. Nested stages are not additive.
+
+The revision leaves physical full-read counts unchanged. The existing synthetic
+ten-epoch benchmark measured 10→10 full reads for each family, with total CLI
+commands 63→34 for C3750X/C3850 and 62→33 for EdgeSwitch (paging/projection baseline
+versus reuse, **not a new reduction from this revision**). Host-only profiled
+median/p95 seconds: C3750X .003992/.007329→.001763/.004998;
+C3850 .004093/.006346→.001759/.005040; EdgeSwitch
+.004494/.004845→.001945/.005271. These are single synthetic runs, not live gains.
+
+Freshness boundaries: InterfaceService supplies the complete description table;
+VlanService supplies full running-config interface/VLAN/ownership facts and preserved
+configuration evidence. VlanService lookups independently supply operational VLAN
+and EdgeSwitch configured participation/tagging evidence; SwitchportService supplies
+operational complete allowed/general sets during verification. Protected backup
+uses independent ConfigurationService capture. Pre-row evidence is fsynced before
+writes. Full row collections are retained for every executable template and no-op;
+VLAN Database verification itself uses fresh VLAN lookup. No generation is trusted
+across writes or uncertainty; only computation on identical fresh inputs is reused.
+
+A targeted interface or VLAN read cannot detect an external change outside its
+scope. None of the supported adapters establishes a trustworthy whole-device
+configuration generation/change marker. Trunks depend on complete allowed sets and
+aggregate ownership; EdgeSwitch depends on database and independent participation,
+tagging and PVID; descriptions still require unrelated-setting preservation.
+Replacing full reads with old state plus these targeted results would weaken the
+requested whole-state freshness guarantee. The meaningful full-read-reduction
+review gate remains **unmet**; this revision does not claim Issue #125 is complete.
+There is no execution read-only/dry-run profiling flag. Offline extraction is safe;
+new lab execution uses the existing owner-confirmed `execute` commands above.
 
 Owner-only lab comparison: retain a baseline revision's sanitized run/report and
 logs, then use separately reviewed fresh lab plans on this revision. Start from

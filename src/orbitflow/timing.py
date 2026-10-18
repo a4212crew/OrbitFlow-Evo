@@ -68,7 +68,7 @@ def stage(name, *, command_category='-', failure='Failed'):
         _spans.reset(token)
         logger, clean = sink
         fields = {k: clean(v)[:128] for k, v in _fields.get().items()
-                  if k in {'run_id', 'digest', 'management_ip', 'row_id', 'template_id', 'command_index'}}
+                  if k in {'run_id', 'digest', 'management_ip', 'device_family', 'row_id', 'template_id', 'command_index'}}
         wait = min(elapsed, frame['wait'])
         fields.update(stage=name, command_category=command_category,
                       outcome=result['outcome'] if result['outcome'] in _OUTCOMES else 'Unknown',

@@ -393,7 +393,8 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                     event(ip, 'cleanup_start')
 
         def worker(ip):
-            with profiling(logger, clean, run_id=spool.path.name, digest=summary['source_digest'], management_ip=ip):
+            with profiling(logger, clean, run_id=spool.path.name, digest=summary['source_digest'], management_ip=ip,
+                           device_family=groups[ip][0]['identity']['device_family']):
                 with stage('device_total', failure='Unknown') as timing:
                     try:
                         value = device_worker(ip)
