@@ -46,10 +46,11 @@ class Console:
             self.write(text)
 
     @contextmanager
-    def activity(self, label, total=None):
+    def activity(self, label, total=None, *, execution=False):
         """Render presentation-only activity; always clear it before prompts."""
-        from orbitflow.terminal_progress import TerminalProgress
-        display = TerminalProgress(label, write=self.write, total=total)
+        from orbitflow.terminal_progress import TerminalProgress, ExecutionProgress
+        renderer = ExecutionProgress if execution else TerminalProgress
+        display = renderer(label, write=self.write, total=total)
         with Progress(lambda event: display.tick()) as timer:
             timer.emit('', 'preflight')
             display.start()
@@ -335,17 +336,11 @@ class Console:
         validate_paths(settings)
         ips = sorted({row['request']['inputs']['management_ip'] for row in prepared['summary']['selected']})
         started = monotonic()
-        with self.activity('Processing') as display:
-            def apply_progress(event):
-                # Device completion follows the durable spool append; row events do not.
-                total = event.get('devices_total')
-                done = event.get('devices_completed', 0)
-                if type(total) is int and total > 0 and type(done) is int:
-                    display.update(done, total)
+        with self.activity('Processing', total=len(ips), execution=True) as display:
             spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
                                     credentials=load_device_credentials(devices, ips),
                                     transport_config=TransportConfig(**settings['teleport']),
-                                    inventory_path=settings['paths']['inventory'], progress=apply_progress)
+                                    inventory_path=settings['paths']['inventory'], progress=display.event)
         from orbitflow.configuration.execution_cli import outcome_summary
         destination = self.output(settings['paths']['execution_reports'], 'execution')
         with self.activity('Exporting execution report'):

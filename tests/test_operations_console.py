@@ -199,6 +199,8 @@ def test_execution_uses_bound_prepare_confirm(settings, monkeypatch, confirm):
             assert reference == 'bound-reference'
             calls.append(('confirm', kwargs))
             kwargs['progress'](dict(stage='confirmed_start', devices_total=1, devices_completed=0))
+            kwargs['progress'](dict(stage='preflight', management_ip='192.0.2.1', command='private-command'))
+            kwargs['progress'](dict(stage='row_result', management_ip='192.0.2.1', status='Verified'))
             kwargs['progress'](dict(stage='device_complete', devices_total=1, devices_completed=1, status='Failed'))
             return SimpleNamespace(path=Path('retained-run'))
     monkeypatch.setattr(ex, 'ExecutionService', Service)
@@ -222,6 +224,9 @@ def test_execution_uses_bound_prepare_confirm(settings, monkeypatch, confirm):
         assert calls[2][1]['summary_digest'] == 'bound-digest'
         assert calls[2][1]['apply'] is True
         assert any('100% (1/1)' in line for line in output)
+        assert '192.0.2.1 | Initial preflight' in output
+        assert '192.0.2.1 | Row result | status=Verified' in output
+        assert not any('private-command' in line for line in output)
         assert not any('device_complete' in line or 'all succeeded' in line for line in output)
     assert any(line.startswith('Preparing/validating plan [') for line in output)
     assert any(line.startswith('Preparing/validating plan [') and 'phase finished' in line for line in output)

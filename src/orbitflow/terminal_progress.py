@@ -70,3 +70,64 @@ class TerminalProgress:
             self.closed = True
             # Never fabricate completed counts, even when the service returns.
             self._emit(self._line() + ('; phase finished.' if success else '; stopped; completion not established.'), True)
+
+
+class ExecutionProgress(TerminalProgress):
+    """Confirmed-apply events: fixed vocabulary, canonical targets, no payload echo."""
+    STAGES = {
+        'confirmed_start': 'Execution started', 'connect': 'Connecting',
+        'identify': 'Identifying device', 'preflight': 'Initial preflight',
+        'row_preflight': 'Row preflight', 'backup': 'Backup started',
+        'backup_complete': 'Backup recorded', 'command_intent': 'Command intent (not success)',
+        'command_result': 'Command result', 'command_unknown': 'Command outcome Unknown',
+        'mode_intent': 'Mode transition intent', 'mode_result': 'Mode transition returned',
+        'verification_intent': 'Verification started', 'verification_warning': 'Verification warning; see report',
+        'row_result': 'Row result', 'save_intent': 'Save started', 'save_result': 'Save result',
+        'save_confirmation_recognized': 'Save confirmation recognized',
+        'save_answer_y_waiting_original_exec': 'Waiting for save completion',
+        'cleanup_start': 'Cleanup started', 'cleanup': 'Cleanup result',
+        'device_failure': 'Device failure; see retained evidence', 'device_complete': 'Device completion',
+        'confirm': 'Confirmation claimed', 'recording': 'Recording result',
+    }
+    STATUSES = {'Verified', 'Failed', 'Unknown', 'Completed', 'Rejected', 'Skipped', 'Claimed',
+                'Accepted', 'Returned', 'Not executed', 'Not attempted', 'Saved'}
+
+    def event(self, event):
+        from ipaddress import ip_address
+        import re
+        from orbitflow.configuration.v2.catalogue import BY_ID
+        with self.lock:
+            if self.closed:
+                return
+            stage = event.get('stage')
+            waiting = stage == 'waiting'
+            label = self.STAGES.get(event.get('awaited_stage') if waiting else stage)
+            if label is None:
+                return
+            try:
+                raw = event.get('management_ip', '')
+                target = str(ip_address(raw)) if isinstance(raw, str) and '%' not in raw else 'target unavailable'
+            except ValueError:
+                target = 'target unavailable'
+            parts = [target, ('Waiting: ' if waiting else '') + label]
+            source = event.get('source')
+            if isinstance(source, str):
+                for template in BY_ID.values():
+                    match = re.fullmatch(re.escape(template.sheet) + r' row ([0-9]{1,7})', source)
+                    if match:
+                        parts.append(f'{template.sheet} row {match[1]}')
+                        break
+            index, total = event.get('command_index'), event.get('command_total')
+            if all(isinstance(x, (int, str)) and re.fullmatch(r'[0-9]{1,7}', str(x)) for x in (index, total)):
+                parts.append(f'command {index}/{total}')
+            status = event.get('status')
+            if isinstance(status, str) and status in self.STATUSES:
+                parts.append('status=' + status)
+            if waiting:
+                seconds = event.get('waiting_seconds')
+                if type(seconds) in (int, float) and 0 <= seconds <= 10**9:
+                    parts.append(f'{int(seconds)}s waiting')
+            # Every event is a complete flushed line, serialized with timer updates.
+            # Hostnames, commands, evidence, errors and arbitrary identifiers never cross.
+            self._emit(' | '.join(parts), True)
+            self.update(event.get('devices_completed', 0), event.get('devices_total'))
