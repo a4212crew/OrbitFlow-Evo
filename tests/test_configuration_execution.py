@@ -343,10 +343,11 @@ def fake_runtime(monkeypatch, ctx, obs):
     monkeypatch.setattr(ex, 'DeviceCLI', WorkerCLI)
     monkeypatch.setattr(ex, 'DeviceInventoryResolver', lambda *args, **kwargs: SimpleNamespace(resolve=lambda *a, **kw: ctx))
     monkeypatch.setattr(ex, '_observe', lambda *args: obs)
+    monkeypatch.setattr(ex, 'VlanService', lambda **kw: SimpleNamespace(lookup=lambda *a, **kw: dict(status='present', name='Customer')))
     monkeypatch.setattr(ex, 'ConfigurationService', lambda **kwargs: SimpleNamespace(collect=lambda *args, **kw: 'hostname fixture\ndescription test-user\npassword hidden\n'))
     saves = []
     monkeypatch.setattr(ex, 'save_configuration', lambda *args, **kwargs: saves.append(args) or dict(status='Saved', response=''))
-    monkeypatch.setattr(ex, 'verify_row', lambda *args, **kwargs: dict(status='Verified', evidence='=literal'))
+    monkeypatch.setattr(ex, '_verify_observed', lambda *args, **kwargs: dict(status='Verified', evidence='=literal'))
     return saves
 
 
@@ -524,7 +525,7 @@ def test_safe_continuation_after_failed_row_and_device_isolation(tmp_path, monke
     monkeypatch.setattr(ex, 'connect_device', connect)
     monkeypatch.setattr(ex, 'DeviceInventoryResolver', lambda *a, **kw: SimpleNamespace(resolve=lambda session, **kw: ctx if session.ip == IP else other_ctx))
     monkeypatch.setattr(ex, '_observe', lambda session, *a: obs if session.ip == IP else other_obs)
-    monkeypatch.setattr(ex, 'verify_row', lambda session, context, cli, entry, *a, **kw: dict(status='Failed' if entry['request']['inputs']['vlan_id'] == 445 and session.ip == IP else 'Verified'))
+    monkeypatch.setattr(ex, '_verify_observed', lambda session, context, cli, entry, *a, **kw: dict(status='Failed' if entry['request']['inputs']['vlan_id'] == 445 and session.ip == IP else 'Verified'))
     progress_events = []
     spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
                            credentials={ip: DeviceCredentials('user','hidden') for ip in (IP,other_ip)},
@@ -640,7 +641,7 @@ def test_noop_verification_failure_is_unknown(tmp_path, monkeypatch):
     run, saves, _ = run_prepared(tmp_path, monkeypatch, no_op=True)
     def unavailable(*args, **kwargs):
         raise ValueError('unavailable')
-    monkeypatch.setattr(ex, 'verify_row', unavailable)
+    monkeypatch.setattr(ex, '_verify_observed', unavailable)
     spool = run()
     assert next(spool.records())['payload']['rows'][0]['status'] == 'Unknown'
     assert not saves
@@ -693,7 +694,7 @@ def test_failed_dependency_blocks_row_while_independent_row_continues(tmp_path, 
     prepared = service.prepare(original, {r['row_id']:'Approve' for r in requests}, expected_digest=original.digest)
     assert prepared['summary']['selected'][-1]['result']['dependencies'] == [database['row_id']]
     saves = fake_runtime(monkeypatch, ctx, obs)
-    monkeypatch.setattr(ex, 'verify_row', lambda session,context,cli,entry,*a,**kw: dict(status='Failed' if entry['request']['row_id'] == database['row_id'] else 'Verified'))
+    monkeypatch.setattr(ex, '_verify_observed', lambda session,context,cli,entry,*a,**kw: dict(status='Failed' if entry['request']['row_id'] == database['row_id'] else 'Verified'))
     spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
                            credentials={IP:DeviceCredentials('user','hidden')}, run_root=tmp_path/'runs',
                            backups_dir=tmp_path/'backups', inventory_path=tmp_path/'inventory.json')
@@ -1151,7 +1152,7 @@ def test_fallback_actual_formatted_log_values(tmp_path, monkeypatch, explicit, s
 def test_verification_warning_journal_logged_as_useful_message(tmp_path, monkeypatch):
     from orbitflow.logging import module_logger
     run, _, _ = run_prepared(tmp_path, monkeypatch)
-    monkeypatch.setattr(ex, 'verify_row', lambda *a, **kw: dict(status='Verified', evidence=dict(warnings=['ACCESS_VLAN_CONFIG_FALLBACK: Access Mode VLAN not reported'])))
+    monkeypatch.setattr(ex, '_verify_observed', lambda *a, **kw: dict(status='Verified', evidence=dict(warnings=['ACCESS_VLAN_CONFIG_FALLBACK: Access Mode VLAN not reported'])))
     with module_logger('test', log_root=tmp_path/'logs'):
         spool=run()
     events=list(ResultJournal(spool.path/'events.jsonl').records())
@@ -1402,7 +1403,7 @@ def test_multitemplate_ip_dispatch_row_order_one_backup_and_save(tmp_path, monke
         record = next(r for r in spool.records() if r['target'] == ip)
         assert [r['row_id'] for r in record['payload']['rows']] == expected
         assert all(r['status'] == 'Verified' for r in record['payload']['rows'])
-        assert [row_ids for target, row_ids in collected if target == ip] == [expected, [expected[0]], [expected[1]]]
+        assert [row_ids for target, row_ids in collected if target == ip] == [expected, [expected[1]], [expected[1]]]
         stages = [e['stage'] for e in events if e['management_ip'] == ip]
         assert stages.count('backup_complete') == stages.count('save_result') == 1
         assert stages.index('backup_complete') < stages.index('command_intent')

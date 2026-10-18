@@ -850,28 +850,29 @@ PR #124 final progress presentation revision uses one flushed TTY line, durable 
 PR #124 owner final revision restores confirmed-execution per-target/row stage and wait visibility using existing events, with allowlisted output and measured device counts. Read-only bars remain compact; execution semantics and direct APIs are unchanged. Windows focused validation passed 314 tests; Linux and owner live validation remain pending.
 
 
-## Execution profiling and safe reuse (Issue #125)
+## Execution profiling and ordered template stages (Issue #125)
 
-All eleven currently executable C3750X/C3850/EdgeSwitch templates use correlated
-monotonic stage/command timings in shared bounded configuration execution logs.
-CLI receive wait is measured separately from residual wall time; run/row/device
-outcomes and durable journal/report contracts remain independent. Executor-owned
-shells reuse accepted paging setup; standalone defaults are unchanged. A bounded
-single-projection per-session manager reuses deterministic snapshot computation only
-after identical complete fresh normalized inputs. Full fresh row/no-op reads and
-operational VLAN lookups remain; scoped refresh equivalence is unproven and no full
-reads were removed. Writes, mismatch, uncertainty and synchronization loss invalidate
-retained work. Unsupported families and Manual CLI apply remain disabled.
-Offline extraction and synthetic baseline/reuse comparisons are documented in the
-[execution manual](user_manual/configuration-execution.md#execution-profiling-and-safe-reuse-issue-125).
-Owner lab validation of these optimizations on all three families and Linux validation
-remain pending; previously reported PR #118 validation is not optimization validation.
+All eleven executable C3750X/C3850/EdgeSwitch predefined templates use correlated
+monotonic stage/command timings in shared bounded configuration logs. Ordered
+contiguous stages share fresh full baseline/pre/post observations across independent
+targets. Source/resolved target overlaps, dependencies and template changes split
+stages; noncontiguous templates never regroup. VLAN Database postchecks use shared
+fresh lookups. Fresh identity/privilege, protected backup, immutable commands/projected
+result checks, full relevant preservation/operational verification, journal/recovery,
+confirmation/replay and independent save remain.
 
-The Issue #125 owner-evidence revision adds bounded offline run/approved-family/IP
-and optional template/row grouping, sanitized identifiers, missing/omitted rotation
-warnings and exact timestamped-record/path deduplication. Legacy missing fields
-remain unknown; physical configuration-read spans are analyzed separately from
-nested parent spans. Full fresh reads remain unchanged: targeted reads cannot
-prove absence of external changes outside scope, and no supported adapter has a
-validated whole-device change marker. The meaningful full-read-reduction review
-gate remains unmet; this revision is partial, not completion of Issue #125.
+A bounded device-owned baseline compares fresh relevant target facts between stages
+and advances only verified changes. No stale-only cache or scoped vendor parser is
+used. Verification establishes stage final state on independent targets, not
+unobserved intermediate effects or continuous whole-device external drift detection.
+Unrelated out-of-scope changes are not globally compared. Standalone collectors,
+public signatures, report columns, concurrency and unsupported-family/EVC/Manual CLI
+execution restrictions remain unchanged.
+
+Synthetic real-collector schedules for ten independent rows reduce full config reads
+22 to 3 for interface templates, 12 to 2 for VLAN Database including baseline/backup;
+semantic all-template execution and safety regressions are deterministic fixtures.
+Detailed count/timing methodology and Windows/Linux commands are in the
+[manual](user_manual/configuration-execution.md#ordered-template-stages-owner-approved-revision).
+Owner's 2026-10-18 C3750X/EdgeSwitch timings describe the prior revision, not new live
+gains. Owner stage-execution validation on all three families and Linux remain pending.

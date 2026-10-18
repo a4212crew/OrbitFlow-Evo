@@ -311,8 +311,8 @@ The final Issue #123 console revision renders allowlisted existing structured st
 `confirm`, `verify_row`, all standalone collectors, parsers, save and structured
 progress signatures remain unchanged. Confirmed supported-family execution enables
 internal session paging reuse and a bounded per-session deterministic snapshot
-projection manager. It never reuses live state in place of fresh row reads or
-operational lookups. Shared standalone collector defaults remain unchanged.
+projection manager. Confirmed execution shares fresh observations within ordered
+independent-target stages; standalone `verify_row` still collects its own fresh facts. Shared standalone collector defaults remain unchanged.
 
 Detailed timing records in the existing bounded configuration/execution logger use
 run/digest/IP/row/template correlation, fixed stage/command category/index, outcome,
@@ -327,7 +327,7 @@ Transport admission/retry stages retain existing retry/pacing semantics.
 Internal `orbitflow.timing` / `execution_observation` helpers are not new supported
 public execution APIs. The offline developer script
 `scripts/configuration_execution_timings.py LOG [LOG ...] [--run-id ID]
-[--group-by run_id device_family management_ip template_id row_id]` exposes
+[--group-by run_id device_family management_ip template_id row_id stage_id]` exposes
 bounded stage distributions with sanitized correlation, not an apply/resume interface.
 Default grouping is run/family/IP. Family comes from approved bound identity;
 fresh identity failures remain failures. Legacy missing fields are unknown, never
@@ -335,9 +335,41 @@ inferred across devices. Custom run/row IDs are hashed; templates/families are
 allowlisted. Duplicate paths/exact timestamped records are ignored; missing files,
 omitted rotations and unprovable retention completeness warn on stderr.
 Only `cli_command/configuration_read` counts physical configuration exchanges;
-nested collector/observation spans must never be summed. Full reads remain unchanged
-and the meaningful full-read-reduction review gate is unmet. See the
+nested collector/observation spans must never be summed. Ordered template stages
+reduce repeated full reads; stage final-state verification does not establish
+continuous whole-device or unobserved intermediate drift detection. See the
 [profiling guide](../user_manual/configuration-execution.md#execution-profiling-and-safe-reuse-issue-125)
 for arguments, limits, Windows/Linux tests/extraction, synthetic benchmark methodology
 and the owner-controlled lab comparison. Console execution uses the same service;
 there is no additional confirmation or menu workflow.
+
+
+### Ordered stage results and timing
+
+`confirm` uses the same selected device row order and shared worker/session ownership.
+There is no new caller setting or confirmation. Internal stage formation splits at
+changed templates, source/resolved target overlap and row dependencies. Relevant
+fresh facts are compared against a bounded device baseline that advances verified
+changes only. Failed prechecks block affected writes. Usable independent targets may
+continue after rejection; uncertain session outcomes remain Unknown. Stage final
+state is attributed to each independent target; overlap is observed in separate stages.
+
+Durable row dictionaries add `stage_id` and `elapsed_seconds`; verification adds
+`stage_id` and `observation_scope='stage final state; independent target'`. Existing
+status/evidence keys and report sheets/columns remain. Journal stages add
+`stage_precheck` (row_ids, template_id, normalized observation),
+`stage_post_observation` (full normalized observation for interface stages; fresh
+vlan_lookups for database stages), and `stage_result` (row IDs/statuses), all with
+stage_id. Existing per-row pre_config evidence is fresh at the stage boundary and
+fsynced before sends. Post-stage row results/stage result are persisted before the
+next stage. Recovery never invents missing verification or repeats commands.
+
+Timing records add sanitized `stage_id`; extractor `--group-by` accepts it alongside
+existing dimensions. New spans are `template_stage`, `stage_pre_observation`,
+`stage_post_observation` and `row_apply`. Initial baseline supplies the first precheck;
+VLAN Database postchecks produce `vlan_lookup` spans without a full-observation span.
+`row_total` spans precheck to recorded outcome, including shared stage/sibling waits;
+it is wall time, not allocated physical device work. Stage/row/device totals overlap.
+The independent public `verify_row(..., timeout=30.0, correlation=None)` signature
+and its fresh read-only behavior remain unchanged. Shared capability correlation may
+include optional scalar `stage_id`; standalone callers need not supply it.

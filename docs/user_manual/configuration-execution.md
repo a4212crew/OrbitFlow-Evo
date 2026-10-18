@@ -109,17 +109,17 @@ with OS permissions; backups contain sensitive full running configuration.
 
 One shared worker owns each IP/session/shell and executes worksheet/row order.
 Fresh identity/capability/privilege and state checks plus mandatory protected backup
-precede writes. Each row has fresh state validation; changed CLI, target, no-op
+precede writes. Each row uses fresh consolidated stage state validation; changed CLI, target, no-op
 classification or projected result blocks that row instead of rerendering it under
 the old confirmation. This conservative behavior may require replanning after drift.
-Earlier verified changes are observed before subsequent rows; failed dependencies
+Earlier verified stage changes are observed before subsequent stages; failed dependencies
 are Not executed. Missing/unknown requested EdgeSwitch PVID/Include/tagging database
 prerequisites block that port row. They never implicitly create VLANs.
 
 Commands are sent individually. Rejection stops that row; deterministic known-mode
 recovery permits safe independent rows to continue. Unsynchronized sessions send no
 further commands. A post-send timeout is Unknown, remaining rows are Not executed;
-other devices continue. No-op rows still verify freshly and send no configuration.
+other devices continue. No-op rows still verify against fresh stage facts and send no configuration.
 Down operational state does not fail configured-intent verification. Missing facts
 produce Unknown, explicit mismatches Failed. Command rejection remains Failed even
 if the subsequent observed state matches. Full-set trunk comparison preserves VLAN 1
@@ -138,7 +138,8 @@ there is no blind retry. Row verification and save status remain separate.
 Each run retains `manifest.json`, `results.jsonl`, `summary.json`, and fsynced
 `events.jsonl` under its unique run directory. Events include pre-send intent,
 per-command responses/partial evidence, row verification, save, timestamps, categories
-and log references. A crash between intent and response must be treated as Unknown.
+and log references. Stage final-state attribution and its drift-detection limitation
+are described [below](#ordered-template-stages-owner-approved-revision). A crash between intent and response must be treated as Unknown.
 The incremental journal survives incomplete device outcomes; recovery ignores a
 torn final journal line. No automatic resume or rollback is available.
 
@@ -147,7 +148,7 @@ retained run and a new output filename; it performs no reconnect/apply/save. Run
 contains readable run/device/save/backup metadata. Original template-named sheets retain
 row identity, source row, original inputs and decisions, including skipped/unsupported
 rows with actual target identity. Main columns: Pre-config, Config Sent, Config Evidence
-(post-row), Apply Status, Status Verification, Error, Warning, Save Status and Backup
+(post-stage for new runs), Apply Status, Status Verification, Error, Warning, Save Status and Backup
 Reference. Apply (Applied/Rejected/Unknown/No-op/Not executed/Skipped), verification and
 save are independent. Config Sent lists actual attempted commands and responses, never
 unsent approved proposals. Interrupted send intents remain pending/uncertain.
@@ -390,7 +391,8 @@ Issue #123 console revision: The console derives/displays the expected digest fr
 Confirmed execution automatically records monotonic timing records in the existing
 UTC-dated `outputs/logs/configuration/YYYY-MM-DD/execution.log`, including when called
 from the interactive console. Console presentation, confirmation, public signatures,
-audit events, report columns and durable run layout are unchanged. Match `run_id`
+existing audit events, report columns and durable run layout are retained; stage
+records add provenance without replacing command/row evidence. Match `run_id`
 and `digest` to `outputs/runs/configuration_execution/RUN_ID/manifest.json` and
 `summary.json`; row records also include `row_id`, `template_id` and command index.
 Timing records have message `Execution timing`, fixed stage/command category, outcome
@@ -424,20 +426,12 @@ platform setup profile, and an unsynchronized exchange cannot reuse that shell.
 Standalone callers keep their existing setup behavior. `execution_mode` is local
 validation already; it never caused a network round trip and remains intact.
 
-Each session owns one normalized observation manager, bounded to one projection and
-8 MiB of serialized projection/input eligibility. Every row preflight and non-database
-verification still performs full fresh interface/VLAN/config collection, including
-no-op verification; every operational VLAN lookup remains fresh. Complete matching
-fresh normalized inputs may reuse only deterministic snapshot/audit computation;
-fresh observation timestamps are retained. Writes, mismatches, failed/uncertain
-operations and loss of synchronization invalidate retained computation. Changed
-facts force recomputation; oversized/incomplete inputs bypass reuse. No raw backup
-or device output is cached. Scoped interface/config refresh was investigated but
-cannot currently establish equivalent full-set preservation and drift coverage, so
-full refreshes are intentionally retained for all eleven executable templates.
-Protected backup, pre-row durable evidence, ordered approved commands, full projected
-result comparison, dependencies, independent partial-change save and replay protection
-remain mandatory. Other device families and Manual CLI apply remain unsupported.
+The owner-approved 2026-10-18 revision uses ordered template stages, described
+[below](#ordered-template-stages-owner-approved-revision). Fresh full collections
+are shared within a stage; no stale snapshot replaces a fresh stage check. The
+session-owned projection manager remains bounded to one 8 MiB projection/input;
+writes, uncertain results, mismatches and lost synchronization invalidate it.
+Standalone observation and `verify_row` remain independent and fresh.
 
 ### Offline tests, benchmark and extraction
 
@@ -454,7 +448,7 @@ PowerShell (from repository root):
 
 ```powershell
 $env:PYTHONPATH = "$PWD/src"
-python -m pytest tests/test_execution_observation_timing.py tests/test_configuration_execution.py tests/test_shared_cli.py -q
+python -m pytest tests/test_configuration_execution_stages.py tests/test_execution_observation_timing.py tests/test_configuration_execution.py tests/test_shared_cli.py -q
 python -m pytest tests/test_configuration_execution_performance.py -q -s
 python -m pytest -q
 python scripts/configuration_execution_timings.py --help
@@ -467,7 +461,7 @@ Linux Bash (same offline commands):
 
 ```bash
 export PYTHONPATH="$PWD/src"
-python -m pytest tests/test_execution_observation_timing.py tests/test_configuration_execution.py tests/test_shared_cli.py -q
+python -m pytest tests/test_configuration_execution_stages.py tests/test_execution_observation_timing.py tests/test_configuration_execution.py tests/test_shared_cli.py -q
 python -m pytest tests/test_configuration_execution_performance.py -q -s
 python -m pytest -q
 python scripts/configuration_execution_timings.py --help
@@ -499,7 +493,7 @@ No commands, raw output or arbitrary exception text are printed.
 
 Compare `cli_command` / `configuration_read` counts/distributions to identify physical
 configuration-read exchanges per device. `vlan_config_collection`, `full_observation`
-and `pre_row_observation` contain those exchanges: **do not add their durations or
+and `stage_pre_observation` / `stage_post_observation` contain those exchanges: **do not add their durations or
 counts together**. Compare collectors separately within each device, then rows;
 missing row IDs do not establish which row incurred a device-level stage.
 
@@ -517,54 +511,113 @@ Linux Bash from the checked-out repository:
 python scripts/configuration_execution_timings.py outputs/logs/configuration/YYYY-MM-DD/execution.log --run-id RUN_ID --group-by run_id device_family management_ip template_id row_id
 ```
 
-### Revision evidence and remaining performance gate
+### Ordered template stages (owner-approved revision)
 
-Owner-supplied live evidence is pooled across two devices: 273.075 s run, 36 rows,
-53 full observations; configuration-read CLI median 3.699 s / p95 7.151 s. These
-numbers cannot be attributed to individual families/devices without the original
-logs, which were not supplied in this workspace. Nested stages are not additive.
+**Verification now has a stage boundary. It does not establish continuous whole-device
+drift detection between reads, nor individually observed intermediate effects inside
+a stage.** Required target/preservation evidence still fails closed. Full collection
+is retained for interface stages; no scoped configuration parser or new device command
+has been introduced. Unrelated out-of-scope external changes are not globally compared
+or adopted as trusted baseline changes. They can remain undetected until a later target
+check; changes made and reverted between reads can escape detection.
 
-The revision leaves physical full-read counts unchanged. The existing synthetic
-ten-epoch benchmark measured 10→10 full reads for each family, with total CLI
-commands 63→34 for C3750X/C3850 and 62→33 for EdgeSwitch (paging/projection baseline
-versus reuse, **not a new reduction from this revision**). Host-only profiled
-median/p95 seconds: C3750X .003992/.007329→.001763/.004998;
-C3850 .004093/.006346→.001759/.005040; EdgeSwitch
-.004494/.004845→.001945/.005271. These are single synthetic runs, not live gains.
+Each device worker retains selected worksheet-left-to-right, row-top-to-bottom order.
+It forms maximal contiguous stages of the same template with independent normalized
+targets. Repeated source/resolved targets (including bundle aliases), dependencies
+within a proposed stage, or a different template split the stage. Noncontiguous
+appearances never merge. EVC remains planning-only, outside executor support.
 
-Freshness boundaries: InterfaceService supplies the complete description table;
-VlanService supplies full running-config interface/VLAN/ownership facts and preserved
-configuration evidence. VlanService lookups independently supply operational VLAN
-and EdgeSwitch configured participation/tagging evidence; SwitchportService supplies
-operational complete allowed/general sets during verification. Protected backup
-uses independent ConfigurationService capture. Pre-row evidence is fsynced before
-writes. Full row collections are retained for every executable template and no-op;
-VLAN Database verification itself uses fresh VLAN lookup. No generation is trusted
-across writes or uncertainty; only computation on identical fresh inputs is reused.
+One full initial observation follows fresh identity/privilege checks; independent
+protected backup completes before writes. This initial observation supplies the first
+stage's precheck. Later stages take one fresh full observation and compare relevant
+normalized target/configuration/description/VLAN facts to the device-owned trusted
+baseline. The baseline is bounded to 8 MiB of serialized facts and advances only for
+successfully verified targets. External target drift blocks the affected row. Every
+row's exact approved commands, no-op flag, resolved target and complete projected
+result are compared with a fresh plan; EdgeSwitch prerequisites are checked per row.
+All candidate prechecks and fsynced per-row pre-config records precede stage writes.
+A failed check blocks that row; trustworthy independent rows may continue.
 
-A targeted interface or VLAN read cannot detect an external change outside its
-scope. None of the supported adapters establishes a trustworthy whole-device
-configuration generation/change marker. Trunks depend on complete allowed sets and
-aggregate ownership; EdgeSwitch depends on database and independent participation,
-tagging and PVID; descriptions still require unrelated-setting preservation.
-Replacing full reads with old state plus these targeted results would weaken the
-requested whole-state freshness guarantee. The meaningful full-read-reduction
-review gate remains **unmet**; this revision does not claim Issue #125 is complete.
-There is no execution read-only/dry-run profiling flag. Offline extraction is safe;
-new lab execution uses the existing owner-confirmed `execute` commands above.
+Approved commands execute sequentially, unchanged, with immediate response and known
+mode validation. Rejection stops that row; timeout or lost synchronization leaves
+uncertain writes Unknown and blocks further unsafe sends. No retries or rollback.
+One post-stage full interface/VLAN/configuration observation supplies all independent
+interface targets, with fresh per-target operational switchport checks. VLAN Database
+stages need only fresh per-VLAN lookup postchecks; they do not reread configuration.
+Trunk full allowed sets, preserved omitted description/native/admin/unrelated settings,
+EdgeSwitch PVID/tagging/participation and no-op checks still use existing verifiers.
+Overlapping targets are split so each earlier effect is observed before supersession.
 
-Owner-only lab comparison: retain a baseline revision's sanitized run/report and
-logs, then use separately reviewed fresh lab plans on this revision. Start from
-independently reconciled equivalent lab state; never replay completed or uncertain
-production changes. Use the existing `execute` commands above after `tsh status`,
-with the same explicit concurrency, timeouts and connection pacing, and confirm only
-the authorized lab change. Exercise all C3750X/C3850/EdgeSwitch templates, no-op,
-trunk Add/Remove/Replace, dependencies, external between-row drift, incomplete
-switchport/lookup evidence, rejection, timeout and independent partial save. Inspect
-pre-row evidence, exact ordered commands and row/save outcomes before comparing
-stage counts/distributions. Baseline revisions without fine timings can supply only
-retained counts/elapsed results; do not fabricate stage measurements. Use distinct
-new lab plans/confirmations, preserve authority/replay state, and perform report-only
-recovery with the documented `report` command. No live configuration or credentials
-were used by Codex. Windows deterministic results do not establish Linux or owner
-lab performance; all three families require owner validation of these optimizations.
+`events.jsonl` retains `stage_precheck` (row IDs and normalized observation),
+`stage_post_observation`, per-row `pre_row_evidence` and `row_result`, and `stage_result`
+before the next stage. Row results and verification include `stage_id`;
+`observation_scope` explicitly says `stage final state; independent target`.
+These are sanitized normalized facts, not raw configuration or protected backup data.
+Row totals include time waiting for sibling rows/shared observation, overlap stage
+elapsed time, and must not be added to device/run totals. `row_apply` and
+`post_row_verification` isolate row work. Shared observations are attributed to the
+stage, never divided into invented per-row physical read times. Failed siblings are
+not represented as verified by aggregate success. Interrupted rows remain recoverable
+from command intent/result records without reapplying. Save runs once after attempted
+writes when the shell is usable, including partial changes; save outcome is separate.
+
+### Deterministic collection comparison and owner lab validation
+
+The additional `template_stage_collection_schedule` benchmark exercises real shared
+collectors/parsers over in-memory channels, five host-only samples per variant and
+ten independent rows per template. It reproduces the previous collection schedule
+and current stage fallback schedule; it sends no writes. Full counts include initial
+baseline and independent protected-backup capture. Description reads count the shared
+interface table, not switchport checks. Per-target switchport verification remains
+unchanged (ten further checks for port templates) and is covered by semantic executor
+tests, not this collector-only benchmark. No-op collection follows the same schedule.
+Actual multi-stage cost depends on row order, overlap and dependencies. Singletons
+and split stages retain full collection and therefore offer smaller savings.
+
+One Windows synthetic run on 2026-10-18 produced the following measurements. They
+are host parser/collector timings without device latency, not live performance gains.
+
+| Family / template | Full config reads | Description reads | VLAN lookups | Median / p95 ms (before -> stage) |
+|---|---:|---:|---:|---|
+| C3750X / vlan database | 12 -> 2 | 11 -> 1 | 30 -> 20 | 11.15/14.36 -> 4.32/4.79 |
+| C3750X / access port | 22 -> 3 | 21 -> 2 | 21 -> 2 | 16.21/16.27 -> 3.77/3.89 |
+| C3750X / trunk port | 22 -> 3 | 21 -> 2 | 21 -> 2 | 16.39/16.71 -> 3.74/3.79 |
+| C3750X / interface description | 22 -> 3 | 21 -> 2 | 0 -> 0 | 14.74/15.09 -> 3.56/3.62 |
+| C3850X / vlan database | 12 -> 2 | 11 -> 1 | 30 -> 20 | 11.25/11.61 -> 4.29/4.65 |
+| C3850X / access port | 22 -> 3 | 21 -> 2 | 21 -> 2 | 16.39/16.46 -> 3.71/3.86 |
+| C3850X / trunk port | 22 -> 3 | 21 -> 2 | 21 -> 2 | 16.37/16.88 -> 3.74/3.76 |
+| C3850X / interface description | 22 -> 3 | 21 -> 2 | 0 -> 0 | 14.63/14.85 -> 3.58/3.59 |
+| EdgeSwitch / vlan database | 12 -> 2 | 11 -> 1 | 30 -> 20 | 13.73/14.52 -> 5.31/6.29 |
+| EdgeSwitch / vlan port | 22 -> 3 | 21 -> 2 | 21 -> 2 | 20.39/21.57 -> 4.53/4.59 |
+| EdgeSwitch / interface description | 22 -> 3 | 21 -> 2 | 0 -> 0 | 18.15/18.31 -> 4.25/4.33 |
+
+Use the PowerShell/Bash offline test and benchmark commands above. For stage timing
+attribution, both shells support this same offline command:
+
+```text
+python scripts/configuration_execution_timings.py outputs/logs/configuration/YYYY-MM-DD/execution.log --run-id RUN_ID --group-by run_id device_family management_ip template_id stage_id row_id
+```
+
+Archive all available rotations and retain `outputs/runs/configuration_execution/RUN_ID/`
+including its journal, result spool and backups. Compare physical
+`cli_command/configuration_read` counts and median/p95, template-stage/device/run
+elapsed distributions, row outcomes, independent save status and completeness of
+pre/post-stage/per-row records. Never sum nested timings. Missing/rotated records
+cannot prove completeness; reconcile the manifest/journal and extractor warnings.
+
+Owner report for run `20261018T070228_939497Z_4f9ab36d0f1a4a46addef898cf433589`
+records C3750X 31 full configuration reads (~170.8 s physical read time), EdgeSwitch
+22 (~9.3 s), and ~277.9 s run elapsed. This is owner lab baseline evidence; no future
+speedup follows from those numbers and nested durations are not additive.
+
+Owner-only validation uses the existing Windows/Linux `execute` examples above after
+`tsh status`, fresh independently reconciled lab state, separately reviewed plans and
+explicit confirmation. Keep concurrency, pacing and timeouts fixed. Do not replay
+completed/uncertain changes or delete replay authority. Exercise all eleven supported
+templates, template re-entry, dependencies, alias/target overlap, description
+supersession, no-ops, full-set preservation, externally changed targets, incomplete
+facts, rejection/timeouts/lost mode, partial-stage save and offline report recovery.
+Compare baseline and revision distributions only across equivalent independently
+prepared trials. Preserve actual failures and unknowns in the comparison. No new
+read-only execution mode exists. Codex used no live devices or credentials; owner
+C3750X/C3850/EdgeSwitch stage-execution validation and Linux validation remain pending.

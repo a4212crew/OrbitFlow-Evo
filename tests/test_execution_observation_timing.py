@@ -170,8 +170,8 @@ def test_execution_timing_outcomes_and_safe_correlation(tmp_path, monkeypatch, f
     timings = [r for r in records if r['message'] == 'Execution timing']
     stages = {r['stage'] for r in timings}
     assert {'connection', 'shell_setup', 'identification', 'initial_preflight', 'protected_backup_collection',
-            'protected_backup_write', 'pre_row_observation', 'pre_row_plan', 'pre_row_drift_checks',
-            'scoped_evidence', 'approved_command', 'row_total', 'device_total', 'run_total'} <= stages
+            'protected_backup_write', 'template_stage', 'pre_row_plan', 'pre_row_drift_checks',
+            'scoped_evidence', 'approved_command', 'row_apply', 'device_total', 'run_total'} <= stages
     for record in timings:
         assert record['digest'] == original.digest
         if record['stage'] != 'run_total':
@@ -484,4 +484,5 @@ def test_actual_execution_baseline_equivalence_all_templates(tmp_path, monkeypat
     assert stable(outcomes[0]) == stable(outcomes[1])
     assert journals[0] == journals[1]
     assert channels[1].sent.count('show running-config') == channels[0].sent.count('show running-config')
+    assert channels[1].sent.count('show running-config') == (2 if function == 'VLAN Database' else 3)
     assert channels[1].sent.count('terminal length 0') < channels[0].sent.count('terminal length 0')

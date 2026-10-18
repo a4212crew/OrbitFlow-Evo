@@ -60,10 +60,10 @@ the read-only limit. No feature-specific pools or per-row workers.
 Validate fresh identity, capability, relevant state and privilege; capture protected
 pre-change configuration through shared capture/backup facilities before changing
 configuration. A mandatory capture/preflight failure blocks that device's writes.
-Send exact approved commands individually, retain responses, and verify after every
-configuration row. Earlier verified row effects form the baseline for later rows;
-retain original approved evidence separately. No-op rows perform fresh verification
-without sending configuration commands.
+Send exact approved commands individually and retain responses. The owner-approved
+2026-10-18 ordered-stage revision below supersedes the original per-row full-read
+boundary. Earlier verified target effects form the baseline for later stages; retain
+original approved evidence separately. No-op rows still require fresh verification.
 
 Command rejection, failed verification or another device's failure does not trigger
 a batch-wide pause. Continue executable work while session state is known. Never
@@ -362,7 +362,7 @@ owning worker; original EXEC return still defines Saved. See the supported API/m
 for exact callback fields and limitations. No live validation or merge is implied.
 
 
-## Issue #125 implementation reconciliation, 2026-10-18
+## Issue #125 initial implementation reconciliation (superseded stage boundary)
 
 Measured shared-shell paging exchanges were redundant; confirmed supported-family
 execution now reuses accepted paging setup per session/profile while retaining every
@@ -406,3 +406,49 @@ participation dependencies. No stale configuration replaces durable pre-row evid
 The revision implements diagnostic attribution but **does not satisfy the requested
 meaningful full-configuration-read reduction**. Owner lab timings remain separate
 from synthetic evidence; no new device writes or live validation were performed.
+
+
+## Owner-approved ordered-stage revision, 2026-10-18
+
+Implemented on the Issue #125 revision with deterministic fixtures; owner stage lab
+validation remains pending. This supersedes earlier mandatory full pre/post-row
+collection claims above. It changes observation/verification granularity without
+changing workbook order, supported templates, approval/confirmation or concurrency.
+
+One mandatory full fresh baseline/identity/privilege preflight and protected backup
+precede writes. Maximal contiguous same-template independent-target stages preserve
+left-to-right worksheet / top-to-bottom row order. Dependencies within a proposed
+stage, shared source/resolved targets (including canonical aliases), and template
+changes force splits. A template that appears again later is a new stage. Existing
+EVC overlap planning remains unchanged; no EVC execution is enabled.
+
+The initial baseline supplies the first consolidated precheck; subsequent stages
+collect full fresh interface/VLAN/configuration facts. Compare relevant target facts
+against the bounded trusted baseline, exact approved CLI/no-op/projected result and
+prerequisites. All prechecks and durable per-row evidence precede stage writes.
+Per-command response/mode checks remain immediate. Rejection stops the affected row;
+uncertain synchronization blocks unsafe continuation. A full post-stage observation
+and per-target operational checks establish every independent interface result.
+Database stages use fresh operational VLAN lookup postchecks only. Shared final state
+never implies observation of individual intermediate effects: overlaps split stages.
+
+Only verified target facts advance the baseline, including descriptions/configuration
+and verified database name/presence. Partial/Unknown outcomes retain their status;
+dependent work blocks, unrelated work requires sufficient fresh evidence and a
+trustworthy shell. Persist pre/post-stage records and attributed per-row JSON before
+continuing. Existing save-once-after-attempted-writes, including partial changes,
+independent save outcomes, fsync/recovery and no retry/rollback/replay remain.
+
+**Tradeoff:** stages establish final target/configuration preservation, not continuous
+whole-device drift detection between reads. Unrelated out-of-scope external changes
+are not globally compared/adopted; even target changes made and reverted between
+reads may escape detection. No stale-only cache or unvalidated scoped parser is used.
+Fresh full collections remain the fallback at interface stage boundaries, so heavily
+interleaved/dependent/overlapping worksheets retain substantial cost. Missing,
+ambiguous or unreliable required facts fail closed.
+
+The [manual](../../user_manual/configuration-execution.md#ordered-template-stages-owner-approved-revision)
+describes exact provenance/timing records, measured synthetic counts/durations,
+Windows/Linux tests/extraction and owner-only lab comparison. Synthetic schedules
+show ten independent interface rows 22 to 3 full reads, database rows 12 to 2 including
+baseline/backup; these are not owner lab performance claims.
