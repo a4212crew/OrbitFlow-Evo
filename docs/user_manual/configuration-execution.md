@@ -5,7 +5,7 @@ This is a configuration-changing workflow for predefined C3750X, C3850 (workshee
 label C3850X) and EdgeSwitch VLAN Database, supported port and Description templates.
 Other families and Manual CLI execution remain unsupported. v1 and v2 planning
 commands retain their existing behavior. Owner C3750X/EdgeSwitch validation of PR #118
-was reported; C3850 and the Issue #125 optimizations still require owner lab validation.
+was reported. Following merged PR #126 (2026-10-18), the owner validated ordered template-stage execution on C3750X and EdgeSwitch: 36/36 selected rows verified, both device saves reported Saved, 10 planned rows skipped, and 131.5 seconds end-to-end including report export. The preceding owner lab run took approximately 277.9 seconds; this single-run comparison is indicative, not a controlled benchmark. C3850, Linux, exhaustive error-path live validation and independently complete rotated timing logs remain outstanding.
 
 Use the repository Python environment (Python 3.11+, `requirements.txt`) with `src`
 on `PYTHONPATH`. Authenticate Teleport interactively and check `tsh status` first.
