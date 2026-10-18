@@ -91,10 +91,14 @@ def validate_session(settings, *, runner=subprocess.run, now=None):
         raise ValueError('Run operator-controlled tsh login before continuing')
     active = json.loads(result.stdout).get('active') or {}
     expiry = datetime.fromisoformat(active.get('valid_until', '').replace('Z', '+00:00'))
-    proxy = active.get('proxy_url', '').removeprefix('https://').rstrip('/')
+    # Accept both tsh schemas; conflicting fields must never mask a mismatch.
+    proxies = [active[key] for key in ('proxy_url', 'profile_url') if key in active]
+    if not proxies or any(not isinstance(value, str) for value in proxies):
+        raise ValueError('Teleport session missing valid proxy routing')
+    proxies = [value.removeprefix('https://').rstrip('/') for value in proxies]
     expected = routing['proxy'].removeprefix('https://').rstrip('/')
     if (expiry.tzinfo is None or expiry <= (now or datetime.now(timezone.utc))
-            or proxy != expected or active.get('cluster') != routing['cluster']):
+            or any(proxy != expected for proxy in proxies) or active.get('cluster') != routing['cluster']):
         raise ValueError('Teleport session expired or routing differs; run tsh login')
     for key in ('teleport_key_path', 'teleport_cert_path'):
         if platform.system() == 'Linux' and not routing.get(key):

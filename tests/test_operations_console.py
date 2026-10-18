@@ -78,12 +78,13 @@ def test_profile_precedence_legacy_compatibility(settings):
     ('2030-01-01T00:00:00Z', 'other', 'cluster.example', 0),
     ('2030-01-01T00:00:00Z', 'proxy.example:443', 'other', 0),
     ('2030-01-01T00:00:00Z', 'proxy.example:443', 'cluster.example', 1)])
-def test_session(settings, monkeypatch, expiry, proxy, cluster, code):
+@pytest.mark.parametrize('proxy_field', ['proxy_url', 'profile_url'])
+def test_session(settings, monkeypatch, expiry, proxy, cluster, code, proxy_field):
     monkeypatch.setattr('orbitflow.environment.platform.system', lambda: 'Windows')
     def runner(args, **kwargs):
         assert args == ['tsh', 'status', '--format=json']
         assert kwargs['capture_output']
-        return SimpleNamespace(returncode=code, stdout=json.dumps({'active': dict(valid_until=expiry, proxy_url=proxy, cluster=cluster)}))
+        return SimpleNamespace(returncode=code, stdout=json.dumps({'active': dict(valid_until=expiry, cluster=cluster, **{proxy_field: proxy})}))
     if expiry.startswith('2030') and proxy == 'proxy.example:443' and cluster == 'cluster.example' and code == 0:
         validate_session(settings, runner=runner, now=datetime(2026, 1, 1, tzinfo=timezone.utc))
     else:
@@ -318,10 +319,6 @@ def test_target_identity_mapping_and_cancel(settings, monkeypatch, answers):
     ui, output = console(answers, session_check=lambda _: pytest.fail('session checked after cancellation'))
     with pytest.raises(Cancelled):
         ui.network(settings, 'data/input/devices.xlsx', 'Read-only')
-    assert output[1:7] == [
-        '  Row 1: 192.0.2.1', '  Row 2: [missing or invalid IP address]',
-        '  Row 3: 192.0.2.1', '  Row 4: 2001:db8::1',
-        '  Row 5: [missing or invalid IP address]', '  Row 6: [missing or invalid IP address]']
     assert all('hidden' not in line and not any(ord(c) < 32 for c in line) for line in output)
     assert rows[1]['management_ip'] == 'hidden-address\x1b[2J\r\n'
     if answers[0] != 'b':
@@ -408,7 +405,7 @@ def test_real_offline_planner_and_review_adapter(settings):
         book[t.sheet].cell(3, col, values[name])
     book.save('manual.xlsx')
     book.close()
-    ui, output = console(['manual.xlsx'], session_check=lambda _: pytest.fail('manual planning connected'))
+    ui, output = console(['1', 'manual.xlsx'], session_check=lambda _: pytest.fail('manual planning connected'))
     ui.planning()
     source = next(Path(PATHS['plans']).rglob('plan.json'))
     original = load(source)
@@ -463,7 +460,7 @@ def test_real_planner_subset(settings, monkeypatch):
     captured = []
     monkeypatch.setattr(observation, 'collect', lambda requests, credentials, *a, **kw: captured.append((list(requests), credentials)))
     monkeypatch.setattr(observation, 'bounded_observations', lambda spool: {})
-    ui, _ = console(['subset.xlsx', '', '2', '', 'y'], session_check=lambda _: None)
+    ui, _ = console(['1', 'subset.xlsx', '', '2', '', 'y'], session_check=lambda _: None)
     ui.planning()
     assert list(captured[0][1]) == ['192.0.2.2']
     original = load(next(Path(PATHS['plans']).rglob('plan.json')))
@@ -479,3 +476,69 @@ def test_plan_failure_diagnostic_before_session(settings, missing):
     ui.safe(ui.execute)
     assert ('Required input' if missing else 'Invalid immutable plan') in output[-1]
     assert 'hidden' not in str(output)
+
+
+@pytest.mark.parametrize('fields', [
+    {}, {'profile_url': ''}, {'profile_url': None},
+    {'profile_url': 'https://other:443'},
+    {'proxy_url': 'proxy.example:443', 'profile_url': 'other'},
+    {'proxy_url': 'other', 'profile_url': 'proxy.example:443'},
+])
+def test_session_rejects_missing_or_conflicting_proxy(settings, monkeypatch, fields):
+    monkeypatch.setattr('orbitflow.environment.platform.system', lambda: 'Windows')
+    status = dict(active=dict(valid_until='2030-01-01T00:00:00Z', cluster='cluster.example', **fields))
+    with pytest.raises(ValueError):
+        validate_session(settings, runner=lambda *a, **k: SimpleNamespace(returncode=0, stdout=json.dumps(status)))
+
+
+def test_session_matching_urls(settings, monkeypatch):
+    monkeypatch.setattr('orbitflow.environment.platform.system', lambda: 'Windows')
+    status = dict(active=dict(valid_until='2030-01-01T00:00:00Z', cluster='cluster.example',
+                             proxy_url='proxy.example:443', profile_url='https://proxy.example:443/'))
+    validate_session(settings, runner=lambda *a, **k: SimpleNamespace(returncode=0, stdout=json.dumps(status)))
+
+
+def test_workbook_chooser_order_and_eligibility(tmp_path):
+    import os
+    for name in ('older.xlsx', 'z.xlsx', 'a.XLSX', '~$lock.xlsx', 'ignored.xls'):
+        path = tmp_path / name
+        path.touch()
+        os.utime(path, ns=(100, 100 if name == 'older.xlsx' else 200))
+    (tmp_path / 'folder.xlsx').mkdir()
+    ui, output = console(['0', 'bad', '2'])
+    assert ui.choose_workbook(tmp_path).name == 'z.xlsx'
+    assert output[:4] == ['1. a.XLSX', '2. z.xlsx', '3. older.xlsx', '4. Enter explicit file path']
+    ui, _ = console(['4', str(tmp_path / 'older.xlsx')])
+    assert ui.choose_workbook(tmp_path).name == 'older.xlsx'
+    ui, _ = console(['b'])
+    with pytest.raises(Cancelled):
+        ui.choose_workbook(tmp_path)
+
+
+def test_empty_workbook_chooser(tmp_path):
+    ui, output = console(['2', 'b'])
+    with pytest.raises(Cancelled):
+        ui.choose_workbook(tmp_path / 'missing')
+    assert any('No configuration workbooks' in line for line in output)
+    path = tmp_path / 'explicit.xlsx'
+    path.touch()
+    ui, _ = console(['1', str(path)])
+    assert ui.choose_workbook(tmp_path / 'missing') == path
+
+
+@pytest.mark.parametrize('selection', ['all', '300', ','.join(str(i) for i in range(1, 301))])
+def test_large_target_output_bounded_and_cancel(settings, monkeypatch, selection):
+    from orbitflow import targets as target_loader
+    rows = [dict(management_ip=f'2001:db8::{i:x}') for i in range(1, 301)]
+    monkeypatch.setattr(target_loader, 'load_targets', lambda *a, **kw: rows)
+    ui, output = console([selection, '', 'n'], session_check=lambda _: pytest.fail('cancel connected'))
+    with pytest.raises(Cancelled):
+        ui.network(settings, 'data/input/devices.xlsx', 'Read-only')
+    assert len(str(output)) < 1000
+    if selection == 'all':
+        assert 'Selected targets: all 300 device rows.' in output
+        assert '2001:db8' not in str(output)
+    elif selection == '300':
+        assert 'Selected targets: Row 300: 2001:db8::12c' in output
+    else:
+        assert '290 additional selected rows omitted; total 300.' in output

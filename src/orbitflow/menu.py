@@ -96,14 +96,36 @@ class Console:
             raise FileNotFoundError('Missing input file')
         return path
 
+    def choose_workbook(self, directory):
+        """Choose a numbered .xlsx input, newest mtime first, or an explicit path."""
+        root = Path(directory)
+        files = sorted((p for p in root.iterdir() if p.is_file()
+                        and p.suffix.lower() == '.xlsx' and not p.name.startswith('~$')),
+                       key=lambda p: (-p.stat().st_mtime_ns, p.name)) if root.exists() else []
+        for index, path in enumerate(files, 1):
+            self.write(f'{index}. {path.name}')
+        if not files:
+            self.write('No configuration workbooks found in the templates directory.')
+        self.write(f'{len(files) + 1}. Enter explicit file path')
+        while True:
+            value = self.ask('Configuration workbook number (b cancels): ')
+            if value == str(len(files) + 1):
+                path = self.choose_file('Configuration workbook', '')
+                if path.suffix.lower() == '.xlsx' and not path.name.startswith('~$'):
+                    return path
+                self.write('Choose an .xlsx configuration workbook.')
+            elif value.isdecimal() and 1 <= int(value) <= len(files):
+                return files[int(value) - 1]
+            else:
+                self.write('Choose a listed workbook number or the explicit path option.')
+
     def select_targets(self, targets):
-        """Show safe address identities without changing loaded row positions."""
+        """Select loaded row positions without flooding the console with addresses."""
         self.write(f'Validated device rows: {len(targets)} (numbered 1 through {len(targets)}).')
-        for index, target in enumerate(targets, 1):
-            self.write(f'  Row {index}: {self.target_address(target)}')
         while True:
             value = self.ask('Device rows [all, or comma-separated row numbers; default all]: ', 'all')
-            if value.lower() == 'all':
+            self._selected_all = value.lower() == 'all'
+            if self._selected_all:
                 return list(range(len(targets)))
             try:
                 positions = [int(part.strip()) - 1 for part in value.split(',')]
@@ -133,9 +155,14 @@ class Console:
         targets = [targets[i] for i in self.target_positions]
         limit = self.concurrency()
         self.write(f'{label}; input={devices}; target rows={len(targets)}; concurrency={limit}; inventory={settings["paths"]["inventory"]}')
-        self.write('Selected targets: ' + ', '.join(
-            f'Row {position + 1}: {self.target_address(target)}'
-            for position, target in zip(self.target_positions, targets)))
+        if self._selected_all:
+            self.write(f'Selected targets: all {len(targets)} device rows.')
+        else:
+            self.write('Selected targets: ' + ', '.join(
+                f'Row {position + 1}: {self.target_address(target)}'
+                for position, target in zip(self.target_positions[:10], targets[:10])))
+            if len(targets) > 10:
+                self.write(f'{len(targets) - 10} additional selected rows omitted; total {len(targets)}.')
         if self.ask('Continue network operation? [y/N]: ').lower() != 'y':
             raise Cancelled()
         with diagnostic('Teleport session unavailable, expired or routing mismatched. Run tsh login externally; check proxy, cluster and identity files.'):
@@ -174,7 +201,7 @@ class Console:
         from orbitflow.configuration.v2.catalogue import BY_ID
         from orbitflow.configuration.v2.planning import plan, save
         settings = self.settings()
-        workbook = self.choose_file('Configuration workbook', settings['paths']['templates'])
+        workbook = self.choose_workbook(settings['paths']['templates'])
         with diagnostic('Invalid configuration workbook. Check template sheets and required input columns.'):
             requests = read_input(workbook)
         ips = {r['inputs']['management_ip'] for r in requests if BY_ID[r['template_id']].family != 'All'}
