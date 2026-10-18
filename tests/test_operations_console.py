@@ -129,9 +129,16 @@ def test_cancel_before_session_or_service(settings):
 def test_dispatch(settings, monkeypatch, kind, module, function):
     import importlib
     calls = []
-    monkeypatch.setattr(importlib.import_module(module), function, lambda *a, **kw: calls.append((a, kw)))
-    ui, _ = console(['', '', '2', 'y'], session_check=lambda _: None)
+    def service(*a, **kw):
+        calls.append((a, kw))
+        if 'output' in kw:
+            kw['output'].write('connect identify private stage text')
+            kw['output'].flush()
+    monkeypatch.setattr(importlib.import_module(module), function, service)
+    ui, output = console(['', '', '2', 'y'], session_check=lambda _: None)
     ui.run_workflow(kind, methodology=True)
+    assert any(line.startswith('Processing [') and 'phase finished' in line for line in output)
+    assert not any('private stage text' in line for line in output)
     assert calls[0][1]['execution_config'].max_concurrent_devices == 2
     assert calls[0][1]['inventory_path'] == PATHS['inventory']
     if kind == 'compliance':
@@ -158,8 +165,9 @@ def test_offline_recovery_without_profile(tmp_path, monkeypatch, kind, module, f
     monkeypatch.chdir(tmp_path)
     calls = []
     monkeypatch.setattr(importlib.import_module(module), function, lambda *a, **kw: calls.append((a, kw)))
-    ui, _ = console(answers, session_check=lambda _: pytest.fail('offline session'))
+    ui, output = console(answers, session_check=lambda _: pytest.fail('offline session'))
     ui.recover(kind)
+    assert any(line.startswith('Exporting report [') and 'phase finished' in line for line in output)
     assert len(calls) == 1 and not ui.profile.exists()
     if kind != 'execution':
         assert calls[0][1]['cleanup'] is False
@@ -190,11 +198,16 @@ def test_execution_uses_bound_prepare_confirm(settings, monkeypatch, confirm):
         def confirm(self, reference, **kwargs):
             assert reference == 'bound-reference'
             calls.append(('confirm', kwargs))
+            kwargs['progress'](dict(stage='confirmed_start', devices_total=1, devices_completed=0))
+            kwargs['progress'](dict(stage='device_complete', devices_total=1, devices_completed=1, status='Failed'))
             return SimpleNamespace(path=Path('retained-run'))
     monkeypatch.setattr(ex, 'ExecutionService', Service)
     monkeypatch.setattr(ex, 'operator_summary', lambda p: p)
     monkeypatch.setattr(ex, 'render_summary', lambda p: 'summary with safety policy\nWarnings/blockers or skipped selections: verbose\nFresh checks + backup before writes: verbose')
-    monkeypatch.setattr(ex, 'export_results', lambda *a: calls.append(('export', a)))
+    def export(*a):
+        assert 'Completed' not in output
+        calls.append(('export', a))
+    monkeypatch.setattr(ex, 'export_results', export)
     monkeypatch.setattr(execution_cli, 'outcome_summary', lambda *a, **k: 'Completed')
     monkeypatch.setattr(planning, 'load', lambda p: SimpleNamespace(digest='original-digest'))
     ui, output = console(['plan.json', '', '', '3', confirm], session_check=lambda _: calls.append(('session', {})))
@@ -202,13 +215,16 @@ def test_execution_uses_bound_prepare_confirm(settings, monkeypatch, confirm):
         with pytest.raises(Cancelled):
             ui.execute()
         assert [c[0] for c in calls] == ['prepare']
+        assert not any(line.startswith('Processing [') for line in output)
     else:
         ui.execute()
         assert [c[0] for c in calls] == ['prepare', 'session', 'confirm', 'export']
         assert calls[2][1]['summary_digest'] == 'bound-digest'
         assert calls[2][1]['apply'] is True
-    assert 'Preparing/validating plan...' in output
-    assert 'Preparing/validating plan: finished.' in output
+        assert any('100% (1/1)' in line for line in output)
+        assert not any('device_complete' in line or 'all succeeded' in line for line in output)
+    assert any(line.startswith('Preparing/validating plan [') for line in output)
+    assert any(line.startswith('Preparing/validating plan [') and 'phase finished' in line for line in output)
     assert not any('verbose' in text for text in output)
     assert any('Whole-config save' in text for text in output)
     assert calls[0][1]['expected_digest'] == 'original-digest'
@@ -471,7 +487,7 @@ def test_real_planner_subset(settings, monkeypatch):
     ui, output = console(['1', 'subset.xlsx', '', '2', '', 'y'], session_check=lambda _: None)
     ui.planning()
     assert list(captured[0][1]) == ['192.0.2.2']
-    assert any('persisted 1/1 (100%)' in line for line in output)
+    assert any('100% (1/1)' in line for line in output)
     assert 'Plan and review export complete.' in output
     assert not any('private' in line for line in output)
     original = load(next(Path(PATHS['plans']).rglob('plan.json')))
@@ -565,20 +581,18 @@ def test_navigation_separates_each_menu(settings):
 
 def test_observation_progress_counts_persisted_and_hides_event_text():
     ui, output = console([])
-    callback = ui.observation_progress({'192.0.2.1', '2001:db8::1'})
+    from orbitflow.terminal_progress import TerminalProgress
+    display = TerminalProgress('Processing', write=output.append, total=2)
+    callback = ui.observation_progress({'192.0.2.1', '2001:db8::1'}, display)
     callback('192.0.2.1: connect; identity=secret')
+    assert display.done == 0
     callback('192.0.2.1: completed; identity=secret')
     callback('192.0.2.1: completed; identity=secret')
+    assert display.done == 1
     callback('2001:db8::1: failed; identity=secret (SecretError)')
-    callback('192.0.2.1: token=secret; identity=secret')
-    assert len(output) == 4
-    assert '0/2 (0%)' in output[0]
-    assert '1/2 (50%)' in output[2]
-    assert '2/2 (100%)' in output[3]
-    assert 'failed' in output[3]
+    display.finish(True)
+    assert '100% (2/2)' in output[-1]
     assert not any('secret' in line or 'SecretError' in line for line in output)
-    ui.write = lambda text: (_ for _ in ()).throw(RuntimeError('display'))
-    callback('192.0.2.1: connect; identity=secret')
 
 
 def test_activity_failure_never_claims_finished():
@@ -586,7 +600,9 @@ def test_activity_failure_never_claims_finished():
     with pytest.raises(Cancelled):
         with ui.activity('Export'):
             raise Cancelled()
-    assert output == ['Export...', 'Export: stopped; completion not established.']
+    assert len(output) == 2
+    assert 'stopped; completion not established.' in output[-1]
+    assert not any('finished' in line for line in output)
 
 
 def test_plan_chooser_validates_orders_and_defaults_review(tmp_path, monkeypatch):
@@ -623,10 +639,16 @@ def test_activity_elapsed_snapshot_and_cleanup(monkeypatch):
         progress.subscriber = subscriber
         return progress
     monkeypatch.setattr(menu, 'Progress', factory)
+    from orbitflow import terminal_progress
+    monkeypatch.setattr(terminal_progress, 'monotonic', lambda: clock[0])
+    original = terminal_progress.TerminalProgress
+    monkeypatch.setattr(terminal_progress, 'TerminalProgress', lambda *a, **k: original(*a, clock=lambda: clock[0], **k))
     with ui.activity('Planning'):
         clock[0] = 6
         progress.tick()
-    assert output == ['Planning...', 'Planning: still running (6s elapsed).', 'Planning: finished.']
+    assert len(output) == 3
+    assert '6s elapsed' in output[1]
+    assert 'phase finished' in output[-1]
     assert not progress.thread.is_alive()
 
 

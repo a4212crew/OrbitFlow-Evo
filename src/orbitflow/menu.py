@@ -46,40 +46,29 @@ class Console:
             self.write(text)
 
     @contextmanager
-    def activity(self, label):
-        """Elapsed waiting is presentation only; never accesses device sessions."""
-        def display(event):
-            if event['stage'] == 'waiting':
-                self.notify(f'{label}: still running ({event["elapsed_seconds"]}s elapsed).')
-        self.notify(label + '...')
-        with Progress(display) as progress:
-            progress.emit('', 'preflight')
+    def activity(self, label, total=None):
+        """Render presentation-only activity; always clear it before prompts."""
+        from orbitflow.terminal_progress import TerminalProgress
+        display = TerminalProgress(label, write=self.write, total=total)
+        with Progress(lambda event: display.tick()) as timer:
+            timer.emit('', 'preflight')
+            display.start()
             try:
-                yield
+                yield display
             except BaseException:
-                self.notify(label + ': stopped; completion not established.')
+                display.finish(False)
                 raise
-        self.notify(label + ': finished.')
+            else:
+                display.finish(True)
 
-    def observation_progress(self, ips):
-        """Count persisted outcomes, suppress arbitrary event text and display failures."""
-        from threading import RLock
-        completed, lock = set(), RLock()
-        stages = {'connect', 'identify', 'interface collection', 'VLAN/config collection',
-                  'audit/snapshot', 'completed', 'failed'}
+    def observation_progress(self, ips, display):
+        """Only persisted outcome events advance observation progress."""
+        completed = set()
         def subscriber(message):
-            with lock:
-                address, _, tail = message.partition(': ')
-                stage = tail.split(';', 1)[0]
-                if address not in ips or stage not in stages:
-                    return
-                if stage in {'completed', 'failed'}:
-                    completed.add(address)
-                try:
-                    self.notify(f'Observation: {stage}; persisted {len(completed)}/{len(ips)} '
-                                f'({len(completed)*100//len(ips)}%); failures remain in run records.')
-                except Exception:
-                    pass  # Presentation cannot fail observation or durable spooling.
+            address, _, tail = message.partition(': ')
+            if address in ips and tail.split(';', 1)[0] in {'completed', 'failed'}:
+                completed.add(address)
+                display.update(len(completed), len(ips))
         return subscriber
 
     def choose_plan(self, directory):
@@ -294,8 +283,8 @@ class Console:
             from orbitflow.configuration.v2.observation import collect, bounded_observations
             from orbitflow.targets import load_device_credentials
             # Only fixed stage labels cross this presentation boundary; no raw event text.
-            observation_progress = self.observation_progress(ips)
-            with self.activity('Read-only observation'):
+            with self.activity('Processing', len(ips)) as display:
+                observation_progress = self.observation_progress(ips, display)
                 spool = collect(requests, load_device_credentials(devices, sorted(ips)), transport,
                                 inventory_path=settings['paths']['inventory'], execution_config=execution,
                                 progress=observation_progress)
@@ -317,7 +306,6 @@ class Console:
         from orbitflow.configuration.v2.planning import load
         from orbitflow.targets import load_device_credentials, load_targets
         from orbitflow.transport import TransportConfig
-        from orbitflow.progress import console_progress
         settings = self.settings()
         source = self.choose_plan(settings['paths']['plans'])
         workbook = self.choose_file('Engineer-reviewed workbook', source.with_suffix('.xlsx'))
@@ -347,21 +335,22 @@ class Console:
         validate_paths(settings)
         ips = sorted({row['request']['inputs']['management_ip'] for row in prepared['summary']['selected']})
         started = monotonic()
-        def apply_progress(event):
-            console_progress(event)
-            if event.get('stage') in {'waiting', 'row_result', 'device_complete'}:
-                done, total = event.get('rows_completed', 0), event.get('rows_total')
-                count = f'; rows {done}/{total}' if isinstance(total, int) and total > 0 else ''
-                self.notify(f'Execution elapsed: {event.get("elapsed_seconds", 0)}s{count}. Review final outcomes after export.')
-        spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
-                                credentials=load_device_credentials(devices, ips),
-                                transport_config=TransportConfig(**settings['teleport']),
-                                inventory_path=settings['paths']['inventory'], progress=apply_progress)
+        with self.activity('Processing') as display:
+            def apply_progress(event):
+                # Device completion follows the durable spool append; row events do not.
+                total = event.get('devices_total')
+                done = event.get('devices_completed', 0)
+                if type(total) is int and total > 0 and type(done) is int:
+                    display.update(done, total)
+            spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
+                                    credentials=load_device_credentials(devices, ips),
+                                    transport_config=TransportConfig(**settings['teleport']),
+                                    inventory_path=settings['paths']['inventory'], progress=apply_progress)
         from orbitflow.configuration.execution_cli import outcome_summary
-        self.write(outcome_summary(spool, monotonic() - started, skipped=len(prepared['summary'].get('skipped', []))))
         destination = self.output(settings['paths']['execution_reports'], 'execution')
         with self.activity('Exporting execution report'):
             report = export_results(spool.path, destination)
+        self.write(outcome_summary(spool, monotonic() - started, skipped=len(prepared['summary'].get('skipped', []))))
         self.write(str(report))
 
     @staticmethod
@@ -383,22 +372,25 @@ class Console:
             label += f'; policy={DEFAULT_POLICY}; methodology={methodology}'
         targets, transport, execution = self.network(settings, devices, label)
         common = dict(inventory_path=settings['paths']['inventory'], execution_config=execution, log_root='outputs/logs')
-        if kind == 'inventory':
-            from orbitflow.inventory_refresh import refresh_inventory_from_excel
-            result = refresh_inventory_from_excel(devices, transport, export_path=self.output('outputs/reports/inventory', 'inventory'),
-                                                  spool_root='outputs/runs/inventory_refresh', target_positions=self.target_positions, **common)
-        elif kind == 'report':
-            from orbitflow.reporting import run_report
-            result = run_report(targets, transport, spool_root='outputs/runs/interface_vlan_report', **common)
-        elif kind == 'backup':
-            from orbitflow.configuration_backup import run_backup
-            result = run_backup(targets, transport, **common)
-        else:
-            from orbitflow.vlan_compliance import run_compliance, DEFAULT_POLICY
-            from orbitflow.compliance import JsonPolicyProvider
-            result = run_compliance(targets, transport, policy_provider=JsonPolicyProvider(DEFAULT_POLICY),
-                                    spool_root='outputs/runs/vlan_compliance', cleanup=False,
-                                    methodology_report=methodology, **common)
+        from orbitflow.terminal_progress import QuietOutput
+        quiet = QuietOutput()
+        with self.activity('Processing'):
+            if kind == 'inventory':
+                from orbitflow.inventory_refresh import refresh_inventory_from_excel
+                result = refresh_inventory_from_excel(devices, transport, export_path=self.output('outputs/reports/inventory', 'inventory'),
+                                                      spool_root='outputs/runs/inventory_refresh', target_positions=self.target_positions, **common)
+            elif kind == 'report':
+                from orbitflow.reporting import run_report
+                result = run_report(targets, transport, spool_root='outputs/runs/interface_vlan_report', output=quiet, **common)
+            elif kind == 'backup':
+                from orbitflow.configuration_backup import run_backup
+                result = run_backup(targets, transport, output=quiet, **common)
+            else:
+                from orbitflow.vlan_compliance import run_compliance, DEFAULT_POLICY
+                from orbitflow.compliance import JsonPolicyProvider
+                result = run_compliance(targets, transport, policy_provider=JsonPolicyProvider(DEFAULT_POLICY),
+                                        spool_root='outputs/runs/vlan_compliance', cleanup=False,
+                                        methodology_report=methodology, output=quiet, **common)
         # Some service returns contain sensitive records; never print arbitrary results.
         if isinstance(result, (str, Path)):
             self.write(f'Output: {result}')
@@ -430,8 +422,9 @@ class Console:
                 from orbitflow.reporting import export_report_spool
                 exporter = export_report_spool
             kwargs = {'cleanup': False, 'allow_partial': self.ask('Export partial run? [y/N]: ').lower() == 'y'}
-        with diagnostic('Invalid export or retained spool. Check run type and completeness; retain originals and select partial export only when supported.'):
-            self.write(str(exporter(run, self.output(root, kind), **kwargs)))
+        with self.activity('Exporting report'), diagnostic('Invalid export or retained spool. Check run type and completeness; retain originals and select partial export only when supported.'):
+            result = exporter(run, self.output(root, kind), **kwargs)
+        self.write(str(result))
 
     def review(self):
         root = Path('outputs/reports/configuration_execution')
