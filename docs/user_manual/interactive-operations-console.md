@@ -1,6 +1,6 @@
 # Interactive Operations Console
 
-Implemented for Issue #123. The console is a terminal adapter over existing services; direct CLIs and public APIs remain supported. Deterministic Windows validation is recorded in the devlog; Linux and owner-operated live validation remain pending.
+Implemented for Issue #123. The console is a terminal adapter over existing services; direct CLIs and public APIs remain supported. Deterministic Windows testing and limited owner-operated Windows lab validation are recorded in the devlog; Linux operator validation remains pending.
 
 ## Launch and cancellation
 
@@ -120,3 +120,7 @@ python -m orbitflow.menu
 ```
 
 Owner-operated validation remains pending and requires a separately authorized fresh lab plan: first decline execution and check no device access; then confirm, check two concurrent target/row labels, initial and row preflight, backup, command intent, actual row outcomes, save and device completion. During a slow stage verify waiting/elapsed lines continue with unchanged measured counts. Check failed/Unknown outcomes against retained reports, clean prompt placement and offline report regeneration without reconnecting. Interrupt only an owner-approved lab run and review retained partial/Unknown evidence; never replay it. Read-only menus retain compact in-place bars. No live operations were performed by Codex.
+
+## Owner-operated lab validation (2026-10-18)
+
+Owner-operated Windows lab validation on 2026-10-18: read-only planning completed 4/4 observed targets; confirmed execution at concurrency 2 completed 2/2 devices, all 36 selected rows Verified, 10 skipped, both device saves Saved, execution report exported, and the console returned to its menu (245.3s total). Detailed per-row events and slow-stage wait notifications were observed. This validates that specific C3750X/EdgeSwitch lab run, not every platform or failure path. C3750X access-port verification still emitted ACCESS_VLAN_CONFIG_FALLBACK warnings despite Verified results; diagnosis is deferred. Linux operator validation remains pending.
