@@ -848,3 +848,31 @@ PR #124 console UX revision adds menu separators, fixed-label persisted observat
 PR #124 final progress presentation revision uses one flushed TTY line, durable per-device counts for planning observation and confirmed execution, and indeterminate activity for other long console phases and read-only services without structured durable-outcome callbacks. Non-TTY output is bounded to five-second updates plus phase boundaries; errors/cancellation terminate the line. No executor or direct CLI changes. Regression evidence is in the October devlog; Linux and owner live validation remain pending.
 
 PR #124 owner final revision restores confirmed-execution per-target/row stage and wait visibility using existing events, with allowlisted output and measured device counts. Read-only bars remain compact; execution semantics and direct APIs are unchanged. Windows focused validation passed 314 tests; Linux and owner live validation remain pending.
+
+
+## Execution profiling and ordered template stages (Issue #125)
+
+All eleven executable C3750X/C3850/EdgeSwitch predefined templates use correlated
+monotonic stage/command timings in shared bounded configuration logs. Ordered
+contiguous stages share fresh full baseline/pre/post observations across independent
+targets. Source/resolved target overlaps, dependencies and template changes split
+stages; noncontiguous templates never regroup. VLAN Database postchecks use shared
+fresh lookups. Fresh identity/privilege, protected backup, immutable commands/projected
+result checks, full relevant preservation/operational verification, journal/recovery,
+confirmation/replay and independent save remain.
+
+A bounded device-owned baseline compares fresh relevant target facts between stages
+and advances only verified changes. No stale-only cache or scoped vendor parser is
+used. Verification establishes stage final state on independent targets, not
+unobserved intermediate effects or continuous whole-device external drift detection.
+Unrelated out-of-scope changes are not globally compared. Standalone collectors,
+public signatures, report columns, concurrency and unsupported-family/EVC/Manual CLI
+execution restrictions remain unchanged.
+
+Synthetic real-collector schedules for ten independent rows reduce full config reads
+22 to 3 for interface templates, 12 to 2 for VLAN Database including baseline/backup;
+semantic all-template execution and safety regressions are deterministic fixtures.
+Detailed count/timing methodology and Windows/Linux commands are in the
+[manual](user_manual/configuration-execution.md#ordered-template-stages-owner-approved-revision).
+Owner's 2026-10-18 C3750X/EdgeSwitch timings describe the prior revision, not new live
+gains. Owner stage-execution validation on all three families and Linux remain pending.

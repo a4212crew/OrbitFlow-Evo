@@ -11,6 +11,7 @@ from typing import Any, Callable, Iterator
 from orbitflow.transport import DeviceSession
 from orbitflow.vendors.privilege import ensure_privileged
 from orbitflow.vendors.prompts import is_structural_prompt
+from orbitflow.timing import measured, device_wait
 
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
@@ -92,7 +93,8 @@ class PromptCLI:
                 )
             self._channel.settimeout(min(remaining, 1.0) if candidate else remaining)
             try:
-                chunk = self._channel.recv(65535)
+                with device_wait():
+                    chunk = self._channel.recv(65535)
             except (socket.timeout, TimeoutError) as exc:
                 if candidate is not None:
                     return candidate
@@ -121,6 +123,7 @@ class PromptCLI:
                 if normalize_output(text).split("\n")[-1].strip() == prompt:
                     candidate = (text, found)
 
+    @measured('cli_command', cli_command=True, failure='Unknown')
     def run_command(self, command: str, timeout: float = 10.0) -> str:
         if not command or "\n" in command or "\r" in command:
             raise ValueError("command must be one non-empty line")
@@ -158,6 +161,8 @@ class DeviceCLI(PromptCLI):
         self.session = session
         self._synchronized = True
         self._completed_setup: set[str] = set()
+        self._reuse_session_setup = False  # Confirmed executor opts in per shell.
+        self._accepted_paging: set[tuple[str, str]] = set()
         # Huawei safely rejects this initial inventory probe setup; its
         # approved paging command is selected during identification.
         super().__init__(session, paging_command="terminal length 0",
@@ -187,11 +192,18 @@ class DeviceCLI(PromptCLI):
             raise InteractiveCLIError("shared CLI prompt does not match selected platform")
         self._prompt_re, self._rejected = prompt_re, rejected
         self._platform_name = platform_name
-        output = self.run_command(paging_command, timeout=timeout)
-        if rejected(output):
-            raise InteractiveCLIError(
-                f"{platform_name} rejected required session setup command {paging_command!r}"
-            )
+        paging_key = (platform_name, paging_command)
+        reusable = (self._reuse_session_setup and paging_command == 'terminal length 0'
+                    and platform_name in {'Cisco', 'Ubiquiti EdgeSwitch', 'cisco_ios', 'cisco_xe', 'ubiquiti_edgeswitch'})
+        if not reusable or paging_key not in self._accepted_paging:
+            output = self.run_command(paging_command, timeout=timeout)
+            if rejected(output):
+                self._accepted_paging.clear()
+                raise InteractiveCLIError(
+                    f"{platform_name} rejected required session setup command {paging_command!r}"
+                )
+            if reusable:
+                self._accepted_paging.add(paging_key)
 
         for command in setup_commands:
             if command in self._completed_setup:
@@ -204,6 +216,7 @@ class DeviceCLI(PromptCLI):
                 ) from exc
             if rejected(output):
                 self._synchronized = False
+                self._accepted_paging.clear()
                 raise InteractiveCLIError(
                     f"{platform_name} rejected required session setup command {command!r}"
                 )
@@ -219,8 +232,10 @@ class DeviceCLI(PromptCLI):
             return super().run_command(command, timeout=timeout)
         except BaseException:
             self._synchronized = False
+            self._accepted_paging.clear()
             raise
 
+    @measured('configuration_read', cli_command=True, failure='Unknown')
     def read_configuration(self, command: str, timeout: float = 60.0) -> str:
         """Read sensitive text without logging, retaining whitespace/content.
 
@@ -249,8 +264,10 @@ class DeviceCLI(PromptCLI):
             return "\n".join(lines)
         except BaseException:
             self._synchronized = False
+            self._accepted_paging.clear()
             raise
 
+    @measured('mode_validation')
     def execution_mode(self, exec_prompt: str, platform: str) -> None:
         """Select only approved modes of the originally learned privileged host."""
         self.require_session(self.session)
@@ -271,6 +288,7 @@ class DeviceCLI(PromptCLI):
             raise InteractiveCLIError('unexpected execution mode')
         self._prompt_re = selected
 
+    @measured('save_exchange', failure='Unknown')
     def save_configuration(self, exec_prompt: str, platform: str, *, timeout: float):
         """One save exchange; exact original EXEC return determines completion.
 
@@ -290,7 +308,8 @@ class DeviceCLI(PromptCLI):
                 if remaining <= 0:
                     raise InteractiveCLITimeout('save timeout')
                 self._channel.settimeout(remaining)
-                chunk = self._channel.recv(65535)
+                with device_wait():
+                    chunk = self._channel.recv(65535)
                 if not chunk:
                     raise InteractiveCLIError('save disconnected')
                 raw += chunk.decode('utf-8', errors='replace')
@@ -315,6 +334,7 @@ class DeviceCLI(PromptCLI):
                     return dict(status='Saved', response=text, answered=answered, error_category='')
         except BaseException as exc:
             self._synchronized = False
+            self._accepted_paging.clear()
             self.last_response = normalize_output(raw)
             if not isinstance(exc, Exception):
                 raise

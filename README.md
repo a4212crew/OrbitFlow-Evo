@@ -711,3 +711,16 @@ Console revision #123 adds validated all/subset device row selection with bounde
 The interactive console provides compact terminal progress with durable outcome counts where available and elapsed activity for unknown-duration phases and numbered immutable-plan selection; see the [operator guide](docs/user_manual/interactive-operations-console.md#progress-and-evidence-presentation-pr-124-ux-revision). Execution safeguards and direct CLI contracts are unchanged.
 
 Confirmed console execution additionally shows sanitized per-device/row stages and waiting updates after explicit confirmation; read-only progress remains compact. See the [console guide](docs/user_manual/interactive-operations-console.md#confirmed-execution-stage-visibility-final-owner-revision).
+
+
+Issue #125 adds correlated monotonic stage/CLI/receive timing and ordered contiguous
+template-stage execution for all eleven supported C3750X/C3850/EdgeSwitch templates.
+Independent rows share fresh full stage observations; overlap/dependencies split
+stages, and verified target facts alone advance the trusted baseline. Exact approved
+commands, durable row provenance, protected backup and independent partial-change
+save remain. Stage final-state verification does not claim continuous whole-device
+or unobserved intermediate drift detection. See the
+[profiling, benchmark and owner lab comparison guide](docs/user_manual/configuration-execution.md#ordered-template-stages-owner-approved-revision).
+Synthetic ten-row collection counts fall from 22 to 3 full reads for interface
+templates and 12 to 2 for VLAN Database (including baseline/backup); these are not
+live speedup claims. Owner stage validation on all three families and Linux remain pending.
