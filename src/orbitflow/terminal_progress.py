@@ -78,7 +78,7 @@ class ExecutionProgress(TerminalProgress):
         'confirmed_start': 'Execution started', 'connect': 'Connecting',
         'identify': 'Identifying device', 'preflight': 'Initial preflight',
         'row_preflight': 'Row preflight', 'backup': 'Backup started',
-        'backup_complete': 'Backup recorded', 'command_intent': 'Command intent (not success)',
+        'backup_complete': 'Backup recorded', 'command_intent': 'Command preparation',
         'command_result': 'Command result', 'command_unknown': 'Command outcome Unknown',
         'mode_intent': 'Mode transition intent', 'mode_result': 'Mode transition returned',
         'verification_intent': 'Verification started', 'verification_warning': 'Verification warning; see report',
