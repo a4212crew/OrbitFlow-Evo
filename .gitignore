@@ -16,5 +16,9 @@ devices.xlsx
 reports/
 data/sys_config/configuration-profile.toml
 
+# Generated console templates and local device credential workbook
+data/input/generated_template/
+data/input/devices.xlsx
+
 # Sensitive device configuration captures
 backups/
