@@ -1,6 +1,6 @@
 # OrbitFlow-Evo Documentation Index
 
-- [Confirmed Catalyst/EdgeSwitch execution](user_manual/configuration-execution.md): CLI, recovery and pending owner validation.
+- [Confirmed Catalyst/EdgeSwitch execution](user_manual/configuration-execution.md): CLI, recovery and owner lab-validated C3750X/EdgeSwitch ordered template stages; C3850 and Linux validation remain pending.
 - [Execution and standalone APIs](operations/configuration-execution-api.md): prepare/confirm, collectors/parsers, verification and save.
 
  > **Current layout:** The documentation migration is present on `main`; canonical executable guides live under `docs/user_manual/`. Legacy reference paths remain where source/tests depend on them.
@@ -57,7 +57,7 @@ This is a **navigation index**, not a claim that every executable script and pub
 - [Configuration management proposal](architecture/configuration/configuration-management.md)
 - [Change Plan specification proposal](architecture/configuration/change-plan-specification.md)
 - [Configuration templates proposal](architecture/configuration/configuration-templates.md)
-- [Approved initial device execution](architecture/configuration/approved-device-execution.md) — implemented initial Catalyst/EdgeSwitch execution and reusable capabilities; owner lab validation pending.
+- [Approved initial device execution](architecture/configuration/approved-device-execution.md) — implemented Catalyst/EdgeSwitch execution and ordered template-stage revision; owner C3750X/EdgeSwitch lab execution validated, C3850/Linux coverage pending.
 - [Execution workflow proposal](architecture/configuration/execution-workflow.md)
 - [Platform adapters proposal](architecture/configuration/platform-adapters.md)
 - [Drift detection proposal](architecture/configuration/drift-detection.md)
