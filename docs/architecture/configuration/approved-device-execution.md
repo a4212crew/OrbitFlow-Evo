@@ -1,6 +1,6 @@
 # Approved device configuration execution — Catalyst and EdgeSwitch
 
-Status: **Owner-approved design, 2026-10-17 (Australia/Sydney); implemented by Issue #117 with deterministic validation; owner live/lab validation pending.**
+Status: **Owner-approved design, 2026-10-17 (Australia/Sydney); initially implemented by Issue #117 and revised by merged Issue #125 / PR #126 (2026-10-18). Owner live validation covers C3750X and EdgeSwitch ordered template-stage execution; C3850 and Linux validation remain pending.**
 See the [execution manual](../../user_manual/configuration-execution.md) and
 [supported APIs](../../operations/configuration-execution-api.md) for actual names,
 defaults, behavior and limitations. Design-time suggestions below retain provenance.
