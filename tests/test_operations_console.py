@@ -193,11 +193,11 @@ def test_execution_uses_bound_prepare_confirm(settings, monkeypatch, confirm):
             return SimpleNamespace(path=Path('retained-run'))
     monkeypatch.setattr(ex, 'ExecutionService', Service)
     monkeypatch.setattr(ex, 'operator_summary', lambda p: p)
-    monkeypatch.setattr(ex, 'render_summary', lambda p: 'summary with safety policy')
+    monkeypatch.setattr(ex, 'render_summary', lambda p: 'summary with safety policy\nWarnings/blockers or skipped selections: verbose\nFresh checks + backup before writes: verbose')
     monkeypatch.setattr(ex, 'export_results', lambda *a: calls.append(('export', a)))
     monkeypatch.setattr(execution_cli, 'outcome_summary', lambda *a, **k: 'Completed')
     monkeypatch.setattr(planning, 'load', lambda p: SimpleNamespace(digest='original-digest'))
-    ui, _ = console(['plan.json', '', '', '3', confirm], session_check=lambda _: calls.append(('session', {})))
+    ui, output = console(['plan.json', '', '', '3', confirm], session_check=lambda _: calls.append(('session', {})))
     if confirm == 'n':
         with pytest.raises(Cancelled):
             ui.execute()
@@ -207,6 +207,10 @@ def test_execution_uses_bound_prepare_confirm(settings, monkeypatch, confirm):
         assert [c[0] for c in calls] == ['prepare', 'session', 'confirm', 'export']
         assert calls[2][1]['summary_digest'] == 'bound-digest'
         assert calls[2][1]['apply'] is True
+    assert 'Preparing/validating plan...' in output
+    assert 'Preparing/validating plan: finished.' in output
+    assert not any('verbose' in text for text in output)
+    assert any('Whole-config save' in text for text in output)
     assert calls[0][1]['expected_digest'] == 'original-digest'
     assert calls[0][1]['settings'].max_concurrent_devices == 3
 
@@ -458,11 +462,18 @@ def test_real_planner_subset(settings, monkeypatch):
     book.save('data/input/devices.xlsx')
     book.close()
     captured = []
-    monkeypatch.setattr(observation, 'collect', lambda requests, credentials, *a, **kw: captured.append((list(requests), credentials)))
+    def collect(requests, credentials, *args, **kwargs):
+        captured.append((list(requests), credentials))
+        kwargs['progress']('192.0.2.2: connect; identity=private')
+        kwargs['progress']('192.0.2.2: completed; identity=private')
+    monkeypatch.setattr(observation, 'collect', collect)
     monkeypatch.setattr(observation, 'bounded_observations', lambda spool: {})
-    ui, _ = console(['1', 'subset.xlsx', '', '2', '', 'y'], session_check=lambda _: None)
+    ui, output = console(['1', 'subset.xlsx', '', '2', '', 'y'], session_check=lambda _: None)
     ui.planning()
     assert list(captured[0][1]) == ['192.0.2.2']
+    assert any('persisted 1/1 (100%)' in line for line in output)
+    assert 'Plan and review export complete.' in output
+    assert not any('private' in line for line in output)
     original = load(next(Path(PATHS['plans']).rglob('plan.json')))
     assert [r['inputs']['management_ip'] for r in original.to_dict()['requests']] == ['192.0.2.2']
 
@@ -542,3 +553,132 @@ def test_large_target_output_bounded_and_cancel(settings, monkeypatch, selection
         assert 'Selected targets: Row 300: 2001:db8::12c' in output
     else:
         assert '290 additional selected rows omitted; total 300.' in output
+
+
+def test_navigation_separates_each_menu(settings):
+    ui, output = console(['1', '6', '7'])
+    ui.run()
+    menus = [i for i, text in enumerate(output) if text.startswith(('1. Configuration', 'Configuration Management\n'))]
+    assert len(menus) == 3
+    assert all(output[i-1] == '' for i in menus)
+
+
+def test_observation_progress_counts_persisted_and_hides_event_text():
+    ui, output = console([])
+    callback = ui.observation_progress({'192.0.2.1', '2001:db8::1'})
+    callback('192.0.2.1: connect; identity=secret')
+    callback('192.0.2.1: completed; identity=secret')
+    callback('192.0.2.1: completed; identity=secret')
+    callback('2001:db8::1: failed; identity=secret (SecretError)')
+    callback('192.0.2.1: token=secret; identity=secret')
+    assert len(output) == 4
+    assert '0/2 (0%)' in output[0]
+    assert '1/2 (50%)' in output[2]
+    assert '2/2 (100%)' in output[3]
+    assert 'failed' in output[3]
+    assert not any('secret' in line or 'SecretError' in line for line in output)
+    ui.write = lambda text: (_ for _ in ()).throw(RuntimeError('display'))
+    callback('192.0.2.1: connect; identity=secret')
+
+
+def test_activity_failure_never_claims_finished():
+    ui, output = console([])
+    with pytest.raises(Cancelled):
+        with ui.activity('Export'):
+            raise Cancelled()
+    assert output == ['Export...', 'Export: stopped; completion not established.']
+
+
+def test_plan_chooser_validates_orders_and_defaults_review(tmp_path, monkeypatch):
+    from orbitflow.configuration.v2 import planning
+    import os
+    for name in ('old', 'new', 'bad'):
+        folder = tmp_path / name
+        folder.mkdir()
+        (folder / 'plan.json').write_text(name)
+    (tmp_path / 'unrelated.json').write_text('{}')
+    os.utime(tmp_path / 'old/plan.json', (1, 1))
+    os.utime(tmp_path / 'new/plan.json', (2, 2))
+    def load(path):
+        if path.parent.name == 'bad':
+            raise ValueError('secret')
+        return SimpleNamespace(digest='digest')
+    monkeypatch.setattr(planning, 'load', load)
+    ui, output = console(['0', '1'])
+    assert ui.choose_plan(tmp_path) == tmp_path / 'new/plan.json'
+    assert any('new / plan.json' in text for text in output)
+    assert not any('secret' in text or 'unrelated' in text for text in output)
+    ui, _ = console(['b'])
+    with pytest.raises(Cancelled):
+        ui.choose_plan(tmp_path / 'empty')
+
+
+def test_activity_elapsed_snapshot_and_cleanup(monkeypatch):
+    from orbitflow import menu
+    from orbitflow.progress import Progress
+    clock = [0]
+    ui, output = console([])
+    progress = Progress(lambda event: None, clock=lambda: clock[0])
+    def factory(subscriber):
+        progress.subscriber = subscriber
+        return progress
+    monkeypatch.setattr(menu, 'Progress', factory)
+    with ui.activity('Planning'):
+        clock[0] = 6
+        progress.tick()
+    assert output == ['Planning...', 'Planning: still running (6s elapsed).', 'Planning: finished.']
+    assert not progress.thread.is_alive()
+
+
+def test_configuration_evidence_keeps_operational_lookup_provenance(tmp_path):
+    from orbitflow.configuration.v2.evidence import scoped_evidence
+    from orbitflow.configuration.v2.catalogue import BY_ID
+    template = next(t for t in BY_ID.values() if t.family == 'C3750X' and t.function == 'VLAN Database')
+    config = dict(source_filename='saved config', line=1, excerpt='vlan 100')
+    operational = dict(source_filename='show vlan', line=2, excerpt='100 lab active')
+    observation = dict(configuration_reliable=True,
+                       facts=[dict(kind='vlan', value=100, children=[], **config)],
+                       vlan_lookups={'100': dict(status='present', operational_status='active', evidence=[operational])})
+    result = scoped_evidence(dict(template_id=template.id, inputs=dict(vlan_id=100)), observation)
+    assert config in result and operational in result
+    from orbitflow.configuration.v2.planning import plan, request
+    from orbitflow.configuration.v2.workbook import export_plan
+    # Exercise workbook presentation independently of live collection.
+    artifact = plan([request(template.id, dict(management_ip='192.0.2.1', vlan_id=100, name='Lab'))], {})
+    data = artifact.to_dict()
+    data['observations']['192.0.2.1'] = observation
+    expected = data['results'][0]
+    export_plan(SimpleNamespace(digest=artifact.digest, to_dict=lambda: data), tmp_path / 'review.xlsx')
+    book = load_workbook(tmp_path / 'review.xlsx')
+    try:
+        sheet = book[template.sheet]
+        cells = dict(zip([c.value for c in sheet[2]], [c.value for c in sheet[3]]))
+        assert config['excerpt'] in cells['Existing Evidence']
+        assert operational['excerpt'] in cells['Existing Evidence']
+        assert cells['Live Validation'] == expected['live_validation']
+        assert cells['Blockers'] == ','.join(expected['blockers'])
+        assert cells['Engineer Decision'] == expected['decision']
+    finally:
+        book.close()
+
+
+@pytest.mark.parametrize('failure', ['save', 'export_plan'])
+def test_planning_export_failure_never_claims_complete(settings, monkeypatch, failure):
+    from orbitflow.configuration.v2 import planning, workbook
+    from orbitflow.configuration.v2.catalogue import CATALOGUE
+    template = next(t for t in CATALOGUE if t.family == 'All')
+    workbook.create_input('manual.xlsx')
+    book = load_workbook('manual.xlsx')
+    values = dict(management_ip='192.0.2.1', platform='cisco_ios', mode='interface', scope='Gi1/0/1', commands=' description Lab\n exit\n')
+    for col, name in enumerate(template.columns, 1):
+        book[template.sheet].cell(3, col, values[name])
+    book.save('manual.xlsx')
+    book.close()
+    def fail(*args):
+        raise OSError('private diagnostic')
+    monkeypatch.setattr(planning if failure == 'save' else workbook, failure, fail)
+    ui, output = console(['1', 'manual.xlsx'], session_check=lambda _: pytest.fail('offline connected'))
+    ui.safe(ui.planning)
+    assert 'Plan and review export complete.' not in output
+    assert not any('private diagnostic' in text for text in output)
+    assert any('stopped; completion not established' in text for text in output)

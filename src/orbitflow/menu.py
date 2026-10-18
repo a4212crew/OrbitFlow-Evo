@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from orbitflow.environment import PROFILE, PATHS, ROUTING, load_profile, save_profile, validate_session, validate_paths
 from orbitflow.config import ExecutionConfig
+from orbitflow.progress import Progress
 
 
 class Cancelled(Exception):
@@ -36,6 +37,84 @@ class Console:
     def __init__(self, profile=PROFILE, *, read=input, write=print, session_check=validate_session):
         self.profile = Path(profile)
         self.read, self.write, self.session_check = read, write, session_check
+
+    def notify(self, text):
+        """Flush real terminal output; injected writers remain usable in tests."""
+        if self.write is print:
+            print(text, flush=True)
+        else:
+            self.write(text)
+
+    @contextmanager
+    def activity(self, label):
+        """Elapsed waiting is presentation only; never accesses device sessions."""
+        def display(event):
+            if event['stage'] == 'waiting':
+                self.notify(f'{label}: still running ({event["elapsed_seconds"]}s elapsed).')
+        self.notify(label + '...')
+        with Progress(display) as progress:
+            progress.emit('', 'preflight')
+            try:
+                yield
+            except BaseException:
+                self.notify(label + ': stopped; completion not established.')
+                raise
+        self.notify(label + ': finished.')
+
+    def observation_progress(self, ips):
+        """Count persisted outcomes, suppress arbitrary event text and display failures."""
+        from threading import RLock
+        completed, lock = set(), RLock()
+        stages = {'connect', 'identify', 'interface collection', 'VLAN/config collection',
+                  'audit/snapshot', 'completed', 'failed'}
+        def subscriber(message):
+            with lock:
+                address, _, tail = message.partition(': ')
+                stage = tail.split(';', 1)[0]
+                if address not in ips or stage not in stages:
+                    return
+                if stage in {'completed', 'failed'}:
+                    completed.add(address)
+                try:
+                    self.notify(f'Observation: {stage}; persisted {len(completed)}/{len(ips)} '
+                                f'({len(completed)*100//len(ips)}%); failures remain in run records.')
+                except Exception:
+                    pass  # Presentation cannot fail observation or durable spooling.
+        return subscriber
+
+    def choose_plan(self, directory):
+        """List original plan.json artifacts, newest first; validate again on use."""
+        from orbitflow.configuration.v2.planning import load
+        root = Path(directory)
+        candidates = ([root / 'plan.json'] + list(root.glob('*/plan.json'))) if root.is_dir() else []
+        files = []
+        for path in candidates:
+            if not path.is_file():
+                continue
+            try:
+                load(path)
+            except Exception:
+                self.write('Skipped invalid plan candidate; inspect original artifacts locally.')
+                continue
+            files.append(path)
+        files.sort(key=lambda p: (-p.stat().st_mtime_ns, str(p)))
+        for index, path in enumerate(files, 1):
+            self.write(f'{index}. {path.parent} / {path.name}')
+        if not files:
+            self.write('No valid immutable plans found.')
+        self.write(f'{len(files)+1}. Enter explicit plan JSON path')
+        while True:
+            value = self.ask('Immutable plan number (b cancels): ')
+            if value == str(len(files)+1):
+                return self.choose_file('Immutable plan JSON', '')
+            if value.isdecimal() and 1 <= int(value) <= len(files):
+                return files[int(value)-1]
+            # Explicit paths retain the earlier console interaction contract.
+            if Path(value).is_file() or Path(value).suffix.lower() == '.json':
+                if not Path(value).is_file():
+                    raise FileNotFoundError('Missing input file')
+                return Path(value)
+            self.write('Choose a listed plan number or the explicit path option.')
 
     def ask(self, prompt, default=None):
         value = self.read(prompt).strip()
@@ -214,14 +293,23 @@ class Console:
             ips &= selected_ips
             from orbitflow.configuration.v2.observation import collect, bounded_observations
             from orbitflow.targets import load_device_credentials
-            spool = collect(requests, load_device_credentials(devices, sorted(ips)), transport,
-                            inventory_path=settings['paths']['inventory'], execution_config=execution)
-            observations = bounded_observations(spool)
-        result = plan(requests, observations, source='workbook-sha256:' + requests.source_digest)
+            # Only fixed stage labels cross this presentation boundary; no raw event text.
+            observation_progress = self.observation_progress(ips)
+            with self.activity('Read-only observation'):
+                spool = collect(requests, load_device_credentials(devices, sorted(ips)), transport,
+                                inventory_path=settings['paths']['inventory'], execution_config=execution,
+                                progress=observation_progress)
+            with self.activity('Loading persisted observations'):
+                observations = bounded_observations(spool)
+        with self.activity('Planning'):
+            result = plan(requests, observations, source='workbook-sha256:' + requests.source_digest)
         from orbitflow.configuration.v2.cli import _default_output
         output = _default_output(requests, root=Path(settings['paths']['plans']))
-        save(result, output)
-        export_plan(result, output.with_suffix('.xlsx'))
+        with self.activity('Saving immutable plan'):
+            save(result, output)
+        with self.activity('Exporting review workbook'):
+            export_plan(result, output.with_suffix('.xlsx'))
+        self.notify('Plan and review export complete.')
         self.write(f'Plan: {output}\nReview: {output.with_suffix(".xlsx")}\nDigest: {result.digest}')
 
     def execute(self):
@@ -231,7 +319,7 @@ class Console:
         from orbitflow.transport import TransportConfig
         from orbitflow.progress import console_progress
         settings = self.settings()
-        source = self.choose_file('Immutable plan JSON', settings['paths']['plans'])
+        source = self.choose_plan(settings['paths']['plans'])
         workbook = self.choose_file('Engineer-reviewed workbook', source.with_suffix('.xlsx'))
         with diagnostic('Invalid immutable plan. Select the original intact plan JSON and matching reviewed workbook.'):
             original = load(source)
@@ -243,10 +331,13 @@ class Console:
         self.write('Apply concurrency is separate from read-only execution settings.')
         limit = self.concurrency()
         service = ExecutionService('data/configuration/execution')
-        with diagnostic('Plan/workbook invalid or confirmation consumed. Check matching original artifacts and decisions; review retained runs before any fresh plan.'):
+        with self.activity('Preparing/validating plan'), diagnostic('Plan/workbook invalid or confirmation consumed. Check matching original artifacts and decisions; review retained runs before any fresh plan.'):
             prepared = service.prepare_workbook(original, workbook, expected_digest=digest,
                                                settings=ApplySettings(max_concurrent_devices=limit, **settings['execution']))
-        self.write(render_summary(operator_summary(prepared)))
+        summary_text = render_summary(operator_summary(prepared))
+        self.write('\n'.join(line for line in summary_text.splitlines() if not line.startswith(
+            ('Warnings/blockers or skipped selections', 'Fresh checks + backup before writes'))))
+        self.write('Review findings before confirming. Whole-config save may include partial changes; EdgeSwitch may interrupt management.')
         if prepared['status'] != 'awaiting_confirmation':
             raise OperatorError('Confirmation consumed. Review retained execution outcomes; do not replay.')
         if self.ask('Confirm execution? [y/N]: ').lower() != 'y':
@@ -256,14 +347,22 @@ class Console:
         validate_paths(settings)
         ips = sorted({row['request']['inputs']['management_ip'] for row in prepared['summary']['selected']})
         started = monotonic()
+        def apply_progress(event):
+            console_progress(event)
+            if event.get('stage') in {'waiting', 'row_result', 'device_complete'}:
+                done, total = event.get('rows_completed', 0), event.get('rows_total')
+                count = f'; rows {done}/{total}' if isinstance(total, int) and total > 0 else ''
+                self.notify(f'Execution elapsed: {event.get("elapsed_seconds", 0)}s{count}. Review final outcomes after export.')
         spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
                                 credentials=load_device_credentials(devices, ips),
                                 transport_config=TransportConfig(**settings['teleport']),
-                                inventory_path=settings['paths']['inventory'], progress=console_progress)
+                                inventory_path=settings['paths']['inventory'], progress=apply_progress)
         from orbitflow.configuration.execution_cli import outcome_summary
         self.write(outcome_summary(spool, monotonic() - started, skipped=len(prepared['summary'].get('skipped', []))))
         destination = self.output(settings['paths']['execution_reports'], 'execution')
-        self.write(str(export_results(spool.path, destination)))
+        with self.activity('Exporting execution report'):
+            report = export_results(spool.path, destination)
+        self.write(str(report))
 
     @staticmethod
     def output(root, prefix):
@@ -363,6 +462,7 @@ class Console:
 
     def submenu(self, title, actions):
         while True:
+            self.write('')
             self.write(title + '\n' + '\n'.join(f'{i}. {label}' for i, (label, _) in enumerate(actions, 1)) + f'\n{len(actions)+1}. Back')
             choice = self.ask('Selection: ')
             if choice == str(len(actions)+1):
@@ -406,6 +506,7 @@ class Console:
                    ('Configuration Backup', lambda: workflow('backup')), ('Environment Setting', self.setup)]
         try:
             while True:
+                self.write('')
                 self.write('\n'.join(f'{i}. {label}' for i, (label, _) in enumerate(actions, 1)) + '\n7. Exit')
                 choice = self.ask('Selection: ')
                 if choice == '7':
