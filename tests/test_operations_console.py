@@ -36,7 +36,7 @@ def console(answers, **kwargs):
 
 
 def test_menu_navigation(settings):
-    ui, output = console(['bad', '1', '6', '4', '4', '2', '3', '3', '3', '5', '2', '7'])
+    ui, output = console(['bad', '1', '6', '4', '4', '2', '3', '3', '3', '5', '2', '8'])
     ui.run()
     assert any('Invalid selection' in line for line in output)
     assert any('Generate Input Template' in line for line in output)
@@ -577,11 +577,43 @@ def test_large_target_output_bounded_and_cancel(settings, monkeypatch, selection
 
 
 def test_navigation_separates_each_menu(settings):
-    ui, output = console(['1', '6', '7'])
+    ui, output = console(['1', '6', '8'])
     ui.run()
     menus = [i for i, text in enumerate(output) if text.startswith(('1. Configuration', 'Configuration Management\n'))]
     assert len(menus) == 3
     assert all(output[i-1] == '' for i in menus)
+
+
+def test_mac_menu_two_actions_only(settings):
+    ui, output = console(['7', '3', '8'])
+    ui.run()
+    feature = next(text for text in output if text.startswith('MAC Address Lookup\n'))
+    assert feature == 'MAC Address Lookup\n1. Search MAC Address\n2. List All MAC Addresses\n3. Back'
+
+
+@pytest.mark.parametrize('answers,search', [(['bad'], True), (['aabb.ccdd.eeff', 'bad-ip'], True), (['4095'], False)])
+def test_mac_invalid_before_profile_or_network(answers, search):
+    from orbitflow.menu import OperatorError
+    ui, _ = console(answers, session_check=lambda _: pytest.fail('invalid input connected'))
+    with pytest.raises(OperatorError):
+        ui.mac_lookup(search)
+
+
+def test_mac_search_cancel_without_concurrency(settings):
+    ui, _ = console(['aabb.ccdd.eeff', '192.0.2.1', '', 'n'], session_check=lambda _: pytest.fail('cancel connected'))
+    with pytest.raises(Cancelled):
+        ui.mac_lookup(True)
+
+
+def test_mac_list_concurrency_and_subset(settings, monkeypatch):
+    import orbitflow.mac_lookup as app
+    captured = []
+    monkeypatch.setattr(app, 'run_lookup', lambda *args, **kwargs: captured.append((args, kwargs)) or Path('mac.xlsx'))
+    ui, _ = console(['445', '', '1', '5', 'y'], session_check=lambda _: None)
+    ui.mac_lookup()
+    args, kwargs = captured[0]
+    assert len(args[0]) == 1 and kwargs['vlan'] == 445
+    assert kwargs['execution_config'].max_concurrent_devices == 5
 
 
 def test_observation_progress_counts_persisted_and_hides_event_text():

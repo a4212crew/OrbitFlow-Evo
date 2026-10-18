@@ -876,3 +876,7 @@ Detailed count/timing methodology and Windows/Linux commands are in the
 [manual](user_manual/configuration-execution.md#ordered-template-stages-owner-approved-revision).
 Owner's 2026-10-18 C3750X/EdgeSwitch timings describe the prior revision, not new live
 gains. Owner stage-execution validation on all three families and Linux remain pending.
+
+## MAC Address Lookup (Issue #130)
+
+Independent MAC and XR bridge-domain services/pure parsers, observed-parent resolution, normalized forwarding composition, two-action console integration and direct CLI/API report recovery are implemented. Shared scheduling, session reuse, bounded normalized spool and literal-safe six-column Excel output are reused. Focused offline sample/console validation passes; full-suite result is recorded in the October devlog. No live-device or Linux validation was performed. Huawei/EdgeSwitch invocation remains unconfirmed; missing/ambiguous service mappings remain explicit, never VLAN matches. Existing service-profile VLAN-1 omissions and Excel limits remain. Protected skill/routing reconciliation is pending Atlas; see [handoff](operations/mac-lookup-atlas-skill-handoff.md).

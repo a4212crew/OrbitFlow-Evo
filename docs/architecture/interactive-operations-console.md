@@ -13,7 +13,8 @@ Main:
 4. VLAN Compliance
 5. Configuration Backup
 6. Environment Setting
-7. Exit
+7. MAC Address Lookup
+8. Exit
 
 Configuration Management:
 1. Generate Input Template
@@ -76,3 +77,5 @@ Deterministic tests cover menu navigation, first-run/profile validation, Telepor
 `python -m orbitflow.menu` implements this adapter. Legacy root `orbitflow.toml` remains a fallback for compatible direct callers; default loaders prefer the validated shared profile pacing without persisting interactive concurrency. Explicit alternate configuration paths retain their contracts. Offline recovery does not require profile/session setup. See the [implemented manual](../user_manual/interactive-operations-console.md) for exact prompts, paths and validation commands. Linux and owner live validation remain pending.
 
 Implemented revision: read-only menus show the row count/range, summarize all-selection by count and explicit selections by at most ten canonical row/address identities (fixed placeholders for invalid values) before network confirmation, and select all or unique loaded device row positions through the shared target loader; planning scopes predefined requests by selected addresses. Apply scope remains engineer-workbook decisions. The console derives the digest from validated immutable JSON and supplies it unchanged to workbook verification. Invalid reports are skipped with bounded fixed notices. No executor/preflight safety changes.
+
+MAC Address Lookup: Search MAC Address; List All MAC Addresses; Back. No collector/recovery submenu actions. Search uses one exact workbook IP, validates before network and omits concurrency; VLAN listing reuses all/subset and per-run concurrency. Existing profiles remain unchanged. See [contract](mac-address-lookup.md).
