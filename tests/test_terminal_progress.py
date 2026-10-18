@@ -92,12 +92,32 @@ def test_execution_stages_waits_status_and_payload_suppression():
     output = '\n'.join(lines)
     assert 'SECRET' not in output
     assert all(label in output for label in ('Initial preflight', 'Row preflight', 'Backup recorded',
-               'Command intent (not success)', 'Verification started', 'Save result', 'Device failure', 'Device completion'))
+               'Command preparation', 'Verification started', 'Save result', 'Device failure', 'Device completion'))
     assert '80s waiting' in output and '0% (0/2) 80s elapsed' in output
     assert source in output and '192.0.2.2 | Waiting: Row preflight' in output
     for status in ('Verified', 'Failed', 'Unknown'):
         assert 'Row result | status=' + status in output
     assert 'stopped; completion not established' in output
+
+
+def test_command_preparation_preserves_structured_intent_and_distinct_outcomes():
+    from orbitflow.terminal_progress import ExecutionProgress
+    from orbitflow.configuration.v2.catalogue import BY_ID
+    lines = []
+    display = ExecutionProgress('Processing', write=lines.append, clock=lambda: 0)
+    source = next(iter(BY_ID.values())).sheet + ' row 4'
+    event = dict(stage='command_intent', management_ip='192.0.2.1', source=source,
+                 command_index=1, command_total=2)
+    original = event.copy()
+    display.event(event)
+    assert event == original and event['stage'] == 'command_intent'
+    assert lines == [f'192.0.2.1 | Command preparation | {source} | command 1/2']
+    display.event(dict(stage='command_result', management_ip='192.0.2.1', status='Accepted'))
+    display.event(dict(stage='verification_intent', management_ip='192.0.2.1'))
+    display.event(dict(stage='row_result', management_ip='192.0.2.1', status='Verified'))
+    assert lines[1:] == ['192.0.2.1 | Command result | status=Accepted',
+                         '192.0.2.1 | Verification started',
+                         '192.0.2.1 | Row result | status=Verified']
 
 
 def test_execution_concurrent_events_are_complete_and_stop_after_cancellation():
