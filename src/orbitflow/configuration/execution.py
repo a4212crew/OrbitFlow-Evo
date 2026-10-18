@@ -16,6 +16,7 @@ from time import monotonic
 from uuid import uuid4
 
 from orbitflow.progress import Progress
+from orbitflow.timing import profiling, correlation, stage, measured, timed_call, timed_context, command_category
 from orbitflow.configuration.plans import canonical, decode, identity, require
 from orbitflow.configuration.v2.catalogue import BY_ID
 from orbitflow.configuration.v2.planning import BulkPlan, evaluate_decisions, plan
@@ -30,6 +31,7 @@ from orbitflow.capabilities.vlans import VlanService
 from orbitflow.capabilities.configuration import ConfigurationService
 from orbitflow.configuration_backup import BackupWriter
 from orbitflow.configuration.v2.observation import snapshot
+from orbitflow.configuration import execution_observation as observations
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.transport import connect_device
 from orbitflow.vendors.common import DeviceCLI
@@ -192,17 +194,18 @@ class ExecutionService:
             raise
 
 
+@measured('full_observation')
 def _observe(session, context, cli, entries, timeout):
-    interfaces = InterfaceService(timeout=timeout).collect(session, context, cli=cli)
-    vlans = VlanService(timeout=timeout).collect(session, context, cli=cli, preserve_full_evidence=True)
-    obs = snapshot(context, interfaces, vlans)
+    interfaces = timed_call('interface_collection', InterfaceService(timeout=timeout).collect, session, context, cli=cli)
+    vlans = timed_call('vlan_config_collection', VlanService(timeout=timeout).collect, session, context, cli=cli, preserve_full_evidence=True)
+    obs = timed_call('normalized_snapshot', observations.project, session, context, cli, interfaces, vlans, snapshot)
     vids = set()
     for entry in entries:
         p = entry['request']['inputs']
         vids.update(p[k] for k in ('vlan_id', 'pvid', 'native_vlan') if k in p)
         vids.update(p.get('vlans', []))
         vids.update(parse_vlan_list(p.get('tagged_vlans', '')))
-    obs['vlan_lookups'] = {str(v): VlanService(timeout=timeout).lookup(session, context, v, cli=cli) for v in sorted(vids)}
+    obs['vlan_lookups'] = {str(v): timed_call('vlan_lookup', VlanService(timeout=timeout).lookup, session, context, v, cli=cli) for v in sorted(vids)}
     return obs
 
 
@@ -219,6 +222,15 @@ def _expected_mode(command, previous, exec_prompt, edge):
     return (edge_execution if edge else cisco_execution).expected_mode(command, previous, exec_prompt)
 
 
+@measured('pre_row_drift_checks')
+def _check_fresh_row(fresh, approved):
+    _gate(fresh['deployment_ready'], 'FRESH_PREFLIGHT_BLOCKED')
+    _gate(fresh.get('resolved_target') == approved.get('resolved_target'), 'TARGET_DRIFT')
+    _gate(fresh['commands'] == approved['commands'] and fresh['no_op'] == approved['no_op'], 'APPROVED_COMMAND_DRIFT')
+    _gate(fresh.get('projected_state') == approved.get('projected_state'), 'APPROVED_RESULT_DRIFT')
+
+
+@measured('row_verification', failure='Unknown')
 def verify_row(session, context, cli, entry, before, *, timeout=30.0, correlation=None):
     """Read-only verification returning Verified/Failed/Unknown and scoped evidence.
 
@@ -229,7 +241,7 @@ def verify_row(session, context, cli, entry, before, *, timeout=30.0, correlatio
     request, result = entry['request'], entry['result']
     t, p = BY_ID[request['template_id']], request['inputs']
     if t.function == 'VLAN Database':
-        lookup = VlanService(timeout=timeout).lookup(session, context, p['vlan_id'], cli=cli)
+        lookup = timed_call('vlan_lookup', VlanService(timeout=timeout).lookup, session, context, p['vlan_id'], cli=cli)
         status = ('Verified' if lookup.get('name') == p['name'] else 'Failed') if lookup['status'] == 'present' else 'Failed' if lookup['status'] == 'absent' else 'Unknown'
         return dict(status=status, lookup=lookup, warnings=['VLAN_INACTIVE'] if lookup.get('operational_status') in {'suspended', 'inactive', 'act/lshut'} else [])
     after = _observe(session, context, cli, [entry], timeout)
@@ -262,7 +274,7 @@ def verify_row(session, context, cli, entry, before, *, timeout=30.0, correlatio
     def preserved(nodes):
         return [signature(n) for n in nodes if n['kind'] not in modified]
     checks.append(preserved(old) == preserved(new))
-    evidence = dict(configuration=scoped_evidence(request, after), description=actual[0], preservation='Matched' if all(checks) else 'Description or unrelated setting mismatch')
+    evidence = dict(configuration=timed_call('scoped_evidence', scoped_evidence, request, after), description=actual[0], preservation='Matched' if all(checks) else 'Description or unrelated setting mismatch')
     if t.function != 'Interface Description':
         try:
             switchport = SwitchportService(timeout=timeout).collect(session, context, target, cli=cli, correlation=correlation).to_dict()
@@ -336,6 +348,7 @@ def _run(summary, credentials, transport_config, *, inventory_path, run_root, ba
 
 
 def _run_with_progress(summary, credentials, transport_config, *, inventory_path, run_root, backups_dir, on_started, reporter):
+    run_started = monotonic()
     settings = ApplySettings(**summary['settings'])
     groups = {}
     for entry in summary['selected']:
@@ -372,17 +385,28 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
             logger.info(clean(f"run={spool.path.name}; digest={summary['source_digest']}; ip={ip}; stage={stage}; row={values.get('row_id', '-')}; command={values.get('command_index', '-')}; status={values.get('status', '-')}; category={values.get('error_category', '-') }; backup={values.get('backup_path', '-')}; warning={'; '.join(short_findings([values['warning']])) if values.get('warning') else '-'}"))
         @contextmanager
         def owned_cli(session, ip):
-            with DeviceCLI(session) as cli:
+            with timed_context('shell_setup', lambda: DeviceCLI(session)) as cli:
                 try:
-                    yield cli
+                    with observations.observation_scope(session, cli):
+                        yield cli
                 finally:
                     event(ip, 'cleanup_start')
 
         def worker(ip):
-            try:
-                return device_worker(ip)
-            finally:
-                event(ip, 'cleanup', status='Completed')
+            with profiling(logger, clean, run_id=spool.path.name, digest=summary['source_digest'], management_ip=ip):
+                with stage('device_total', failure='Unknown') as timing:
+                    try:
+                        value = device_worker(ip)
+                        save = value.get('save', {})
+                        if save.get('status') == 'Unknown' or any(r['status'] == 'Unknown' for r in value['rows']):
+                            timing['outcome'] = 'Unknown'
+                        elif value.get('error_category') or save.get('explicit_error') or any(r['status'] != 'Verified' for r in value['rows']):
+                            timing['outcome'] = 'Failed'
+                        else:
+                            timing['outcome'] = 'Completed'
+                        return value
+                    finally:
+                        event(ip, 'cleanup', status='Completed')
 
         def device_worker(ip):
             entries = groups[ip]
@@ -391,20 +415,21 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
             event(ip, 'connect')
             try:
                 require(ip in credentials, 'credentials unavailable')
-                with connect_device(ip, credentials[ip], transport_config) as session:
+                with timed_context('connection', lambda: connect_device(ip, credentials[ip], transport_config)) as session:
                     with owned_cli(session, ip) as cli:
                         event(ip, 'identify')
-                        context = DeviceInventoryResolver(store, sanitize_fact=clean).resolve(session, management_ip=ip, cli=cli)
+                        context = timed_call('identification', DeviceInventoryResolver(store, sanitize_fact=clean).resolve, session, management_ip=ip, cli=cli)
                         _gate(all(identity(context) == e['identity'] for e in entries), 'FRESH_IDENTITY_MISMATCH')
+                        cli._reuse_session_setup = True
                         event(ip, 'preflight')
-                        before = _observe(session, context, cli, entries, settings.command_timeout)
+                        before = timed_call('initial_preflight', _observe, session, context, cli, entries, settings.command_timeout)
                         exec_prompt = cli.prompt
                         require(exec_prompt.endswith('#'), 'privileged EXEC required')
                         event(ip, 'backup')
-                        content = ConfigurationService(timeout=settings.command_timeout).collect(session, context, cli=cli)
+                        content = timed_call('protected_backup_collection', ConfigurationService(timeout=settings.command_timeout).collect, session, context, cli=cli)
                         for secret in capture_secrets:
                             content = content.replace(secret, '[REDACTED]')
-                        path = backup.write(context.hostname, context.platform, content)
+                        path = timed_call('protected_backup_write', backup.write, context.hostname, context.platform, content)
                         try:
                             backup_reference = Path(os.path.relpath(path, spool.path)).as_posix()
                         except ValueError:
@@ -416,80 +441,85 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                             for entry in entries:
                                 r, approved = entry['request'], entry['result']
                                 rid = r['row_id']
-                                row = dict(row_id=rid, decision=approved['decision'], status='Not executed')
-                                rows.append(row)
-                                try:
-                                    _gate(usable, 'SESSION_UNUSABLE')
-                                    _gate(set(approved['dependencies']) <= completed, 'DEPENDENCY_FAILED')
-                                    event(ip, 'row_preflight', row_id=rid)
-                                    # A fresh snapshot per row incorporates preceding verified effects.
-                                    before = _observe(session, context, cli, [entry], settings.command_timeout)
-                                    from orbitflow.configuration.v2.evidence import scoped_evidence
-                                    row['pre_config'] = scoped_evidence(r, before)
-                                    event(ip, 'pre_row_evidence', row_id=rid, evidence=row['pre_config'])
-                                    fresh = plan([r], {ip: before}, decisions={rid: 'Approve'}).to_dict()['results'][0]
-                                    row['preflight_findings'] = fresh.get('findings', [])
-                                    _gate(fresh['deployment_ready'], 'FRESH_PREFLIGHT_BLOCKED')
-                                    _gate(fresh.get('resolved_target') == approved.get('resolved_target'), 'TARGET_DRIFT')
-                                    _gate(fresh['commands'] == approved['commands'] and fresh['no_op'] == approved['no_op'], 'APPROVED_COMMAND_DRIFT')
-                                    _gate(fresh.get('projected_state') == approved.get('projected_state'), 'APPROVED_RESULT_DRIFT')
-                                    if BY_ID[r['template_id']].function == 'VLAN Port' and r['inputs']['action'] != 'Remove':
-                                        row['missing_prerequisite_vlans'] = [v for v, lookup in before['vlan_lookups'].items() if lookup['status'] != 'present']
-                                        _gate(not row['missing_prerequisite_vlans'], 'VLAN_PREREQUISITE_UNAVAILABLE')
-                                    rejected = False
-                                    for index, command in enumerate(approved['commands'], 1):
-                                        cli.execution_mode(exec_prompt, context.platform)
-                                        event(ip, 'command_intent', row_id=rid, command_index=index, command_total=len(approved['commands']), command=command)
-                                        attempted = True
-                                        row['status'] = 'Unknown'
-                                        previous_prompt = cli.prompt
-                                        started = monotonic()
-                                        try:
-                                            response = cli.run_command(command, timeout=settings.command_timeout)
-                                        except BaseException:
-                                            event(ip, 'command_unknown', row_id=rid, command_index=index,
-                                                  response=_safe_source(getattr(cli, 'last_response', ''), context.platform), status='Unknown')
-                                            raise
-                                        rejected = command_rejected(response)
-                                        if cli.prompt not in _expected_mode(command, previous_prompt, exec_prompt, context.platform == 'ubiquiti_edgeswitch'):
-                                            rejected = True
-                                        event(ip, 'command_result', row_id=rid, command_index=index,
-                                              response=_safe_source(response, context.platform), status='Rejected' if rejected else 'Returned', elapsed_seconds=monotonic() - started)
-                                        if rejected:
-                                            row['status'] = 'Failed'
-                                            break
-                                    if cli.prompt != exec_prompt:
-                                        # Only known vendor modes admit recovery, never arbitrary '#'.
-                                        for index in range(2):
-                                            cli.execution_mode(exec_prompt, context.platform)
-                                            command = 'exit' if context.platform == 'ubiquiti_edgeswitch' else 'end'
-                                            event(ip, 'mode_intent', row_id=rid, command=command)
-                                            response = cli.run_command(command, timeout=settings.command_timeout)
-                                            event(ip, 'mode_result', row_id=rid, response=_safe_source(response, context.platform))
-                                            if cli.prompt == exec_prompt:
-                                                break
-                                        require(cli.prompt == exec_prompt, 'EXEC recovery failed')
-                                    event(ip, 'verification_intent', row_id=rid, commands=entry['verification_commands'])
-                                    if not rejected:
-                                        row['status'] = 'Unknown'
-                                    started = monotonic()
-                                    verification = verify_row(session, context, cli, entry, before, timeout=settings.command_timeout, correlation={'run_id': spool.path.name, 'digest': summary['source_digest'], 'row_id': rid})
-                                    row.update(status='Failed' if rejected else verification['status'], verification=verification)
-                                    for warning in verification.get('evidence', {}).get('warnings', []) if isinstance(verification.get('evidence'), dict) else []:
-                                        event(ip, 'verification_warning', row_id=rid, warning=warning)
-                                    row['verification_seconds'] = monotonic() - started
-                                    if row['status'] == 'Verified':
-                                        completed.add(rid)
-                                except Exception as exc:
-                                    row['error_category'] = type(exc).__name__
-                                    if isinstance(exc, ExecutionBlocked):
-                                        row['blocker'] = exc.code
+                                with correlation(row_id=rid, template_id=r['template_id']), stage('row_total', failure='Unknown') as row_timing:
+                                    row = dict(row_id=rid, decision=approved['decision'], status='Not executed')
+                                    rows.append(row)
                                     try:
-                                        cli.require_session(session)
-                                        usable = cli.prompt == exec_prompt
-                                    except Exception:
-                                        usable = False
-                                event(ip, 'row_result', **row)
+                                        _gate(usable, 'SESSION_UNUSABLE')
+                                        _gate(set(approved['dependencies']) <= completed, 'DEPENDENCY_FAILED')
+                                        event(ip, 'row_preflight', row_id=rid)
+                                        # A fresh snapshot per row incorporates preceding verified effects.
+                                        before = timed_call('pre_row_observation', _observe, session, context, cli, [entry], settings.command_timeout)
+                                        from orbitflow.configuration.v2.evidence import scoped_evidence
+                                        row['pre_config'] = timed_call('scoped_evidence', scoped_evidence, r, before)
+                                        event(ip, 'pre_row_evidence', row_id=rid, evidence=row['pre_config'])
+                                        fresh = timed_call('pre_row_plan', plan, [r], {ip: before}, decisions={rid: 'Approve'}).to_dict()['results'][0]
+                                        row['preflight_findings'] = fresh.get('findings', [])
+                                        _check_fresh_row(fresh, approved)
+                                        if BY_ID[r['template_id']].function == 'VLAN Port' and r['inputs']['action'] != 'Remove':
+                                            row['missing_prerequisite_vlans'] = [v for v, lookup in before['vlan_lookups'].items() if lookup['status'] != 'present']
+                                            _gate(not row['missing_prerequisite_vlans'], 'VLAN_PREREQUISITE_UNAVAILABLE')
+                                        rejected = False
+                                        for index, command in enumerate(approved['commands'], 1):
+                                            cli.execution_mode(exec_prompt, context.platform)
+                                            observations.invalidate()
+                                            event(ip, 'command_intent', row_id=rid, command_index=index, command_total=len(approved['commands']), command=command)
+                                            attempted = True
+                                            row['status'] = 'Unknown'
+                                            previous_prompt = cli.prompt
+                                            started = monotonic()
+                                            with correlation(command_index=str(index)), stage('approved_command', command_category=command_category(command), failure='Unknown') as command_timing:
+                                                try:
+                                                    response = cli.run_command(command, timeout=settings.command_timeout)
+                                                except BaseException:
+                                                    event(ip, 'command_unknown', row_id=rid, command_index=index,
+                                                          response=_safe_source(getattr(cli, 'last_response', ''), context.platform), status='Unknown')
+                                                    raise
+                                                rejected = command_rejected(response)
+                                                if cli.prompt not in _expected_mode(command, previous_prompt, exec_prompt, context.platform == 'ubiquiti_edgeswitch'):
+                                                    rejected = True
+                                                event(ip, 'command_result', row_id=rid, command_index=index,
+                                                      response=_safe_source(response, context.platform), status='Rejected' if rejected else 'Returned', elapsed_seconds=monotonic() - started)
+                                                command_timing['outcome'] = 'Rejected' if rejected else 'Returned'
+                                            if rejected:
+                                                row['status'] = 'Failed'
+                                                break
+                                        if cli.prompt != exec_prompt:
+                                            # Only known vendor modes admit recovery, never arbitrary '#'.
+                                            for index in range(2):
+                                                cli.execution_mode(exec_prompt, context.platform)
+                                                command = 'exit' if context.platform == 'ubiquiti_edgeswitch' else 'end'
+                                                event(ip, 'mode_intent', row_id=rid, command=command)
+                                                response = timed_call('mode_recovery_command', cli.run_command, command, timeout=settings.command_timeout)
+                                                event(ip, 'mode_result', row_id=rid, response=_safe_source(response, context.platform))
+                                                if cli.prompt == exec_prompt:
+                                                    break
+                                            require(cli.prompt == exec_prompt, 'EXEC recovery failed')
+                                        event(ip, 'verification_intent', row_id=rid, commands=entry['verification_commands'])
+                                        if not rejected:
+                                            row['status'] = 'Unknown'
+                                        started = monotonic()
+                                        verification = timed_call('post_row_verification', verify_row, session, context, cli, entry, before, timeout=settings.command_timeout, correlation={'run_id': spool.path.name, 'digest': summary['source_digest'], 'row_id': rid})
+                                        row.update(status='Failed' if rejected else verification['status'], verification=verification)
+                                        for warning in verification.get('evidence', {}).get('warnings', []) if isinstance(verification.get('evidence'), dict) else []:
+                                            event(ip, 'verification_warning', row_id=rid, warning=warning)
+                                        row['verification_seconds'] = monotonic() - started
+                                        if row['status'] == 'Verified':
+                                            completed.add(rid)
+                                        else:
+                                            observations.invalidate()
+                                    except Exception as exc:
+                                        observations.invalidate()
+                                        row['error_category'] = type(exc).__name__
+                                        if isinstance(exc, ExecutionBlocked):
+                                            row['blocker'] = exc.code
+                                        try:
+                                            cli.require_session(session)
+                                            usable = cli.prompt == exec_prompt
+                                        except Exception:
+                                            usable = False
+                                    event(ip, 'row_result', **row)
+                                    row_timing['outcome'] = row['status']
                         finally:
                             try:
                                 cli.require_session(session)
@@ -497,12 +527,13 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                             except Exception:
                                 usable = False
                             if attempted and usable:
+                                observations.invalidate()
                                 event(ip, 'save_intent', command='write memory')
                                 save = dict(status='Unknown', error_category='SaveCapabilityIncomplete')
                                 try:
                                     with reporter.save_scope(ip, clean(context.hostname), settings.save_timeout,
                                                              audit=lambda stage: event(ip, stage, _display=False)):
-                                        save = save_configuration(session, context, cli=cli, exec_prompt=exec_prompt, timeout=settings.save_timeout, correlation={'run_id': spool.path.name, 'digest': summary['source_digest']})
+                                        save = timed_call('device_save', save_configuration, session, context, cli=cli, exec_prompt=exec_prompt, timeout=settings.save_timeout, correlation={'run_id': spool.path.name, 'digest': summary['source_digest']})
                                 except BaseException:
                                     event(ip, 'save_result', status='Unknown', error_category='SaveCapabilityIncomplete',
                                           response=_safe_source(getattr(cli, 'last_response', ''), context.platform))
@@ -532,9 +563,15 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
             event(ip, 'device_complete', status='Failed' if failed else 'Completed')
         event('-', 'confirm', status='Claimed')
         reporter.active.pop('-', None)
-        with spool.collection():
-            execute_devices(list(groups), worker, config=ExecutionConfig(settings.max_concurrent_devices, settings.connection_start_interval, settings.connection_retry_delay), on_outcome=persist)
-        event('-', 'recording', status='Completed')
+        run_outcome = 'Unknown'
+        try:
+            with spool.collection():
+                execute_devices(list(groups), worker, config=ExecutionConfig(settings.max_concurrent_devices, settings.connection_start_interval, settings.connection_retry_delay), on_outcome=persist)
+            event('-', 'recording', status='Completed')
+            run_outcome = 'Completed'
+        finally:
+            logger.info('Execution timing', extra=dict(run_id=spool.path.name, digest=summary['source_digest'],
+                        stage='run_total', outcome=run_outcome, elapsed_seconds=max(0.0, monotonic() - run_started)))
     return spool
 
 

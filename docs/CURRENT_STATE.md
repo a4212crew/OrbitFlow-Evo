@@ -848,3 +848,21 @@ PR #124 console UX revision adds menu separators, fixed-label persisted observat
 PR #124 final progress presentation revision uses one flushed TTY line, durable per-device counts for planning observation and confirmed execution, and indeterminate activity for other long console phases and read-only services without structured durable-outcome callbacks. Non-TTY output is bounded to five-second updates plus phase boundaries; errors/cancellation terminate the line. No executor or direct CLI changes. Regression evidence is in the October devlog; Linux and owner live validation remain pending.
 
 PR #124 owner final revision restores confirmed-execution per-target/row stage and wait visibility using existing events, with allowlisted output and measured device counts. Read-only bars remain compact; execution semantics and direct APIs are unchanged. Windows focused validation passed 314 tests; Linux and owner live validation remain pending.
+
+
+## Execution profiling and safe reuse (Issue #125)
+
+All eleven currently executable C3750X/C3850/EdgeSwitch templates use correlated
+monotonic stage/command timings in shared bounded configuration execution logs.
+CLI receive wait is measured separately from residual wall time; run/row/device
+outcomes and durable journal/report contracts remain independent. Executor-owned
+shells reuse accepted paging setup; standalone defaults are unchanged. A bounded
+single-projection per-session manager reuses deterministic snapshot computation only
+after identical complete fresh normalized inputs. Full fresh row/no-op reads and
+operational VLAN lookups remain; scoped refresh equivalence is unproven and no full
+reads were removed. Writes, mismatch, uncertainty and synchronization loss invalidate
+retained work. Unsupported families and Manual CLI apply remain disabled.
+Offline extraction and synthetic baseline/reuse comparisons are documented in the
+[execution manual](user_manual/configuration-execution.md#execution-profiling-and-safe-reuse-issue-125).
+Owner lab validation of these optimizations on all three families and Linux validation
+remain pending; previously reported PR #118 validation is not optimization validation.

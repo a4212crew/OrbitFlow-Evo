@@ -304,3 +304,31 @@ Console adapter note (Issue #123): the interactive caller validates the chosen i
 Console presentation (Issue #123 / PR #124): `python -m orbitflow.menu` wraps offline `prepare_workbook` with elapsed preparation notices and still requires its separate explicit confirmation before `confirm`. It subscribes to existing structured execution progress and displays measured durable device/elapsed counts; report export has a separate completion indicator. The console filters only its own rendering of the two long summary prose lines and retains a short caution. `render_summary`, direct execution CLI output, public service signatures, confirmation/digest binding and all apply safeguards are unchanged. See the [console guide](../user_manual/interactive-operations-console.md#progress-and-evidence-presentation-pr-124-ux-revision).
 
 The final Issue #123 console revision renders allowlisted existing structured stages, source sheet/row and outcome statuses, plus periodic waiting snapshots after confirmation. Hostnames and arbitrary payloads are suppressed. No public callback schema, executor behavior or direct CLI rendering changes. See the [console stage guide](../user_manual/interactive-operations-console.md#confirmed-execution-stage-visibility-final-owner-revision).
+
+
+## Execution timing and observation reuse (Issue #125)
+
+`confirm`, `verify_row`, all standalone collectors, parsers, save and structured
+progress signatures remain unchanged. Confirmed supported-family execution enables
+internal session paging reuse and a bounded per-session deterministic snapshot
+projection manager. It never reuses live state in place of fresh row reads or
+operational lookups. Shared standalone collector defaults remain unchanged.
+
+Detailed timing records in the existing bounded configuration/execution logger use
+run/digest/IP/row/template correlation, fixed stage/command category/index, outcome,
+monotonic `elapsed_seconds`, measured receive `device_wait_seconds` and residual
+wall `work_seconds`. Shared log serialization represents scalar timing fields as
+strings; parse seconds as finite nonnegative numbers. No raw commands/output are
+included. Parent/child timings overlap; receive time is not CPU time or liveness.
+Run Completed means scheduling/recording completed and does not replace row/save
+outcomes. Interrupted run totals are Unknown; journal/recovery remains authoritative.
+Transport admission/retry stages retain existing retry/pacing semantics.
+
+Internal `orbitflow.timing` / `execution_observation` helpers are not new supported
+public execution APIs. The offline developer script
+`scripts/configuration_execution_timings.py LOG [LOG ...] [--run-id ID]` exposes only
+bounded numeric aggregates, not an apply/resume interface. See the
+[profiling guide](../user_manual/configuration-execution.md#execution-profiling-and-safe-reuse-issue-125)
+for arguments, limits, Windows/Linux tests/extraction, synthetic benchmark methodology
+and the owner-controlled lab comparison. Console execution uses the same service;
+there is no additional confirmation or menu workflow.

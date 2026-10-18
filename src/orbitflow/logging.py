@@ -71,7 +71,8 @@ class SafeFormatter(logging.Formatter):
             "error_category": _safe(getattr(record, "error_category", "-")),
             "message": message,
         }
-        for key in ('run_id', 'row_id', 'digest', 'interface', 'command', 'stage', 'elapsed_seconds', 'outcome'):
+        for key in ('run_id', 'row_id', 'digest', 'interface', 'command', 'stage', 'elapsed_seconds', 'outcome',
+                    'template_id', 'command_index', 'command_category', 'device_wait_seconds', 'work_seconds'):
             if hasattr(record, key):
                 data[key] = _safe(getattr(record, key))
         if record.exc_info and record.exc_info[1]:

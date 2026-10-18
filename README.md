@@ -711,3 +711,12 @@ Console revision #123 adds validated all/subset device row selection with bounde
 The interactive console provides compact terminal progress with durable outcome counts where available and elapsed activity for unknown-duration phases and numbered immutable-plan selection; see the [operator guide](docs/user_manual/interactive-operations-console.md#progress-and-evidence-presentation-pr-124-ux-revision). Execution safeguards and direct CLI contracts are unchanged.
 
 Confirmed console execution additionally shows sanitized per-device/row stages and waiting updates after explicit confirmation; read-only progress remains compact. See the [console guide](docs/user_manual/interactive-operations-console.md#confirmed-execution-stage-visibility-final-owner-revision).
+
+
+Issue #125 adds correlated monotonic stage/CLI/receive timing to the existing bounded
+execution log, plus session paging reuse and bounded deterministic observation
+projection reuse for all supported predefined execution templates. Full fresh row
+reads/lookups and all execution safety gates remain. See the
+[profiling, offline benchmark and owner lab comparison guide](docs/user_manual/configuration-execution.md#execution-profiling-and-safe-reuse-issue-125).
+Synthetic count improvements are not live performance claims; owner validation of
+these optimizations is pending on C3750X, C3850 and EdgeSwitch.

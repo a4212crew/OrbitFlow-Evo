@@ -360,3 +360,29 @@ stages and five-second wait snapshots. A presentation timer never accesses sessi
 changes deadlines or retries device writes. Save question/y labels originate in the
 owning worker; original EXEC return still defines Saved. See the supported API/manual
 for exact callback fields and limitations. No live validation or merge is implied.
+
+
+## Issue #125 implementation reconciliation, 2026-10-18
+
+Measured shared-shell paging exchanges were redundant; confirmed supported-family
+execution now reuses accepted paging setup per session/profile while retaining every
+prompt/session check and the first trusted setup. Standalone defaults are unchanged.
+`execution_mode` already performed local validation only and remains unchanged.
+
+A per-session manager retains at most one normalized deterministic projection (8 MiB serialized
+eligibility/retention limits). It always requires complete fresh full normalized
+interface/VLAN/config inputs before a cache comparison; only identical-input pure
+snapshot/audit computation is memoized. Operational lookups and row/no-op observations
+remain fresh. Writes, mismatch, uncertainty and synchronization failure invalidate
+retained work. No vendor scoped-refresh implementation currently proves equivalent
+full-set drift/preservation coverage, so full collections remain mandatory. This
+preserves the approved execution/backup/journal/save/replay contracts above.
+
+Monotonic stage/command/receive timings use shared bounded configuration logs and
+run/digest/device/row/template correlation, with no raw CLI/output. Nested spans
+overlap; residual work is wall time, not CPU. The developer-only offline extraction
+and synthetic benchmark are documented in the
+[execution manual](../../user_manual/configuration-execution.md#execution-profiling-and-safe-reuse-issue-125).
+They add no operator workflow, confirmation gate or console menu entry. This change
+has deterministic Windows validation only; owner C3750X/C3850/EdgeSwitch optimization
+validation and Linux execution remain outstanding.

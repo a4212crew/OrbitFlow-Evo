@@ -4,7 +4,8 @@ Issue #117 implements the [approved execution contract](../architecture/configur
 This is a configuration-changing workflow for predefined C3750X, C3850 (worksheet
 label C3850X) and EdgeSwitch VLAN Database, supported port and Description templates.
 Other families and Manual CLI execution remain unsupported. v1 and v2 planning
-commands retain their existing behavior. No live/lab execution has been validated.
+commands retain their existing behavior. Owner C3750X/EdgeSwitch validation of PR #118
+was reported; C3850 and the Issue #125 optimizations still require owner lab validation.
 
 Use the repository Python environment (Python 3.11+, `requirements.txt`) with `src`
 on `PYTHONPATH`. Authenticate Teleport interactively and check `tsh status` first.
@@ -382,3 +383,119 @@ the full `python -m pytest -q` suite, with its own managed temporary directory.
 This workflow is also available through `python -m orbitflow.menu`; see the [console manual](interactive-operations-console.md) for environment profile, target workbook selection, per-run concurrency, confirmation and output/recovery behavior. Direct CLI flags and service contracts remain supported. Default `orbitflow.toml` execution loading now prefers validated shared profile pacing when present; explicit alternate config files retain their semantics.
 
 Issue #123 console revision: The console derives/displays the expected digest from the selected validated immutable JSON and still passes it to workbook verification. Choose the trusted original JSON; engineer decisions and separate execution confirmation remain required. Invalid/corrupt or consumed preparation produces fixed guidance; no safety checks are bypassed. See the [console guide](interactive-operations-console.md).
+
+
+## Execution profiling and safe reuse (Issue #125)
+
+Confirmed execution automatically records monotonic timing records in the existing
+UTC-dated `outputs/logs/configuration/YYYY-MM-DD/execution.log`, including when called
+from the interactive console. Console presentation, confirmation, public signatures,
+audit events, report columns and durable run layout are unchanged. Match `run_id`
+and `digest` to `outputs/runs/configuration_execution/RUN_ID/manifest.json` and
+`summary.json`; row records also include `row_id`, `template_id` and command index.
+Timing records have message `Execution timing`, fixed stage/command category, outcome
+and nonnegative seconds. No literal CLI, responses or exception messages enter timings.
+Transport and standalone capability diagnostics retain their existing ownership.
+
+Stages cover connection/admission/retry wait, shell setup, identification, initial
+preflight, protected backup collection/write, full observation, interface collection,
+VLAN/config collection, normalized snapshot/reuse, VLAN lookup, scoped evidence,
+pre-row planning/drift checks, mode validation, every approved command and underlying
+CLI exchange, post-row verification, independent save, row/device/run totals.
+Failed exchanges retain category/outcome; uncertain sends and interrupted totals are
+Unknown. A Completed run total means collection finished, not all rows Verified.
+
+`device_wait_seconds` measures blocking CLI receives (including timeout/quiescence),
+not a heartbeat or device liveness. `work_seconds` is residual elapsed wall time,
+**not CPU time**; connection/authentication, privilege setup and scheduling waits
+are not inferred as measured device receive time. Connection admission/retry waits
+have separate stages. Parent/child spans overlap: never sum them. Total execution
+includes journaling/cleanup; report generation is outside run_total. The run total
+records elapsed time only, without aggregating overlapping worker receive waits. Timings use no
+extra queries, worker pools, retry, timer or fsync. Existing mandatory journal/fsync
+semantics remain unchanged. Logs use shared 2 MiB rotation with three backups; archive
+them before rotation for long comparisons. Timing logs are diagnostics, not durable
+recovery evidence; retain the fsynced run journal independently.
+
+The executor opts its own supported-family shell into reusing accepted session paging
+setup. Prompt/session validation still happens on every collector/mode call; first
+trusted setup is still sent and checked. No accepted setting crosses a shell or
+platform setup profile, and an unsynchronized exchange cannot reuse that shell.
+Standalone callers keep their existing setup behavior. `execution_mode` is local
+validation already; it never caused a network round trip and remains intact.
+
+Each session owns one normalized observation manager, bounded to one projection and
+8 MiB of serialized projection/input eligibility. Every row preflight and non-database
+verification still performs full fresh interface/VLAN/config collection, including
+no-op verification; every operational VLAN lookup remains fresh. Complete matching
+fresh normalized inputs may reuse only deterministic snapshot/audit computation;
+fresh observation timestamps are retained. Writes, mismatches, failed/uncertain
+operations and loss of synchronization invalidate retained computation. Changed
+facts force recomputation; oversized/incomplete inputs bypass reuse. No raw backup
+or device output is cached. Scoped interface/config refresh was investigated but
+cannot currently establish equivalent full-set preservation and drift coverage, so
+full refreshes are intentionally retained for all eleven executable templates.
+Protected backup, pre-row durable evidence, ordered approved commands, full projected
+result comparison, dependencies, independent partial-change save and replay protection
+remain mandatory. Other device families and Manual CLI apply remain unsupported.
+
+### Offline tests, benchmark and extraction
+
+The benchmark uses real shared collectors/parsers over synthetic in-memory channels,
+ten full observation epochs for each family, with baseline/reuse and timing off/on
+variants. It prints JSON count/median/p95 measurements and asserts exact read counts;
+there are no live sockets or timing thresholds. The separate all-template regressions
+compare complete fresh normalized evidence and planner decisions/commands. Host-only
+timings are not estimates of live RTT or throughput. These developer diagnostics
+implement the Issue's measurement/comparison requirement; they are not a new device
+operator workflow and do not need a console menu entry.
+
+PowerShell (from repository root):
+
+```powershell
+$env:PYTHONPATH = "$PWD/src"
+python -m pytest tests/test_execution_observation_timing.py tests/test_configuration_execution.py tests/test_shared_cli.py -q
+python -m pytest tests/test_configuration_execution_performance.py -q -s
+python -m pytest -q
+python scripts/configuration_execution_timings.py --help
+python scripts/configuration_execution_timings.py outputs/logs/configuration/YYYY-MM-DD/execution.log --run-id RUN_ID
+# Include retained rotated files explicitly when needed:
+python scripts/configuration_execution_timings.py outputs/logs/configuration/YYYY-MM-DD/execution.log outputs/logs/configuration/YYYY-MM-DD/execution.log.1 --run-id RUN_ID
+```
+
+Linux Bash (same offline commands):
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -m pytest tests/test_execution_observation_timing.py tests/test_configuration_execution.py tests/test_shared_cli.py -q
+python -m pytest tests/test_configuration_execution_performance.py -q -s
+python -m pytest -q
+python scripts/configuration_execution_timings.py --help
+python scripts/configuration_execution_timings.py outputs/logs/configuration/YYYY-MM-DD/execution.log --run-id RUN_ID
+python scripts/configuration_execution_timings.py outputs/logs/configuration/YYYY-MM-DD/execution.log outputs/logs/configuration/YYYY-MM-DD/execution.log.1 --run-id RUN_ID
+```
+
+The extraction script is entirely offline and needs only Python's standard library.
+Required positional `logs` accepts one or more UTF-8 shared log files; optional
+`--run-id` selects an exact manifest ID (default all runs in supplied logs). It prints
+JSON per allowlisted stage/category with count/min/median/nearest-rank p95/max seconds.
+It ignores malformed/torn/non-timing records and invalid durations; at 100,000 samples
+it fails closed with exit 2, as for unreadable input. Empty selection returns `[]`.
+It outputs no device text, credentials or raw CLI. Use disjoint retained files to
+avoid double-counting; missing rotations make a comparison incomplete.
+
+Owner-only lab comparison: retain a baseline revision's sanitized run/report and
+logs, then use separately reviewed fresh lab plans on this revision. Start from
+independently reconciled equivalent lab state; never replay completed or uncertain
+production changes. Use the existing `execute` commands above after `tsh status`,
+with the same explicit concurrency, timeouts and connection pacing, and confirm only
+the authorized lab change. Exercise all C3750X/C3850/EdgeSwitch templates, no-op,
+trunk Add/Remove/Replace, dependencies, external between-row drift, incomplete
+switchport/lookup evidence, rejection, timeout and independent partial save. Inspect
+pre-row evidence, exact ordered commands and row/save outcomes before comparing
+stage counts/distributions. Baseline revisions without fine timings can supply only
+retained counts/elapsed results; do not fabricate stage measurements. Use distinct
+new lab plans/confirmations, preserve authority/replay state, and perform report-only
+recovery with the documented `report` command. No live configuration or credentials
+were used by Codex. Windows deterministic results do not establish Linux or owner
+lab performance; all three families require owner validation of these optimizations.

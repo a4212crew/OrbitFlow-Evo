@@ -6,6 +6,7 @@ import time
 from time import sleep
 
 from orbitflow.config import ExecutionConfig
+from orbitflow.timing import measured
 
 from paramiko import AuthenticationException, BadHostKeyException
 from paramiko.ssh_exception import NoValidConnectionsError
@@ -41,6 +42,7 @@ connection_retry_delay = ContextVar(
     "connection_retry_delay", default=ExecutionConfig().connection_retry_delay)
 
 
+@measured('connection_retry_wait')
 def wait_before_connection_retry():
     """Back off after failed-attempt cleanup without holding the pacing lock."""
     delay = connection_retry_delay.get()
@@ -48,6 +50,7 @@ def wait_before_connection_retry():
         sleep(delay)
 
 
+@measured('connection_admission_wait')
 def wait_for_connection_start():
     (connection_pacer.get() or _default_pacer).wait()
 
