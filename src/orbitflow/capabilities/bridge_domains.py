@@ -50,7 +50,7 @@ class BridgeSnapshot:
 
 
 def parse_bridge_domains(output):
-    """Parse supplied summary output without treating service references as ports."""
+    """Parse summary attachments; known VFI sections are supported only when empty."""
     if re.search(r'(?i)invalid input|error:|--more--|unknown command', output):
         raise ValueError('Bridge collection failed or incomplete')
     domains, header, attachments, counts, section = [], None, [], [], ''
@@ -69,12 +69,14 @@ def parse_bridge_domains(output):
         if header is None:
             continue
         if line.startswith('List of '):
-            if line not in {'List of ACs:', 'List of Access PWs:'}:
+            if line not in {'List of ACs:', 'List of Access PWs:', 'List of VFIs:', 'List of Access VFIs:'}:
                 raise ValueError('Unsupported bridge attachment section')
             section = line
             continue
         if not line:
             continue
+        if section in {'List of VFIs:', 'List of Access VFIs:'}:
+            raise ValueError('Unsupported nonempty bridge VFI section')
         count = re.search(r'(Static|BVI) MAC addresses:\s*(\d+)', line)
         pw = re.fullmatch(r'Neighbor (\S+) pw-id (\d+), state: (\w+)(?:, Static MAC addresses: \d+)?(?:, backup)?', line)
         ac = re.fullmatch(r'(\S+), state: (\w+)(?:, (?:Static|BVI) MAC addresses: \d+)?', line)

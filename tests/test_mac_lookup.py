@@ -329,8 +329,7 @@ Bridge group: G2, bridge-domain: SAME, id: 1, state: down
         assert not enrich(table, context, (), state, BridgeSnapshot(bridges.domains + duplicate.domains))[0].vlans
 
 
-def test_bridge_complete_summary_and_empty_sections():
-    output = '''Bridge group: G, bridge-domain: D, id: 0, state: up
+BRIDGE_SUMMARY = '''Bridge group: G, bridge-domain: D, id: 0, state: up
  ACs: 9 (8 up), VFIs: 0, PWs: 0 (0 up), PBBs: 0 (0 up), VNIs: 0 (0 up)
  List of ACs:
  BV545, state: up, BVI MAC addresses: 1
@@ -338,19 +337,55 @@ def test_bridge_complete_summary_and_empty_sections():
  Te0/0/0/20.445, state: unresolved
  List of Access PWs:
  Neighbor 192.0.2.1 pw-id 445, state: down, backup
+ List of VFIs:
+ List of Access VFIs:
 Bridge group: G, bridge-domain: EMPTY, id: 1, state: down
  ACs: 0 (0 up), VFIs: 0, PWs: 0 (0 up), PBBs: 0 (0 up), VNIs: 0 (0 up)
  List of ACs:
  List of Access PWs:
+ List of VFIs:
+ List of Access VFIs:
 '''
-    domains = parse_bridge_domains(output).domains
+
+
+def test_bridge_complete_summary_and_empty_sections():
+    domains = parse_bridge_domains(BRIDGE_SUMMARY).domains
     assert dict(domains[0].counts) == {'ACs': 9, 'ACs up': 8, 'VFIs': 0, 'PWs': 0, 'PWs up': 0, 'PBBs': 0, 'PBBs up': 0, 'VNIs': 0, 'VNIs up': 0}
     assert domains[1].attachments == ()
     assert domains[0].attachments[-1].backup
     assert domains[0].attachments[2].state == 'unresolved'
 
 
-@pytest.mark.parametrize('content', ['nonsense-truncated', 'Te0/0/0/19.445, state:', 'Neighbor 192.0.2.1 pw-id 1, state: up', 'List of VFIs:\n vfi, state: up'])
+@pytest.mark.parametrize('content', ['nonsense-truncated', 'Te0/0/0/19.445, state:', 'Neighbor 192.0.2.1 pw-id 1, state: up', 'List of VFIs:\n vfi, state: up', 'List of Access VFIs:\n Te0/0/0/19.445, state: up', 'List of VFIs:\n Neighbor 192.0.2.1 pw-id 1, state: up', 'List of Unknowns:'])
 def test_bridge_rejects_malformed_or_wrong_section(content):
     with pytest.raises(ValueError):
         parse_bridge_domains('Bridge group: G, bridge-domain: D, id: 0, state: up\n List of ACs:\n ' + content)
+
+
+def test_ncs_collection_vlan_match_survives_empty_vfi_sections(monkeypatch):
+    import orbitflow.mac_lookup as app
+    @contextmanager
+    def connect(*args, **kwargs):
+        yield object()
+    @contextmanager
+    def cli(*args):
+        yield NS(run_command=lambda command, **kwargs: BRIDGE_SUMMARY)
+    context = NS(platform='cisco_xr', device_family='NCS540', hostname='lab', hardware_model='NCS540')
+    profile = NS(interface_name='TenGigE0/0/0/19.445', service_details=(),
+                 service_mappings=('860 -> D',), service_binding_name='G/D', service_binding_type='bridge-domain', port_type='service')
+    table = parse_mac_table(XR.splitlines()[0] + '\naabb.ccdd.eeff dynamic Te0/0/0/19.445 N/A N/A N/A', 'cisco_xr')
+    monkeypatch.setattr(app, 'connect_device', connect)
+    monkeypatch.setattr(app, 'DeviceCLI', cli)
+    @contextmanager
+    def operational_cli(*args, **kwargs):
+        yield kwargs['cli']
+    monkeypatch.setattr('orbitflow.vendors.mac_tables.operational_cli', operational_cli)
+    monkeypatch.setattr(app.DeviceInventoryResolver, 'resolve', lambda *a, **k: context)
+    monkeypatch.setattr(app.MacService, 'collect', lambda *a, **k: table)
+    monkeypatch.setattr(app.InterfaceService, 'collect', lambda *a, **k: [NS(port_name='TenGigE0/0/0/19')])
+    monkeypatch.setattr(app.VlanService, 'collect', lambda *a, **k: NS(interfaces=[profile]))
+    result = app.collect_device(dict(management_ip='192.0.2.1', username='fixture', password='fixture'), None, None, vlan=860)
+    assert result[0] == [['192.0.2.1', 'lab', 'NCS540', 'TenGigE0/0/0/19', 'Unknown', 'aa:bb:cc:dd:ee:ff']]
+    assert result[1][0][4:6] == ['G/D', '860']
+    assert result[3] == []
+    assert result[4]

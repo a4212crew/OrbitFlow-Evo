@@ -39,8 +39,10 @@ handles XR local, remote tuple and routed internal-ID destinations. Results are
 tuples: zero and multiple results remain unresolved. Domains expose attachments,
 state and counts; references do not create InterfaceRecords. Counts retain reported
 ACs/VFIs/PWs/PBBs/VNIs totals and `<kind> up` values without comparison.
-Malformed attachment content and unsupported sections raise ValueError; recognized
-empty AC/PW sections succeed.
+Malformed AC/PW content, unknown section headings and nonempty VFI sections raise
+ValueError. Known `List of VFIs:` and `List of Access VFIs:` headings are valid
+empty boundaries, including consecutive sections and trailing sections; no VFI
+forwarding semantics are inferred. Empty AC/PW sections also succeed.
 
 `resolve_attachment(attachment, platform, interfaces, vlans=None)` returns
 attachment/physical/classification/port_type/semantics. `enrich(snapshot, context,

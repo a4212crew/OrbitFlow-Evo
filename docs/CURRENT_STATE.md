@@ -883,6 +883,7 @@ Independent MAC and XR bridge-domain services/pure parsers, observed-parent reso
 
 Issue #130 review revision: XR MAC VLAN proofs now require exact operational and
 configured group/domain agreement; bridge summaries preserve reported total/up
-counts and reject malformed attachment sections. Search output correlates each
-match with its own identity and physical/type details. Deterministic validation
+counts and reject malformed attachment sections. Known empty VFI/Access VFI
+sections are accepted; nonempty VFI content remains explicitly unsupported. Search
+output correlates each match with its own identity and physical/type details. Deterministic validation
 is recorded in the October devlog; owner live validation remains pending.
