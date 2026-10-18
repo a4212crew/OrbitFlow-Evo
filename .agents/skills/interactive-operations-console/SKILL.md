@@ -6,7 +6,7 @@ description: Use when creating or changing the interactive operator menu, shared
 # Interactive Operations Console
 
 ## Status and source of truth
-Owner-approved design: [architecture](../../../docs/architecture/interactive-operations-console.md). Implementation is proposed in Issue #123 / PR #124 on the development branch, with Codex-reported deterministic Windows tests passing; the PR is **not merged**, and Linux and owner-operated live validation remain pending. Do not describe the console as available on `main` until merged. Verify actual source, tests and supported scripts before claiming implemented or validated behavior. Follow `AGENTS.md` and the documentation-management skill.
+Owner-approved design: [architecture](../../../docs/architecture/interactive-operations-console.md). Implementation from Issue #123 / PR #124 was merged to `main` on 2026-10-18. Codex-reported Windows deterministic tests passed; owner-operated Windows lab validation confirmed planning and C3750X/EdgeSwitch execution with 36 verified rows and two saved devices. Linux operator validation and broader platform/failure-path live validation remain pending. The C3750X access-VLAN fallback investigation and compact Excel formatting are deferred. Verify actual source, tests and supported scripts before claiming implemented or validated behavior. Follow `AGENTS.md` and the documentation-management skill.
 
 ## Boundaries
 - Interactive console is a thin adapter over existing application/services and stable user-executable CLIs, **not** another transport, parser, scheduler, vendor implementation, or configuration executor.
