@@ -1,9 +1,11 @@
 # Issue #130 protected skill reconciliation
 
-The execution permission profile grants read access to `.agents/`; Codex must not
-write there or change permissions. The following exact Markdown is required for
-Atlas to apply through the authorized documentation workflow. It has **not** been
-applied to the protected skills. This is an outstanding acceptance item.
+Atlas applied this Markdown handoff on PR #131 on 2026-10-18. The focused
+skills, console guidance and AGENTS routing are included on the PR branch;
+merge and owner live validation remain pending. Codex did not bypass the
+protected `.agents/` execution permissions. The templates below retain the
+handoff provenance; the applied skills include the reviewed XR identity,
+reported-count and known-empty-section clarifications.
 
 Create `.agents/skills/mac-observation/SKILL.md` with:
 

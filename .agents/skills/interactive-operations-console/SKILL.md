@@ -17,7 +17,15 @@ Owner-approved design: [architecture](../../../docs/architecture/interactive-ope
 - Validate required profile values and live Teleport session at the relevant operation boundary; expiration requires operator-controlled `tsh` authentication, not automatic OTP handling.
 
 ## Required menu coverage
-Main: Configuration Management; Device Inventory; Interface & VLAN Reporting; VLAN Compliance; Configuration Backup; Environment Setting; Exit.
+Main: Configuration Management; Device Inventory; Interface & VLAN Reporting; VLAN Compliance; Configuration Backup; Environment Setting; MAC Address Lookup; Exit.
+
+MAC Address Lookup (main 7; Exit 8): Search MAC Address; List All MAC Addresses;
+Back. Exactly two feature actions. No backend collectors or regeneration submenu
+choice. Search validates dotted/colon MAC and exact workbook IP before network
+confirmation; no concurrency prompt. List validates VLAN 1-4094, reuses all/subset
+workbook selection and per-run concurrency 1-5 blank=1. Both reuse profile and
+Teleport checks/cancellation. Existing profile schema is unchanged. Output under
+outputs/reports/mac_table; recovery via direct API/CLI only. See the [MAC manual](../../../docs/user_manual/mac-address-lookup.md).
 
 Configuration Management: Generate Input Template; Generate Configuration Plan; Execute Approved Plan; Review Executed Plan; Regenerate Execution Report; Back. Do not add a separate Review Plans option. VLAN Compliance: standard run, run with methodology, offline export/regeneration, Back. See architecture for paths and interaction contracts.
 

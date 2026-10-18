@@ -65,6 +65,8 @@ Use this table to choose the skill(s) directly relevant to the task. Start there
 | Excel/list input and credential precedence | `.agents/skills/excel-inventory/SKILL.md` |
 | Interface collection/parsing/change tracking | `.agents/skills/interface-collector/SKILL.md` |
 | VLAN observation and VLAN state | `.agents/skills/vlan-observation/SKILL.md` |
+| MAC observation, snapshot lookups and exact attachment/physical/VLAN composition | `.agents/skills/mac-observation/SKILL.md` |
+| IOS-XR operational bridge-domain attachment observation and exact lookups | `.agents/skills/bridge-domain-observation/SKILL.md` |
 | Saved-configuration VLAN audit/compliance, family-specific relationship validation, audit findings | `.agents/skills/vlan-configuration-audit/SKILL.md` |
 | Interface/VLAN Excel reporting and batch report composition | `.agents/skills/device-reporting/SKILL.md` |
 | Runtime/module logging and dependency-log routing | `.agents/skills/runtime-logging/SKILL.md` |

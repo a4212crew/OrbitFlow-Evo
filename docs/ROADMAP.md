@@ -77,4 +77,4 @@ Owner live/lab validation and protected skill reconciliation remain pending.
 
 ## MAC lookup delivery (Issue #130)
 
-Read-only MAC snapshots, operational XR attachment lookup, exact mapping, two-action operator workflow and offline workbook recovery are implemented with deterministic sample tests. Owner-operated family/Linux validation and protected skill reconciliation remain pending. See [manual](user_manual/mac-address-lookup.md) for exact limitations; no device writes or peer following are included.
+Read-only MAC snapshots, operational XR attachment lookup, exact mapping, two-action operator workflow and offline workbook recovery are implemented with deterministic sample tests. Owner-operated family/Linux validation remains pending; MAC/bridge-domain skill routing is included on this PR branch. See [manual](user_manual/mac-address-lookup.md) for exact limitations; no device writes or peer following are included.

@@ -96,4 +96,5 @@ Issue #117 [revision handoff history](operations/issue-117-revision-handoff.md):
 - [Operator guide](user_manual/mac-address-lookup.md)
 - [Supported Python API](operations/mac-address-lookup-api.md)
 - [Architecture contract](architecture/mac-address-lookup.md)
-- [Protected skill changes for Atlas](operations/mac-lookup-atlas-skill-handoff.md) (pending)
+- [Skill reconciliation record](operations/mac-lookup-atlas-skill-handoff.md) (applied on this PR branch)
+- Backend guidance: [MAC observation](../.agents/skills/mac-observation/SKILL.md) and [bridge-domain observation](../.agents/skills/bridge-domain-observation/SKILL.md)
