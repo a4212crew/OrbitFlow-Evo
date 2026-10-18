@@ -90,3 +90,11 @@ The documentation structure was merged in PR #110. This index tracks current can
 - [Issue #117 protected skill correction handoff](operations/issue-117-skill-corrections.md): historical filesystem denial; scoped skill corrections completed by Atlas on PR #118.
 
 Issue #117 [revision handoff history](operations/issue-117-revision-handoff.md): scoped skill corrections completed by Atlas after iteration 4; owner validation remains pending.
+
+## MAC Address Lookup (Issue #130)
+
+- [Operator guide](user_manual/mac-address-lookup.md)
+- [Supported Python API](operations/mac-address-lookup-api.md)
+- [Architecture contract](architecture/mac-address-lookup.md)
+- [Skill reconciliation record](operations/mac-lookup-atlas-skill-handoff.md) (applied on this PR branch)
+- Backend guidance: [MAC observation](../.agents/skills/mac-observation/SKILL.md) and [bridge-domain observation](../.agents/skills/bridge-domain-observation/SKILL.md)

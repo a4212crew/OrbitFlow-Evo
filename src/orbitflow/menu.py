@@ -421,6 +421,67 @@ class Console:
             result = exporter(run, self.output(root, kind), **kwargs)
         self.write(str(result))
 
+    def mac_lookup(self, search=False):
+        """Two user operations over the shared read-only MAC application."""
+        from orbitflow.mac_lookup import normalize_mac, validate_vlan, resolve_target, run_lookup, TargetResolutionError
+        from orbitflow.targets import load_targets
+        from orbitflow.transport import TransportConfig
+        mac, vlan, address = None, None, None
+        if search:
+            value = self.ask('MAC (aabb.ccdd.eeff or aa:bb:cc:dd:ee:ff; b cancels): ')
+            with diagnostic('Invalid MAC. Use dotted or colon notation.'):
+                if '-' in value:
+                    raise ValueError()
+                mac = normalize_mac(value)
+            with diagnostic('Invalid device IP address.'):
+                address = str(ip_address(self.ask('Device IP (b cancels): ')))
+        else:
+            with diagnostic('Invalid VLAN. Enter a number from 1 through 4094.'):
+                vlan = validate_vlan(self.ask('VLAN (b cancels): '))
+        settings = self.settings()
+        devices = self.choose_file('Device workbook', settings['paths']['devices'])
+        if search:
+            with diagnostic('Invalid device workbook. Check required device and credential columns.'):
+                loaded = load_targets(devices, isolate_invalid=True)
+            try:
+                target = resolve_target(loaded, address)
+            except TargetResolutionError as error:
+                raise OperatorError(str(error)) from None
+            self.write(f'Read-only MAC search; target={address}; output=outputs/reports/mac_table')
+            if self.ask('Continue network operation? [y/N]: ').lower() != 'y':
+                raise Cancelled()
+            with diagnostic('Teleport session unavailable or expired. Run tsh login externally.'):
+                self.session_check(settings)
+            validate_paths(settings)
+            targets, transport, execution = [target], TransportConfig(**settings['teleport']), ExecutionConfig(1, **settings['execution'])
+        else:
+            targets, transport, execution = self.network(settings, devices, 'Read-only MAC VLAN listing; output=outputs/reports/mac_table')
+        with self.activity('Collecting MAC addresses'):
+            result = run_lookup(targets, transport, mac=mac, vlan=vlan,
+                                inventory_path=settings['paths']['inventory'], execution_config=execution)
+        self.write(f'Output: {result}; inspect Details, Totals and Run Errors for mapping and collection limits.')
+        if search:
+            from openpyxl import load_workbook
+            from orbitflow.logging import sanitize_text
+            book = load_workbook(result, read_only=True)
+            try:
+                matches = 0
+                for row in book['Details'].iter_rows(min_row=2, values_only=True):
+                    if row[2] == mac and row[10].endswith('; selected'):
+                        self.write(sanitize_text(f'Observation {row[0]}; MAC {row[2]}; attachment {row[3]}; '
+                                                 f'domain {row[4] or "unknown"}; mapping {row[10]}; '
+                                                 f'Physical interface: {row[13] or "unresolved/nonphysical"}; '
+                                                 f'Port Type: {row[14]}; classification {row[11]}'))
+                        matches += 1
+                errors = list(book['Run Errors'].iter_rows(min_row=2, values_only=True))
+                if any(row[1] == 'collection' for row in errors):
+                    self.write('MAC collection failed; no successful no-match result is available.')
+                elif not matches:
+                    self.write('No matching MAC observations.')
+                self.write(f'Matches: {matches}; collection/enrichment errors: {len(errors)}.')
+            finally:
+                book.close()
+
     def review(self):
         root = Path('outputs/reports/configuration_execution')
         if self.profile.exists():
@@ -491,15 +552,18 @@ class Console:
         actions = [('Configuration Management', lambda: self.submenu('Configuration Management', configuration)),
                    ('Device Inventory', lambda: workflow('inventory')), ('Interface & VLAN Reporting', lambda: workflow('report')),
                    ('VLAN Compliance', lambda: self.submenu('VLAN Compliance', compliance)),
-                   ('Configuration Backup', lambda: workflow('backup')), ('Environment Setting', self.setup)]
+                   ('Configuration Backup', lambda: workflow('backup')), ('Environment Setting', self.setup),
+                   ('MAC Address Lookup', lambda: self.submenu('MAC Address Lookup', [
+                       ('Search MAC Address', lambda: self.mac_lookup(True)),
+                       ('List All MAC Addresses', self.mac_lookup)]))]
         try:
             while True:
                 self.write('')
-                self.write('\n'.join(f'{i}. {label}' for i, (label, _) in enumerate(actions, 1)) + '\n7. Exit')
+                self.write('\n'.join(f'{i}. {label}' for i, (label, _) in enumerate(actions, 1)) + f'\n{len(actions)+1}. Exit')
                 choice = self.ask('Selection: ')
-                if choice == '7':
+                if choice == str(len(actions)+1):
                     return
-                if choice.isdigit() and 1 <= int(choice) <= 6:
+                if choice.isdigit() and 1 <= int(choice) <= len(actions):
                     self.safe(actions[int(choice)-1][1])
                 else:
                     self.write('Invalid selection.')

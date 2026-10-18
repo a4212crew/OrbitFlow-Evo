@@ -26,7 +26,7 @@ The only option is `--profile PATH` (optional Path, default `data/sys_config/con
 
 ## Menus
 
-Main: Configuration Management; Device Inventory; Interface & VLAN Reporting; VLAN Compliance; Configuration Backup; Environment Setting; Exit.
+Main: Configuration Management; Device Inventory; Interface & VLAN Reporting; VLAN Compliance; Configuration Backup; Environment Setting; MAC Address Lookup; Exit.
 
 Configuration Management: Generate Input Template; Generate Configuration Plan; Execute Approved Plan; Review Executed Plan; Regenerate Execution Report; Back. There is no Review Plans action: edit only Engineer Decision cells in the generated workbook outside the console.
 
@@ -124,3 +124,9 @@ Owner-operated validation remains pending and requires a separately authorized f
 ## Owner-operated lab validation (2026-10-18)
 
 Owner-operated Windows lab validation on 2026-10-18: read-only planning completed 4/4 observed targets; confirmed execution at concurrency 2 completed 2/2 devices, all 36 selected rows Verified, 10 skipped, both device saves Saved, execution report exported, and the console returned to its menu (245.3s total). Detailed per-row events and slow-stage wait notifications were observed. This validates that specific C3750X/EdgeSwitch lab run, not every platform or failure path. C3750X access-port verification still emitted ACCESS_VLAN_CONFIG_FALLBACK warnings despite Verified results; diagnosis is deferred. Linux operator validation remains pending.
+
+Issue #130 adds main item 7 MAC Address Lookup (Exit becomes 8), with exactly Search MAC Address, List All MAC Addresses and Back. Search validates MAC/IP before network and resolves one workbook row; List prompts VLAN, all/subset targets and nonpersistent concurrency 1-5 blank=1. Both use the current profile, external Teleport authentication and confirmation/cancellation. No profile keys changed. See [MAC operator guide](mac-address-lookup.md) for output, API/CLI recovery and pending live-validation limits.
+
+MAC search displays each selected observation as one keyed record containing MAC,
+full attachment, domain/mapping, physical interface and port type. Multiple matches
+remain correlated on their own lines; see the [MAC manual](mac-address-lookup.md).

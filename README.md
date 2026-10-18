@@ -724,3 +724,5 @@ or unobserved intermediate drift detection. See the
 Synthetic ten-row collection counts fall from 22 to 3 full reads for interface
 templates and 12 to 2 for VLAN Database (including baseline/backup); these are not
 live speedup claims. Owner stage validation on all three families and Linux remain pending.
+
+Read-only [MAC Address Lookup](docs/user_manual/mac-address-lookup.md) provides single-IP search and VLAN listing through the console or direct CLI/API; owner live validation remains pending.
