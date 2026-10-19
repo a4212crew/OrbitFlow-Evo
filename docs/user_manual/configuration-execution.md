@@ -109,9 +109,10 @@ with OS permissions; backups contain sensitive full running configuration.
 
 One shared worker owns each IP/session/shell and executes worksheet/row order.
 Fresh identity/capability/privilege and state checks plus mandatory protected backup
-precede writes. Each row uses fresh consolidated stage state validation; changed CLI, target, no-op
-classification or projected result blocks that row instead of rerendering it under
-the old confirmation. This conservative behavior may require replanning after drift.
+precede writes. Issue #139 checks fresh target identity and ownership without rerunning planning.
+The approved CLI is sent unchanged even when fresh state is already correct. Changes
+to commands, no-op classification or projected state from hypothetical fresh planning
+are not execution gates; no replacement CLI is generated.
 Earlier verified stage changes are observed before subsequent stages; failed dependencies
 are Not executed. Missing/unknown requested EdgeSwitch PVID/Include/tagging database
 prerequisites block that port row. They never implicitly create VLANs.
@@ -402,7 +403,7 @@ Transport and standalone capability diagnostics retain their existing ownership.
 Stages cover connection/admission/retry wait, shell setup, identification, initial
 preflight, protected backup collection/write, full observation, interface collection,
 VLAN/config collection, normalized snapshot/reuse, VLAN lookup, scoped evidence,
-pre-row planning/drift checks, mode validation, every approved command and underlying
+pre-row target checks, mode validation, every approved command and underlying
 CLI exchange, post-row verification, independent save, row/device/run totals.
 Failed exchanges retain category/outcome; uncertain sends and interrupted totals are
 Unknown. A Completed run total means collection finished, not all rows Verified.
@@ -518,8 +519,8 @@ drift detection between reads, nor individually observed intermediate effects in
 a stage.** Required target/preservation evidence still fails closed. Full collection
 is retained for interface stages; no scoped configuration parser or new device command
 has been introduced. Unrelated out-of-scope external changes are not globally compared
-or adopted as trusted baseline changes. They can remain undetected until a later target
-check; changes made and reverted between reads can escape detection.
+against a planning baseline. They can remain undetected; changes made and reverted
+between reads can escape detection.
 
 Each device worker retains selected worksheet-left-to-right, row-top-to-bottom order.
 It forms maximal contiguous stages of the same template with independent normalized
@@ -529,12 +530,16 @@ appearances never merge. EVC remains planning-only, outside executor support.
 
 One full initial observation follows fresh identity/privilege checks; independent
 protected backup completes before writes. This initial observation supplies the first
-stage's precheck. Later stages take one fresh full observation and compare relevant
-normalized target/configuration/description/VLAN facts to the device-owned trusted
-baseline. The baseline is bounded to 8 MiB of serialized facts and advances only for
-successfully verified targets. External target drift blocks the affected row. Every
-row's exact approved commands, no-op flag, resolved target and complete projected
-result are compared with a fresh plan; EdgeSwitch prerequisites are checked per row.
+stage's precheck. Later stages take one fresh full observation. Issue #139 removes
+trusted-baseline equality and fresh planner/command/no-op/projected-state comparisons.
+Fresh interface records and declarations must uniquely identify both source and
+approved resolved target. Catalyst access cannot target a physical bundle member;
+trunks must retain the approved, evidenced Port-channel owner without ownership
+conflicts. Known routed/access/trunk conversion and unresolved methodology hazards
+still block port changes. Description stays on its approved physical interface.
+EdgeSwitch port ownership and requested database prerequisites remain checked per row.
+Ordinary planning warnings create no additional execution gate. Original v1/v2
+planning validation and immutable source integrity checks remain unchanged.
 All candidate prechecks and fsynced per-row pre-config records precede stage writes.
 A failed check blocks that row; trustworthy independent rows may continue.
 
@@ -771,3 +776,48 @@ reject this sandbox OS-temp root under `/tmp` because a Git marker is present
 in its ancestry. This is not a controller gate pass; its independent result is
 unavailable here. No temp safeguard was changed. Windows automated testing and
 owner Linux C3750X/C3850/EdgeSwitch live validation remain pending.
+
+
+### Simplified approved execution — Issue #139
+
+Confirmed execution consumes original approved CLI, including commands whose effect
+is already present at fresh collection. Only rows originally planned as no-op have
+no commands. Verification still compares approved intent and preserved settings to
+fresh post-stage facts; a difference can fail verification after writes without
+having blocked command delivery. Do not interpret this as continuous drift control.
+
+The existing console **Execute Approved Plan** action uses the same service and
+single batch confirmation; no new menu action, parameter or profile is needed.
+Read-only reporting, planning, inventory, transport and standalone backup APIs retain
+their defaults. Command, verification, backup and save results remain distinct in
+the durable sanitized journal/report. Rejection stops a row, failed dependencies
+block dependent rows, and lost/ambiguous SSH stops that device with no write retry.
+Save is once after attempted writes, including partial failure, only from validated
+privileged EXEC on a usable owned shell.
+
+Automated fixtures are separate from pending owner/live validation on C3750X,
+C3850 and EdgeSwitch. The focused Issue #139 command (Bash with `PYTHONPATH=src`,
+or PowerShell after `$env:PYTHONPATH = "$PWD/src"`) is:
+
+```text
+python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_execution_observation_timing.py tests/test_shared_cli.py tests/test_configuration_backup.py tests/test_operations_console.py -q
+```
+
+Use the Linux/Windows full-suite commands above with a writable OS temporary
+directory outside every Git worktree. A nonzero full-suite exit is
+FAILED even when all failures arise from that temp guard. The independent controller
+gate must be evidenced by its tested revision, command, zero exit and captured output;
+this worker cannot claim a future controller gate passed. Do not disable guards.
+Atlas final documentation reconciliation after PR review remains pending, including
+read-only `.agents/` skill wording; preserve PR #136's #134/#135 validation history.
+
+
+Issue #139 automated Linux sandbox evidence: **591 focused tests passed (14.23s)**.
+Final full suite **FAILED: 3,062 passed / 25 failed (114.12s), exit 1**; all failures
+are orchestration tests blocked by the Git-marked OS-temp root. Guards were retained.
+The separate clean controller gate is pending; prior #134/#135 owner validation
+and PR #136 records do not establish validation of this revision.
+
+#### Issue #139 — owner Linux validation update (2026-10-20)
+
+From the clean `codex/issue-139` worktree at original implementation head `481e712c`, with `PYTHONPATH` pointing at that worktree's `src`, the owner ran the focused suite covering execution, stages, performance, timing, shared CLI, backup and console: **591 passed in 14.56s**. The complete Linux deterministic suite also passed: **3,087 passed in 117.23s**. These are owner-reported automated results and supersede the earlier sandbox-only full-suite failure for the owner's Linux environment; they do **not** establish successful live configuration application or Windows regression results. Existing explicit summary confirmation, protected pre-change backup, interface ownership checks and privileged EXEC-only save remain mandatory. For operator-controlled live validation, use only a newly reviewed, approved test plan on designated devices and never replay an uncertain interrupted run.

@@ -33,6 +33,13 @@ commands, per-row verification and partial-change saving at device-task end.
 New standalone switchport parsers/collectors preserve typed facts and independent
 EdgeSwitch Current/Configured/Tagging evidence. Incremental fsynced events and shared
 result spools support offline execution-workbook regeneration after interruption.
+Issue #139 simplifies confirmed execution: fresh target identity/ownership and known
+prerequisites remain checked; execution no longer replans or requires fresh command,
+no-op, projected-state or trusted-baseline equality. Exact approved CLI still sends
+when already correct. Stage splitting/shared observation, independent verification,
+rejection/device isolation, protected backup and EXEC-only partial save remain.
+Automated synthetic validation is separate from pending owner/live validation of
+this revision. The controller's independent final test gate remains pending.
 Issue #134 adds execution-only structural Cisco/EdgeSwitch prompt recognition,
 including changing/abbreviated host presentation and arbitrary valid submodes.
 Current echo and split-response protections remain required. Checked same-session
@@ -939,3 +946,5 @@ attachment (including remote tuples, Drop and unresolved LAG/IP-like destination
 This fallback is display only: Details physical identity stays blank when unresolved,
 raw attachment is retained, and descriptions still require exact owner evidence.
 Seven-column output and historical six-column spool recovery remain supported.
+
+Owner Linux worktree verification for Issue #139/PR #140 (head `481e712c` before Atlas documentation-only additions) passed 591 focused tests in 14.56s and the complete deterministic suite of 3,087 tests in 117.23s (2026-10-20 Australia/Melbourne). This resolves the earlier Codex sandbox-only temp-root test failures for the owner Linux environment; Windows tests and new owner/live-device validation for Issue #139 remain unverified. The reviewed PR is not itself evidence of live device behavior.

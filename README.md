@@ -716,7 +716,8 @@ Confirmed console execution additionally shows sanitized per-device/row stages a
 Issue #125 adds correlated monotonic stage/CLI/receive timing and ordered contiguous
 template-stage execution for all eleven supported C3750X/C3850/EdgeSwitch templates.
 Independent rows share fresh full stage observations; overlap/dependencies split
-stages, and verified target facts alone advance the trusted baseline. Exact approved
+stages. Issue #139 removes execution replanning and trusted-baseline equality while
+retaining fresh identity/ownership, prerequisite and session safety checks. Exact approved
 commands, durable row provenance, protected backup and independent partial-change
 save remain. Stage final-state verification does not claim continuous whole-device
 or unobserved intermediate drift detection. See the
@@ -749,3 +750,10 @@ cover the Linux C3750X incident and immediate completion with zero new per-comma
 delay. No silence waits, retries or timeout extensions are added. Owner Linux/C3850/EdgeSwitch
 validation remains pending.
 See [Linux/Windows tests and owner verification](docs/user_manual/configuration-execution.md#flexible-execution-prompts-issue-134).
+
+
+Issue #139 sends original approved configuration commands even when fresh state is
+already correct, with shared stage verification and EXEC-only partial save retained.
+Automated regression evidence and owner validation status are recorded in the
+[execution manual](docs/user_manual/configuration-execution.md#simplified-approved-execution--issue-139).
+Owner/live validation of this revision is pending.

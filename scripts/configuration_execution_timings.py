@@ -14,7 +14,7 @@ import re
 import sys
 from pathlib import Path
 
-STAGES = frozenset('template_stage stage_pre_observation stage_post_observation row_apply connection connection_admission_wait connection_retry_wait shell_setup identification initial_preflight protected_backup_collection protected_backup_write pre_row_observation pre_row_plan pre_row_drift_checks scoped_evidence approved_command mode_recovery_command mode_validation post_row_verification row_verification full_observation interface_collection vlan_config_collection normalized_snapshot snapshot_reuse vlan_lookup configuration_read cli_command save_exchange device_save row_total device_total run_total'.split())
+STAGES = frozenset('template_stage stage_pre_observation stage_post_observation row_apply connection connection_admission_wait connection_retry_wait shell_setup identification initial_preflight protected_backup_collection protected_backup_write pre_row_observation pre_row_plan pre_row_drift_checks pre_row_target_checks scoped_evidence approved_command mode_recovery_command mode_validation post_row_verification row_verification full_observation interface_collection vlan_config_collection normalized_snapshot snapshot_reuse vlan_lookup configuration_read cli_command save_exchange device_save row_total device_total run_total'.split())
 CATEGORIES = frozenset('- session_setup configuration_read vlan_read interface_read mode approved_or_other'.split())
 DIMENSIONS = ('run_id', 'device_family', 'management_ip', 'template_id', 'row_id', 'stage_id')
 MAX_SAMPLES = 100_000

@@ -352,9 +352,11 @@ there is no additional confirmation or menu workflow.
 
 `confirm` uses the same selected device row order and shared worker/session ownership.
 There is no new caller setting or confirmation. Internal stage formation splits at
-changed templates, source/resolved target overlap and row dependencies. Relevant
-fresh facts are compared against a bounded device baseline that advances verified
-changes only. Failed prechecks block affected writes. Usable independent targets may
+changed templates, source/resolved target overlap and row dependencies. Fresh
+normalized interface identity/ownership and known prerequisites are checked without
+planning, rendering or trusted-baseline equality. Approved CLI still sends when fresh
+state would be a no-op. Original no-op rows remain command-free. Source plan integrity
+validation is unchanged. Failed safety prechecks block affected writes. Usable independent targets may
 continue after rejection; uncertain session outcomes remain Unknown. Stage final
 state is attributed to each independent target; overlap is observed in separate stages.
 
