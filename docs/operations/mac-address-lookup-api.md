@@ -47,7 +47,7 @@ forwarding semantics are inferred. Empty AC/PW sections also succeed.
 `resolve_attachment(attachment, platform, interfaces, vlans=None)` returns
 attachment/physical/classification/port_type/semantics. `enrich(snapshot, context,
 interfaces=(), vlans=None, bridges=None)` returns one EnrichedMac per input entry,
-including normalized domains (XR: full group/domain), VLANs and explicit mapping outcome.
+including an optional `description` (default blank), normalized domains (XR: full group/domain), VLANs and explicit mapping outcome.
 XR VLAN proof requires the exact normalized configured bridge-domain binding
 identity to agree with the unique operational group/domain, for local and remote
 MAC destinations. Same domain names in different groups do not prove a match. `lookup_vlan`
@@ -88,6 +88,22 @@ Application entry points in `orbitflow.mac_lookup`:
 Direct API callers supply credentials through normal target/transport interfaces;
 never put them in source or logs. Known target credentials are removed from persisted
 normalized values. Details includes full display Observed Attachment and separate
-Raw Attachment; the six main columns are unchanged. Empty operational domains
+Raw Attachment; the first six main columns retain their headers, values and order; Interface Description is appended seventh. Empty operational domains
 retain a Bridge Domains row with blank attachment identity fields and supplied counts.
 Export failure preserves the spool and propagates the error.
+
+
+Issue #132 / PR #133 owner revision supersedes the previous six-column main-sheet
+promise: `Interface Description` is appended after `Mac address`; supporting sheets
+are unchanged. Descriptions join by exact canonical identity to the verified
+physical or logical aggregate owner, using InterfaceService `port_description`
+and/or VlanService interface `description`. EFP/subinterface rows use the resolved
+parent description; child and arbitrary aggregate-member text is not inherited.
+Conflicting nonempty owner descriptions, missing evidence, CPU/remote/Drop/SVI,
+and unresolved destinations produce blank descriptions. Optional evidence failures
+preserve MAC collection and counts. No description is inferred from VLAN/BD,
+suffix or peer identifiers. Sanitization/redaction and literal-text Excel cells
+also apply to descriptions beginning with `=`, `+`, `-` or `@`.
+Offline recovery preserves descriptions; historical six-value spool rows export
+with a blank seventh cell. Automated regressions cover supported families and
+recovery; operator read-only Linux/Windows validation remains pending.

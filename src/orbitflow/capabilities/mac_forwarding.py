@@ -85,6 +85,25 @@ class EnrichedMac:
     domains: tuple[str, ...]
     vlans: tuple[int, ...]
     mapping: str
+    description: str = ""
+
+
+def interface_description(resolution, platform, interfaces=(), vlans=None):
+    """Return unanimous exact owner description; child/member text is never inherited.
+
+    Only independently resolved physical/aggregate identities qualify. Missing
+    descriptions are optional; conflicting nonempty observations fail closed.
+    Subinterfaces/EFPs deliberately use the resolved parent, preserving provenance.
+    """
+    if not resolution.physical or resolution.classification not in {'physical', 'aggregate'}:
+        return ''
+    key = lambda name: canonical_interface_name(platform, name)
+    owner = key(resolution.physical)
+    values = {i.port_description for i in interfaces
+              if key(i.port_name) == owner and getattr(i, 'port_description', '')}
+    values.update(p.description for p in (() if vlans is None else vlans.interfaces)
+                  if key(p.interface_name) == owner and getattr(p, 'description', ''))
+    return next(iter(values)) if len(values) == 1 else ''
 
 
 def lookup_vlan(observations, vlan):
@@ -149,5 +168,6 @@ def enrich(snapshot, context, interfaces=(), vlans=None, bridges=None):
             tags.update(xr_untagged_peer_vlan(getattr(vlans, 'configuration', ()),
                                             context.platform, entry.attachment, domains[0]))
         result.append(EnrichedMac(entry, resolution, domains, tuple(sorted(tags)),
-                                  'resolved' if tags else 'unknown VLAN mapping'))
+                                  'resolved' if tags else 'unknown VLAN mapping',
+                                  interface_description(resolution, context.platform, interfaces, vlans)))
     return tuple(result)

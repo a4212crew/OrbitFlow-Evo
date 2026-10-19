@@ -33,7 +33,7 @@ OTPs and private key contents must never enter the profile or command arguments.
 
 One timestamp/UUID workbook per run appears in `outputs/reports/mac_table/`.
 The main **MAC Addresses** sheet has exactly, in order: Device IP; Device Name;
-Equipment Type; Physical Interface name; Port Type; Mac address. Equipment Type
+Equipment Type; Physical Interface name; Port Type; Mac address; Interface Description. Equipment Type
 uses observed hardware model, falling back to family. Each observation gets its own
 row, including repeated MACs and four separate rows for four entries on one trunk.
 **Details** keys observations by target position/IP/source position, with selected per-device row
@@ -100,8 +100,7 @@ match VLANs. Parents absent from both observed and configured interface facts ca
 aggregate ownership; EdgeSwitch `3/N` maps to `lag N` only with one exact
 independently observed/configured aggregate identity. Missing or ambiguous
 identity stays blank/Unknown, even with member references. An evidenced logical
-aggregate occupies the existing Physical Interface name column; no column is added
-and no physical member is selected. Raw `3/N` and IfIndex remain in Details. Management
+aggregate occupies the existing Physical Interface name column; no physical member is selected. Raw `3/N` and IfIndex remain in Details. Management
 `5/1` stays nonphysical. Explicit trunk-only configuration preserves port intent
 with no inferred VLAN membership. ME3600X/ASR920 use shared validated access,
 EVC/trunk, hybrid and review classifications. XR untagged ACs associate only when
@@ -175,7 +174,7 @@ For pending operator read-only verification, use the Bash/PowerShell search/list
 and offline export commands above with authorized lab inputs. Include EdgeSwitch
 3/1, 3/2 and 3/5, management 5/1, EFP encapsulation different from SI/BD, CPU/PW,
 SVI/Port-channel and an XR untagged AC with zero/one/multiple peer tags. Verify
-six main columns, one row per source observation, exact filters, Details evidence,
+seven main columns, one row per source observation, exact filters, Details evidence,
 Totals, Run Errors, Bridge Domains and recovery export. Missing/ambiguous evidence
 must stay Unknown; run partial/failure scenarios before accepting completeness.
 Automated fixtures do not establish live-device or Windows validation.
@@ -212,3 +211,19 @@ when finished. The focused command above and operator search/list/export command
 remain applicable. For EdgeSwitch compare present, absent and ambiguous LAG
 identities against independent interface/configuration evidence, including management
 `5/1`; raw MAC destinations alone must not establish aggregate existence.
+
+
+Issue #132 / PR #133 owner revision supersedes the previous six-column main-sheet
+promise: `Interface Description` is appended after `Mac address`; supporting sheets
+are unchanged. Descriptions join by exact canonical identity to the verified
+physical or logical aggregate owner, using InterfaceService `port_description`
+and/or VlanService interface `description`. EFP/subinterface rows use the resolved
+parent description; child and arbitrary aggregate-member text is not inherited.
+Conflicting nonempty owner descriptions, missing evidence, CPU/remote/Drop/SVI,
+and unresolved destinations produce blank descriptions. Optional evidence failures
+preserve MAC collection and counts. No description is inferred from VLAN/BD,
+suffix or peer identifiers. Sanitization/redaction and literal-text Excel cells
+also apply to descriptions beginning with `=`, `+`, `-` or `@`.
+Offline recovery preserves descriptions; historical six-value spool rows export
+with a blank seventh cell. Automated regressions cover supported families and
+recovery; operator read-only Linux/Windows validation remains pending.

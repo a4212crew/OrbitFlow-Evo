@@ -879,7 +879,7 @@ gains. Owner stage-execution validation on all three families and Linux remain p
 
 ## MAC Address Lookup (Issue #130)
 
-Independent MAC and XR bridge-domain services/pure parsers, observed-parent resolution, normalized forwarding composition, two-action console integration and direct CLI/API report recovery are implemented. Shared scheduling, session reuse, bounded normalized spool and literal-safe six-column Excel output are reused. Focused offline sample/console validation passes; full-suite result is recorded in the October devlog. No live-device validation was performed; Issue #132 Linux offline results are recorded below. Huawei/EdgeSwitch invocation remains unconfirmed; missing/ambiguous service mappings remain explicit, never VLAN matches. Existing service-profile VLAN-1 omissions and Excel limits remain. Atlas completed MAC/bridge-domain skill routing on this PR branch; see [handoff](operations/mac-lookup-atlas-skill-handoff.md). Owner live validation and merge remain pending.
+Independent MAC and XR bridge-domain services/pure parsers, observed-parent resolution, normalized forwarding composition, two-action console integration and direct CLI/API report recovery are implemented. Shared scheduling, session reuse, bounded normalized spool and literal-safe seven-column Excel output are reused. Focused offline sample/console validation passes; full-suite result is recorded in the October devlog. No live-device validation was performed; Issue #132 Linux offline results are recorded below. Huawei/EdgeSwitch invocation remains unconfirmed; missing/ambiguous service mappings remain explicit, never VLAN matches. Existing service-profile VLAN-1 omissions and Excel limits remain. Atlas completed MAC/bridge-domain skill routing on this PR branch; see [handoff](operations/mac-lookup-atlas-skill-handoff.md). Owner live validation and merge remain pending.
 
 Issue #130 review revision: XR MAC VLAN proofs now require exact operational and
 configured group/domain agreement; bridge summaries preserve reported total/up
@@ -898,6 +898,15 @@ membership and cannot create a compliance trigger. XR MAC-only untagged fallback
 requires exact operational/configured BG/BD agreement and one distinct explicit
 peer dot1q VLAN; shared XR observations are unchanged. Offline regression evidence
 is recorded in the October devlog: review revision focused validation passed 480
-tests; full suite is not clean (2,883 passed, 25 controller temp-guard failures).
+tests; latest full suite is not clean (2,946 passed, 25 controller temp-guard failures).
 A clean external-temp rerun is blocked by sandbox filesystem permissions; operator
 live and Windows validation are pending.
+
+Issue #132 / PR #133 owner description revision supersedes the previous six-column
+MAC main-sheet promise: the existing six columns remain in order with Interface
+Description appended seventh. Exact resolved parent/aggregate owner descriptions
+come from independent interface/VLAN observations; conflicts and unverified or
+nonphysical destinations stay blank. Supporting sheets and other reports are
+unchanged. Offline recovery supports old six-value rows with a blank description.
+Deterministic description/export regressions pass; operator live and Windows
+validation remain pending.

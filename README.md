@@ -728,3 +728,10 @@ live speedup claims. Owner stage validation on all three families and Linux rema
 Read-only [MAC Address Lookup](docs/user_manual/mac-address-lookup.md) provides single-IP search and VLAN listing through the console or direct CLI/API; owner live validation remains pending. MAC enrichment preserves exact EFP/VLAN identity,
 validated family port types, independently evidenced EdgeSwitch logical LAG ownership and guarded XR
 untagged peer-VLAN associations (Issue #132).
+
+Issue #132 / PR #133 owner revision appends **Interface Description** as the seventh
+MAC Addresses column, superseding the former six-column promise while preserving
+the first six columns and supporting sheets. Descriptions use exact verified
+parent/aggregate owner observations; missing/conflicting/nonphysical evidence stays
+blank. Export remains sanitized and literal-safe; offline recovery is supported.
+Operator live validation remains pending.

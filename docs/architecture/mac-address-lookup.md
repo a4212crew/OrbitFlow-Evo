@@ -81,3 +81,19 @@ See the [operator guide](../user_manual/mac-address-lookup.md) and
 Search renders each selected keyed detail observation as a cohesive record, including
 its normalized full attachment, MAC, group/domain, mapping, physical identity, port
 type and classification. Raw attachment text is retained separately in Details.
+
+
+Issue #132 / PR #133 owner revision supersedes the previous six-column main-sheet
+promise: `Interface Description` is appended after `Mac address`; supporting sheets
+are unchanged. Descriptions join by exact canonical identity to the verified
+physical or logical aggregate owner, using InterfaceService `port_description`
+and/or VlanService interface `description`. EFP/subinterface rows use the resolved
+parent description; child and arbitrary aggregate-member text is not inherited.
+Conflicting nonempty owner descriptions, missing evidence, CPU/remote/Drop/SVI,
+and unresolved destinations produce blank descriptions. Optional evidence failures
+preserve MAC collection and counts. No description is inferred from VLAN/BD,
+suffix or peer identifiers. Sanitization/redaction and literal-text Excel cells
+also apply to descriptions beginning with `=`, `+`, `-` or `@`.
+Offline recovery preserves descriptions; historical six-value spool rows export
+with a blank seventh cell. Automated regressions cover supported families and
+recovery; operator read-only Linux/Windows validation remains pending.
