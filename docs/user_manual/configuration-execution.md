@@ -839,3 +839,46 @@ Codex Linux sandbox evidence: final 454 focused tests passed (9.76s); full suite
 OS-temp safeguard tests. The sandbox temp root has a Git marker in its ancestry.
 This is not a clean controller-gate pass; rerun the full command in the owner or
 controller environment with a protected external temp root. No safeguard was changed.
+
+
+### PR #138 revision validation — 2026-10-19
+
+The revision's focused command above passed **462 tests (9.73s)**, including
+supported C3750X/C3850X bundled trunk ownership, EdgeSwitch VLAN Port and description
+writes, and missing/ambiguous/changed bundle-owner rejection. No executor change was
+needed for these supported-family cases. This is separate from the earlier 454-test
+run and is not evidence of a full-suite or live pass.
+
+To retain reproducible full-gate evidence, run from an eligible controller/owner
+environment with protected OS temp outside every Git checkout. Do not remove Git
+markers, weaken the safeguard, or classify a failed gate as passed.
+
+Linux Bash (with the repository environment active):
+
+```bash
+export PYTHONPATH="$PWD/src"
+mkdir -p outputs/validation/issue-137-revision
+set -o pipefail
+python -m pytest -q 2>&1 | tee outputs/validation/issue-137-revision/full.log
+```
+
+Windows PowerShell (with the repository environment active):
+
+```powershell
+$env:PYTHONPATH = "$PWD/src"
+New-Item -ItemType Directory -Force outputs/validation/issue-137-revision | Out-Null
+python -m pytest -q 2>&1 | Tee-Object outputs/validation/issue-137-revision/full.log
+if ($LASTEXITCODE -ne 0) { throw 'Full deterministic gate failed; inspect full.log' }
+```
+
+Owner-safe lab instructions in the preceding section remain applicable. Windows
+and live validation remain pending. The required configuration-management skill
+reconciliation remains blocked by the read-only `.agents/` mount; Atlas/controller
+must apply the exact addendum recorded in the October devlog and mark PR #118's
+pending-merge statements historical. No permission or safeguard was bypassed.
+
+Final revision full command `PYTHONPATH=src python -m pytest -q`: **3,019 passed,
+25 failed (120.96s)**. All failures are unchanged orchestration OS-temp safeguard
+cases; `/tmp` contains a Git marker in this sandbox. This is a **failed full gate**,
+not a pass. Exact local log: `outputs/validation/issue-137-revision/full.log`.
+Clean/controller full validation remains required; no safeguard was changed.

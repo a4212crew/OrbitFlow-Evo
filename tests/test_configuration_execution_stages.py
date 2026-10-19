@@ -358,3 +358,59 @@ def test_live_target_safety_without_replanning(fault):
             entry['request'] = dict(requests[0], template_id=template('C3750X', 'Trunk Port').id)
     with pytest.raises(ex.ExecutionBlocked):
         ex._check_target(entry, live, ctx)
+
+
+@pytest.mark.parametrize('family', ['C3750X', 'C3850X'])
+def test_bundled_trunk_approved_owner_executes(tmp_path, monkeypatch, family):
+    ctx = context(family)
+    config = ('vlan 445\n name Customer\n!\nvlan 545\n name Other\n!\n'
+              'interface GigabitEthernet1/0/1\n channel-group 1 mode active\n!\n'
+              'interface Port-channel1\n switchport mode trunk\n'
+              ' switchport trunk native vlan 1\n switchport trunk allowed vlan 445\n!\nend\n')
+    before = observation(ctx, config)
+    after = observation(ctx, config.replace('allowed vlan 445', 'allowed vlan 445,545'))
+    req = request(template(family, 'Trunk Port').id,
+                  dict(management_ip=IP, interface='GigabitEthernet1/0/1', action='Add', vlans=[545]))
+    rows, _, _, saves, prepared = execute(tmp_path, monkeypatch, ctx, [req], before, after,
+                                         switch_facts=dict(administrative_mode='trunk'))
+    assert prepared['summary']['selected'][0]['result']['resolved_target'] == 'Port-channel1'
+    assert rows[0]['status'] == 'Verified'
+    assert 'interface Port-channel1' in WorkerCLI.instances[0].sent
+    assert len(saves) == 1
+
+
+@pytest.mark.parametrize('function', ['VLAN Port', 'Interface Description'])
+def test_edgeswitch_exact_observed_target_executes(tmp_path, monkeypatch, function):
+    ctx, requests, before, after = fixture('EdgeSwitch', function, 1)
+    rows, _, _, saves, _ = execute(tmp_path, monkeypatch, ctx, requests, before, after)
+    assert rows[0]['status'] == 'Verified'
+    assert 'interface 0/1' in WorkerCLI.instances[0].sent
+    assert len(saves) == 1
+
+
+@pytest.mark.parametrize('fault', ['missing_owner', 'ambiguous_owner', 'owner_changed', 'audit_owner_changed'])
+def test_bundled_trunk_unsafe_owner_is_blocked(fault):
+    ctx = context('C3750X')
+    config = ('interface GigabitEthernet1/0/1\n channel-group 1 mode active\n!\n'
+              'interface Port-channel1\n switchport mode trunk\n'
+              ' switchport trunk allowed vlan 445\n!\nend\n')
+    before = observation(ctx, config)
+    req = request(template('C3750X', 'Trunk Port').id,
+                  dict(management_ip=IP, interface='GigabitEthernet1/0/1', action='Add', vlans=[545]))
+    original = plan([req], {IP: before}, now=NOW)
+    entry = dict(request=req, result=original.to_dict()['results'][0])
+    ex._check_target(entry, before, ctx)
+    live = deepcopy(before)
+    owner = next(n for n in live['facts'] if n['value'] == 'Port-channel1')
+    if fault == 'missing_owner':
+        live['facts'].remove(owner)
+    elif fault == 'ambiguous_owner':
+        live['facts'].append(deepcopy(owner))
+    elif fault == 'owner_changed':
+        source = next(n for n in live['facts'] if n['value'] == 'GigabitEthernet1/0/1')
+        next(c for c in source['children'] if c['kind'] == 'aggregate')['value'] = 2
+    else:
+        source = next(a for a in live['audit'] if a['config_interface_name'] == 'GigabitEthernet1/0/1')
+        source['configuration_owner'] = 'Port-channel2'
+    with pytest.raises(ex.ExecutionBlocked):
+        ex._check_target(entry, live, ctx)

@@ -22,3 +22,7 @@ data/input/devices.xlsx
 
 # Sensitive device configuration captures
 backups/
+
+# Operator-local console profile and Windows download metadata
+data/input/sys_config/configuration-profile.toml
+data/input/sys_config/configuration-profile.toml:Zone.Identifier

@@ -955,3 +955,21 @@ it does not validate #137. No GitHub state was changed by this implementation.
 ancestry). Clean controller/owner full-suite validation remains outstanding.
 The required configuration-management skill addendum is recorded verbatim in the
 October devlog for Atlas because `.agents/` is mounted read-only here.
+
+PR #138 requested revision (2026-10-19): both local profile artifacts are removed
+from the proposed tree and ignored, with operator copies preserved privately under
+`outputs/`. Added supported-family bundle/EdgeSwitch target regressions and unsafe
+owner checks pass in the **462-test focused suite**. No additional execution family
+or API behavior changed. This is distinct from the historical 454-test focused run.
+The configuration-management skill is still **not reconciled**: this environment
+rejects writes to `.agents/` with Errno 30. Atlas/controller must apply the prepared
+Markdown patch at `outputs/validation/issue-137-revision/configuration-management.patch`
+through an authorized writable checkout, including PR #118 historical-status fixes.
+PR #136 overlap requires Atlas integration; its current head could not be refreshed
+because GitHub access failed. Windows and live validation remain pending.
+
+Final revision full command `PYTHONPATH=src python -m pytest -q`: **3,019 passed,
+25 failed (120.96s)**. All failures are unchanged orchestration OS-temp safeguard
+cases; `/tmp` contains a Git marker in this sandbox. This is a **failed full gate**,
+not a pass. Exact local log: `outputs/validation/issue-137-revision/full.log`.
+Clean/controller full validation remains required; no safeguard was changed.
