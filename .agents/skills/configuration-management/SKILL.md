@@ -9,7 +9,7 @@ Phase 1–2 implementation is in `src/orbitflow/configuration/`; operator entry
 points are `python -m orbitflow.configuration.cli` and
 `scripts/configuration_plan.py`. Read `docs/architecture/configuration/offline-plans.md`
 for the v1 contract. Separate predefined Catalyst/EdgeSwitch execution is implemented
-in PR #118; owner lab validation and merge are pending. Additional adapters remain
+in merged PR #118 (historical implementation). Additional adapters remain
 future work. The restrictions below apply to v1 planning, not the separate executor.
 
 - Resolve existing `DeviceContext` snapshots; never connect or refresh inventory.
@@ -46,7 +46,7 @@ The architecture catalogue is `docs/architecture/configuration/guided-bulk-plann
 
 The existing v1 `orbitflow.configuration` behaviour and protections above remain implemented and unchanged. Extend it through a **versioned** API-first planning contract; do not weaken v1 validation, digest/authority or secret controls.
 
-For **predefined templates**: use shared DeviceContext, DeviceSession, device-execution, InterfaceService, VlanService, vendor configuration facts and family audit resolvers for **live, read-only** observation, exact sanitized CLI evidence, timestamps, current VLAN/service/ownership consistency and dependencies. Do not create another SSH, vendor parser, compliance policy or thread pool. Planning produces deterministic CLI with explicit differences, no-ops and reviewable conflicts. Current observation does not authorize later deployment; future apply requires fresh preflight and explicit user intent.
+For **predefined templates**: use shared DeviceContext, DeviceSession, device-execution, InterfaceService, VlanService, vendor configuration facts and family audit resolvers for **live, read-only** observation, exact sanitized CLI evidence, timestamps, current VLAN/service/ownership consistency and dependencies. Do not create another SSH, vendor parser, compliance policy or thread pool. Planning produces deterministic CLI with explicit differences, no-ops and reviewable conflicts. Current observation does not authorize later deployment; future apply requires fresh identity/target/prerequisite and session safety, backup, and explicit user intent.
 
 For **Manual CLI only**: no device connection, no live observation, no claim of semantic validation. Engineer supplies platform, management IP, scope/CLI mode and literal commands. Label impact unknown/not-live-validated. Both predefined and Manual CLI use the same simple offline Pending/Approve/Reject review, **without a special elevated role in this design**. Offline approval never implies future apply authorization.
 
@@ -66,7 +66,7 @@ Read `docs/architecture/configuration/configuration-removal.md` for future remov
 
 ## Owner-approved configuration execution milestone — 2026-10-17
 
-**Implemented in PR #118 (Issue #117); owner lab validation and merge pending.**
+**Historical implementation: PR #118 (Issue #117), subsequently merged.**
 For apply, verification, save, reusable
 summary/confirmation or switchport observation, read
 [approved device execution](../../../docs/architecture/configuration/approved-device-execution.md).
@@ -84,13 +84,13 @@ Current execution entry point: `python -m orbitflow.configuration.execution_cli`
 See [execution manual](../../../docs/user_manual/configuration-execution.md) and
 [supported standalone APIs](../../../docs/operations/configuration-execution-api.md).
 Require matching normalized Cisco Name/EdgeSwitch Port identity. Preserve the
-approved C3750X dot1q change and detect unrelated changes. Use optional shared
+approved C3750X dot1q change and verify relevant preserved settings after execution. Use optional shared
 run/row/digest correlation and elapsed timing for standalone capability logs.
 The executor is separate from v1/v2 planning; no production validation is implied.
 
 ## Execution presentation and progress — reviewed iteration 4
 
-Implemented on PR #118, pending owner validation/merge: `operator_summary` groups
+Historical PR #118 implementation (merged); validate current source: `operator_summary` groups
 short findings/skips by category and source sheet/row ranges; `render_summary` uses
 compact VLAN lists with no nested evidence or primary opaque row IDs. Full bound
 preparation and replay protections remain unchanged. Execution display filters only
@@ -110,3 +110,36 @@ known. Waiting is not device liveness and Returned is not verified success. The
 optional timer never accesses channels, extends deadlines or retries writes. Display
 exceptions disable the subscriber; mandatory audit failures remain failures. See
 the supported [progress API](../../../docs/operations/configuration-execution-api.md#structured-progress-subscription).
+
+
+## Approved execution simplification — 2026-10-19 (Issue #139 / PR #140)
+
+Owner-approved scope: confirmed predefined execution for C3750X, C3850X and
+EdgeSwitch only. This section supersedes older execution-stage replanning and
+trusted-baseline drift-equality language above; it does **not** alter v1/v2
+planning, reviewed workbook integrity or execution authorization.
+
+- Apply only digest-bound immutable approved CLI in existing sheet/row and device
+  order, with one separate summary-bound operator confirmation and replay protection.
+  Do not rerender commands or use fresh planning results to block a command merely
+  because its effect is already present or projected state differs.
+- Before device writes require fresh identity/capability/privilege, reliable
+  normalized source and resolved-target identity, valid Port-channel/bundle ownership,
+  known conversion and VLAN prerequisites, verified dependencies, a usable owned SSH
+  session and a protected pre-change backup. An actual unsafe dependency or target
+  ambiguity still blocks affected writes; ordinary planning warnings are not new gates.
+- Preserve contiguous template-stage splitting for overlap/dependencies, consolidated
+  post-stage collection and individual per-target switchport/VLAN read-only checks.
+  Separate per-row verification from CLI echo/response evidence. A rejected command
+  stops its row; continue independent work only with a synchronized session. Lost or
+  ambiguous SSH stops writes for that device with truthful Unknown/Not executed status.
+- After any attempted write, save once even with partial failures, only from verified
+  privileged EXEC on a usable device-owned session. Do not blindly retry or claim
+  a failed row was verified because saving succeeded.
+- No new ME3600X/ASR920 EVC or Manual CLI apply support is authorized. Preserve
+  standalone capability, read-only, inventory, reporting, VLAN compliance and
+  backup behavior. See [execution architecture](../../../docs/architecture/configuration/approved-device-execution.md)
+  and [operator guide](../../../docs/user_manual/configuration-execution.md).
+- PR #140 is under review and not merged as of this documentation change. Its
+  synthetic test evidence is distinct from pending owner/live validation. Source
+  and tests, not this skill, establish implemented behavior on a given branch.
