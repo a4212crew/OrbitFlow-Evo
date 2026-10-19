@@ -68,7 +68,8 @@ original approved evidence separately. No-op rows still require fresh verificati
 Command rejection, failed verification or another device's failure does not trigger
 a batch-wide pause. Continue executable work while session state is known. Never
 send later configuration in an unexpected mode without a deterministic known-mode
-transition. A lost/unsynchronized session cannot safely send remaining commands:
+transition. **The 2026-10-19 decision below supersedes mode-name expectations;
+structural framing and the approved sequence now govern these exchanges.** A lost/unsynchronized session cannot safely send remaining commands:
 record them Not executed and uncertain post-send results Unknown. Do not invent
 alternate configuration, blindly replay writes, automatically roll back, or claim
 that unknown outcomes were reverted. Other device tasks can continue.
@@ -114,6 +115,7 @@ facts for verification; do not treat unrecognized nonempty output as success.
 
 ## Catalyst templates
 
+**Historical 2026-10-17 rule, superseded by the 2026-10-19 decision below:**
 Use the learned hostname and expected vendor mode, including VLAN-mode variants
 `(config-vlan)#` and `(config-vl)#`; do not accept arbitrary text ending in `#`.
 Normal configuration/interface prompts are `(config)#` and `(config-if)#`.
@@ -189,6 +191,7 @@ Observed prompts, with presentation hostname retained for synchronization:
 (<LAB-ES24>) (Interface 0/3)#
 ```
 
+**Historical observed presentation, not an exhaustive grammar (superseded below):**
 Mode suffixes occur outside the hostname parentheses. Extend vendor-aware prompt
 handling without weakening existing inventory/read-only prompt synchronization.
 Global configure-mode prompt still needs representative evidence; do not claim all
@@ -272,8 +275,9 @@ EdgeSwitch asks `Are you sure you want to save? (y/n)`; send `y` only for that
 recognized exchange, then wait using a separate save timeout suitable for the
 reported minutes-long operation. Do not invent a numerical default in this design.
 
-**Owner's final criterion: return to the original learned privileged EXEC prompt
-completes save and is recorded Saved. Success-text markers are not required.**
+**Historical 2026-10-17 criterion, refined by the 2026-10-19 session contract below:**
+Return to the original learned privileged EXEC prompt
+completes save and is recorded Saved. Success-text markers are not required.
 Record explicit error output separately even if the prompt returns; prompt-based
 Saved is not independent proof of startup persistence. Timeout/disconnect before
 prompt return is Save Unknown, with partial evidence retained and no blind retry.
@@ -367,7 +371,9 @@ for exact callback fields and limitations. No live validation or merge is implie
 Measured shared-shell paging exchanges were redundant; confirmed supported-family
 execution now reuses accepted paging setup per session/profile while retaining every
 prompt/session check and the first trusted setup. Standalone defaults are unchanged.
-`execution_mode` already performed local validation only and remains unchanged.
+`execution_mode` already performed local validation only and remains unchanged
+in this historical optimization revision; its recognition contract is superseded
+by the 2026-10-19 decision below.
 
 A per-session manager retains at most one normalized deterministic projection (8 MiB serialized
 eligibility/retention limits). It always requires complete fresh full normalized
@@ -426,7 +432,8 @@ The initial baseline supplies the first consolidated precheck; subsequent stages
 collect full fresh interface/VLAN/configuration facts. Compare relevant target facts
 against the bounded trusted baseline, exact approved CLI/no-op/projected result and
 prerequisites. All prechecks and durable per-row evidence precede stage writes.
-Per-command response/mode checks remain immediate. Rejection stops the affected row;
+Per-command response/mode checks remain immediate (mode-name checks superseded
+by the 2026-10-19 structural-recognition decision below). Rejection stops the affected row;
 uncertain synchronization blocks unsafe continuation. A full post-stage observation
 and per-target operational checks establish every independent interface result.
 Database stages use fresh operational VLAN lookup postchecks only. Shared final state
@@ -452,3 +459,43 @@ describes exact provenance/timing records, measured synthetic counts/durations,
 Windows/Linux tests/extraction and owner-only lab comparison. Synthetic schedules
 show ten independent interface rows 22 to 3 full reads, database rows 12 to 2 including
 baseline/backup; these are not owner lab performance claims.
+
+
+## Owner superseding prompt decision — 2026-10-19 (Issue #134)
+
+This decision supersedes the learned-host equality, fixed expected-mode transitions
+and exhaustive outer-mode assumptions above, including immediate mode checks in
+older stage descriptions. Historical observations and prior approval remain recorded.
+Initial identification still establishes identity, privilege and the owned SSH shell.
+Subsequent execution framing on that shell accepts changing/abbreviated hostname
+presentation without changing inventory identity. Cisco IOS/IOS-XE accepts privileged
+EXEC and arbitrary structurally valid parenthesized submode names, including
+`(config-if-srv)` and `(config-router-af)`. EdgeSwitch separately accepts outer modes
+`(ES24) (Something)#`, `(ES24) (Interface 0/3)#`, inline `(ES24 Something)#`,
+angle-wrapped hostnames and balanced parenthesized annotations. Arbitrary banner
+lines ending in `#`, malformed wrappers and truncated prompts are not valid framing.
+
+The immutable approved plan controls command order; no execution mode-name allowlist
+or initial-host equality gate may reject a completed valid exchange. Each execution
+command still requires its exact current command echo, an unterminated structural
+final prompt and receive quiescence to protect split chunks. Errors, missing echo,
+EOF and timeouts retain Failed/Unknown and session-invalidation semantics. A returned
+prompt is exchange completion only; independent state verification determines success.
+
+Original EXEC safety is a **session-level completion contract**: after the completed
+approved sequence, or bounded vendor recovery (`end` for Cisco, `exit` for EdgeSwitch),
+the synchronized shell must reach structurally privileged EXEC, excluding mode labels.
+Recovery errors fail closed. Its observed presentation becomes the exact EXEC anchor
+for subsequent observation and save on that same shell. A completed fresh observation
+may likewise refresh the anchor only at structural privileged EXEC. No hostname is guessed, no
+reconnection or write replay occurs. Nested EdgeSwitch annotations remain presentation
+metadata, while inline/outer mode labels cannot establish EXEC. Save starts only at
+that anchor and requires its exact return after the `write memory` echo. It never
+relearns a different anchor from save output. Recognized EdgeSwitch confirmation,
+explicit errors, Saved/Unknown and no-success-marker semantics remain unchanged.
+
+Only predefined C3750X/C3850/EdgeSwitch execution changes. Shared read-only adapters,
+identification, planning and all other families retain their contracts and defaults.
+Automated synthetic regression evidence is separate from pending owner Linux C3750X,
+C3850 and EdgeSwitch live validation of this revision. Earlier owner validations do
+not validate this change. See the [operator validation steps](../../user_manual/configuration-execution.md#flexible-execution-prompts-issue-134).

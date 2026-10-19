@@ -183,15 +183,14 @@ def test_send_failure_cannot_retain_prior_sensitive_capture(monkeypatch):
         cli.run_command('configure terminal')
 
 
-@pytest.mark.parametrize('mode', ['config-vlan', 'config-vl', 'config', 'config-if'])
-def test_learned_host_mode_matching(mode):
-    cli, _ = cli_with([f'vlan 445\nfixture({mode})#'.encode()])
+@pytest.mark.parametrize('mode', ['config-vlan', 'config-vl', 'config', 'config-if', 'config-if-srv', 'config-router-af', 'other-mode'])
+def test_execution_accepts_changing_host_and_arbitrary_modes(mode):
+    cli, _ = cli_with([f'vlan 445\nfixture({mode})#'.encode(), socket.timeout()])
     cli.execution_mode('fixture#', 'cisco_ios')
     cli.run_command('vlan 445')
     assert cli.prompt == f'fixture({mode})#'
     cli.prompt = 'other(config)#'
-    with pytest.raises(InteractiveCLIError):
-        cli.execution_mode('fixture#', 'cisco_ios')
+    cli.execution_mode('fixture#', 'cisco_ios')
 
 
 @pytest.mark.parametrize('mode', ['Vlan', 'Interface 0/3', 'Config'])
@@ -199,7 +198,7 @@ def test_edge_outer_modes(mode):
     from orbitflow.vendors.prompts import is_structural_prompt
     prompt = f'(<fixture>) ({mode})#'
     assert is_structural_prompt(prompt)
-    cli, _ = cli_with([('configure\n' + prompt).encode()], '(<fixture>) #')
+    cli, _ = cli_with([('configure\n' + prompt).encode(), socket.timeout()], '(<fixture>) #')
     cli.execution_mode('(<fixture>) #', 'ubiquiti_edgeswitch')
     assert cli.run_command('configure') == ''
     assert cli.prompt == prompt
@@ -1407,3 +1406,128 @@ def test_multitemplate_ip_dispatch_row_order_one_backup_and_save(tmp_path, monke
         stages = [e['stage'] for e in events if e['management_ip'] == ip]
         assert stages.count('backup_complete') == stages.count('save_result') == 1
         assert stages.index('backup_complete') < stages.index('command_intent')
+
+
+@pytest.mark.parametrize('platform', ['cisco_ios', 'cisco_xe'])
+@pytest.mark.parametrize('host', ['SW-ABBREV', 'S', 'SANITIZED-LONG-HOSTNAME-0123456789'])
+def test_linux_incident_fragmented_configure_terminal(platform, host):
+    original = 'SW-ORIGINAL-LONG-HOSTNAME#'
+    cli, channel = cli_with([
+        b'configure ter',
+        b'minal\r\nEnter configuration commands, one per line. End with CNTL/Z.\r\n',
+        (host + '(config').encode(), b')#', socket.timeout(),
+        ('interface Gi1/0/1\nCHANGED(config-if-srv)#').encode(), socket.timeout(),
+        b'end\nCHANGED#', socket.timeout(),
+        b'write memory\nBuilding configuration...\nCHANGED#',
+    ], original)
+    cli.execution_mode(original, platform)
+    assert 'End with CNTL/Z.' in cli.run_command('configure terminal')
+    assert cli.prompt == host + '(config)#'
+    cli.execution_mode(original, platform)
+    cli.run_command('interface Gi1/0/1')
+    assert cli.prompt == 'CHANGED(config-if-srv)#'
+    cli.run_command('end')
+    assert cli.prompt == 'CHANGED#'
+    assert cli.save_configuration(cli.prompt, platform, timeout=20)['status'] == 'Saved'
+    assert channel.sent.count(b'write memory\n') == 1
+
+
+@pytest.mark.parametrize('prompt', [
+    '(ES24) (Vlan)#', '(ES24) (Interface 0/3)#', '(ES24) (Something)#',
+    '(ES24 Something)#', '(<ES24>) (Other-mode)#',
+    '(ES24 (sanitized annotation)) (Something)#',
+    '(ES24 (sanitized (nested) annotation!)) (Something)#',
+])
+def test_execution_edge_flexible_presentations(prompt):
+    cli, _ = cli_with([b'configure\n', prompt[:-1].encode(), b'#', socket.timeout()], '(ES24) #')
+    cli.execution_mode('(ES24) #', 'ubiquiti_edgeswitch')
+    cli.run_command('configure')
+    assert cli.prompt == prompt
+
+
+@pytest.mark.parametrize('response', [
+    b'Banner text ending #', b'broken(config#', b'fixture(config)#\n',
+    b'fixture(config)# additional text', b'(ES24) (Something)#',
+    b'fixture(config)#\nThis is a banner #',
+])
+def test_execution_false_or_truncated_cisco_prompts_fail(response):
+    cli, _ = cli_with([b'configure terminal\n' + response, socket.timeout()])
+    cli.execution_mode('fixture#', 'cisco_ios')
+    with pytest.raises(InteractiveCLIError):
+        cli.run_command('configure terminal')
+    with pytest.raises(InteractiveCLIError):
+        cli.run_command('end')
+
+
+@pytest.mark.parametrize('response', [
+    b'fixture(config)#', b'old command\nfixture(config)#',
+    b'fixture#configure terminally\nfixture(config)#',
+])
+def test_execution_requires_current_exact_echo(response):
+    cli, _ = cli_with([response, socket.timeout()])
+    cli.execution_mode('fixture#', 'cisco_ios')
+    with pytest.raises(InteractiveCLIError):
+        cli.run_command('configure terminal')
+
+
+@pytest.mark.parametrize('last', [b'', socket.timeout()])
+def test_execution_incomplete_response_invalidates_without_replay(last):
+    cli, channel = cli_with([b'configure terminal\nSW(config', last])
+    cli.execution_mode('fixture#', 'cisco_ios')
+    with pytest.raises(InteractiveCLIError):
+        cli.run_command('configure terminal')
+    with pytest.raises(InteractiveCLIError):
+        cli.run_command('configure terminal')
+    assert channel.sent.count(b'configure terminal\n') == 1
+
+
+def test_execution_candidate_at_chunk_boundary_is_not_banner_completion():
+    cli, _ = cli_with([b'configure terminal\nSW(config)#',
+                       b' banner continuation\n', socket.timeout()])
+    cli.execution_mode('fixture#', 'cisco_ios')
+    with pytest.raises(InteractiveCLIError):
+        cli.run_command('configure terminal')
+
+
+def test_execution_flexible_prompt_does_not_hide_rejection():
+    cli, _ = cli_with([b'vlan 445\n% Invalid input detected\nSW(config-surprise)#', socket.timeout()])
+    cli.execution_mode('fixture#', 'cisco_ios')
+    assert ex.command_rejected(cli.run_command('vlan 445'))
+
+
+@pytest.mark.parametrize('prompt', ['(ES24) Something#', '(ES24) (Broken#',
+                                  '(ES24) (Something)# banner', 'Banner text #'])
+def test_execution_edge_rejects_false_prompts(prompt):
+    cli, _ = cli_with([('configure\n' + prompt).encode(), socket.timeout()], '(ES24) #')
+    cli.execution_mode('(ES24) #', 'ubiquiti_edgeswitch')
+    with pytest.raises(InteractiveCLIError):
+        cli.run_command('configure')
+
+
+def test_readonly_adapter_resets_execution_framing():
+    cli, _ = cli_with([b'terminal length 0\nfixture#'])
+    cli.execution_mode('fixture#', 'cisco_ios')
+    cli.configure(paging_command='terminal length 0', prompt_pattern=r'^([A-Za-z0-9_.-]+#)$',
+                  rejected=lambda _: False, platform_name='Cisco')
+    assert not cli._execution_reader
+    assert cli._detect_prompt('fixture(config-if-srv)#') is None
+    assert cli._detect_prompt('fixture#') == 'fixture#'
+
+
+def test_save_cannot_rebind_to_an_unexpected_exec_after_send():
+    cli, channel = cli_with([b'write memory\nDIFFERENT#', socket.timeout()])
+    assert cli.save_configuration('fixture#', 'cisco_ios', timeout=20)['status'] == 'Unknown'
+    assert channel.sent.count(b'write memory\n') == 1
+
+
+@pytest.mark.parametrize('platform,prompt', [
+    ('cisco_ios', 'fixture(config-if-srv)#'),
+    ('ubiquiti_edgeswitch', '(ES24 Something)#'),
+    ('ubiquiti_edgeswitch', '(ES24) (Something)#'),
+])
+def test_save_cannot_start_from_configuration_mode(platform, prompt):
+    cli, channel = cli_with([])
+    cli.prompt = prompt
+    with pytest.raises(InteractiveCLIError):
+        cli.save_configuration(prompt, platform, timeout=20)
+    assert b'write memory\n' not in channel.sent

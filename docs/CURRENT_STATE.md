@@ -33,7 +33,12 @@ commands, per-row verification and partial-change saving at device-task end.
 New standalone switchport parsers/collectors preserve typed facts and independent
 EdgeSwitch Current/Configured/Tagging evidence. Incremental fsynced events and shared
 result spools support offline execution-workbook regeneration after interruption.
-Save completion is original EXEC prompt return; explicit errors remain separate.
+Issue #134 adds execution-only structural Cisco/EdgeSwitch prompt recognition,
+including changing/abbreviated host presentation and arbitrary valid submodes.
+Current echo and split-response protections remain required. Checked same-session
+EXEC completion anchors exact save return; explicit errors remain separate.
+Synthetic regressions cover the Linux C3750X incident and safety/read-only cases.
+Owner Linux C3750X, C3850 and EdgeSwitch live validation of #134 remains pending.
 Owner C3750X/EdgeSwitch lab validation following PR #118 is reported; C3850
 live validation remains outstanding. Other families,
 Manual CLI apply, HTTP, automatic rollback and write replay/resume remain unsupported.

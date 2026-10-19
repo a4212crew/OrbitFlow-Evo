@@ -116,7 +116,7 @@ Earlier verified stage changes are observed before subsequent stages; failed dep
 are Not executed. Missing/unknown requested EdgeSwitch PVID/Include/tagging database
 prerequisites block that port row. They never implicitly create VLANs.
 
-Commands are sent individually. Rejection stops that row; deterministic known-mode
+Commands are sent individually. Rejection stops that row; bounded vendor
 recovery permits safe independent rows to continue. Unsynchronized sessions send no
 further commands. A post-send timeout is Unknown, remaining rows are Not executed;
 other devices continue. No-op rows still verify against fresh stage facts and send no configuration.
@@ -130,7 +130,7 @@ Save runs once after attempted configuration, including partial changes if the
 session remains usable; wholly no-op/skipped tasks do not save. `write memory`
 persists **all running configuration**, including unrelated pending changes.
 EdgeSwitch can interrupt management; only its recognized save question is answered
-`y`. Return to the original learned privileged EXEC prompt means Saved, without
+`y`. Return to the exact session-validated privileged EXEC anchor means Saved, without
 requiring `[OK]`; explicit errors are recorded separately. Saved is not independent
 proof of startup persistence. Timeout/disconnect before prompt return means Unknown;
 there is no blind retry. Row verification and save status remain separate.
@@ -312,7 +312,7 @@ success. Offline report generation prints no execution-duration footer.
 Connect/identify/preflight, backup start/completion, row preflight, command exchanges,
 verification, save and cleanup start/completion are visible. Run-wide lines use IP `-`; report_generation
 and report_complete are also shown by the offline report command. Returned means an
-exchange returned, not verified success. Saved still means original EXEC prompt return;
+exchange returned, not verified success. Saved still means exact session EXEC-anchor return;
 explicit errors remain separate. Timeout/disconnect remains Unknown.
 
 An optional display timer wakes every 5 seconds while a subscribed blocking stage is
@@ -621,3 +621,79 @@ Compare baseline and revision distributions only across equivalent independently
 prepared trials. Preserve actual failures and unknowns in the comparison. No new
 read-only execution mode exists. Codex used no live devices or credentials; owner
 C3750X/C3850/EdgeSwitch stage-execution validation and Linux validation remain pending.
+
+
+## Flexible execution prompts (Issue #134)
+
+The 2026-10-19 revision accepts abbreviated/changing Cisco host presentation and
+arbitrary valid parenthesized configuration submodes on the identified owned shell.
+EdgeSwitch accepts `(ES24) (Vlan)#`, `(ES24) (Interface 0/3)#`,
+`(ES24) (Something)#`, `(ES24 Something)#` and supported hostname annotations.
+The approved plan still controls every command. Execution requires the current exact
+command echo and complete structural prompt with up to one second of receive
+quiescence within the existing deadline. Returned means
+exchange completion; verification still decides Verified/Failed/Unknown.
+
+Before observation/save, the completed sequence or checked bounded `end`/`exit`
+recovery must reach privileged EXEC. Its observed presentation becomes the exact
+session EXEC anchor; completed verification reads may refresh that presentation
+only at structural privileged EXEC. Save requires that anchor's exact return after its own echo;
+a new hostname during save is Unknown. Arbitrary banners ending in `#`, missing
+or stale echoes, errors and incomplete responses do not authorize continuation or
+write retry. Shared read-only flows and identification retain baseline behavior.
+
+Automated synthetic tests do not connect to devices or perform production writes.
+From the repository root, with an existing environment and dependencies installed:
+
+Linux Bash:
+
+```bash
+source .venv/bin/activate
+export PYTHONPATH="$PWD/src"
+python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_shared_cli.py tests/test_configuration_backup.py -q
+python -m pytest -q
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+$env:PYTHONPATH = "$PWD/src"
+python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_shared_cli.py tests/test_configuration_backup.py -q
+python -m pytest -q
+```
+
+Expected: all tests pass using sanitized fixtures, including the Linux C3750X
+`configure terminal` / `SW-ABBREV(config)#` incident, changing modes/hosts, split
+chunks, false prompts, lost echo, errors, EOF/timeouts, save and read-only regressions.
+Windows execution of these commands remains operator validation unless separately
+reported; Linux automated results are recorded in the October devlog.
+The managed development sandbox passed 408 focused tests; the full suite had
+3,002 passes and 25 orchestration failures because available OS temporary roots
+contained `.git` entries rejected by controller safety checks. Run the full suite
+in an operator environment with an OS temporary root outside Git checkouts.
+
+Owner-controlled live verification of this revision remains pending on Linux
+C3750X, C3850 and EdgeSwitch. Existing PR #118/#126 lab history does not validate it:
+
+1. Authenticate Teleport locally; use protected credentials and a fresh authorized
+   lab plan/workbook for the supported family. Inspect current device state first;
+   never replay an earlier completed or uncertain change to reproduce the incident.
+2. Use the existing Linux/PowerShell execution examples above with concurrency 1.
+   Review digest, selected rows and whole-running-config save implications. Only
+   the owner confirms an authorized lab apply; production apply stays owner-controlled.
+3. For Cisco, observe configure-terminal completion with abbreviated presentation
+   and subsequent mode transitions. For EdgeSwitch, inspect the actual firmware's
+   inline/outer presentation. Do not add arbitrary commands to approved plans merely
+   to manufacture an unobserved submode; those cases have synthetic coverage.
+4. Check command Returned events, independent row verification, checked EXEC return,
+   and separate save status/errors. EdgeSwitch answers only the recognized question
+   with `y`. Confirm device state and startup persistence independently as appropriate.
+5. For a timeout, disconnect or uncertain write, inspect protected local evidence and
+   device state before any new plan. Do not retry/replay writes automatically. Keep
+   full evidence local; share only sanitized outcomes with no credentials/private IPs.
+   Record OS, family/firmware, prompt presentation class, row/save outcomes and elapsed
+   times. Pending evidence must not be described as successful live validation.
+
+This fixes an existing console-exposed execution workflow; no new menu action,
+parameter or confirmation flow is introduced.

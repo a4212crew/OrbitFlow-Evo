@@ -75,7 +75,9 @@ class PromptCLI:
         if not matches or normalized[matches[-1].end() :].strip():
             return None
         prompt = matches[-1].group(1).strip()
-        return prompt if is_structural_prompt(prompt) else None
+        validate = (self._execution_prompt_validator if getattr(self, "_execution_reader", False)
+                    else is_structural_prompt)
+        return prompt if validate(prompt) else None
 
     def _read_until_prompt(
         self, timeout: float, *, command: str | None = None, prompt: str = "",
@@ -116,6 +118,12 @@ class PromptCLI:
             )
             if found is not None and echo and (not exact_prompt or found == prompt):
                 if not exact_prompt:
+                    if getattr(self, "_execution_reader", False):
+                        # Only an unterminated final line, after the current echo,
+                        # may complete a write. Quiescence protects split lines.
+                        if normalize_output(text).split("\n")[-1].strip() == found:
+                            candidate = (text, found)
+                        continue
                     return text, found
                 # A configuration line ending in a newline is body text, even
                 # when identical to the exec prompt. For an unterminated match,
@@ -190,6 +198,7 @@ class DeviceCLI(PromptCLI):
         prompt_re = re.compile(prompt_pattern, re.MULTILINE)
         if not prompt_re.fullmatch(self.prompt):
             raise InteractiveCLIError("shared CLI prompt does not match selected platform")
+        self._execution_reader = False
         self._prompt_re, self._rejected = prompt_re, rejected
         self._platform_name = platform_name
         paging_key = (platform_name, paging_command)
@@ -269,29 +278,35 @@ class DeviceCLI(PromptCLI):
 
     @measured('mode_validation')
     def execution_mode(self, exec_prompt: str, platform: str) -> None:
-        """Select only approved modes of the originally learned privileged host."""
+        """Select vendor structural prompts on an identified owned shell.
+
+        Host presentation and configuration submode names may change. This
+        selects framing only; command errors and independent verification still
+        determine outcomes. Read-only adapters reset this execution-only reader.
+        """
         self.require_session(self.session)
-        if (not exec_prompt.endswith('#') or not is_structural_prompt(exec_prompt)
-                or platform in {'cisco_ios', 'cisco_xe'} and '(' in exec_prompt
-                or platform == 'ubiquiti_edgeswitch' and re.search(r'\)\s+\(', exec_prompt)):
-            raise InteractiveCLIError('privileged EXEC required')
         if platform == 'ubiquiti_edgeswitch':
-            base = exec_prompt[:-1].rstrip()
-            pattern = re.escape(base) + r'(?:[ \t]+\((?:Vlan|Config|Interface [0-9]+/[0-9]+)\))?[ \t]*#'
+            from orbitflow.vendors.ubiquiti.configuration_execution import PROMPT, is_exec_prompt, is_execution_prompt
         elif platform in {'cisco_ios', 'cisco_xe'}:
-            base = exec_prompt[:-1]
-            pattern = re.escape(base) + r'(?:\(config(?:-if|-vlan|-vl)?\))?#'
+            from orbitflow.vendors.cisco.configuration_execution import PROMPT, is_exec_prompt, is_execution_prompt
         else:
             raise InteractiveCLIError('unsupported execution platform')
-        selected = re.compile('^(' + pattern + r')[ \t]*$', re.MULTILINE)
-        if not selected.fullmatch(self.prompt):
+        if not is_exec_prompt(exec_prompt):
+            raise InteractiveCLIError('privileged EXEC required')
+        selected = re.compile('^(' + PROMPT + r')[ \t]*$', re.MULTILINE)
+        if not selected.fullmatch(self.prompt) or not is_execution_prompt(self.prompt):
             raise InteractiveCLIError('unexpected execution mode')
         self._prompt_re = selected
+        self._execution_prompt_validator = is_execution_prompt
+        self._execution_reader = True
 
     @measured('save_exchange', failure='Unknown')
     def save_configuration(self, exec_prompt: str, platform: str, *, timeout: float):
-        """One save exchange; exact original EXEC return determines completion.
+        """One save exchange; exact session EXEC anchor determines completion.
 
+        The anchor must already be synchronized at privileged EXEC on this shell.
+        Execution may refresh presentation after a completed sequence/recovery;
+        save never learns a replacement anchor from its own response.
         Partial text is returned on failure. Never retry or answer an unknown
         question. Caller sanitizes evidence before persistence.
         """

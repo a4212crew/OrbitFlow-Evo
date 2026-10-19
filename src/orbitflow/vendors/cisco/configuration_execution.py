@@ -1,15 +1,19 @@
 """Approved Catalyst execution modes and read-only verification commands."""
+import re
+
+# Execution framing deliberately does not bind the presentation hostname.
+HOST = r"[A-Za-z0-9_.-]*[A-Za-z0-9][A-Za-z0-9_.-]*"
+PROMPT = HOST + r"(?:\([A-Za-z0-9_./:-]+\))?#"
 
 
-def expected_mode(command, previous, exec_prompt):
-    base = exec_prompt[:-1]
-    if command == 'configure terminal':
-        return {base + '(config)#'}
-    if command.startswith('interface '):
-        return {base + '(config-if)#'}
-    if command.startswith('vlan '):
-        return {base + '(config-vlan)#', base + '(config-vl)#'}
-    return {exec_prompt} if command == 'end' else {previous}
+def is_execution_prompt(prompt):
+    """Validate hostname plus an optional arbitrary parenthesized mode token."""
+    return re.fullmatch(PROMPT, prompt) is not None
+
+
+def is_exec_prompt(prompt):
+    """Privileged EXEC structure, excluding every configuration submode."""
+    return re.fullmatch(HOST + '#', prompt) is not None
 
 
 def verification_commands(function, inputs, target):
