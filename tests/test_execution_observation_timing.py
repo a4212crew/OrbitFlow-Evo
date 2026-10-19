@@ -170,8 +170,9 @@ def test_execution_timing_outcomes_and_safe_correlation(tmp_path, monkeypatch, f
     timings = [r for r in records if r['message'] == 'Execution timing']
     stages = {r['stage'] for r in timings}
     assert {'connection', 'shell_setup', 'identification', 'initial_preflight', 'protected_backup_collection',
-            'protected_backup_write', 'template_stage', 'pre_row_plan', 'pre_row_drift_checks',
+            'protected_backup_write', 'template_stage', 'pre_row_target_checks',
             'scoped_evidence', 'approved_command', 'row_apply', 'device_total', 'run_total'} <= stages
+    assert not {'pre_row_plan', 'pre_row_drift_checks'} & stages
     for record in timings:
         assert record['digest'] == original.digest
         if record['stage'] != 'run_total':

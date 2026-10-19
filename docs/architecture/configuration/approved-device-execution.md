@@ -510,3 +510,31 @@ session invalidation. A prompt-shaped prefix followed by later bytes cannot be
 predicted under this timing contract. Independent rejection checks, verification
 and exact EXEC-anchor save completion remain required. Owner Linux/C3850/EdgeSwitch
 live validation remains pending.
+
+
+## Owner superseding simplified execution — Issue #139 (2026-10-19)
+
+This decision supersedes execution-stage fresh planner, exact fresh command/no-op/
+projected-state and trusted-baseline drift-equality gates described above. The
+immutable reviewed plan is the command authority. Execution sends its exact CLI in
+sheet/row order even if fresh planning would classify the effect as already correct;
+it neither renders replacements nor changes v1/v2 planning validation. Immutable
+source validation may still recompute the original saved planning result before
+connection to detect tampering; fresh device observations are never replanned.
+
+Retain fresh identity/capability/privilege, unique actual interface/declaration
+identity, approved target/Port-channel ownership, known conversion/methodology
+hazards, EdgeSwitch database prerequisites, verified dependency completion and
+protected backup. Ordinary warnings do not add apply gates. Existing maximal
+contiguous template stages and overlap/dependency splits remain; one post-stage
+collection and separate per-target operational reads supply existing verifiers.
+Preservation comparisons remain verification outcomes, not planning-state gates.
+
+Command rejection stops the row. Unusable/ambiguous SSH stops affected-device
+writes without retry; independent rows/devices continue only while safe. Save once
+after attempted writes, including partial failure, only from validated privileged
+EXEC on the owned usable shell. Keep command, verification, backup and save results
+separate. APIs/defaults, console integration and read-only capabilities are unchanged.
+Automated synthetic evidence is not owner/live validation; Atlas final reconciliation
+and the independent controller gate remain pending. Earlier validation history above
+and in PR #136 is not validation of Issue #139.

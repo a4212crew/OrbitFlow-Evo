@@ -10,7 +10,7 @@ from orbitflow.configuration.v2.planning import plan, request
 from orbitflow.transport import DeviceCredentials
 from orbitflow.result_spool import ResultJournal
 from test_configuration_execution import (context, observation, template, fake_runtime,
-                                         WorkerCLI, IP, NOW)
+                                         WorkerCLI, IP, NOW, cli_with)
 
 CASES = [(family, function) for family in ('C3750X', 'C3850X', 'EdgeSwitch')
          for function in (('VLAN Database', 'VLAN Port', 'Interface Description') if family == 'EdgeSwitch'
@@ -110,6 +110,37 @@ def test_all_templates_shared_fresh_stage_real_verification(tmp_path, monkeypatc
     assert [e['stage'] for e in events if e['stage'].startswith('stage_')] == ['stage_precheck', 'stage_post_observation', 'stage_result']
 
 
+@pytest.mark.parametrize('family,function', [
+    ('C3750X', 'Access Port'), ('C3850X', 'Trunk Port'), ('EdgeSwitch', 'VLAN Port')])
+def test_shared_post_observation_retains_distinct_real_switchport_reads(monkeypatch, family, function):
+    ctx, requests, before, after = fixture(family, function)
+    original = plan(requests, {IP: before}, decisions={r['row_id']: 'Approve' for r in requests}, now=NOW)
+    edge = family == 'EdgeSwitch'
+    prompt = '(<fixture>) #' if edge else 'fixture#'
+    responses = [('terminal length 0\n'+prompt).encode()]
+    if not edge:
+        responses.append(('terminal width 511\n'+prompt).encode())
+    commands = []
+    for i in (1, 2):
+        target = f'0/{i}' if edge else f'GigabitEthernet1/0/{i}'
+        command = f'show interfaces switchport {target}' if edge else f'show interfaces {target} switchport'
+        commands.append(command)
+        text = (f'Port: {target}\nGeneral Mode PVID: 445\nGeneral Mode Untagged VLANs: 445\nGeneral Mode Tagged VLANs: 545'
+                if edge else f'Name: Gi1/0/{i}\nSwitchport: Enabled\nAdministrative Mode: '+
+                ('trunk\nTrunking Native Mode VLAN: 1\nTrunking VLANs Enabled: 445,545'
+                 if function == 'Trunk Port' else 'static access\nAccess Mode VLAN: 445'))
+        responses.append((command+'\n'+text+'\n'+prompt).encode())
+    cli, channel = cli_with(responses, prompt)
+    cli._reuse_session_setup = True
+    def no_recollect(*a, **kw):
+        pytest.fail('independent rows must share the supplied post-stage observation')
+    monkeypatch.setattr(ex, '_observe', no_recollect)
+    for request, result in zip(requests, original.to_dict()['results']):
+        verified = ex._verify_observed(cli.session, ctx, cli, dict(request=request, result=result), before, after=after)
+        assert verified['status'] == 'Verified'
+    assert [value.decode().strip() for value in channel.sent if value.decode().startswith('show ')] == commands
+
+
 @pytest.mark.parametrize('fault,expected', [('preservation','Failed'), ('missing','Unknown'), ('unreliable','Unknown')])
 def test_stage_target_drift_preservation_and_incomplete_evidence(tmp_path, monkeypatch, fault, expected):
     ctx, requests, before, after = fixture('C3750X', 'Interface Description')
@@ -178,23 +209,21 @@ def test_ordered_template_reentry_description_supersession_and_external_drift(tm
     finished = observation(ctx, base_config+port1.replace('middle','final')+port2.replace('vlan 545','vlan 445'))
     for obs in (middle, described, finished):
         obs['vlan_lookups'] = deepcopy(before['vlan_lookups'])
-    changed = deepcopy(described)
+    changed = observation(ctx, base_config+port1.replace('middle','final')+
+                          port2.replace(' shutdown', ' description external\n shutdown')) if external_drift else described
     if external_drift:
-        for node in changed['facts']:
-            if node['kind'] == 'interface' and node['value'].endswith('/2'):
-                node['children'].append(dict(kind='description', value='external', children=[]))
+        finished = observation(ctx, base_config+port1.replace('middle','final')+
+                               port2.replace('vlan 545','vlan 445').replace(' shutdown', ' description external\n shutdown'))
+    for obs in (changed, finished):
+        obs['vlan_lookups'] = deepcopy(before['vlan_lookups'])
     sequence = [before, middle, middle, described, changed, finished]
     rows, events, reads, saves, _ = execute(tmp_path, monkeypatch, ctx, [first, desc, last], before, finished,
                                            observe=lambda n: sequence[n-1])
     assert [r['stage_id'] for r in rows] == ['stage-1','stage-2','stage-3']
-    assert [r['status'] for r in rows] == ['Verified','Verified','Not executed' if external_drift else 'Verified']
+    assert [r['status'] for r in rows] == ['Verified','Verified','Verified']
     assert rows[0]['verification']['evidence']['description']['port_description'] == 'middle'
     assert rows[1]['verification']['evidence']['description']['port_description'] == 'final'
-    if external_drift:
-        assert rows[-1]['blocker'] == 'EXTERNAL_TARGET_DRIFT'
-        assert len(reads) == 5
-    else:
-        assert len(reads) == 6
+    assert len(reads) == 6
     assert len(saves) == 1
     ends = [i for i,e in enumerate(events) if e['stage']=='stage_result']
     starts = [i for i,e in enumerate(events) if e['stage']=='stage_precheck']
@@ -206,6 +235,148 @@ def test_noop_stage_still_fresh_and_save_independent(tmp_path, monkeypatch):
     rows, _, reads, saves, _ = execute(tmp_path, monkeypatch, ctx, requests, after, after)
     assert all(r['status']=='Verified' for r in rows)
     assert len(reads)==2 and not saves and not WorkerCLI.instances[0].sent
+
+
+@pytest.mark.parametrize('family,function', CASES)
+def test_approved_cli_survives_fresh_noop_without_execution_planning(tmp_path, monkeypatch, family, function):
+    from orbitflow.configuration.v2 import planning
+    ctx, requests, before, after = fixture(family, function)
+    fresh = plan(requests, {IP: after}, now=NOW).to_dict()['results']
+    assert all(r['no_op'] for r in fresh)
+    def forbidden(*a, **kw):
+        pytest.fail('execution must not plan fresh device state')
+    def observe(count):
+        # Immutable source validation happens before connection. From the first
+        # fresh collection onward neither rendering nor plan evaluation is allowed.
+        monkeypatch.setattr(planning, 'plan', forbidden)
+        monkeypatch.setattr(planning, '_build', forbidden)
+        return after
+    rows, _, reads, saves, prepared = execute(tmp_path, monkeypatch, ctx, requests, before, after, observe=observe)
+    assert [r['status'] for r in rows] == ['Verified', 'Verified']
+    approved = [c for e in prepared['summary']['selected'] for c in e['result']['commands']]
+    assert approved and WorkerCLI.instances[0].sent == approved
+    assert len(reads) == (1 if function == 'VLAN Database' else 2)
+    assert len(saves) == 1
+
+
+@pytest.mark.parametrize('family', ['C3750X', 'C3850X'])
+@pytest.mark.parametrize('function', ['Access Port', 'Trunk Port', 'Interface Description'])
+@pytest.mark.parametrize('damage', ['missing', 'duplicate', 'membership'])
+def test_fresh_target_identity_and_bundle_ownership(tmp_path, monkeypatch, family, function, damage):
+    ctx, requests, before, after = fixture(family, function)
+    fresh = deepcopy(before)
+    first = requests[0]['inputs']['interface']
+    node = next(n for n in fresh['facts'] if n['kind'] == 'interface' and n['value'] == first)
+    if damage == 'missing':
+        fresh['interfaces'] = [i for i in fresh['interfaces'] if i['port_name'] != first]
+    elif damage == 'duplicate':
+        fresh['facts'].append(deepcopy(node))
+    else:
+        member = dict(node['children'][0], kind='aggregate', value=9, children=[], excerpt=' channel-group 9 mode active')
+        node['children'].append(member)
+        next(n for n in after['facts'] if n['kind'] == 'interface' and n['value'] == first)['children'].append(deepcopy(member))
+    rows, events, _, saves, prepared = execute(tmp_path, monkeypatch, ctx, requests, before, after,
+        observe=lambda n: fresh if n == 1 else after)
+    allowed = function == 'Interface Description' and damage == 'membership'
+    assert rows[0]['status'] == ('Verified' if allowed else 'Not executed')
+    assert rows[1]['status'] == 'Verified'
+    sent = [e for e in events if e['stage'] == 'command_intent']
+    assert any(e['row_id'] == requests[0]['row_id'] for e in sent) == allowed
+    assert len(saves) == 1
+
+
+@pytest.mark.parametrize('family', ['C3750X', 'C3850X'])
+@pytest.mark.parametrize('damage', ['', 'owner_changed', 'owner_missing', 'conflict'])
+def test_approved_bundle_owner_still_required(tmp_path, monkeypatch, family, damage):
+    ctx, requests, before, after = fixture(family, 'Trunk Port')
+    common = 'vlan 445\n name Customer\n!\nvlan 545\n name Other\n!\n'
+    member = 'interface GigabitEthernet1/0/1\n channel-group 1 mode active\n!\n'
+    owner = 'interface Port-channel1\n switchport mode trunk\n switchport trunk native vlan 1\n switchport trunk allowed vlan 445\n shutdown\n!\n'
+    other = owner.replace('Port-channel1', 'GigabitEthernet1/0/2')
+    lookups = before['vlan_lookups']
+    before = observation(ctx, common+member+owner+other+'end\n')
+    after = observation(ctx, common+member+(owner+other).replace('allowed vlan 445', 'allowed vlan 445,545')+'end\n')
+    for obs in (before, after):
+        obs['vlan_lookups'] = deepcopy(lookups)
+    fresh = deepcopy(before)
+    audit = next(a for a in fresh['audit'] if a['config_interface_name'] == 'GigabitEthernet1/0/1')
+    if damage == 'owner_changed':
+        audit['configuration_owner'] = 'Port-channel9'
+    elif damage == 'owner_missing':
+        fresh['facts'] = [n for n in fresh['facts'] if n['value'] != 'Port-channel1']
+    elif damage == 'conflict':
+        audit['configuration_findings'].append(dict(code='PORT_CHANNEL_CONFIG_CONFLICT'))
+    rows, events, _, saves, prepared = execute(tmp_path, monkeypatch, ctx, requests, before, after,
+        observe=lambda n: fresh if n == 1 else after)
+    assert prepared['summary']['selected'][0]['result']['resolved_target'] == 'Port-channel1'
+    assert [r['status'] for r in rows] == ['Not executed' if damage else 'Verified', 'Verified']
+    commands = [e['command'] for e in events if e['stage'] == 'command_intent']
+    assert ('interface Port-channel1' in commands) == (not damage)
+    assert 'interface GigabitEthernet1/0/1' not in commands
+    assert len(saves) == 1
+
+
+@pytest.mark.parametrize('family', ['C3750X', 'C3850X'])
+@pytest.mark.parametrize('function,kind,value,code', [
+    ('Access Port', 'mode', 'trunk', 'ACCESS_CONVERSION_BLOCKED'),
+    ('Trunk Port', 'mode', 'access', 'TRUNK_CONVERSION_BLOCKED'),
+    ('Access Port', 'methodology_unknown', True, 'UNRESOLVED_CONFIGURATION'),
+    ('Trunk Port', 'routed', True, 'TRUNK_CONVERSION_BLOCKED')])
+def test_known_target_prerequisites_without_planning(family, function, kind, value, code):
+    ctx, requests, before, _ = fixture(family, function, 1)
+    original = plan(requests, {IP: before}, now=NOW).to_dict()
+    node = next(n for n in before['facts'] if n['kind'] == 'interface')
+    node['children'].append(dict(kind=kind, value=value, children=[]))
+    with pytest.raises(ex.ExecutionBlocked) as error:
+        ex._check_target(dict(request=requests[0], result=original['results'][0]), before, ctx)
+    assert error.value.code == code
+
+
+@pytest.mark.parametrize('function', ['VLAN Port', 'Interface Description'])
+def test_edgeswitch_ownership_gate_is_port_only(function):
+    ctx, requests, before, _ = fixture('EdgeSwitch', function, 1)
+    original = plan(requests, {IP: before}, now=NOW).to_dict()
+    before['audit'][0]['configuration_owner'] = 'lag 1'
+    entry = dict(request=requests[0], result=original['results'][0])
+    if function == 'VLAN Port':
+        with pytest.raises(ex.ExecutionBlocked) as error:
+            ex._check_target(entry, before, ctx)
+        assert error.value.code == 'OWNERSHIP_REQUIRES_REVIEW'
+    else:
+        ex._check_target(entry, before, ctx)
+
+
+@pytest.mark.parametrize('family,function', [
+    ('C3750X', 'Trunk Port'), ('C3850X', 'Access Port'), ('EdgeSwitch', 'VLAN Port')])
+@pytest.mark.parametrize('damage', ['missing', 'duplicate'])
+def test_missing_or_ambiguous_owner_evidence_blocks_port(family, function, damage):
+    ctx, requests, before, _ = fixture(family, function, 1)
+    original = plan(requests, {IP: before}, now=NOW).to_dict()
+    before['audit'] = [] if damage == 'missing' else before['audit'] * 2
+    with pytest.raises(ex.ExecutionBlocked):
+        ex._check_target(dict(request=requests[0], result=original['results'][0]), before, ctx)
+
+
+def test_failed_dependency_blocks_port_but_independent_description_continues(tmp_path, monkeypatch):
+    ctx, _, before, after = fixture('C3750X', 'Access Port', 1)
+    db = request(template('C3750X','VLAN Database').id, dict(management_ip=IP, vlan_id=701, name='Customer'))
+    port = request(template('C3750X','Access Port').id,
+                   dict(management_ip=IP, interface='GigabitEthernet1/0/1', vlan_id=701), sheet_order=1)
+    desc = request(template('C3750X','Interface Description').id,
+                   dict(management_ip=IP, interface='GigabitEthernet1/0/1', description='new'), sheet_order=2)
+    class RejectCLI(WorkerCLI):
+        def run_command(self, command, **kw):
+            response = super().run_command(command, **kw)
+            return '% Invalid input' if command == 'name Customer' else response
+    def verify(session, context, cli, entry, *args, **kw):
+        return dict(status='Verified')
+    rows, events, _, saves, prepared = execute(tmp_path, monkeypatch, ctx, [db,port,desc], before, after,
+        verifier=verify, cli_type=RejectCLI)
+    assert prepared['summary']['selected'][1]['result']['dependencies'] == [db['row_id']]
+    assert [r['status'] for r in rows] == ['Failed', 'Not executed', 'Verified']
+    assert rows[1]['blocker'] == 'DEPENDENCY_FAILED'
+    assert not any(e['stage'] == 'command_intent' and e['row_id'] == port['row_id'] for e in events)
+    assert len(saves) == 1
 
 
 @pytest.mark.parametrize('complete', [False, True])

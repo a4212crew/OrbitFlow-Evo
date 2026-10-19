@@ -33,6 +33,13 @@ commands, per-row verification and partial-change saving at device-task end.
 New standalone switchport parsers/collectors preserve typed facts and independent
 EdgeSwitch Current/Configured/Tagging evidence. Incremental fsynced events and shared
 result spools support offline execution-workbook regeneration after interruption.
+Issue #139 simplifies confirmed execution: fresh target identity/ownership and known
+prerequisites remain checked; execution no longer replans or requires fresh command,
+no-op, projected-state or trusted-baseline equality. Exact approved CLI still sends
+when already correct. Stage splitting/shared observation, independent verification,
+rejection/device isolation, protected backup and EXEC-only partial save remain.
+Automated synthetic validation is separate from pending owner/live validation of
+this revision. The controller's independent final test gate remains pending.
 Issue #134 adds execution-only structural Cisco/EdgeSwitch prompt recognition,
 including changing/abbreviated host presentation and arbitrary valid submodes.
 Current echo and split-response protections remain required. Checked same-session

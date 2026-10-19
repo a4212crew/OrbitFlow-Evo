@@ -130,3 +130,12 @@ Issue #130 adds main item 7 MAC Address Lookup (Exit becomes 8), with exactly Se
 MAC search displays each selected observation as one keyed record containing MAC,
 full attachment, domain/mapping, physical interface and port type. Multiple matches
 remain correlated on their own lines; see the [MAC manual](mac-address-lookup.md).
+
+
+Issue #139 updates the existing Execute Approved Plan service: original approved CLI
+still sends when fresh state is already correct, without execution replanning or
+trusted-baseline equality. Fresh target/ownership/prerequisite checks, backup,
+shared stage verification, confirmation, replay protection and EXEC-only partial
+save remain. Menu/profile/defaults are unchanged. See the
+[execution guide](configuration-execution.md#simplified-approved-execution--issue-139).
+Owner/live validation of this revision remains pending.
