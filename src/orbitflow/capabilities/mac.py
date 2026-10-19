@@ -100,8 +100,17 @@ def resolve_attachment(attachment, platform, interfaces, vlans=None):
     """Resolve real observed/configured parents; never follow aggregate members."""
     key = lambda n: canonical_interface_name(platform, n)
     parent = re.split(r'(?:[+.][Ee]fp\d+|\.\d+)$', attachment)[0]
+    if platform == 'ubiquiti_edgeswitch':
+        lag = re.fullmatch(r'3/(\d+)', parent)
+        if lag:
+            parent = 'lag ' + lag[1]
+        if parent == '5/1':
+            return AttachmentResolution(attachment, classification='nonphysical')
     observed = [i for i in interfaces if key(i.port_name) == key(parent)]
     names = [i.port_name for i in observed]
+    if platform == 'ubiquiti_edgeswitch' and re.fullmatch(r'3/\d+', attachment):
+        # The MAC table itself observes the logical slot; no member selection.
+        names = [parent]
     if not names and vlans is not None:
         names = [f.value for f in (getattr(vlans, 'configuration', None) or ())
                  if f.kind in {'interface', 'l2_interface'} and isinstance(f.value, str)
@@ -109,11 +118,11 @@ def resolve_attachment(attachment, platform, interfaces, vlans=None):
     folded = key(parent)
     if attachment.upper() == 'CPU':
         return AttachmentResolution(attachment, classification='cpu')
-    if attachment.startswith('('):
+    if attachment.startswith('(') or re.fullmatch(r'(?i)(?:pw|pseudowire)\d+(?:/\d+)*', attachment):
         return AttachmentResolution(attachment, classification='remote')
     if re.match(r'(?i)(?:vl|bv|bd|loopback|vlanif)', parent):
         return AttachmentResolution(attachment, classification='nonphysical')
-    if platform == 'ubiquiti_edgeswitch' and not parent.startswith('0/'):
+    if platform == 'ubiquiti_edgeswitch' and not (parent.startswith('0/') or re.fullmatch(r'lag \d+', parent)):
         return AttachmentResolution(attachment)
     if len(names) != 1:
         return AttachmentResolution(attachment)

@@ -114,8 +114,8 @@ def test_domain_not_vlan():
     detail = NS(interface_name='GigabitEthernet0/24', service_details=(), service_mappings=('445 -> 4001',), port_type='evc')
     from orbitflow.vendors.configuration_facts import observe_configuration
     facts = observe_configuration('interface GigabitEthernet0/24\n service instance 3999 ethernet\n  encapsulation dot1q 445\n  bridge-domain 4001', 'cisco_ios')
-    rows = enrich(table, context, [NS(port_name='Gi0/24')], NS(interfaces=[detail], configuration=facts))
-    assert rows[0].vlans == (445,) and rows[0].resolution.port_type == 'Unknown'
+    rows = enrich(table, context, [NS(port_name='Gi0/24')], NS(interfaces=[detail], objects=(), configuration=facts))
+    assert rows[0].vlans == (445,) and rows[0].resolution.port_type == 'trunk'
     assert enrich(table, context)[0].vlans == ()
 
 
@@ -389,3 +389,124 @@ def test_ncs_collection_vlan_match_survives_empty_vfi_sections(monkeypatch):
     assert result[1][0][4:6] == ['G/D', '860']
     assert result[3] == []
     assert result[4]
+
+
+def configured_state(config, platform):
+    from orbitflow.vendors.configuration_facts import observe_configuration
+    return NS(interfaces=(), objects=(), configuration=observe_configuration(config, platform))
+
+
+@pytest.mark.parametrize('family,platform', [('ME3600X', 'cisco_ios'), ('ASR920', 'cisco_xe')])
+@pytest.mark.parametrize('encaps,extra,expected', [
+    ('untagged', '', 'access'),
+    ('dot1q 445', '', 'trunk'),
+    ('untagged', ' service instance 2 ethernet\n  encapsulation dot1q 545\n  bridge-domain 700', 'hybrid'),
+    ('untagged', ' service instance 2 ethernet\n  encapsulation untagged\n  bridge-domain 700', 'Unknown'),
+    ('dot1q 445', 'bridge-domain 800\n member Gi0/1 service-instance 1', 'Unknown'),
+])
+def test_family_classification_shared_with_audit(family, platform, encaps, extra, expected):
+    state = configured_state(f'interface Gi0/1\n service instance 1 ethernet\n  encapsulation {encaps}\n  bridge-domain 600\n{extra}', platform)
+    context = NS(platform=platform, device_family=family)
+    table = parse_mac_table('BD mac addr type ports\n600 aabb.ccdd.eeff dynamic Gi0/1.Efp1', platform)
+    row = enrich(table, context, (), state)[0]
+    assert row.resolution.port_type == expected
+    assert 600 not in row.vlans and 1 not in row.vlans
+    from orbitflow.compliance.resolvers import resolver_for
+    kind = resolver_for(context)(context, state).result()['interfaces']['gigabitethernet0/1']['interface_type']
+    assert row.resolution.semantics == kind
+
+
+@pytest.mark.parametrize('global_binding', ['', 'bridge-domain 600\n member Gi0/1 service-instance 7',
+    'bridge-domain 800\n member Gi0/1 service-instance 7'])
+def test_exact_efp_local_global_and_duplicate_rows(global_binding):
+    state = configured_state('interface Gi0/1\n service instance 7 ethernet\n  encapsulation dot1q 445\n  bridge-domain 600\n'+global_binding, 'cisco_ios')
+    table = parse_mac_table('BD mac addr type ports\n'+ '600 aabb.ccdd.eeff dynamic Gi0/1+Efp7\n'*2, 'cisco_ios')
+    rows = enrich(table, NS(platform='cisco_ios', device_family='ME3600X'), (), state)
+    assert len(rows) == 2
+    assert all(r.vlans == (() if '800' in global_binding else (445,)) for r in rows)
+
+
+@pytest.mark.parametrize('number', [1, 2, 5])
+def test_edgeswitch_exact_lag_destinations(number):
+    from orbitflow.vendors.ubiquiti.vlans import parse_edgeswitch_config
+    config = f'interface 0/8\n addport 3/{number}\nexit\ninterface lag {number}\n switchport mode trunk\nexit'
+    state = configured_state(config, 'ubiquiti_edgeswitch')
+    state.interfaces = parse_edgeswitch_config(config)[0]
+    table = parse_mac_table(f'VLAN ID MAC Address Interface IfIndex Status\n445 aa:bb:cc:dd:ee:ff 3/{number} 100 Learned\n545 aa:bb:cc:dd:ee:ff 5/1 65 Management', 'ubiquiti_edgeswitch')
+    rows = enrich(table, NS(platform='ubiquiti_edgeswitch', device_family='EdgeSwitch'), [NS(port_name='0/8')], state)
+    assert rows[0].entry.attachment == f'3/{number}' and rows[0].entry.ifindex == '100'
+    assert rows[0].resolution.physical == f'lag {number}'
+    assert rows[0].resolution.classification == 'aggregate' and rows[0].resolution.port_type == 'trunk'
+    assert rows[1].resolution.classification == 'nonphysical' and not rows[1].resolution.physical
+    assert resolve_attachment(f'3/{number}', 'ubiquiti_edgeswitch', [NS(port_name='0/8')]).physical == f'lag {number}'
+    assert state.interfaces[0].tagged_vlans == () and not state.interfaces[0].bridge_domains
+    from orbitflow.compliance.resolvers import EdgeSwitchAuditResolver
+    facts = EdgeSwitchAuditResolver(NS(platform='ubiquiti_edgeswitch', device_family='EdgeSwitch'), state).result()
+    assert facts['interfaces'][f'lag {number}']['valid_interface_vlans'] == []
+    assert facts['interfaces']['0/8']['configuration_owner'] == f'lag {number}'
+
+
+@pytest.mark.parametrize('tags,group,ambiguous,expected', [
+    ([], 'G', False, ()), ([445], 'G', False, (445,)),
+    ([445, 445], 'G', False, (445,)), ([445, 545], 'G', False, ()),
+    ([445], 'OTHER', False, ()), ([445], 'G', True, ())])
+def test_xr_untagged_mac_only_peer_association(tags, group, ambiguous, expected):
+    config = 'interface TenGigE0/0/0/1.99 l2transport\n encapsulation untagged\n!\n'
+    for index, tag in enumerate(tags):
+        config += f'interface TenGigE0/0/0/2.{index} l2transport\n encapsulation dot1q {tag}\n!\n'
+    config += f'l2vpn\n bridge group {group}\n  bridge-domain D\n   interface TenGigE0/0/0/1.99\n'
+    for index in range(len(tags)):
+        config += f'   interface TenGigE0/0/0/2.{index}\n'
+    if ambiguous:
+        config += ' bridge group X\n  bridge-domain D\n   interface TenGigE0/0/0/1.99\n'
+    state = configured_state(config, 'cisco_xr')
+    bridge = parse_bridge_domains('Bridge group: G, bridge-domain: D, id: 99, state: up\n List of ACs:\n Te0/0/0/1.99, state: up')
+    table = parse_mac_table('Mac Address Type Learned from/Filtered on\naabb.ccdd.eeff dynamic Te0/0/0/1.99 N/A N/A N/A', 'cisco_xr')
+    row = enrich(table, NS(platform='cisco_xr', device_family='NCS540'), (), state, bridge)[0]
+    assert row.vlans == expected and row.entry.attachment == 'Te0/0/0/1.99'
+    assert row.resolution.port_type == 'Unknown'
+
+
+@pytest.mark.parametrize('family,platform', [('C3750X', 'cisco_ios'), ('C3850', 'cisco_xe'), ('ME3600X', 'cisco_ios'), ('ASR920', 'cisco_xe')])
+def test_numeric_vlan_source_retained_without_configuration(family, platform):
+    table = parse_mac_table('Vlan Mac Address Type Ports\n445 aabb.ccdd.eeff dynamic Po2\n445 aabb.ccdd.eeff static Vl445\nAll aabb.ccdd.eeff static CPU', platform)
+    rows = enrich(table, NS(platform=platform, device_family=family))
+    assert [r.vlans for r in rows] == [(445,), (445,), ()]
+    assert len(rows) == 3 and rows[-1].resolution.classification == 'cpu'
+
+
+@pytest.mark.parametrize('family,platform', [('ME3600X', 'cisco_ios'), ('ASR920', 'cisco_xe')])
+def test_cpu_pw_and_unresolved_efp_remain_distinct(family, platform):
+    table = parse_mac_table('BD mac addr type ports\nALL aabb.ccdd.eeff static CPU\n600 aabb.ccdd.eeff dynamic PW700\n600 aabb.ccdd.eeff dynamic Gi0/1.Efp600', platform)
+    rows = enrich(table, NS(platform=platform, device_family=family))
+    assert len(rows) == 3
+    assert [r.resolution.classification for r in rows] == ['cpu', 'remote', 'unresolved']
+    assert all(not r.vlans and not r.resolution.physical for r in rows)
+
+
+@pytest.mark.parametrize('defect', ['missing', 'conflicting_binding', 'conflicting_encapsulation'])
+def test_xr_peer_fallback_rejects_uncertain_peer_facts(defect):
+    from orbitflow.capabilities.mac_forwarding import xr_untagged_peer_vlan
+    config = '''interface TenGigE0/0/0/1.99 l2transport
+ encapsulation untagged
+!
+interface TenGigE0/0/0/2.1 l2transport
+ encapsulation dot1q 445
+!
+'''
+    if defect != 'missing':
+        config += 'interface TenGigE0/0/0/3.1 l2transport\n encapsulation dot1q 445\n'
+        if defect == 'conflicting_encapsulation':
+            config += ' encapsulation dot1q 545\n'
+        config += '!\n'
+    config += '''l2vpn
+ bridge group G
+  bridge-domain D
+   interface TenGigE0/0/0/1.99
+   interface TenGigE0/0/0/2.1
+   interface TenGigE0/0/0/3.1
+'''
+    if defect == 'conflicting_binding':
+        config += ' bridge group OTHER\n  bridge-domain D\n   interface TenGigE0/0/0/3.1\n'
+    state = configured_state(config, 'cisco_xr')
+    assert not xr_untagged_peer_vlan(state.configuration, 'cisco_xr', 'Te0/0/0/1.99', 'G/D')

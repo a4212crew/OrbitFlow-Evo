@@ -920,3 +920,28 @@ def test_ordered_replay_repeated_stanza_evidence_survives_spool_report(family, t
         assert report["Evidence Source"] == "synthetic.cfg"
     finally:
         workbook.close()
+
+
+def test_edgeswitch_trunk_intent_never_creates_policy_membership():
+    config = '''vlan database
+ vlan 445,545,2449
+exit
+interface 0/1
+ switchport mode trunk
+exit
+interface lag 2
+ switchport mode trunk
+exit'''
+    results = audit(config, 'EdgeSwitch')
+    for name in ('0/1', 'lag 2'):
+        finding = row(results, name)
+        assert finding['observed']['interface_type'] == 'trunk'
+        assert finding['observed']['valid_interface_vlans'] == []
+        assert finding['observed']['configured_membership_vlans'] == []
+        assert not finding['observed']['trigger_applicable']
+        assert finding['status'] == 'not_applicable'
+    profiles, objects = parse_edgeswitch_config(config)
+    assert len(profiles) == 2
+    assert all(p.mode == p.port_type == 'trunk' for p in profiles)
+    assert all(not p.tagged_vlans and not p.bridge_domains and not p.service_mappings for p in profiles)
+    assert {o.object_id for o in objects} == {'445', '545', '2449'}

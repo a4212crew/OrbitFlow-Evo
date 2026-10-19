@@ -1,5 +1,5 @@
 """Compose normalized observations; never infer VLANs from service identifiers."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 from orbitflow.capabilities.mac import resolve_attachment
 from orbitflow.vendors.interface_names import canonical_interface_name
@@ -34,6 +34,50 @@ def exact_efp_vlans(configuration, platform, parent, service_id, domain):
     return encapsulations[0]
 
 
+def xr_untagged_peer_vlan(configuration, platform, attachment, domain):
+    """MAC-only association from exact configured AC/domain and one peer tag.
+
+    This does not change the untagged AC's ingress classification or VLAN state.
+    """
+    key = lambda n: canonical_interface_name(platform, n)
+    interfaces = {}
+    bindings = {}
+    for node in configuration or ():
+        if node.kind in {'interface', 'l2_interface'}:
+            interfaces.setdefault(key(node.value), []).append(node)
+        if node.kind == 'l2vpn':
+            for group in node.children:
+                if group.kind != 'bridge_group':
+                    continue
+                for bd in group.children:
+                    if bd.kind != 'bridge_domain':
+                        continue
+                    identity = f'{group.value}/{bd.value}'
+                    for ac in bd.children:
+                        if ac.kind == 'attachment':
+                            bindings.setdefault(key(ac.value), set()).add(identity)
+    own = interfaces.get(key(attachment), [])
+    if (len(own) != 1 or own[0].kind != 'l2_interface'
+            or bindings.get(key(attachment)) != {domain}
+            or not any(f.kind == 'untagged' for f in own[0].children)
+            or any(f.kind == 'encapsulation' for f in own[0].children)):
+        return ()
+    if any(domain in identities and name not in interfaces for name, identities in bindings.items()):
+        return ()
+    tags = set()
+    for name, nodes in interfaces.items():
+        if domain not in bindings.get(name, set()):
+            continue
+        if len(nodes) != 1 or nodes[0].kind != 'l2_interface' or bindings.get(name) != {domain}:
+            return ()
+        encaps = [f.value for f in nodes[0].children if f.kind == 'encapsulation']
+        if len(encaps) > 1 or (encaps and any(f.kind == 'untagged' for f in nodes[0].children)):
+            return ()
+        if len(encaps) == 1 and isinstance(encaps[0], tuple):
+            tags.update(v for v in encaps[0] if type(v) is int and 1 <= v <= 4094)
+    return tuple(tags) if len(tags) == 1 else ()
+
+
 @dataclass(frozen=True)
 class EnrichedMac:
     entry: object
@@ -54,16 +98,27 @@ def enrich(snapshot, context, interfaces=(), vlans=None, bridges=None):
     """Preserve every observation and unknown mapping; return immutable detail."""
     key = lambda n: canonical_interface_name(context.platform, n)
     profiles = () if vlans is None else vlans.interfaces
+    from orbitflow.compliance.resolvers import forwarding_classifications
+    classifications = {key(p.interface_name): p for p in forwarding_classifications(context, vlans)
+                       } if context.device_family in {'ME3600X', 'ASR920', 'EdgeSwitch'} else {}
     result = []
     for entry in snapshot.entries:
         resolution = resolve_attachment(entry.attachment, context.platform, interfaces, vlans)
+        classification = classifications.get(key(resolution.physical))
+        if classification and resolution.classification in {'physical', 'aggregate'}:
+            semantic = classification.port_type
+            resolution = replace(resolution, semantics=semantic,
+                                 port_type='trunk' if semantic == 'evc' else semantic if semantic in {'access', 'trunk', 'hybrid'} else 'Unknown')
         domains = (entry.domain,) if entry.domain else ()
         candidates = () if bridges is None else bridges.for_destination(entry.attachment)
         if context.platform == 'cisco_xr':
             domains = (f'{candidates[0].group}/{candidates[0].name}',) if len(candidates) == 1 else ()
         tags = set()
         classic = context.device_family in {'C3750X', 'C3850', 'EdgeSwitch'}
-        if (classic or context.platform == 'huawei_vrp') and entry.domain.isdecimal():
+        numeric_scope = ((classic and entry.scope != 'bridge-domain') or context.platform == 'huawei_vrp'
+                         or (context.device_family in {'ME3600X', 'ASR920'} and entry.scope == 'vlan'
+                             and not re.search(r'[+.][Ee]fp\d+$', entry.attachment)))
+        if numeric_scope and entry.domain.isdecimal():
             if 1 <= int(entry.domain) <= 4094:
                 tags.add(int(entry.domain))
         # A concrete service attachment limits lookup to its own profile; a remote
@@ -90,6 +145,9 @@ def enrich(snapshot, context, interfaces=(), vlans=None, bridges=None):
                     source, sep, destination = mapping.partition(' -> ')
                     if sep and destination in ((candidates[0].name,) if context.platform == 'cisco_xr' and len(candidates) == 1 else domains) and source.isdecimal() and 1 <= int(source) <= 4094:
                         tags.add(int(source))
+        if context.platform == 'cisco_xr' and len(candidates) == 1 and vlans is not None and not tags:
+            tags.update(xr_untagged_peer_vlan(getattr(vlans, 'configuration', ()),
+                                            context.platform, entry.attachment, domains[0]))
         result.append(EnrichedMac(entry, resolution, domains, tuple(sorted(tags)),
                                   'resolved' if tags else 'unknown VLAN mapping'))
     return tuple(result)

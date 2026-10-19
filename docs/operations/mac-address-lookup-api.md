@@ -53,6 +53,20 @@ identity to agree with the unique operational group/domain, for local and remote
 MAC destinations. Same domain names in different groups do not prove a match. `lookup_vlan`
 requires an integer 1-4094, returns only proven matching observations.
 
+Issue #132: `MacEntry.scope` retains `vlan` or `bridge-domain` for IOS/IOS-XE
+source tables; existing Huawei slot and XR scope semantics remain. Enrichment
+preserves explicit ME3600X/ASR920 numeric VLANs, exact EFP encapsulation, and
+`3/N` EdgeSwitch logical `lag N` ownership (raw attachment/IfIndex unchanged).
+A uniquely joined/configured XR untagged AC may associate with the one distinct
+explicit dot1q VLAN of configured peers in that exact group/domain. Zero/multiple
+peer tags and ambiguous bindings remain Unknown; ingress semantics stay untagged.
+
+The reusable `orbitflow.compliance.resolvers.forwarding_classifications(context,
+state)` returns immutable `ForwardingClassification(interface_name, port_type,
+configuration_owner)` tuples through existing family validation, without policy
+execution. Missing configuration/unsupported families return an empty tuple.
+It exposes classification, not numeric audit memberships as ingress VLANs.
+
 Application entry points in `orbitflow.mac_lookup`:
 
 - `resolve_target(targets, address)`: one canonical matching workbook row;

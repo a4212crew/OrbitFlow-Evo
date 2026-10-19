@@ -2,7 +2,7 @@
 
 Read-only terminal lookup for Catalyst C3750X/C3850, ME3600X, ASR920, NCS540,
 Huawei NE05/NE05E and EdgeSwitch. Implemented sample parsers have offline tests;
-owner live collection validation and Linux execution remain pending. Huawei
+owner live collection validation on Linux and Windows remains pending. Huawei
 `display mac-address` and EdgeSwitch `show mac-addr-table all` are owner-approved
 candidates whose original samples omitted invocation/prompt. No live testing by Codex.
 
@@ -59,7 +59,7 @@ python -m orbitflow.mac_cli list --vlan 445 --rows 1,2 --concurrency 2 --confirm
 python -m orbitflow.mac_cli export outputs/runs/mac_table/RUN outputs/reports/mac_table/recovered.xlsx
 ```
 
-Linux equivalents (owner execution pending):
+Linux equivalents (operator live execution pending):
 
 ```bash
 export PYTHONPATH="$PWD/src"
@@ -97,13 +97,18 @@ advice or follow remote peers. Available MAC address space is never learned tota
 Known limits: supplied samples are excerpts, not complete release coverage. Exact
 EFP mapping needs preserved service facts. Unknown service relationships cannot
 match VLANs. Parents absent from both observed and configured interface facts cannot resolve physically. Aggregate entries retain
-aggregate ownership; EdgeSwitch non-0/x identity remains unresolved. Existing shared
+aggregate ownership; EdgeSwitch `3/N` maps exactly to `lag N`, and management
+`5/1` stays nonphysical. Explicit trunk-only configuration preserves port intent
+with no inferred VLAN membership. ME3600X/ASR920 use shared validated access,
+EVC/trunk, hybrid and review classifications. XR untagged ACs associate only when
+a unique operational/configured group/domain has one distinct explicit numeric
+peer dot1q VLAN; this association does not imply tagged ingress. Existing shared
 VLAN normalization omits VLAN 1 in some service profiles; no audit-policy change
 is made here. Very large single-device tables remain in per-device memory and
 Excel's sheet/cell limits apply; select narrower runs if a sheet would exceed its row limit. Export errors retain the spool. No claim of
 live completeness or performance is made.
 
-Offline validation (Windows command executed; use `export PYTHONPATH` above on Linux):
+Offline validation (Issue #132 automated tests run on Linux; Windows execution pending):
 
 ```powershell
 python -m pytest tests/test_mac_lookup.py tests/test_operations_console.py -q
@@ -146,3 +151,27 @@ Bridge Domains evidence. Contradictory groups with identical domain names must
 remain unknown and absent from the VLAN selection. Summary counts and up counts
 are reported facts, including empty domains; they are never compared or recomputed.
 No new command or live data is required for the deterministic revision tests.
+
+
+Issue #132 offline verification (no credentials or network access):
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -m pytest tests/test_mac_lookup.py tests/test_vlan_configuration_audit.py tests/test_vlan_capability.py tests/test_vlan_compliance.py -q
+python -m pytest -q
+```
+
+```powershell
+$env:PYTHONPATH = (Resolve-Path src).Path
+python -m pytest tests/test_mac_lookup.py tests/test_vlan_configuration_audit.py tests/test_vlan_capability.py tests/test_vlan_compliance.py -q
+python -m pytest -q
+```
+
+For pending operator read-only verification, use the Bash/PowerShell search/list
+and offline export commands above with authorized lab inputs. Include EdgeSwitch
+3/1, 3/2 and 3/5, management 5/1, EFP encapsulation different from SI/BD, CPU/PW,
+SVI/Port-channel and an XR untagged AC with zero/one/multiple peer tags. Verify
+six main columns, one row per source observation, exact filters, Details evidence,
+Totals, Run Errors, Bridge Domains and recovery export. Missing/ambiguous evidence
+must stay Unknown; run partial/failure scenarios before accepting completeness.
+Automated fixtures do not establish live-device or Windows validation.
