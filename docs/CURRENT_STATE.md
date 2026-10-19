@@ -43,7 +43,7 @@ returns immediately on the current exact echo and complete structural prompt.
 Synthetic 260-command tests assert zero added waiting and no extra receives.
 Earlier quiet-guard proposals are superseded. Inner sandbox failures remain distinct
 from the separate controller gate, whose run report is unavailable to this worker.
-Owner Linux C3750X, C3850 and EdgeSwitch live validation of #134 remains pending.
+Post-merge #134/#135 validation: owner Linux issue-134 worktree ran 410 focused\ntests (5.49s) and 3,029 full-suite tests (88.31s), with zero failures,\nafter verifying imports resolve to issue-134 rather than issue-132. The owner\nsubsequently reported successful live validation before expressly approving\nPR #135's squash merge (6f9bd674). The live family, row count, firmware,\nindividual command outcomes and startup-persistence evidence were not supplied;\ndo not infer C3850 or EdgeSwitch validation from that report.
 Owner C3750X/EdgeSwitch lab validation following PR #118 is reported; C3850
 live validation remains outstanding. Other families,
 Manual CLI apply, HTTP, automatic rollback and write replay/resume remain unsupported.
