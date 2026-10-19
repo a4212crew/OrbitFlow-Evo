@@ -728,3 +728,63 @@ save are additional; shared concurrency can overlap different devices' waits.
 A silence longer than the guard remains inherently ambiguous. No timing-only
 optimization can establish an SSH message boundary; the guard is retained rather
 than claiming a speedup. Read-only framing and save completion remain unchanged.
+
+
+### Iteration 2: completion alternatives and controller evidence
+
+No lower-latency execution implementation is selected. The real reader is tested
+with a test-only socket timeout cap; production code, save and read-only framing
+remain unchanged. Both vendors receive the same exact current echo and split
+structural prompt, with no bytes currently ready, in normal and adversarial cases.
+Only a later continuation distinguishes the two. Deterministic comparison:
+
+| Candidate quiet interval | Normal exchange wait | 260-command wait | Delayed false prompts incorrectly completed |
+| --- | --- | --- | --- |
+| 10 ms (test-only alternative) | 0.01 s | 2.6 s | 50, 500, 990 ms continuations |
+| 100 ms (test-only alternative) | 0.1 s | 26 s | 500, 990 ms continuations |
+| 1 s (current, retained) | 1 s | 260 s | None of these cases |
+
+These are virtual reader waits excluding all device/network work, not observed
+throughput or a shipped before/after improvement. Covered continuations invalidate
+the current session without a second write. A continuation beyond one second is
+still a limitation; the existing guard is bounded protection, not proof of framing.
+Immediate completion, `recv_ready()` polling, larger reads and stable prompt text
+cannot resolve an identical prefix followed by delayed bytes. Batching commands
+would remove per-command association and rejection handling. Sending a newline or
+probe after a candidate requires a separately approved, vendor-validated protocol:
+a candidate may be banner text while a command is still active or awaiting input;
+an injected newline can answer that input. Such probes are not established as safe
+across these modes and firmware. Explicit protocol framing would need new vendor
+support. Shared concurrency can overlap different devices' waits but does not
+reduce a single device's serialized cost. The owner can choose a future validated
+protocol or explicitly approve a weaker delay bound; this revision does neither.
+
+The recorded **3,010 passed / 25 failed** run was an inner Codex Linux sandbox
+invocation, with requested `/var/tmp` falling back to `/tmp`. It was **not** the
+controller gate report. The controller independently calls `run_tests` after Codex
+returns, sets `PYTHONPATH=src`, supplies a protected `controller_temp` directory in
+`TEMP`/`TMP`/`TMPDIR`, and runs its Python executable with
+`-m pytest -q --basetemp <protected-directory>/pytest`. A nonzero exit raises before
+commit/push/PR publication. Its PR pass text is generated after that gate; it is
+not a copy of the devlog. No controller run stdout/exit report is available in this
+worktree to establish whether PR #135's separate outer gate truly passed. The
+sandbox failures alone neither prove nor disprove an outer gate pass.
+
+Controller-owned PR clarification, ready to copy:
+
+> Codex sandbox validation previously recorded 3,010 passed / 25 failed due to
+> orchestration OS-temp guards; that run was not a full-suite pass. The independent
+> controller gate uses a protected OS-temp directory and explicit pytest basetemp.
+> Its run output, interpreter/environment, tested revision and zero exit must be
+> supplied to substantiate the PR's full-suite pass claim. That evidence is currently
+> unavailable to the implementation worker; the outer gate result is unverified here.
+
+No Git markers, temp-root safeguards or controller publication logic were changed.
+Use the Bash/PowerShell commands and owner verification steps above; Linux device,
+C3850/EdgeSwitch live validation and Windows automated validation remain pending.
+
+Latest iteration-2 Linux sandbox validation: **440 focused tests passed (5.36s)**;
+full `PYTHONPATH=src python -m pytest -q`: **3,034 passed / 25 failed (85.49s)**,
+exit 1, with orchestration tests blocked by the Git-marked sandbox OS-temp root.
+This updates the earlier sandbox counts above; no outer controller gate report
+has become available. A full-suite pass must not be inferred from these results.

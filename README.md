@@ -746,6 +746,7 @@ and arbitrary valid submodes, plus EdgeSwitch inline/outer mode presentations.
 Echo association, independent verification and exact session EXEC save completion
 remain required. Read-only behavior and API defaults are unchanged. Synthetic tests
 cover the Linux C3750X incident and quantify the retained one-second quiet guard
-(260 seconds for 52 serialized five-command rows). Owner Linux/C3850/EdgeSwitch
+(260 seconds for 52 serialized five-command rows). Test-only shorter waits accept
+delayed false prompts; no latency improvement is shipped. Owner Linux/C3850/EdgeSwitch
 validation remains pending.
 See [Linux/Windows tests and owner verification](docs/user_manual/configuration-execution.md#flexible-execution-prompts-issue-134).

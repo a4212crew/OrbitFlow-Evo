@@ -1613,3 +1613,59 @@ def test_execution_delayed_banner_continuation_requires_full_guard(monkeypatch, 
     with pytest.raises(InteractiveCLIError):
         cli.run_command('configure')
     assert channel.sent.count(b'configure\n') == 1
+
+
+@pytest.mark.parametrize('platform,original,candidate', [
+    ('cisco_ios', 'fixture#', 'SW(config-router-af)#'),
+    ('ubiquiti_edgeswitch', '(ES24) #', '(ES24) (Something)#'),
+])
+@pytest.mark.parametrize('guard', [0.01, 0.1, 1.0])
+@pytest.mark.parametrize('delay', [None, 0.05, 0.5, 0.99])
+def test_execution_counterfactual_short_guard_latency_and_synchronization(
+        monkeypatch, platform, original, candidate, guard, delay):
+    """Exercise the real reader; cap socket waiting only to model rejected shortcuts.
+
+    Normal and adversarial responses have identical echoed, split prefixes and an
+    empty receive queue. Shorter quiet windows complete sooner but accept delayed
+    banner text. This is evidence for retaining production framing, not a new knob.
+    """
+    from orbitflow.vendors import common
+    cli, channel = cli_with([], original)
+    cli.execution_mode(original, platform)
+    clock, timeout, reads = [0.0], [0.0], [0]
+    prefix = [b'configure\r\n' + candidate[:-1].encode(), b'#']
+    pending_continuation = [delay is not None]
+
+    def recv(_):
+        reads[0] += 1
+        if prefix:
+            return prefix.pop(0)
+        if pending_continuation[0] and clock[0] + timeout[0] >= delay:
+            clock[0] = delay
+            pending_continuation[0] = False
+            return b' banner continuation\r\n'
+        clock[0] += timeout[0]
+        raise socket.timeout()
+
+    monkeypatch.setattr(common.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(channel, 'settimeout',
+                        lambda value: timeout.__setitem__(0, min(value, guard)))
+    monkeypatch.setattr(channel, 'recv', recv)
+    # No currently buffered bytes is not proof that the peer finished its line.
+    monkeypatch.setattr(channel, 'recv_ready', lambda: bool(prefix), raising=False)
+    if delay is not None and delay <= guard:
+        with pytest.raises(InteractiveCLIError):
+            cli.run_command('configure')
+        with pytest.raises(InteractiveCLIError):
+            cli.run_command('configure')
+        assert not pending_continuation[0]
+    else:
+        cli.run_command('configure')
+        assert cli.prompt == candidate
+        assert clock[0] == pytest.approx(guard)
+        assert reads[0] == 3
+        assert not channel.recv_ready()
+        assert pending_continuation[0] == (delay is not None)
+        # 52 rows x five commands: lower latency also leaves a stale response.
+        assert clock[0] * 260 == pytest.approx(guard * 260)
+    assert channel.sent.count(b'configure\n') == 1

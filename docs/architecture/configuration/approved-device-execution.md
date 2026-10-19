@@ -506,3 +506,10 @@ A synthetic 52-row/five-command serialized sequence adds 260 seconds of quiet
 waiting (780 receives with two fragments per exchange), excluding device latency,
 observation and save. This is a reader budget, not live throughput evidence.
 See the [execution manual](../../user_manual/configuration-execution.md) for test commands, effects and pending owner validation.
+
+Iteration 2 retains the implementation after comparing test-only 10/100 ms
+windows against the current one-second guard: lower waits accept delayed false
+prompts for both vendors. Empty receive queues and matching echoes do not establish
+a response boundary. Probe/newline protocols require separate vendor validation and
+owner approval; no weaker synchronization contract is selected. See the
+[alternatives and test-report provenance](../../user_manual/configuration-execution.md#iteration-2-completion-alternatives-and-controller-evidence).
