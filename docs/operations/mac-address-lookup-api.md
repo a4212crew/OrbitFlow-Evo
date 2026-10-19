@@ -56,7 +56,9 @@ requires an integer 1-4094, returns only proven matching observations.
 Issue #132: `MacEntry.scope` retains `vlan` or `bridge-domain` for IOS/IOS-XE
 source tables; existing Huawei slot and XR scope semantics remain. Enrichment
 preserves explicit ME3600X/ASR920 numeric VLANs, exact EFP encapsulation, and
-`3/N` EdgeSwitch logical `lag N` ownership (raw attachment/IfIndex unchanged).
+`3/N` EdgeSwitch logical `lag N` ownership only with one exact independently
+observed/configured aggregate identity (raw attachment/IfIndex unchanged). Missing
+or ambiguous identities remain unresolved; member references are insufficient.
 A uniquely joined/configured XR untagged AC may associate with the one distinct
 explicit dot1q VLAN of configured peers in that exact group/domain. Zero/multiple
 peer tags and ambiguous bindings remain Unknown; ingress semantics stay untagged.

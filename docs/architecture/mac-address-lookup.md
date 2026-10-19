@@ -25,8 +25,10 @@ remain unchanged; presentation expands Cisco/Huawei aliases by platform. Exact
 EFP/subinterface identity remains in the entry while a separately observed or configured parent
 may resolve physically. Aggregates retain ownership; no member is selected.
 CPU, routed/logical, remote and unresolved destinations have blank physical names.
-EdgeSwitch observed MAC destinations `3/N` resolve exactly to logical `lag N`
-ownership, without selecting a physical member; `5/1` remains nonphysical.
+EdgeSwitch MAC destinations `3/N` resolve to logical `lag N` only when one exact
+independently observed aggregate or typed interface configuration block exists.
+Absent or ambiguous identities remain unresolved; member references alone are
+insufficient. No physical member is selected; `5/1` remains nonphysical.
 
 `enrich` composes these snapshots with existing normalized VLAN observations.
 Classic switch numeric domains and Huawei numeric VLAN scopes match directly.

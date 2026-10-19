@@ -891,9 +891,13 @@ is recorded in the October devlog; owner live validation remains pending.
 
 Issue #132: MAC enrichment now reuses family-validated port classifications for
 ME3600X/ASR920/EdgeSwitch, retains explicit ME3600X/ASR920 numeric VLAN scope,
-resolves EdgeSwitch MAC 3/N destinations to lag N without member selection, and
+resolves EdgeSwitch MAC 3/N destinations to lag N only with one exact independent
+observed/configured aggregate identity (absent/ambiguous stays unresolved), and
 keeps management 5/1 nonphysical. Explicit EdgeSwitch trunk intent preserves empty
 membership and cannot create a compliance trigger. XR MAC-only untagged fallback
 requires exact operational/configured BG/BD agreement and one distinct explicit
 peer dot1q VLAN; shared XR observations are unchanged. Offline regression evidence
-is recorded in the October devlog; operator live and Windows validation are pending.
+is recorded in the October devlog: review revision focused validation passed 480
+tests; full suite is not clean (2,883 passed, 25 controller temp-guard failures).
+A clean external-temp rerun is blocked by sandbox filesystem permissions; operator
+live and Windows validation are pending.

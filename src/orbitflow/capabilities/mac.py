@@ -97,7 +97,10 @@ def display_interface(platform, name):
 
 
 def resolve_attachment(attachment, platform, interfaces, vlans=None):
-    """Resolve real observed/configured parents; never follow aggregate members."""
+    """Resolve unique observed/configured parents, including EdgeSwitch LAGs.
+
+    MAC slot 3/N alone is not interface evidence; never follow member references.
+    """
     key = lambda n: canonical_interface_name(platform, n)
     parent = re.split(r'(?:[+.][Ee]fp\d+|\.\d+)$', attachment)[0]
     if platform == 'ubiquiti_edgeswitch':
@@ -108,9 +111,6 @@ def resolve_attachment(attachment, platform, interfaces, vlans=None):
             return AttachmentResolution(attachment, classification='nonphysical')
     observed = [i for i in interfaces if key(i.port_name) == key(parent)]
     names = [i.port_name for i in observed]
-    if platform == 'ubiquiti_edgeswitch' and re.fullmatch(r'3/\d+', attachment):
-        # The MAC table itself observes the logical slot; no member selection.
-        names = [parent]
     if not names and vlans is not None:
         names = [f.value for f in (getattr(vlans, 'configuration', None) or ())
                  if f.kind in {'interface', 'l2_interface'} and isinstance(f.value, str)

@@ -726,5 +726,5 @@ templates and 12 to 2 for VLAN Database (including baseline/backup); these are n
 live speedup claims. Owner stage validation on all three families and Linux remain pending.
 
 Read-only [MAC Address Lookup](docs/user_manual/mac-address-lookup.md) provides single-IP search and VLAN listing through the console or direct CLI/API; owner live validation remains pending. MAC enrichment preserves exact EFP/VLAN identity,
-validated family port types, EdgeSwitch logical LAG ownership and guarded XR
+validated family port types, independently evidenced EdgeSwitch logical LAG ownership and guarded XR
 untagged peer-VLAN associations (Issue #132).

@@ -438,12 +438,65 @@ def test_edgeswitch_exact_lag_destinations(number):
     assert rows[0].resolution.physical == f'lag {number}'
     assert rows[0].resolution.classification == 'aggregate' and rows[0].resolution.port_type == 'trunk'
     assert rows[1].resolution.classification == 'nonphysical' and not rows[1].resolution.physical
-    assert resolve_attachment(f'3/{number}', 'ubiquiti_edgeswitch', [NS(port_name='0/8')]).physical == f'lag {number}'
+    assert not resolve_attachment(f'3/{number}', 'ubiquiti_edgeswitch', [NS(port_name='0/8')]).physical
     assert state.interfaces[0].tagged_vlans == () and not state.interfaces[0].bridge_domains
     from orbitflow.compliance.resolvers import EdgeSwitchAuditResolver
     facts = EdgeSwitchAuditResolver(NS(platform='ubiquiti_edgeswitch', device_family='EdgeSwitch'), state).result()
     assert facts['interfaces'][f'lag {number}']['valid_interface_vlans'] == []
     assert facts['interfaces']['0/8']['configuration_owner'] == f'lag {number}'
+
+
+@pytest.mark.parametrize('number', [1, 2, 5])
+@pytest.mark.parametrize('observed,config,resolved', [
+    (['lag {n}'], '', True),
+    ([], 'interface lag {n}\nexit', True),
+    (['lag {n}'], 'interface lag {n}\nexit', True),
+    (['0/8'], '', False),
+    ([], 'interface 0/8\n addport 3/{n}\nexit', False),
+    (['lag 9'], 'interface lag 8\nexit', False),
+    (['lag {n}', 'LAG {n}'], '', False),
+    ([], 'interface lag {n}\nexit\ninterface lag {n}\nexit', False),
+])
+def test_edgeswitch_lag_requires_unique_independent_identity(number, observed, config, resolved):
+    state = configured_state(config.format(n=number), 'ubiquiti_edgeswitch')
+    interfaces = [NS(port_name=name.format(n=number)) for name in observed]
+    table = parse_mac_table(
+        f'VLAN ID MAC Address Interface IfIndex Status\n'
+        f'445 aa:bb:cc:dd:ee:ff 3/{number} 100 Learned\n'
+        '545 aa:bb:cc:dd:ee:ff 5/1 65 Management', 'ubiquiti_edgeswitch')
+    rows = enrich(table, NS(platform='ubiquiti_edgeswitch', device_family='EdgeSwitch'), interfaces, state)
+    assert len(rows) == 2
+    lag, management = rows
+    assert lag.entry.attachment == f'3/{number}' and lag.entry.ifindex == '100'
+    assert lag.vlans == (445,)
+    assert lag.resolution.physical == (f'lag {number}' if resolved else '')
+    assert lag.resolution.classification == ('aggregate' if resolved else 'unresolved')
+    assert lag.resolution.port_type == 'Unknown'
+    assert management.entry.attachment == '5/1' and management.entry.ifindex == '65'
+    assert management.resolution.classification == 'nonphysical'
+    assert management.resolution.physical == ''
+
+
+@pytest.mark.parametrize('present', [True, False])
+def test_edgeswitch_logical_aggregate_workbook_contract(tmp_path, monkeypatch, present):
+    import orbitflow.mac_lookup as app
+    resolution = resolve_attachment('3/2', 'ubiquiti_edgeswitch',
+                                    [NS(port_name='lag 2')] if present else [])
+    def collect(target, *args, **kwargs):
+        return [[['192.0.2.1', 'lab', 'EdgeSwitch', resolution.physical,
+                  resolution.port_type, 'aa:bb:cc:dd:ee:ff']], [], [], [], []]
+    monkeypatch.setattr(app, 'collect_device', collect)
+    path = run_lookup([dict(management_ip='192.0.2.1')], None,
+                      reports_dir=tmp_path/'reports', spool_root=tmp_path/'runs',
+                      inventory_path=tmp_path/'inventory.json', log_root=tmp_path/'logs')
+    book = load_workbook(path)
+    assert tuple(c.value for c in book['MAC Addresses'][1]) == MAIN_COLUMNS
+    assert book['MAC Addresses'].max_column == 6
+    assert book['MAC Addresses'].max_row == 2
+    assert book['MAC Addresses']['D2'].value == ('lag 2' if present else None)
+    assert book['MAC Addresses']['E2'].value == 'Unknown'
+    assert set(book.sheetnames) == {'MAC Addresses', 'Details', 'Totals', 'Run Errors', 'Bridge Domains'}
+    book.close()
 
 
 @pytest.mark.parametrize('tags,group,ambiguous,expected', [

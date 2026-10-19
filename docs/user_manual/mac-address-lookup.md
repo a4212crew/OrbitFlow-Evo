@@ -97,7 +97,11 @@ advice or follow remote peers. Available MAC address space is never learned tota
 Known limits: supplied samples are excerpts, not complete release coverage. Exact
 EFP mapping needs preserved service facts. Unknown service relationships cannot
 match VLANs. Parents absent from both observed and configured interface facts cannot resolve physically. Aggregate entries retain
-aggregate ownership; EdgeSwitch `3/N` maps exactly to `lag N`, and management
+aggregate ownership; EdgeSwitch `3/N` maps to `lag N` only with one exact
+independently observed/configured aggregate identity. Missing or ambiguous
+identity stays blank/Unknown, even with member references. An evidenced logical
+aggregate occupies the existing Physical Interface name column; no column is added
+and no physical member is selected. Raw `3/N` and IfIndex remain in Details. Management
 `5/1` stays nonphysical. Explicit trunk-only configuration preserves port intent
 with no inferred VLAN membership. ME3600X/ASR920 use shared validated access,
 EVC/trunk, hybrid and review classifications. XR untagged ACs associate only when
@@ -175,3 +179,36 @@ six main columns, one row per source observation, exact filters, Details evidenc
 Totals, Run Errors, Bridge Domains and recovery export. Missing/ambiguous evidence
 must stay Unknown; run partial/failure scenarios before accepting completeness.
 Automated fixtures do not establish live-device or Windows validation.
+
+
+Issue #132 review rerun: use an OS temporary root outside every Git checkout.
+On Linux, when `/var/tmp` is writable and has no `.git` ancestor:
+
+```bash
+export PYTHONPATH="$PWD/src"
+validation_tmp=$(mktemp -d /var/tmp/orbitflow-132.XXXXXX)
+TMPDIR="$validation_tmp" python -m pytest -q --basetemp "$validation_tmp/pytest"
+```
+
+On Windows PowerShell, use an independently writable temporary root outside Git:
+
+```powershell
+$env:PYTHONPATH = (Resolve-Path src).Path
+$validationTmp = Join-Path $env:LOCALAPPDATA ("OrbitFlow-validation-" + [guid]::NewGuid())
+New-Item -ItemType Directory -Path $validationTmp | Out-Null
+$oldTemp, $oldTmp = $env:TEMP, $env:TMP
+try {
+    $env:TEMP = $validationTmp
+    $env:TMP = $validationTmp
+    python -m pytest -q --basetemp (Join-Path $validationTmp "pytest")
+} finally {
+    $env:TEMP = $oldTemp
+    $env:TMP = $oldTmp
+}
+```
+
+Retain test artifacts for diagnosis and remove only the generated validation directory
+when finished. The focused command above and operator search/list/export commands
+remain applicable. For EdgeSwitch compare present, absent and ambiguous LAG
+identities against independent interface/configuration evidence, including management
+`5/1`; raw MAC destinations alone must not establish aggregate existence.
