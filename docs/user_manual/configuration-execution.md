@@ -690,8 +690,9 @@ in this sandbox fell back to `/tmp`: `/var/tmp` is unwritable and `/tmp` has a
 `.git` entry rejected by the safeguard. A clean full suite remains unverified;
 run it with a writable OS temp root outside Git checkouts.
 
-Owner-controlled live verification of this revision remains pending on Linux
-C3750X, C3850 and EdgeSwitch. Existing PR #118/#126 lab history does not validate it:
+The steps below remain available for additional family-specific operator validation.
+The later post-merge record documents owner-reported success, without establishing
+separate C3850 and EdgeSwitch live evidence. Existing PR #118/#126 lab history does not validate it:
 
 1. Authenticate Teleport locally; use protected credentials and a fresh authorized
    lab plan/workbook for the supported family. Inspect current device state first;
@@ -771,3 +772,20 @@ reject this sandbox OS-temp root under `/tmp` because a Git marker is present
 in its ancestry. This is not a controller gate pass; its independent result is
 unavailable here. No temp safeguard was changed. Windows automated testing and
 owner Linux C3750X/C3850/EdgeSwitch live validation remain pending.
+
+### Post-merge owner validation — Issue #134 / PR #135 (2026-10-19)
+
+After correcting Bash versus PowerShell syntax and ensuring `PYTHONPATH` pointed
+at the `issue-134` worktree instead of stale `issue-132` imports, the owner ran
+the documented Linux-focused commands: **410 passed in 5.49 seconds**. The same
+Linux worktree then completed `python -m pytest -q`: **3,029 passed in 88.31
+seconds, zero failed**. These are owner-supplied operator test outputs, separate
+from the prior Codex sandbox temp-guard failures recorded historically below.
+The owner also reported **successful live validation**, without sharing a sanitized
+platform/firmware-specific row/save transcript or startup-persistence confirmation.
+Therefore live validation is recorded as *owner-reported successful* rather than
+independently evidenced for every family. C3850 and EdgeSwitch testing of this
+specific revision is not individually confirmed. The owner expressly approved
+and Atlas squash-merged PR #135 into `main` as commit `6f9bd674` and closed
+Issue #134. This does not authorize additional production configuration actions.
+
