@@ -478,7 +478,7 @@ lines ending in `#`, malformed wrappers and truncated prompts are not valid fram
 The immutable approved plan controls command order; no execution mode-name allowlist
 or initial-host equality gate may reject a completed valid exchange. Each execution
 command still requires its exact current command echo, an unterminated structural
-final prompt and receive quiescence to protect split chunks. Errors, missing echo,
+final prompt, then returns immediately with zero new per-command delay. Errors, missing echo,
 EOF and timeouts retain Failed/Unknown and session-invalidation semantics. A returned
 prompt is exchange completion only; independent state verification determines success.
 
@@ -500,16 +500,13 @@ Automated synthetic regression evidence is separate from pending owner Linux C37
 C3850 and EdgeSwitch live validation of this revision. Earlier owner validations do
 not validate this change. See the [operator validation steps](../../user_manual/configuration-execution.md#flexible-execution-prompts-issue-134).
 
-PR #135 throughput review retains the one-second execution quiet guard: shorter
-silence would accept delayed banner continuations covered by deterministic tests.
-A synthetic 52-row/five-command serialized sequence adds 260 seconds of quiet
-waiting (780 receives with two fragments per exchange), excluding device latency,
-observation and save. This is a reader budget, not live throughput evidence.
-See the [execution manual](../../user_manual/configuration-execution.md) for test commands, effects and pending owner validation.
-
-Iteration 2 retains the implementation after comparing test-only 10/100 ms
-windows against the current one-second guard: lower waits accept delayed false
-prompts for both vendors. Empty receive queues and matching echoes do not establish
-a response boundary. Probe/newline protocols require separate vendor validation and
-owner approval; no weaker synchronization contract is selected. See the
-[alternatives and test-report provenance](../../user_manual/configuration-execution.md#iteration-2-completion-alternatives-and-controller-evidence).
+Owner's superseding no-added-wait clarification (Issue #134 / PR #135): execution
+returns immediately once the current exact echo and complete unterminated vendor
+structural prompt are detected. No fixed/adaptive silence wait, sleep, retry or
+timeout extension is added. Earlier quiet-guard proposals are superseded; their
+review history remains in the October devlog. Split incomplete prompts still require
+more input; invalid prompts, missing echoes and ambiguous failed exchanges retain
+session invalidation. A prompt-shaped prefix followed by later bytes cannot be
+predicted under this timing contract. Independent rejection checks, verification
+and exact EXEC-anchor save completion remain required. Owner Linux/C3850/EdgeSwitch
+live validation remains pending.

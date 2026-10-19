@@ -120,9 +120,9 @@ class PromptCLI:
                 if not exact_prompt:
                     if getattr(self, "_execution_reader", False):
                         # Only an unterminated final line, after the current echo,
-                        # may complete a write. Quiescence protects split lines.
+                        # may complete the exchange. Return without an added wait.
                         if normalize_output(text).split("\n")[-1].strip() == found:
-                            candidate = (text, found)
+                            return text, found
                         continue
                     return text, found
                 # A configuration line ending in a newline is body text, even
@@ -282,10 +282,9 @@ class DeviceCLI(PromptCLI):
 
         Host presentation and configuration submode names may change. This
         selects framing only; command errors and independent verification still
-        determine outcomes. Each completed exchange waits up to one second for
-        receive quiescence, bounded by its deadline; this protects delayed banner
-        continuations and adds serialized latency. Read-only adapters reset this
-        execution-only reader.
+        determine outcomes. Return immediately after the current exact echo and a
+        complete unterminated structural prompt, with no added silence wait.
+        Read-only adapters reset this execution-only reader.
         """
         self.require_session(self.session)
         if platform == 'ubiquiti_edgeswitch':

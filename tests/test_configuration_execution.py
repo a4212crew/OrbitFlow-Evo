@@ -1415,9 +1415,9 @@ def test_linux_incident_fragmented_configure_terminal(platform, host):
     cli, channel = cli_with([
         b'configure ter',
         b'minal\r\nEnter configuration commands, one per line. End with CNTL/Z.\r\n',
-        (host + '(config').encode(), b')#', socket.timeout(),
-        ('interface Gi1/0/1\nCHANGED(config-if-srv)#').encode(), socket.timeout(),
-        b'end\nCHANGED#', socket.timeout(),
+        (host + '(config').encode(), b')#',
+        ('interface Gi1/0/1\nCHANGED(config-if-srv)#').encode(),
+        b'end\nCHANGED#',
         b'write memory\nBuilding configuration...\nCHANGED#',
     ], original)
     cli.execution_mode(original, platform)
@@ -1481,12 +1481,18 @@ def test_execution_incomplete_response_invalidates_without_replay(last):
     assert channel.sent.count(b'configure terminal\n') == 1
 
 
-def test_execution_candidate_at_chunk_boundary_is_not_banner_completion():
-    cli, _ = cli_with([b'configure terminal\nSW(config)#',
-                       b' banner continuation\n', socket.timeout()])
+def test_execution_complete_prompt_returns_without_reading_a_later_chunk():
+    cli, channel = cli_with([b'configure terminal\nSW(config)#',
+                             b' banner continuation\n', socket.timeout()])
     cli.execution_mode('fixture#', 'cisco_ios')
+    cli.run_command('configure terminal')
+    assert cli.prompt == 'SW(config)#'
+    # Later bytes cannot be predicted; the next exchange still requires its echo.
     with pytest.raises(InteractiveCLIError):
-        cli.run_command('configure terminal')
+        cli.run_command('end')
+    with pytest.raises(InteractiveCLIError):
+        cli.run_command('end')
+    assert channel.sent.count(b'end\n') == 1
 
 
 def test_execution_flexible_prompt_does_not_hide_rejection():
@@ -1545,12 +1551,8 @@ def test_save_cannot_start_from_configuration_mode(platform, prompt):
         ('description "Customer"', '(ES24) (Something)#'),
         ('exit', '(ES24) (Config)#'), ('exit', '(ES24) #')]),
 ])
-def test_execution_52_row_quiescence_latency_and_recv_budget(monkeypatch, platform, original, sequence):
-    """Virtual SSH time: 260 exchanges, two fragmented receives plus one quiet read each.
-
-    Measures reader overhead only, excluding device/network delay, observation and
-    save. Keep the full guard: a delayed continuation inside it is still unsafe.
-    """
+def test_execution_52_row_immediate_completion_and_recv_budget(monkeypatch, platform, original, sequence):
+    """260 exchanges return at the final fragment without an extra receive or wait."""
     from orbitflow.vendors import common
     cli, channel = cli_with([], original)
     cli.execution_mode(original, platform)
@@ -1577,95 +1579,6 @@ def test_execution_52_row_quiescence_latency_and_recv_budget(monkeypatch, platfo
     for command, prompt in sequence * 52:
         cli.run_command(command)
         assert cli.prompt == prompt
-    assert clock[0] == 260.0
-    assert len(calls) == 780
+    assert clock[0] == 0.0
+    assert len(calls) == 520
     assert len(channel.sent) == 262  # two initial identification/setup sends
-
-
-@pytest.mark.parametrize('platform,original,candidate', [
-    ('cisco_ios', 'fixture#', 'SW(config)#'),
-    ('ubiquiti_edgeswitch', '(ES24) #', '(ES24) (Something)#'),
-])
-@pytest.mark.parametrize('delay', [0.05, 0.5, 0.99])
-def test_execution_delayed_banner_continuation_requires_full_guard(monkeypatch, platform, original, candidate, delay):
-    from orbitflow.vendors import common
-    cli, channel = cli_with([], original)
-    cli.execution_mode(original, platform)
-    clock = [0.0]
-    timeout = [0.0]
-    chunks = iter([('configure\n' + candidate).encode(), b' banner continuation\n'])
-    reads = [0]
-    def recv(_):
-        reads[0] += 1
-        if reads[0] == 2:
-            # A shorter guard would have accepted the false prompt here.
-            assert timeout[0] >= delay
-            clock[0] += delay
-        if reads[0] > 2:
-            clock[0] += timeout[0]
-            raise socket.timeout()
-        return next(chunks)
-    monkeypatch.setattr(common.time, 'monotonic', lambda: clock[0])
-    monkeypatch.setattr(channel, 'settimeout', lambda value: timeout.__setitem__(0, value))
-    monkeypatch.setattr(channel, 'recv', recv)
-    with pytest.raises(InteractiveCLIError):
-        cli.run_command('configure')
-    with pytest.raises(InteractiveCLIError):
-        cli.run_command('configure')
-    assert channel.sent.count(b'configure\n') == 1
-
-
-@pytest.mark.parametrize('platform,original,candidate', [
-    ('cisco_ios', 'fixture#', 'SW(config-router-af)#'),
-    ('ubiquiti_edgeswitch', '(ES24) #', '(ES24) (Something)#'),
-])
-@pytest.mark.parametrize('guard', [0.01, 0.1, 1.0])
-@pytest.mark.parametrize('delay', [None, 0.05, 0.5, 0.99])
-def test_execution_counterfactual_short_guard_latency_and_synchronization(
-        monkeypatch, platform, original, candidate, guard, delay):
-    """Exercise the real reader; cap socket waiting only to model rejected shortcuts.
-
-    Normal and adversarial responses have identical echoed, split prefixes and an
-    empty receive queue. Shorter quiet windows complete sooner but accept delayed
-    banner text. This is evidence for retaining production framing, not a new knob.
-    """
-    from orbitflow.vendors import common
-    cli, channel = cli_with([], original)
-    cli.execution_mode(original, platform)
-    clock, timeout, reads = [0.0], [0.0], [0]
-    prefix = [b'configure\r\n' + candidate[:-1].encode(), b'#']
-    pending_continuation = [delay is not None]
-
-    def recv(_):
-        reads[0] += 1
-        if prefix:
-            return prefix.pop(0)
-        if pending_continuation[0] and clock[0] + timeout[0] >= delay:
-            clock[0] = delay
-            pending_continuation[0] = False
-            return b' banner continuation\r\n'
-        clock[0] += timeout[0]
-        raise socket.timeout()
-
-    monkeypatch.setattr(common.time, 'monotonic', lambda: clock[0])
-    monkeypatch.setattr(channel, 'settimeout',
-                        lambda value: timeout.__setitem__(0, min(value, guard)))
-    monkeypatch.setattr(channel, 'recv', recv)
-    # No currently buffered bytes is not proof that the peer finished its line.
-    monkeypatch.setattr(channel, 'recv_ready', lambda: bool(prefix), raising=False)
-    if delay is not None and delay <= guard:
-        with pytest.raises(InteractiveCLIError):
-            cli.run_command('configure')
-        with pytest.raises(InteractiveCLIError):
-            cli.run_command('configure')
-        assert not pending_continuation[0]
-    else:
-        cli.run_command('configure')
-        assert cli.prompt == candidate
-        assert clock[0] == pytest.approx(guard)
-        assert reads[0] == 3
-        assert not channel.recv_ready()
-        assert pending_continuation[0] == (delay is not None)
-        # 52 rows x five commands: lower latency also leaves a stale response.
-        assert clock[0] * 260 == pytest.approx(guard * 260)
-    assert channel.sent.count(b'configure\n') == 1

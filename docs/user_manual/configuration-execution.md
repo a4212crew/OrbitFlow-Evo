@@ -630,8 +630,8 @@ arbitrary valid parenthesized configuration submodes on the identified owned she
 EdgeSwitch accepts `(ES24) (Vlan)#`, `(ES24) (Interface 0/3)#`,
 `(ES24) (Something)#`, `(ES24 Something)#` and supported hostname annotations.
 The approved plan still controls every command. Execution requires the current exact
-command echo and complete structural prompt with up to one second of receive
-quiescence within the existing deadline. Returned means
+command echo and complete unterminated structural prompt, then returns immediately
+with zero new per-command delay. Returned means
 exchange completion; verification still decides Verified/Failed/Unknown.
 
 Before observation/save, the completed sequence or checked bounded `end`/`exit`
@@ -717,47 +717,22 @@ parameter or confirmation flow is introduced.
 
 ### Prompt-reader throughput review (PR #135)
 
-The one-second quiet guard remains intentional. Shortening it would accept a
-false prompt followed by banner text after the shorter interval. Deterministic
-virtual-time tests cover continuations at 50, 500 and 990 ms for both vendors,
-fragmented prompts and 52 rows of five commands each. Each 260-command sequence
-uses 780 receives (two fragments and a quiet timeout per exchange), adding exactly
-260 seconds of reader waiting in isolation. This is a synthetic serialized budget,
-not measured device throughput: device/network delay, verification, backup and
-save are additional; shared concurrency can overlap different devices' waits.
-A silence longer than the guard remains inherently ambiguous. No timing-only
-optimization can establish an SSH message boundary; the guard is retained rather
-than claiming a speedup. Read-only framing and save completion remain unchanged.
-
+The owner's latest clarification supersedes the earlier quiet-guard proposals.
+Execution returns immediately on the current exact echo and complete unterminated
+vendor prompt. There are no added silence waits, sleeps, retries or timeout
+extensions. Synthetic 52-row/five-command tests assert zero added wait and 520
+receives for 260 exchanges split into two fragments each. This measures reader
+overhead only, not live throughput. Incomplete prompts continue receiving within
+the existing deadline. An identical prompt-shaped prefix followed by later bytes
+cannot be predicted; the next exchange still requires its own exact echo and
+failed exchanges invalidate the session without automatic replay. Rejection,
+verification, save and shared read-only behavior retain their independent contracts.
+Historical timing comparisons remain in the October devlog and are superseded.
 
 ### Iteration 2: completion alternatives and controller evidence
 
-No lower-latency execution implementation is selected. The real reader is tested
-with a test-only socket timeout cap; production code, save and read-only framing
-remain unchanged. Both vendors receive the same exact current echo and split
-structural prompt, with no bytes currently ready, in normal and adversarial cases.
-Only a later continuation distinguishes the two. Deterministic comparison:
-
-| Candidate quiet interval | Normal exchange wait | 260-command wait | Delayed false prompts incorrectly completed |
-| --- | --- | --- | --- |
-| 10 ms (test-only alternative) | 0.01 s | 2.6 s | 50, 500, 990 ms continuations |
-| 100 ms (test-only alternative) | 0.1 s | 26 s | 500, 990 ms continuations |
-| 1 s (current, retained) | 1 s | 260 s | None of these cases |
-
-These are virtual reader waits excluding all device/network work, not observed
-throughput or a shipped before/after improvement. Covered continuations invalidate
-the current session without a second write. A continuation beyond one second is
-still a limitation; the existing guard is bounded protection, not proof of framing.
-Immediate completion, `recv_ready()` polling, larger reads and stable prompt text
-cannot resolve an identical prefix followed by delayed bytes. Batching commands
-would remove per-command association and rejection handling. Sending a newline or
-probe after a candidate requires a separately approved, vendor-validated protocol:
-a candidate may be banner text while a command is still active or awaiting input;
-an injected newline can answer that input. Such probes are not established as safe
-across these modes and firmware. Explicit protocol framing would need new vendor
-support. Shared concurrency can overlap different devices' waits but does not
-reduce a single device's serialized cost. The owner can choose a future validated
-protocol or explicitly approve a weaker delay bound; this revision does neither.
+The earlier one-second guard and shorter-wait comparisons are historical proposals,
+superseded by the owner's immediate-completion decision above.
 
 The recorded **3,010 passed / 25 failed** run was an inner Codex Linux sandbox
 invocation, with requested `/var/tmp` falling back to `/tmp`. It was **not** the
@@ -788,3 +763,11 @@ full `PYTHONPATH=src python -m pytest -q`: **3,034 passed / 25 failed (85.49s)**
 exit 1, with orchestration tests blocked by the Git-marked sandbox OS-temp root.
 This updates the earlier sandbox counts above; no outer controller gate report
 has become available. A full-suite pass must not be inferred from these results.
+
+Latest no-added-wait revision validation (Linux Codex sandbox, Python 3.14):
+**410 focused tests passed (5.75s)**. Full `PYTHONPATH=src python -m pytest -q`:
+**3,004 passed / 25 failed (87.13s)**, exit 1. The 25 orchestration failures
+reject this sandbox OS-temp root under `/tmp` because a Git marker is present
+in its ancestry. This is not a controller gate pass; its independent result is
+unavailable here. No temp safeguard was changed. Windows automated testing and
+owner Linux C3750X/C3850/EdgeSwitch live validation remain pending.

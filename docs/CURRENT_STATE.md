@@ -38,11 +38,11 @@ including changing/abbreviated host presentation and arbitrary valid submodes.
 Current echo and split-response protections remain required. Checked same-session
 EXEC completion anchors exact save return; explicit errors remain separate.
 Synthetic regressions cover the Linux C3750X incident and safety/read-only cases.
-PR #135 latency tests quantify 260 seconds of quiet waiting for 52 serialized
-five-command rows; the one-second guard remains to reject delayed continuations.
-Iteration 2 test-only 10/100 ms comparisons demonstrate unsafe early completion;
-no throughput optimization is shipped. Inner sandbox failures are distinct from
-the separate controller gate, whose run report is unavailable to this worker.
+PR #135 follows the owner's superseding no-added-wait clarification: execution
+returns immediately on the current exact echo and complete structural prompt.
+Synthetic 260-command tests assert zero added waiting and no extra receives.
+Earlier quiet-guard proposals are superseded. Inner sandbox failures remain distinct
+from the separate controller gate, whose run report is unavailable to this worker.
 Owner Linux C3750X, C3850 and EdgeSwitch live validation of #134 remains pending.
 Owner C3750X/EdgeSwitch lab validation following PR #118 is reported; C3850
 live validation remains outstanding. Other families,
