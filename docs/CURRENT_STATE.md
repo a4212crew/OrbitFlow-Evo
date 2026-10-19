@@ -946,3 +946,5 @@ attachment (including remote tuples, Drop and unresolved LAG/IP-like destination
 This fallback is display only: Details physical identity stays blank when unresolved,
 raw attachment is retained, and descriptions still require exact owner evidence.
 Seven-column output and historical six-column spool recovery remain supported.
+
+Owner Linux worktree verification for Issue #139/PR #140 (head `481e712c` before Atlas documentation-only additions) passed 591 focused tests in 14.56s and the complete deterministic suite of 3,087 tests in 117.23s (2026-10-20 Australia/Melbourne). This resolves the earlier Codex sandbox-only temp-root test failures for the owner Linux environment; Windows tests and new owner/live-device validation for Issue #139 remain unverified. The reviewed PR is not itself evidence of live device behavior.
