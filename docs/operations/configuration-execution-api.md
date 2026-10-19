@@ -392,3 +392,10 @@ change. A prompt return alone cannot establish a successful configuration write.
 `save_configuration` retains exact EXEC-anchor return and separate explicit-error
 reporting; standalone callers must provide the synchronized current EXEC anchor.
 See [contract and Linux/Windows validation](../user_manual/configuration-execution.md#flexible-execution-prompts-issue-134).
+
+PR #135 throughput review retains the one-second execution quiet guard: shorter
+silence would accept delayed banner continuations covered by deterministic tests.
+A synthetic 52-row/five-command serialized sequence adds 260 seconds of quiet
+waiting (780 receives with two fragments per exchange), excluding device latency,
+observation and save. This is a reader budget, not live throughput evidence.
+See the [execution manual](../user_manual/configuration-execution.md) for test commands, effects and pending owner validation.

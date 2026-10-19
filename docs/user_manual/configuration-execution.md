@@ -651,7 +651,9 @@ Linux Bash:
 source .venv/bin/activate
 export PYTHONPATH="$PWD/src"
 python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_shared_cli.py tests/test_configuration_backup.py -q
-python -m pytest -q
+TMPDIR=/var/tmp TEMP=/var/tmp TMP=/var/tmp python -c 'import tempfile; assert tempfile.gettempdir() == "/var/tmp", "OS temp fell back; choose a writable root outside Git"'
+# Run only after the root check succeeds.
+TMPDIR=/var/tmp TEMP=/var/tmp TMP=/var/tmp python -m pytest -q
 ```
 
 Windows PowerShell:
@@ -660,18 +662,33 @@ Windows PowerShell:
 .\.venv\Scripts\Activate.ps1
 $env:PYTHONPATH = "$PWD/src"
 python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_shared_cli.py tests/test_configuration_backup.py -q
+# Select an existing writable OS temp root outside every Git checkout.
+$testTemp = [System.IO.Path]::GetTempPath()
+$env:TMPDIR = $testTemp
+$env:TEMP = $testTemp
+$env:TMP = $testTemp
 python -m pytest -q
 ```
+
+These commands create local test artifacts only. The Linux full-suite command uses
+`/var/tmp` because this sandbox's `/tmp` contains a `.git` entry. On either OS,
+choose an existing writable temp root whose ancestors contain no `.git` entry;
+the controller deliberately rejects roots inside checkouts. Python can silently
+fall back to another temp root if the requested directory is unwritable; check
+`python -c "import tempfile; print(tempfile.gettempdir())"` before the full run. Do not remove Git
+markers or weaken that check to obtain a pass.
 
 Expected: all tests pass using sanitized fixtures, including the Linux C3750X
 `configure terminal` / `SW-ABBREV(config)#` incident, changing modes/hosts, split
 chunks, false prompts, lost echo, errors, EOF/timeouts, save and read-only regressions.
 Windows execution of these commands remains operator validation unless separately
 reported; Linux automated results are recorded in the October devlog.
-The managed development sandbox passed 408 focused tests; the full suite had
-3,002 passes and 25 orchestration failures because available OS temporary roots
-contained `.git` entries rejected by controller safety checks. Run the full suite
-in an operator environment with an OS temporary root outside Git checkouts.
+The initial implementation had 408 focused passes and 3,002 full-suite passes
+with 25 orchestration failures. This review revision has **416 focused passes**
+and **3,010 full-suite passes with 25 failures** (87.09s). Requesting `/var/tmp`
+in this sandbox fell back to `/tmp`: `/var/tmp` is unwritable and `/tmp` has a
+`.git` entry rejected by the safeguard. A clean full suite remains unverified;
+run it with a writable OS temp root outside Git checkouts.
 
 Owner-controlled live verification of this revision remains pending on Linux
 C3750X, C3850 and EdgeSwitch. Existing PR #118/#126 lab history does not validate it:
@@ -697,3 +714,17 @@ C3750X, C3850 and EdgeSwitch. Existing PR #118/#126 lab history does not validat
 
 This fixes an existing console-exposed execution workflow; no new menu action,
 parameter or confirmation flow is introduced.
+
+### Prompt-reader throughput review (PR #135)
+
+The one-second quiet guard remains intentional. Shortening it would accept a
+false prompt followed by banner text after the shorter interval. Deterministic
+virtual-time tests cover continuations at 50, 500 and 990 ms for both vendors,
+fragmented prompts and 52 rows of five commands each. Each 260-command sequence
+uses 780 receives (two fragments and a quiet timeout per exchange), adding exactly
+260 seconds of reader waiting in isolation. This is a synthetic serialized budget,
+not measured device throughput: device/network delay, verification, backup and
+save are additional; shared concurrency can overlap different devices' waits.
+A silence longer than the guard remains inherently ambiguous. No timing-only
+optimization can establish an SSH message boundary; the guard is retained rather
+than claiming a speedup. Read-only framing and save completion remain unchanged.

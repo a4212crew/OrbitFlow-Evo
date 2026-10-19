@@ -38,6 +38,8 @@ including changing/abbreviated host presentation and arbitrary valid submodes.
 Current echo and split-response protections remain required. Checked same-session
 EXEC completion anchors exact save return; explicit errors remain separate.
 Synthetic regressions cover the Linux C3750X incident and safety/read-only cases.
+PR #135 latency tests quantify 260 seconds of quiet waiting for 52 serialized
+five-command rows; the one-second guard remains to reject delayed continuations.
 Owner Linux C3750X, C3850 and EdgeSwitch live validation of #134 remains pending.
 Owner C3750X/EdgeSwitch lab validation following PR #118 is reported; C3850
 live validation remains outstanding. Other families,

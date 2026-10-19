@@ -745,5 +745,7 @@ Issue #134 updates predefined execution prompt framing for changing Cisco hostna
 and arbitrary valid submodes, plus EdgeSwitch inline/outer mode presentations.
 Echo association, independent verification and exact session EXEC save completion
 remain required. Read-only behavior and API defaults are unchanged. Synthetic tests
-cover the Linux C3750X incident; owner Linux/C3850/EdgeSwitch validation remains pending.
+cover the Linux C3750X incident and quantify the retained one-second quiet guard
+(260 seconds for 52 serialized five-command rows). Owner Linux/C3850/EdgeSwitch
+validation remains pending.
 See [Linux/Windows tests and owner verification](docs/user_manual/configuration-execution.md#flexible-execution-prompts-issue-134).

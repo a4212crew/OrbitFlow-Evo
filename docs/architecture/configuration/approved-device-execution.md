@@ -499,3 +499,10 @@ identification, planning and all other families retain their contracts and defau
 Automated synthetic regression evidence is separate from pending owner Linux C3750X,
 C3850 and EdgeSwitch live validation of this revision. Earlier owner validations do
 not validate this change. See the [operator validation steps](../../user_manual/configuration-execution.md#flexible-execution-prompts-issue-134).
+
+PR #135 throughput review retains the one-second execution quiet guard: shorter
+silence would accept delayed banner continuations covered by deterministic tests.
+A synthetic 52-row/five-command serialized sequence adds 260 seconds of quiet
+waiting (780 receives with two fragments per exchange), excluding device latency,
+observation and save. This is a reader budget, not live throughput evidence.
+See the [execution manual](../../user_manual/configuration-execution.md) for test commands, effects and pending owner validation.

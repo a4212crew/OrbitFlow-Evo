@@ -1531,3 +1531,85 @@ def test_save_cannot_start_from_configuration_mode(platform, prompt):
     with pytest.raises(InteractiveCLIError):
         cli.save_configuration(prompt, platform, timeout=20)
     assert b'write memory\n' not in channel.sent
+
+
+@pytest.mark.parametrize('platform,original,sequence', [
+    ('cisco_ios', 'fixture#', [
+        ('configure terminal', 'SW(config)#'),
+        ('interface Gi1/0/3', 'SW(config-if)#'),
+        ('description Customer', 'SW(config-if-srv)#'),
+        ('exit', 'SW(config)#'), ('end', 'SW#')]),
+    ('ubiquiti_edgeswitch', '(ES24) #', [
+        ('configure', '(ES24 Something)#'),
+        ('interface 0/3', '(ES24) (Interface 0/3)#'),
+        ('description "Customer"', '(ES24) (Something)#'),
+        ('exit', '(ES24) (Config)#'), ('exit', '(ES24) #')]),
+])
+def test_execution_52_row_quiescence_latency_and_recv_budget(monkeypatch, platform, original, sequence):
+    """Virtual SSH time: 260 exchanges, two fragmented receives plus one quiet read each.
+
+    Measures reader overhead only, excluding device/network delay, observation and
+    save. Keep the full guard: a delayed continuation inside it is still unsafe.
+    """
+    from orbitflow.vendors import common
+    cli, channel = cli_with([], original)
+    cli.execution_mode(original, platform)
+    clock = [0.0]
+    calls = []
+    timeout = [0.0]
+    pending = []
+    def send(value):
+        channel.sent.append(value)
+        command, prompt = next(commands)
+        assert value == (command + '\n').encode()
+        pending.extend([(command + '\r\n' + prompt[:-1]).encode(), b'#'])
+    def recv(size):
+        calls.append(size)
+        if pending:
+            return pending.pop(0)
+        clock[0] += timeout[0]
+        raise socket.timeout()
+    commands = iter(sequence * 52)
+    monkeypatch.setattr(common.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(channel, 'settimeout', lambda value: timeout.__setitem__(0, value))
+    monkeypatch.setattr(channel, 'sendall', send)
+    monkeypatch.setattr(channel, 'recv', recv)
+    for command, prompt in sequence * 52:
+        cli.run_command(command)
+        assert cli.prompt == prompt
+    assert clock[0] == 260.0
+    assert len(calls) == 780
+    assert len(channel.sent) == 262  # two initial identification/setup sends
+
+
+@pytest.mark.parametrize('platform,original,candidate', [
+    ('cisco_ios', 'fixture#', 'SW(config)#'),
+    ('ubiquiti_edgeswitch', '(ES24) #', '(ES24) (Something)#'),
+])
+@pytest.mark.parametrize('delay', [0.05, 0.5, 0.99])
+def test_execution_delayed_banner_continuation_requires_full_guard(monkeypatch, platform, original, candidate, delay):
+    from orbitflow.vendors import common
+    cli, channel = cli_with([], original)
+    cli.execution_mode(original, platform)
+    clock = [0.0]
+    timeout = [0.0]
+    chunks = iter([('configure\n' + candidate).encode(), b' banner continuation\n'])
+    reads = [0]
+    def recv(_):
+        reads[0] += 1
+        if reads[0] == 2:
+            # A shorter guard would have accepted the false prompt here.
+            assert timeout[0] >= delay
+            clock[0] += delay
+        if reads[0] > 2:
+            clock[0] += timeout[0]
+            raise socket.timeout()
+        return next(chunks)
+    monkeypatch.setattr(common.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(channel, 'settimeout', lambda value: timeout.__setitem__(0, value))
+    monkeypatch.setattr(channel, 'recv', recv)
+    with pytest.raises(InteractiveCLIError):
+        cli.run_command('configure')
+    with pytest.raises(InteractiveCLIError):
+        cli.run_command('configure')
+    assert channel.sent.count(b'configure\n') == 1

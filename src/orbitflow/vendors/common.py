@@ -282,7 +282,10 @@ class DeviceCLI(PromptCLI):
 
         Host presentation and configuration submode names may change. This
         selects framing only; command errors and independent verification still
-        determine outcomes. Read-only adapters reset this execution-only reader.
+        determine outcomes. Each completed exchange waits up to one second for
+        receive quiescence, bounded by its deadline; this protects delayed banner
+        continuations and adds serialized latency. Read-only adapters reset this
+        execution-only reader.
         """
         self.require_session(self.session)
         if platform == 'ubiquiti_edgeswitch':
