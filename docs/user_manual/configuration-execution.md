@@ -116,7 +116,7 @@ Earlier verified stage changes are observed before subsequent stages; failed dep
 are Not executed. Missing/unknown requested EdgeSwitch PVID/Include/tagging database
 prerequisites block that port row. They never implicitly create VLANs.
 
-Commands are sent individually. Rejection stops that row; deterministic known-mode
+Commands are sent individually. Rejection stops that row; bounded vendor
 recovery permits safe independent rows to continue. Unsynchronized sessions send no
 further commands. A post-send timeout is Unknown, remaining rows are Not executed;
 other devices continue. No-op rows still verify against fresh stage facts and send no configuration.
@@ -130,7 +130,7 @@ Save runs once after attempted configuration, including partial changes if the
 session remains usable; wholly no-op/skipped tasks do not save. `write memory`
 persists **all running configuration**, including unrelated pending changes.
 EdgeSwitch can interrupt management; only its recognized save question is answered
-`y`. Return to the original learned privileged EXEC prompt means Saved, without
+`y`. Return to the exact session-validated privileged EXEC anchor means Saved, without
 requiring `[OK]`; explicit errors are recorded separately. Saved is not independent
 proof of startup persistence. Timeout/disconnect before prompt return means Unknown;
 there is no blind retry. Row verification and save status remain separate.
@@ -312,7 +312,7 @@ success. Offline report generation prints no execution-duration footer.
 Connect/identify/preflight, backup start/completion, row preflight, command exchanges,
 verification, save and cleanup start/completion are visible. Run-wide lines use IP `-`; report_generation
 and report_complete are also shown by the offline report command. Returned means an
-exchange returned, not verified success. Saved still means original EXEC prompt return;
+exchange returned, not verified success. Saved still means exact session EXEC-anchor return;
 explicit errors remain separate. Timeout/disconnect remains Unknown.
 
 An optional display timer wakes every 5 seconds while a subscribed blocking stage is
@@ -621,3 +621,153 @@ Compare baseline and revision distributions only across equivalent independently
 prepared trials. Preserve actual failures and unknowns in the comparison. No new
 read-only execution mode exists. Codex used no live devices or credentials; owner
 C3750X/C3850/EdgeSwitch stage-execution validation and Linux validation remain pending.
+
+
+## Flexible execution prompts (Issue #134)
+
+The 2026-10-19 revision accepts abbreviated/changing Cisco host presentation and
+arbitrary valid parenthesized configuration submodes on the identified owned shell.
+EdgeSwitch accepts `(ES24) (Vlan)#`, `(ES24) (Interface 0/3)#`,
+`(ES24) (Something)#`, `(ES24 Something)#` and supported hostname annotations.
+The approved plan still controls every command. Execution requires the current exact
+command echo and complete unterminated structural prompt, then returns immediately
+with zero new per-command delay. Returned means
+exchange completion; verification still decides Verified/Failed/Unknown.
+
+Before observation/save, the completed sequence or checked bounded `end`/`exit`
+recovery must reach privileged EXEC. Its observed presentation becomes the exact
+session EXEC anchor; completed verification reads may refresh that presentation
+only at structural privileged EXEC. Save requires that anchor's exact return after its own echo;
+a new hostname during save is Unknown. Arbitrary banners ending in `#`, missing
+or stale echoes, errors and incomplete responses do not authorize continuation or
+write retry. Shared read-only flows and identification retain baseline behavior.
+
+Automated synthetic tests do not connect to devices or perform production writes.
+From the repository root, with an existing environment and dependencies installed:
+
+Linux Bash:
+
+```bash
+source .venv/bin/activate
+export PYTHONPATH="$PWD/src"
+python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_shared_cli.py tests/test_configuration_backup.py -q
+TMPDIR=/var/tmp TEMP=/var/tmp TMP=/var/tmp python -c 'import tempfile; assert tempfile.gettempdir() == "/var/tmp", "OS temp fell back; choose a writable root outside Git"'
+# Run only after the root check succeeds.
+TMPDIR=/var/tmp TEMP=/var/tmp TMP=/var/tmp python -m pytest -q
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+$env:PYTHONPATH = "$PWD/src"
+python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_shared_cli.py tests/test_configuration_backup.py -q
+# Select an existing writable OS temp root outside every Git checkout.
+$testTemp = [System.IO.Path]::GetTempPath()
+$env:TMPDIR = $testTemp
+$env:TEMP = $testTemp
+$env:TMP = $testTemp
+python -m pytest -q
+```
+
+These commands create local test artifacts only. The Linux full-suite command uses
+`/var/tmp` because this sandbox's `/tmp` contains a `.git` entry. On either OS,
+choose an existing writable temp root whose ancestors contain no `.git` entry;
+the controller deliberately rejects roots inside checkouts. Python can silently
+fall back to another temp root if the requested directory is unwritable; check
+`python -c "import tempfile; print(tempfile.gettempdir())"` before the full run. Do not remove Git
+markers or weaken that check to obtain a pass.
+
+Expected: all tests pass using sanitized fixtures, including the Linux C3750X
+`configure terminal` / `SW-ABBREV(config)#` incident, changing modes/hosts, split
+chunks, false prompts, lost echo, errors, EOF/timeouts, save and read-only regressions.
+Windows execution of these commands remains operator validation unless separately
+reported; Linux automated results are recorded in the October devlog.
+The initial implementation had 408 focused passes and 3,002 full-suite passes
+with 25 orchestration failures. This review revision has **416 focused passes**
+and **3,010 full-suite passes with 25 failures** (87.09s). Requesting `/var/tmp`
+in this sandbox fell back to `/tmp`: `/var/tmp` is unwritable and `/tmp` has a
+`.git` entry rejected by the safeguard. A clean full suite remains unverified;
+run it with a writable OS temp root outside Git checkouts.
+
+Owner-controlled live verification of this revision remains pending on Linux
+C3750X, C3850 and EdgeSwitch. Existing PR #118/#126 lab history does not validate it:
+
+1. Authenticate Teleport locally; use protected credentials and a fresh authorized
+   lab plan/workbook for the supported family. Inspect current device state first;
+   never replay an earlier completed or uncertain change to reproduce the incident.
+2. Use the existing Linux/PowerShell execution examples above with concurrency 1.
+   Review digest, selected rows and whole-running-config save implications. Only
+   the owner confirms an authorized lab apply; production apply stays owner-controlled.
+3. For Cisco, observe configure-terminal completion with abbreviated presentation
+   and subsequent mode transitions. For EdgeSwitch, inspect the actual firmware's
+   inline/outer presentation. Do not add arbitrary commands to approved plans merely
+   to manufacture an unobserved submode; those cases have synthetic coverage.
+4. Check command Returned events, independent row verification, checked EXEC return,
+   and separate save status/errors. EdgeSwitch answers only the recognized question
+   with `y`. Confirm device state and startup persistence independently as appropriate.
+5. For a timeout, disconnect or uncertain write, inspect protected local evidence and
+   device state before any new plan. Do not retry/replay writes automatically. Keep
+   full evidence local; share only sanitized outcomes with no credentials/private IPs.
+   Record OS, family/firmware, prompt presentation class, row/save outcomes and elapsed
+   times. Pending evidence must not be described as successful live validation.
+
+This fixes an existing console-exposed execution workflow; no new menu action,
+parameter or confirmation flow is introduced.
+
+### Prompt-reader throughput review (PR #135)
+
+The owner's latest clarification supersedes the earlier quiet-guard proposals.
+Execution returns immediately on the current exact echo and complete unterminated
+vendor prompt. There are no added silence waits, sleeps, retries or timeout
+extensions. Synthetic 52-row/five-command tests assert zero added wait and 520
+receives for 260 exchanges split into two fragments each. This measures reader
+overhead only, not live throughput. Incomplete prompts continue receiving within
+the existing deadline. An identical prompt-shaped prefix followed by later bytes
+cannot be predicted; the next exchange still requires its own exact echo and
+failed exchanges invalidate the session without automatic replay. Rejection,
+verification, save and shared read-only behavior retain their independent contracts.
+Historical timing comparisons remain in the October devlog and are superseded.
+
+### Iteration 2: completion alternatives and controller evidence
+
+The earlier one-second guard and shorter-wait comparisons are historical proposals,
+superseded by the owner's immediate-completion decision above.
+
+The recorded **3,010 passed / 25 failed** run was an inner Codex Linux sandbox
+invocation, with requested `/var/tmp` falling back to `/tmp`. It was **not** the
+controller gate report. The controller independently calls `run_tests` after Codex
+returns, sets `PYTHONPATH=src`, supplies a protected `controller_temp` directory in
+`TEMP`/`TMP`/`TMPDIR`, and runs its Python executable with
+`-m pytest -q --basetemp <protected-directory>/pytest`. A nonzero exit raises before
+commit/push/PR publication. Its PR pass text is generated after that gate; it is
+not a copy of the devlog. No controller run stdout/exit report is available in this
+worktree to establish whether PR #135's separate outer gate truly passed. The
+sandbox failures alone neither prove nor disprove an outer gate pass.
+
+Controller-owned PR clarification, ready to copy:
+
+> Codex sandbox validation previously recorded 3,010 passed / 25 failed due to
+> orchestration OS-temp guards; that run was not a full-suite pass. The independent
+> controller gate uses a protected OS-temp directory and explicit pytest basetemp.
+> Its run output, interpreter/environment, tested revision and zero exit must be
+> supplied to substantiate the PR's full-suite pass claim. That evidence is currently
+> unavailable to the implementation worker; the outer gate result is unverified here.
+
+No Git markers, temp-root safeguards or controller publication logic were changed.
+Use the Bash/PowerShell commands and owner verification steps above; Linux device,
+C3850/EdgeSwitch live validation and Windows automated validation remain pending.
+
+Latest iteration-2 Linux sandbox validation: **440 focused tests passed (5.36s)**;
+full `PYTHONPATH=src python -m pytest -q`: **3,034 passed / 25 failed (85.49s)**,
+exit 1, with orchestration tests blocked by the Git-marked sandbox OS-temp root.
+This updates the earlier sandbox counts above; no outer controller gate report
+has become available. A full-suite pass must not be inferred from these results.
+
+Latest no-added-wait revision validation (Linux Codex sandbox, Python 3.14):
+**410 focused tests passed (5.75s)**. Full `PYTHONPATH=src python -m pytest -q`:
+**3,004 passed / 25 failed (87.13s)**, exit 1. The 25 orchestration failures
+reject this sandbox OS-temp root under `/tmp` because a Git marker is present
+in its ancestry. This is not a controller gate pass; its independent result is
+unavailable here. No temp safeguard was changed. Windows automated testing and
+owner Linux C3750X/C3850/EdgeSwitch live validation remain pending.

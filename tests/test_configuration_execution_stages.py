@@ -262,3 +262,59 @@ def test_verified_dependency_ready_before_later_stage(tmp_path, monkeypatch):
     first_result=next(i for i,e in enumerate(events) if e['stage']=='row_result' and e['row_id']==db['row_id'])
     port_send=next(i for i,e in enumerate(events) if e['stage']=='command_intent' and e['row_id']==port['row_id'])
     assert first_result<port_send
+
+
+@pytest.mark.parametrize('family', ['C3750X', 'C3850X', 'EdgeSwitch'])
+def test_stage_changing_prompt_presentation_keeps_verification_and_save(tmp_path, monkeypatch, family):
+    ctx, requests, before, after = fixture(family, 'Interface Description')
+    class ChangingCLI(WorkerCLI):
+        def run_command(self, command, **kw):
+            response = super().run_command(command, **kw)
+            if self.edge:
+                if command == 'configure':
+                    self.prompt = '(ES24 Something)#'
+                elif command.startswith('interface '):
+                    self.prompt = '(ES24) (Something)#'
+                elif command == 'exit':
+                    self.prompt = '(ES24) #'
+            elif command == 'end':
+                self.prompt = 'SW-ABBREV#'
+            else:
+                self.prompt = 'SW-ABBREV(config-if-srv)#'
+            return response
+    rows, events, _, saves, _ = execute(tmp_path, monkeypatch, ctx, requests, before, after, cli_type=ChangingCLI)
+    assert [r['status'] for r in rows] == ['Verified', 'Verified']
+    assert len(saves) == 1
+    assert not any(e.get('status') == 'Rejected' for e in events)
+
+
+
+def test_rejected_exec_recovery_blocks_further_rows_and_save(tmp_path, monkeypatch):
+    ctx, requests, before, after = fixture('C3750X', 'Interface Description')
+    class RecoveryCLI(WorkerCLI):
+        def run_command(self, command, **kw):
+            response = super().run_command(command, **kw)
+            if command == 'end':
+                self.prompt = 'fixture(config-if-srv)#'
+            # The recovery command also fails; never assume EXEC from an error.
+            if command == 'end' and self.sent.count('end') > 1:
+                self.prompt = 'fixture#'
+                return '% Invalid input'
+            return response
+    rows, _, _, saves, _ = execute(tmp_path, monkeypatch, ctx, requests, before, after, cli_type=RecoveryCLI)
+    assert rows[0]['status'] == 'Unknown'
+    assert rows[1]['status'] == 'Not executed'
+    assert not saves
+
+
+
+@pytest.mark.parametrize('family', ['C3750X', 'EdgeSwitch'])
+def test_fresh_observation_exec_presentation_can_anchor_save(tmp_path, monkeypatch, family):
+    ctx, requests, before, after = fixture(family, 'Interface Description')
+    def collect(count):
+        if count > 1:
+            WorkerCLI.instances[0].prompt = '(OBSERVED) #' if family == 'EdgeSwitch' else 'OBSERVED#'
+        return before if count == 1 else after
+    rows, _, _, saves, _ = execute(tmp_path, monkeypatch, ctx, requests, before, after, observe=collect)
+    assert [r['status'] for r in rows] == ['Verified', 'Verified']
+    assert len(saves) == 1

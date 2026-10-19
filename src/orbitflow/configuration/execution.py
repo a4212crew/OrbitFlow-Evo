@@ -217,11 +217,6 @@ def _set(value):
     return set(value) if isinstance(value, list) else None
 
 
-def _expected_mode(command, previous, exec_prompt, edge):
-    """Deterministic mode transition for the approved renderer allowlist."""
-    return (edge_execution if edge else cisco_execution).expected_mode(command, previous, exec_prompt)
-
-
 @measured('pre_row_drift_checks')
 def _check_fresh_row(fresh, approved):
     _gate(fresh['deployment_ready'], 'FRESH_PREFLIGHT_BLOCKED')
@@ -493,7 +488,8 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                         before = timed_call('initial_preflight', _observe, session, context, cli, entries, settings.command_timeout)
                         trusted_baseline = _baseline_facts(before, context)
                         exec_prompt = cli.prompt
-                        require(exec_prompt.endswith('#'), 'privileged EXEC required')
+                        adapter = edge_execution if context.platform == 'ubiquiti_edgeswitch' else cisco_execution
+                        require(adapter.is_exec_prompt(exec_prompt), 'privileged EXEC required')
                         event(ip, 'backup')
                         content = timed_call('protected_backup_collection', ConfigurationService(timeout=settings.command_timeout).collect, session, context, cli=cli)
                         for secret in capture_secrets:
@@ -517,7 +513,8 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                                     try:
                                         _gate(usable, 'SESSION_UNUSABLE')
                                         cli.require_session(session)
-                                        _gate(cli.prompt == exec_prompt, 'SESSION_UNUSABLE')
+                                        _gate(adapter.is_exec_prompt(cli.prompt), 'SESSION_UNUSABLE')
+                                        exec_prompt = cli.prompt
                                         if stage_index != 1:
                                             before = timed_call('stage_pre_observation', _observe, session, context, cli, stage_entries, settings.command_timeout)
                                         _gate(before.get('configuration_reliable') is True, 'STAGE_EVIDENCE_UNAVAILABLE')
@@ -569,7 +566,6 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                                                     event(ip, 'command_intent', row_id=rid, command_index=index, command_total=len(approved['commands']), command=command)
                                                     attempted = True
                                                     row['status'] = 'Unknown'
-                                                    previous_prompt = cli.prompt
                                                     started = monotonic()
                                                     with correlation(command_index=str(index)), stage('approved_command', command_category=command_category(command), failure='Unknown') as command_timing:
                                                         try:
@@ -579,25 +575,29 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                                                                   response=_safe_source(getattr(cli, 'last_response', ''), context.platform), status='Unknown')
                                                             raise
                                                         rejected = command_rejected(response)
-                                                        if cli.prompt not in _expected_mode(command, previous_prompt, exec_prompt, context.platform == 'ubiquiti_edgeswitch'):
-                                                            rejected = True
                                                         event(ip, 'command_result', row_id=rid, command_index=index,
                                                               response=_safe_source(response, context.platform), status='Rejected' if rejected else 'Returned', elapsed_seconds=monotonic() - started)
                                                         command_timing['outcome'] = 'Rejected' if rejected else 'Returned'
                                                     if rejected:
                                                         row['status'] = 'Failed'
                                                         break
-                                                if cli.prompt != exec_prompt:
-                                                    # Only known vendor modes admit recovery, never arbitrary '#'.
+                                                if not adapter.is_exec_prompt(cli.prompt):
+                                                    # Recovery stays on the synchronized owned session.
                                                     for index in range(2):
                                                         cli.execution_mode(exec_prompt, context.platform)
                                                         command = 'exit' if context.platform == 'ubiquiti_edgeswitch' else 'end'
                                                         event(ip, 'mode_intent', row_id=rid, command=command)
                                                         response = timed_call('mode_recovery_command', cli.run_command, command, timeout=settings.command_timeout)
                                                         event(ip, 'mode_result', row_id=rid, response=_safe_source(response, context.platform))
-                                                        if cli.prompt == exec_prompt:
+                                                        if command_rejected(response):
+                                                            usable = False
+                                                            require(False, 'EXEC recovery rejected')
+                                                        if adapter.is_exec_prompt(cli.prompt):
                                                             break
-                                                    require(cli.prompt == exec_prompt, 'EXEC recovery failed')
+                                                    require(adapter.is_exec_prompt(cli.prompt), 'EXEC recovery failed')
+                                                # Rebind presentation only after an echo-associated completed
+                                                # approved sequence/recovery reaches privileged EXEC.
+                                                exec_prompt = cli.prompt
                                                 row['_rejected'] = rejected
                                                 row['_verify'] = True
                                             except Exception as exc:
@@ -607,7 +607,7 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                                                     row['blocker'] = exc.code
                                                 try:
                                                     cli.require_session(session)
-                                                    usable = cli.prompt == exec_prompt
+                                                    usable = usable and cli.prompt == exec_prompt
                                                 except Exception:
                                                     usable = False
                                             row_timing['outcome'] = row['status']
@@ -619,7 +619,8 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                                         if candidates:
                                             _gate(usable, 'SESSION_UNUSABLE')
                                             cli.require_session(session)
-                                            _gate(cli.prompt == exec_prompt, 'SESSION_UNUSABLE')
+                                            _gate(adapter.is_exec_prompt(cli.prompt), 'SESSION_UNUSABLE')
+                                            exec_prompt = cli.prompt
                                             if BY_ID[template_id].function == 'VLAN Database':
                                                 after = dict(configuration_reliable=True, vlan_lookups={
                                                     str(e['request']['inputs']['vlan_id']): timed_call('vlan_lookup', VlanService(timeout=settings.command_timeout).lookup,
@@ -691,7 +692,9 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                         finally:
                             try:
                                 cli.require_session(session)
-                                usable = usable and cli.prompt == exec_prompt
+                                usable = usable and adapter.is_exec_prompt(cli.prompt)
+                                if usable:
+                                    exec_prompt = cli.prompt
                             except Exception:
                                 usable = False
                             if attempted and usable:

@@ -135,12 +135,16 @@ result = save_configuration(session, context, cli=cli,
 
 Save is a separate **configuration-persistence action**; callers need explicit operator
 intent. `save_configuration(session, context, *, cli, exec_prompt, timeout, correlation=None)` requires
-an already synchronized original privileged EXEC prompt and an approved family/profile.
+an already synchronized session-validated privileged EXEC prompt and an approved family/profile.
 It returns status Saved/Unknown, sanitized response, answered (EdgeSwitch question),
 error_category and explicit_error separately. It borrows resources; no retry, reconnect
 or success-marker requirement. Bad preconditions raise ValueError/InteractiveCLIError;
 incomplete exchanges return Unknown and invalidate the shared shell. The caller retains
-the original learned prompt, not a guessed hostname. Shared `DeviceCLI.execution_mode`
+the exact session EXEC anchor, never a guessed hostname. After an echo-associated
+approved sequence or checked bounded recovery reaches structural EXEC, the executor
+may refresh its presentation anchor on the same owned shell. Completed fresh
+observations may also refresh it only at structural privileged EXEC. Save itself never
+relearns that anchor from its response. Shared `DeviceCLI.execution_mode`
 and `DeviceCLI.save_configuration` implement synchronization internally; prefer the
 capability wrapper for supported application use.
 
@@ -373,3 +377,29 @@ it is wall time, not allocated physical device work. Stage/row/device totals ove
 The independent public `verify_row(..., timeout=30.0, correlation=None)` signature
 and its fresh read-only behavior remain unchanged. Shared capability correlation may
 include optional scalar `stage_id`; standalone callers need not supply it.
+
+
+### Execution prompt framing (Issue #134)
+
+`DeviceCLI.execution_mode(exec_prompt, platform)` selects execution-only vendor
+structural recognition after identification. Cisco hostname presentation and arbitrary
+parenthesized submodes may change; EdgeSwitch accepts separate outer and inline mode
+presentations and annotations. No expected-mode-name transition gate is applied.
+Current exact echo and a complete unterminated structural prompt cause immediate
+completion with zero new per-command delay. Read-only adapter configuration restores baseline framing;
+public defaults, command authorization, rejection detection and verification do not
+change. A prompt return alone cannot establish a successful configuration write.
+`save_configuration` retains exact EXEC-anchor return and separate explicit-error
+reporting; standalone callers must provide the synchronized current EXEC anchor.
+See [contract and Linux/Windows validation](../user_manual/configuration-execution.md#flexible-execution-prompts-issue-134).
+
+Owner's superseding no-added-wait clarification (Issue #134 / PR #135): execution
+returns immediately once the current exact echo and complete unterminated vendor
+structural prompt are detected. No fixed/adaptive silence wait, sleep, retry or
+timeout extension is added. Earlier quiet-guard proposals are superseded; their
+review history remains in the October devlog. Split incomplete prompts still require
+more input; invalid prompts, missing echoes and ambiguous failed exchanges retain
+session invalidation. A prompt-shaped prefix followed by later bytes cannot be
+predicted under this timing contract. Independent rejection checks, verification
+and exact EXEC-anchor save completion remain required. Owner Linux/C3850/EdgeSwitch
+live validation remains pending.
