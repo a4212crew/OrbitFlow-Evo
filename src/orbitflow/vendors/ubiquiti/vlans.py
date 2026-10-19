@@ -96,10 +96,12 @@ def parse_edgeswitch_config(
             )
             tagged = tuple(sorted(set(tagged) & active))
             untagged = pvid if pvid in active and pvid not in tagged else ""
-            if refs or excluded:
+            trunk_only = ("switchport mode trunk" in body
+                          and all(not line.startswith("switchport ") or line == "switchport mode trunk" for line in body))
+            if refs or excluded or trunk_only:
                 mode = (
                     "trunk"
-                    if tagged and set(tagged) == set(included)
+                    if (tagged and set(tagged) == set(included)) or (trunk_only and not refs and not excluded)
                     else ("hybrid" if tagged else "access")
                 )
                 interfaces.append(
@@ -117,7 +119,7 @@ def parse_edgeswitch_config(
                         vlan_source="participation",
                     )
                 )
-                interfaces[-1] = forwarding(interfaces[-1], "hybrid" if untagged and tagged else "trunk" if tagged else "access",
+                interfaces[-1] = forwarding(interfaces[-1], "hybrid" if untagged and tagged else "trunk" if tagged or (not refs and not excluded and trunk_only) else "access",
                     untagged=untagged, tagged=tagged, domains=tuple(sorted(active)))
             continue
         index += 1

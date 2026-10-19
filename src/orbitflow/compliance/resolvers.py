@@ -4,7 +4,7 @@ No CLI syntax parsing, transport, policy thresholds, or report formatting lives
 here. Numeric facts are derived only from validated configured relationships.
 """
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from orbitflow.vendors.interface_names import canonical_interface_name
 
@@ -545,7 +545,15 @@ class EdgeSwitchAuditResolver(AuditResolver):
                        configured_pvid=sorted(pvid), pvid=sorted(pvid))
             kind = "hybrid" if untagged and valid_tags else "access" if untagged else "trunk" if valid_tags else "no_membership"
             if not any(n.kind in {"include", "exclude", "tagged", "untagged_vlans", "pvid"} for n in node.children):
-                kind = "routed"
+                # Preserve the already parsed switchport-style evidence. Only
+                # isolated trunk intent is usable; mixed alternate syntax keeps
+                # its established methodology-review and audit behavior.
+                alternate = [f for root in self.review_roots
+                             if root.kind == 'interface' and self.key(root.value) == key
+                             for f in root.children if f.kind.startswith('methodology_switchport_')]
+                trunk_only = ({f.value for f in alternate if f.kind == 'methodology_switchport_mode'} == {'trunk'}
+                              and all(f.kind in {'methodology_switchport_mode', 'methodology_switchport_enabled'} for f in alternate))
+                kind = "trunk" if trunk_only else "routed"
             self.membership(key, valid_tags, untagged if kind != "review" else (), kind)
             row["review"] = kind == "review"
         self.aggregates(edge=True)
@@ -563,3 +571,60 @@ def resolver_for(context):
     if context.platform == "ubiquiti_edgeswitch" and context.device_family == "EdgeSwitch":
         return EdgeSwitchAuditResolver
     return None
+
+
+@dataclass(frozen=True)
+class ForwardingClassification:
+    """Policy-free projection of validated family classification and ownership.
+
+    No audit VLAN/BD values are promoted to ingress VLANs by this contract.
+    Review is preserved even when an independently valid tagged subset exists.
+    """
+    interface_name: str
+    port_type: str
+    configuration_owner: str
+
+
+def forwarding_classifications(context, state):
+    """Reuse family relationship validation without running compliance policy."""
+    resolver = resolver_for(context)
+    if resolver is None or state is None or not getattr(state, 'configuration', None):
+        return ()
+    instance = resolver(context, state)
+    rows = instance.result()['interfaces']
+    if resolver is XRAuditResolver:
+        return xr_forwarding_classifications(instance, rows)
+    return tuple(ForwardingClassification(row['config_interface_name'],
+                 row['interface_type'], row['configuration_owner'])
+                 for row in rows.values())
+
+
+def xr_forwarding_classifications(resolver, rows):
+    """Project exact AC ingress roles separately from numeric audit membership.
+
+    Untagged ACs need no numeric VLAN. Parents combine configured child roles;
+    invalid bindings/encapsulation remain review. Audit rows are never mutated.
+    """
+    roles = {}
+    for key, node in resolver.config.items():
+        row = rows[key]
+        if node.kind != 'l2_interface':
+            roles[key] = 'routed'
+            continue
+        domains = {tuple(d) for m in row['numeric_mappings'] for d in m['bridge_domains']}
+        encaps = children(node.children, 'encapsulation')
+        untagged = children(node.children, 'untagged')
+        valid_tags = (len(encaps) == 1 and isinstance(encaps[0].value, tuple)
+                      and bool(encaps[0].value)
+                      and all(type(v) is int and 1 <= v <= 4094 for v in encaps[0].value))
+        roles[key] = ('access' if untagged else 'trunk') if (
+            len(domains) == 1 and ((len(untagged) == 1 and not encaps)
+                                  or (valid_tags and not untagged))) else 'review'
+    for key in resolver.config:
+        child_roles = {role for child, role in roles.items() if parent_name(child) == key}
+        if child_roles:
+            roles[key] = ('review' if child_roles - {'access', 'trunk'} else
+                          'hybrid' if child_roles == {'access', 'trunk'} else next(iter(child_roles)))
+    return tuple(ForwardingClassification(rows[key]['config_interface_name'], role,
+                                         rows[key]['configuration_owner'])
+                 for key, role in roles.items())

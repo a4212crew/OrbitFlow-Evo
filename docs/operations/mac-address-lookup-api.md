@@ -47,11 +47,27 @@ forwarding semantics are inferred. Empty AC/PW sections also succeed.
 `resolve_attachment(attachment, platform, interfaces, vlans=None)` returns
 attachment/physical/classification/port_type/semantics. `enrich(snapshot, context,
 interfaces=(), vlans=None, bridges=None)` returns one EnrichedMac per input entry,
-including normalized domains (XR: full group/domain), VLANs and explicit mapping outcome.
+including an optional `description` (default blank), normalized domains (XR: full group/domain), VLANs and explicit mapping outcome.
 XR VLAN proof requires the exact normalized configured bridge-domain binding
 identity to agree with the unique operational group/domain, for local and remote
 MAC destinations. Same domain names in different groups do not prove a match. `lookup_vlan`
 requires an integer 1-4094, returns only proven matching observations.
+
+Issue #132: `MacEntry.scope` retains `vlan` or `bridge-domain` for IOS/IOS-XE
+source tables; existing Huawei slot and XR scope semantics remain. Enrichment
+preserves explicit ME3600X/ASR920 numeric VLANs, exact EFP encapsulation, and
+`3/N` EdgeSwitch logical `lag N` ownership only with one exact independently
+observed/configured aggregate identity (raw attachment/IfIndex unchanged). Missing
+or ambiguous identities remain unresolved; member references are insufficient.
+A uniquely joined/configured XR untagged AC may associate with the one distinct
+explicit dot1q VLAN of configured peers in that exact group/domain. Zero/multiple
+peer tags and ambiguous bindings remain Unknown; ingress semantics stay untagged.
+
+The reusable `orbitflow.compliance.resolvers.forwarding_classifications(context,
+state)` returns immutable `ForwardingClassification(interface_name, port_type,
+configuration_owner)` tuples through existing family validation, without policy
+execution. Missing configuration/unsupported families return an empty tuple.
+It exposes classification, not numeric audit memberships as ingress VLANs.
 
 Application entry points in `orbitflow.mac_lookup`:
 
@@ -72,6 +88,41 @@ Application entry points in `orbitflow.mac_lookup`:
 Direct API callers supply credentials through normal target/transport interfaces;
 never put them in source or logs. Known target credentials are removed from persisted
 normalized values. Details includes full display Observed Attachment and separate
-Raw Attachment; the six main columns are unchanged. Empty operational domains
+Raw Attachment; the first six main columns retain their headers, values and order; Interface Description is appended seventh. Empty operational domains
 retain a Bridge Domains row with blank attachment identity fields and supplied counts.
 Export failure preserves the spool and propagates the error.
+
+
+Issue #132 / PR #133 owner revision supersedes the previous six-column main-sheet
+promise: `Interface Description` is appended after `Mac address`; supporting sheets
+are unchanged. Descriptions join by exact canonical identity to the verified
+physical or logical aggregate owner, using InterfaceService `port_description`
+and/or VlanService interface `description`. EFP/subinterface rows use the resolved
+parent description; child and arbitrary aggregate-member text is not inherited.
+Conflicting nonempty owner descriptions, missing evidence, CPU/remote/Drop/SVI,
+and unresolved destinations produce blank descriptions. Optional evidence failures
+preserve MAC collection and counts. No description is inferred from VLAN/BD,
+suffix or peer identifiers. Sanitization/redaction and literal-text Excel cells
+also apply to descriptions beginning with `=`, `+`, `-` or `@`.
+Offline recovery preserves descriptions; historical six-value spool rows export
+with a blank seventh cell. Automated regressions cover supported families and
+recovery; operator read-only Linux/Windows validation remains pending.
+
+
+Issue #132 / PR #133 review corrections: the policy-free shared classification
+projection now classifies configured XR ACs by explicit encapsulation and one exact
+BG/BD binding: untagged is access, dot1q is trunk. Existing parents combine child
+roles (access/trunk/hybrid); invalid or conflicting child evidence is review/Unknown,
+and routed interfaces retain routed classification. Exact AC type takes precedence
+over the parent type for a MAC on that AC. This does not change numeric compliance
+membership, shared VLAN observation or BridgeDomainService. No peer VLAN association
+is used to claim tagged ingress.
+
+IOS/IOS-XE parsing accepts the exact repeated `Nile Mac Address Entries` banner
+and repeated column headers while preserving each row's VLAN/BD scope; other invalid
+rows still fail. The main sheet's existing `Physical Interface name` column shows
+the resolved physical/logical owner when proven, otherwise the normalized original
+attachment (including remote tuples, Drop and unresolved LAG/IP-like destinations).
+This fallback is display only: Details physical identity stays blank when unresolved,
+raw attachment is retained, and descriptions still require exact owner evidence.
+Seven-column output and historical six-column spool recovery remain supported.

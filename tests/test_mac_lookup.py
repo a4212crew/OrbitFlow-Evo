@@ -114,8 +114,8 @@ def test_domain_not_vlan():
     detail = NS(interface_name='GigabitEthernet0/24', service_details=(), service_mappings=('445 -> 4001',), port_type='evc')
     from orbitflow.vendors.configuration_facts import observe_configuration
     facts = observe_configuration('interface GigabitEthernet0/24\n service instance 3999 ethernet\n  encapsulation dot1q 445\n  bridge-domain 4001', 'cisco_ios')
-    rows = enrich(table, context, [NS(port_name='Gi0/24')], NS(interfaces=[detail], configuration=facts))
-    assert rows[0].vlans == (445,) and rows[0].resolution.port_type == 'Unknown'
+    rows = enrich(table, context, [NS(port_name='Gi0/24')], NS(interfaces=[detail], objects=(), configuration=facts))
+    assert rows[0].vlans == (445,) and rows[0].resolution.port_type == 'trunk'
     assert enrich(table, context)[0].vlans == ()
 
 
@@ -143,6 +143,7 @@ def test_batch_spool_isolation_and_recovery(tmp_path, monkeypatch):
     assert tuple(c.value for c in book['MAC Addresses'][1]) == MAIN_COLUMNS
     assert book['MAC Addresses'].max_row == 5
     assert book['MAC Addresses']['B2'].data_type == 's'
+    assert book['MAC Addresses']['G2'].value is None
     assert book['Run Errors'].max_row == 2
     book.close()
     spool = next((tmp_path/'runs').iterdir())
@@ -243,7 +244,8 @@ def test_one_session_partial_enrichment_and_no_match(monkeypatch):
     target = dict(management_ip='192.0.2.1', username='fixture', password='private-fixture')
     result = app.collect_device(target, None, None, mac='d401.c312.96f0')
     assert len(result[0]) == 1 and result[0][0][2] == 'WS-C3750X'
-    assert result[0][0][3:5] == ['', 'Unknown']
+    assert result[0][0][3:5] == ['GigabitEthernet1/0/46', 'Unknown']
+    assert result[0][0][6] == ''
     assert len(result[3]) == 2 and 'secret-bearing' not in repr(result)
     assert calls == ['connect', 'disconnect']
     empty = app.collect_device(target, None, None, mac='aaaa.bbbb.cccc')
@@ -385,7 +387,374 @@ def test_ncs_collection_vlan_match_survives_empty_vfi_sections(monkeypatch):
     monkeypatch.setattr(app.InterfaceService, 'collect', lambda *a, **k: [NS(port_name='TenGigE0/0/0/19')])
     monkeypatch.setattr(app.VlanService, 'collect', lambda *a, **k: NS(interfaces=[profile]))
     result = app.collect_device(dict(management_ip='192.0.2.1', username='fixture', password='fixture'), None, None, vlan=860)
-    assert result[0] == [['192.0.2.1', 'lab', 'NCS540', 'TenGigE0/0/0/19', 'Unknown', 'aa:bb:cc:dd:ee:ff']]
+    assert result[0] == [['192.0.2.1', 'lab', 'NCS540', 'TenGigE0/0/0/19', 'Unknown', 'aa:bb:cc:dd:ee:ff', '']]
     assert result[1][0][4:6] == ['G/D', '860']
     assert result[3] == []
     assert result[4]
+
+
+def configured_state(config, platform):
+    from orbitflow.vendors.configuration_facts import observe_configuration
+    return NS(interfaces=(), objects=(), configuration=observe_configuration(config, platform))
+
+
+@pytest.mark.parametrize('family,platform', [('ME3600X', 'cisco_ios'), ('ASR920', 'cisco_xe')])
+@pytest.mark.parametrize('encaps,extra,expected', [
+    ('untagged', '', 'access'),
+    ('dot1q 445', '', 'trunk'),
+    ('untagged', ' service instance 2 ethernet\n  encapsulation dot1q 545\n  bridge-domain 700', 'hybrid'),
+    ('untagged', ' service instance 2 ethernet\n  encapsulation untagged\n  bridge-domain 700', 'Unknown'),
+    ('dot1q 445', 'bridge-domain 800\n member Gi0/1 service-instance 1', 'Unknown'),
+])
+def test_family_classification_shared_with_audit(family, platform, encaps, extra, expected):
+    state = configured_state(f'interface Gi0/1\n service instance 1 ethernet\n  encapsulation {encaps}\n  bridge-domain 600\n{extra}', platform)
+    context = NS(platform=platform, device_family=family)
+    table = parse_mac_table('BD mac addr type ports\n600 aabb.ccdd.eeff dynamic Gi0/1.Efp1', platform)
+    row = enrich(table, context, (), state)[0]
+    assert row.resolution.port_type == expected
+    assert 600 not in row.vlans and 1 not in row.vlans
+    from orbitflow.compliance.resolvers import resolver_for
+    kind = resolver_for(context)(context, state).result()['interfaces']['gigabitethernet0/1']['interface_type']
+    assert row.resolution.semantics == kind
+
+
+@pytest.mark.parametrize('global_binding', ['', 'bridge-domain 600\n member Gi0/1 service-instance 7',
+    'bridge-domain 800\n member Gi0/1 service-instance 7'])
+def test_exact_efp_local_global_and_duplicate_rows(global_binding):
+    state = configured_state('interface Gi0/1\n service instance 7 ethernet\n  encapsulation dot1q 445\n  bridge-domain 600\n'+global_binding, 'cisco_ios')
+    table = parse_mac_table('BD mac addr type ports\n'+ '600 aabb.ccdd.eeff dynamic Gi0/1+Efp7\n'*2, 'cisco_ios')
+    rows = enrich(table, NS(platform='cisco_ios', device_family='ME3600X'), (), state)
+    assert len(rows) == 2
+    assert all(r.vlans == (() if '800' in global_binding else (445,)) for r in rows)
+
+
+@pytest.mark.parametrize('number', [1, 2, 5])
+def test_edgeswitch_exact_lag_destinations(number):
+    from orbitflow.vendors.ubiquiti.vlans import parse_edgeswitch_config
+    config = f'interface 0/8\n addport 3/{number}\nexit\ninterface lag {number}\n switchport mode trunk\nexit'
+    state = configured_state(config, 'ubiquiti_edgeswitch')
+    state.interfaces = parse_edgeswitch_config(config)[0]
+    table = parse_mac_table(f'VLAN ID MAC Address Interface IfIndex Status\n445 aa:bb:cc:dd:ee:ff 3/{number} 100 Learned\n545 aa:bb:cc:dd:ee:ff 5/1 65 Management', 'ubiquiti_edgeswitch')
+    rows = enrich(table, NS(platform='ubiquiti_edgeswitch', device_family='EdgeSwitch'), [NS(port_name='0/8')], state)
+    assert rows[0].entry.attachment == f'3/{number}' and rows[0].entry.ifindex == '100'
+    assert rows[0].resolution.physical == f'lag {number}'
+    assert rows[0].resolution.classification == 'aggregate' and rows[0].resolution.port_type == 'trunk'
+    assert rows[1].resolution.classification == 'nonphysical' and not rows[1].resolution.physical
+    assert not resolve_attachment(f'3/{number}', 'ubiquiti_edgeswitch', [NS(port_name='0/8')]).physical
+    assert state.interfaces[0].tagged_vlans == () and not state.interfaces[0].bridge_domains
+    from orbitflow.compliance.resolvers import EdgeSwitchAuditResolver
+    facts = EdgeSwitchAuditResolver(NS(platform='ubiquiti_edgeswitch', device_family='EdgeSwitch'), state).result()
+    assert facts['interfaces'][f'lag {number}']['valid_interface_vlans'] == []
+    assert facts['interfaces']['0/8']['configuration_owner'] == f'lag {number}'
+
+
+@pytest.mark.parametrize('number', [1, 2, 5])
+@pytest.mark.parametrize('observed,config,resolved', [
+    (['lag {n}'], '', True),
+    ([], 'interface lag {n}\nexit', True),
+    (['lag {n}'], 'interface lag {n}\nexit', True),
+    (['0/8'], '', False),
+    ([], 'interface 0/8\n addport 3/{n}\nexit', False),
+    (['lag 9'], 'interface lag 8\nexit', False),
+    (['lag {n}', 'LAG {n}'], '', False),
+    ([], 'interface lag {n}\nexit\ninterface lag {n}\nexit', False),
+])
+def test_edgeswitch_lag_requires_unique_independent_identity(number, observed, config, resolved):
+    state = configured_state(config.format(n=number), 'ubiquiti_edgeswitch')
+    interfaces = [NS(port_name=name.format(n=number)) for name in observed]
+    table = parse_mac_table(
+        f'VLAN ID MAC Address Interface IfIndex Status\n'
+        f'445 aa:bb:cc:dd:ee:ff 3/{number} 100 Learned\n'
+        '545 aa:bb:cc:dd:ee:ff 5/1 65 Management', 'ubiquiti_edgeswitch')
+    rows = enrich(table, NS(platform='ubiquiti_edgeswitch', device_family='EdgeSwitch'), interfaces, state)
+    assert len(rows) == 2
+    lag, management = rows
+    assert lag.entry.attachment == f'3/{number}' and lag.entry.ifindex == '100'
+    assert lag.vlans == (445,)
+    assert lag.resolution.physical == (f'lag {number}' if resolved else '')
+    assert lag.resolution.classification == ('aggregate' if resolved else 'unresolved')
+    assert lag.resolution.port_type == 'Unknown'
+    assert management.entry.attachment == '5/1' and management.entry.ifindex == '65'
+    assert management.resolution.classification == 'nonphysical'
+    assert management.resolution.physical == ''
+
+
+@pytest.mark.parametrize('present', [True, False])
+def test_edgeswitch_logical_aggregate_workbook_contract(tmp_path, monkeypatch, present):
+    import orbitflow.mac_lookup as app
+    resolution = resolve_attachment('3/2', 'ubiquiti_edgeswitch',
+                                    [NS(port_name='lag 2')] if present else [])
+    def collect(target, *args, **kwargs):
+        return [[['192.0.2.1', 'lab', 'EdgeSwitch', resolution.physical,
+                  resolution.port_type, 'aa:bb:cc:dd:ee:ff']], [], [], [], []]
+    monkeypatch.setattr(app, 'collect_device', collect)
+    path = run_lookup([dict(management_ip='192.0.2.1')], None,
+                      reports_dir=tmp_path/'reports', spool_root=tmp_path/'runs',
+                      inventory_path=tmp_path/'inventory.json', log_root=tmp_path/'logs')
+    book = load_workbook(path)
+    assert tuple(c.value for c in book['MAC Addresses'][1]) == MAIN_COLUMNS
+    assert book['MAC Addresses'].max_column == 7
+    assert book['MAC Addresses'].max_row == 2
+    assert book['MAC Addresses']['D2'].value == ('lag 2' if present else None)
+    assert book['MAC Addresses']['E2'].value == 'Unknown'
+    assert set(book.sheetnames) == {'MAC Addresses', 'Details', 'Totals', 'Run Errors', 'Bridge Domains'}
+    book.close()
+
+
+@pytest.mark.parametrize('tags,group,ambiguous,expected', [
+    ([], 'G', False, ()), ([445], 'G', False, (445,)),
+    ([445, 445], 'G', False, (445,)), ([445, 545], 'G', False, ()),
+    ([445], 'OTHER', False, ()), ([445], 'G', True, ())])
+def test_xr_untagged_mac_only_peer_association(tags, group, ambiguous, expected):
+    config = 'interface TenGigE0/0/0/1.99 l2transport\n encapsulation untagged\n!\n'
+    for index, tag in enumerate(tags):
+        config += f'interface TenGigE0/0/0/2.{index} l2transport\n encapsulation dot1q {tag}\n!\n'
+    config += f'l2vpn\n bridge group {group}\n  bridge-domain D\n   interface TenGigE0/0/0/1.99\n'
+    for index in range(len(tags)):
+        config += f'   interface TenGigE0/0/0/2.{index}\n'
+    if ambiguous:
+        config += ' bridge group X\n  bridge-domain D\n   interface TenGigE0/0/0/1.99\n'
+    state = configured_state(config, 'cisco_xr')
+    bridge = parse_bridge_domains('Bridge group: G, bridge-domain: D, id: 99, state: up\n List of ACs:\n Te0/0/0/1.99, state: up')
+    table = parse_mac_table('Mac Address Type Learned from/Filtered on\naabb.ccdd.eeff dynamic Te0/0/0/1.99 N/A N/A N/A', 'cisco_xr')
+    row = enrich(table, NS(platform='cisco_xr', device_family='NCS540'), (), state, bridge)[0]
+    assert row.vlans == expected and row.entry.attachment == 'Te0/0/0/1.99'
+    assert row.resolution.port_type == 'Unknown'
+
+
+@pytest.mark.parametrize('family,platform', [('C3750X', 'cisco_ios'), ('C3850', 'cisco_xe'), ('ME3600X', 'cisco_ios'), ('ASR920', 'cisco_xe')])
+def test_numeric_vlan_source_retained_without_configuration(family, platform):
+    table = parse_mac_table('Vlan Mac Address Type Ports\n445 aabb.ccdd.eeff dynamic Po2\n445 aabb.ccdd.eeff static Vl445\nAll aabb.ccdd.eeff static CPU', platform)
+    rows = enrich(table, NS(platform=platform, device_family=family))
+    assert [r.vlans for r in rows] == [(445,), (445,), ()]
+    assert len(rows) == 3 and rows[-1].resolution.classification == 'cpu'
+
+
+@pytest.mark.parametrize('family,platform', [('ME3600X', 'cisco_ios'), ('ASR920', 'cisco_xe')])
+def test_cpu_pw_and_unresolved_efp_remain_distinct(family, platform):
+    table = parse_mac_table('BD mac addr type ports\nALL aabb.ccdd.eeff static CPU\n600 aabb.ccdd.eeff dynamic PW700\n600 aabb.ccdd.eeff dynamic Gi0/1.Efp600', platform)
+    rows = enrich(table, NS(platform=platform, device_family=family))
+    assert len(rows) == 3
+    assert [r.resolution.classification for r in rows] == ['cpu', 'remote', 'unresolved']
+    assert all(not r.vlans and not r.resolution.physical for r in rows)
+
+
+@pytest.mark.parametrize('defect', ['missing', 'conflicting_binding', 'conflicting_encapsulation'])
+def test_xr_peer_fallback_rejects_uncertain_peer_facts(defect):
+    from orbitflow.capabilities.mac_forwarding import xr_untagged_peer_vlan
+    config = '''interface TenGigE0/0/0/1.99 l2transport
+ encapsulation untagged
+!
+interface TenGigE0/0/0/2.1 l2transport
+ encapsulation dot1q 445
+!
+'''
+    if defect != 'missing':
+        config += 'interface TenGigE0/0/0/3.1 l2transport\n encapsulation dot1q 445\n'
+        if defect == 'conflicting_encapsulation':
+            config += ' encapsulation dot1q 545\n'
+        config += '!\n'
+    config += '''l2vpn
+ bridge group G
+  bridge-domain D
+   interface TenGigE0/0/0/1.99
+   interface TenGigE0/0/0/2.1
+   interface TenGigE0/0/0/3.1
+'''
+    if defect == 'conflicting_binding':
+        config += ' bridge group OTHER\n  bridge-domain D\n   interface TenGigE0/0/0/3.1\n'
+    state = configured_state(config, 'cisco_xr')
+    assert not xr_untagged_peer_vlan(state.configuration, 'cisco_xr', 'Te0/0/0/1.99', 'G/D')
+
+
+@pytest.mark.parametrize('platform,family,attachment,owner', [
+    ('cisco_ios', 'C3750X', 'Gi1/0/46', 'GigabitEthernet1/0/46'),
+    ('cisco_xe', 'C3850', 'Po2', 'Port-channel2'),
+    ('cisco_ios', 'ME3600X', 'Gi0/24+Efp3999', 'GigabitEthernet0/24'),
+    ('cisco_xe', 'ASR920', 'Gi0/0/1.Efp2200', 'GigabitEthernet0/0/1'),
+    ('cisco_xr', 'NCS540', 'Te0/0/0/19.2440', 'TenGigE0/0/0/19'),
+    ('huawei_vrp', 'NE05', 'GE0/2/5.303', 'GigabitEthernet0/2/5'),
+    ('huawei_vrp', 'NE05E', 'GE0/2/5.303', 'GigabitEthernet0/2/5'),
+    ('ubiquiti_edgeswitch', 'EdgeSwitch', '3/2', 'lag 2'),
+    ('ubiquiti_edgeswitch', 'EdgeSwitch', '0/8', '0/8'),
+])
+@pytest.mark.parametrize('source', ['observed', 'configured', 'both', 'conflict', 'absent'])
+def test_exact_owner_description(platform, family, attachment, owner, source):
+    from orbitflow.capabilities.mac import MacSnapshot, MacEntry
+    description = '=user controlled uplink'
+    interfaces = [NS(port_name=owner, port_description=description if source in {'observed', 'both', 'conflict'} else ''),
+                  NS(port_name=attachment, port_description='child only')] if ('.' in attachment or 'Efp' in attachment) else [
+                      NS(port_name=owner, port_description=description if source in {'observed', 'both', 'conflict'} else '')]
+    # Member and child descriptions cannot override the resolved owner.
+    interfaces.append(NS(port_name='0/9', port_description='arbitrary member'))
+    profile = NS(interface_name=owner, description='different' if source == 'conflict' else description if source in {'configured', 'both'} else '',
+                 port_type='', service_details=(), service_mappings=())
+    state = NS(interfaces=[profile], configuration=())
+    snapshot = MacSnapshot((MacEntry('aa:bb:cc:dd:ee:ff', '445', attachment, 'DYNAMIC', 'dynamic'),), 1)
+    row = enrich(snapshot, NS(platform=platform, device_family=family), interfaces, state)[0]
+    assert row.description == ('' if source in {'conflict', 'absent'} else description)
+    assert len(enrich(snapshot, NS(platform=platform, device_family=family), interfaces, state)) == 1
+    assert row.resolution.physical == owner
+
+
+@pytest.mark.parametrize('attachment,platform', [('CPU', 'cisco_ios'), ('Drop', 'cisco_ios'),
+    ('Vl545', 'cisco_ios'), ('PW123', 'cisco_xe'), ('(192.0.2.1, 123)', 'cisco_xr'),
+    ('5/1', 'ubiquiti_edgeswitch'), ('3/2', 'ubiquiti_edgeswitch')])
+def test_nonphysical_description_blank(attachment, platform):
+    from orbitflow.capabilities.mac_forwarding import interface_description
+    interfaces = [NS(port_name=attachment, port_description='must not leak')]
+    if attachment == '3/2':
+        interfaces = [NS(port_name='lag 2', port_description='one'), NS(port_name='LAG 2', port_description='two')]
+    resolution = resolve_attachment(attachment, platform, interfaces)
+    assert interface_description(resolution, platform, interfaces) == ''
+
+
+@pytest.mark.parametrize('vlan_failure', [False, True])
+@pytest.mark.parametrize('description', ['=SUM(1,2)', '+formula', '-formula', '@formula', 'line\x00break password-fixture'])
+def test_description_workbook_and_recovery(tmp_path, monkeypatch, description, vlan_failure):
+    import orbitflow.mac_lookup as app
+    from orbitflow.capabilities.mac import MacEntry, MacSnapshot
+    @contextmanager
+    def connection(*a, **kw):
+        yield object()
+    monkeypatch.setattr(app, 'connect_device', connection)
+    monkeypatch.setattr(app, 'DeviceCLI', connection)
+    monkeypatch.setattr(app.DeviceInventoryResolver, 'resolve', lambda *a, **kw:
+                        NS(platform='cisco_ios', device_family='C3750X', hostname='lab', hardware_model='C3750X'))
+    monkeypatch.setattr(app.MacService, 'collect', lambda *a, **kw:
+                        MacSnapshot((MacEntry('aa:bb:cc:dd:ee:ff', '445', 'Gi1/0/1', 'DYNAMIC', 'dynamic'),) * 2, 2))
+    monkeypatch.setattr(app.InterfaceService, 'collect', lambda *a, **kw:
+                        [NS(port_name='GigabitEthernet1/0/1', port_description=description)])
+    def optional_vlan(*a, **kw):
+        if vlan_failure:
+            raise ValueError('optional failure')
+        return None
+    monkeypatch.setattr(app.VlanService, 'collect', optional_vlan)
+    path = run_lookup([dict(management_ip='192.0.2.1', username='test-user', password='password-fixture')], None,
+                      reports_dir=tmp_path/'reports', spool_root=tmp_path/'runs',
+                      inventory_path=tmp_path/'inventory.json', log_root=tmp_path/'logs')
+    recovered = export_mac_spool(next((tmp_path/'runs').iterdir()), tmp_path/'recovered.xlsx')
+    for output in (path, recovered):
+        book = load_workbook(output)
+        sheet = book['MAC Addresses']
+        assert MAIN_COLUMNS == ('Device IP', 'Device Name', 'Equipment Type', 'Physical Interface name', 'Port Type', 'Mac address', 'Interface Description')
+        assert sheet.max_row == 3 and sheet.max_column == 7
+        assert [c.value for c in sheet[2]][:6] == ['192.0.2.1', 'lab', 'C3750X', 'GigabitEthernet1/0/1', 'Unknown', 'aa:bb:cc:dd:ee:ff']
+        assert sheet['G2'].data_type == 's'
+        assert sheet['G2'].value == description.replace('\x00', '').replace('password-fixture', '[REDACTED]')
+        assert book['Totals']['C2'].value == '2'
+        book.close()
+
+
+def test_description_from_vlan_when_interface_collection_unavailable():
+    from orbitflow.capabilities.mac_forwarding import interface_description
+    state = configured_state('interface GigabitEthernet0/24\n description configured uplink\n!', 'cisco_ios')
+    state.interfaces = [NS(interface_name='GigabitEthernet0/24', description='configured uplink', port_type='')]
+    resolution = resolve_attachment('Gi0/24+Efp3999', 'cisco_ios', (), state)
+    assert resolution.physical == 'GigabitEthernet0/24'
+    assert interface_description(resolution, 'cisco_ios', (), state) == 'configured uplink'
+    assert interface_description(resolve_attachment('Gi0/25+Efp3999', 'cisco_ios', (), state), 'cisco_ios', (), state) == ''
+
+
+@pytest.mark.parametrize('platform', ['cisco_ios', 'cisco_xe'])
+def test_repeated_nile_banner_preserves_rows_and_scope(platform):
+    text = ('Nile Mac Address Entries\nVlan Mac Address Type Ports\n'
+            '445 aabb.ccdd.eeff DYNAMIC Gi0/1\nNile Mac Address Entries\n'
+            'BD mac addr type ports\n900 aabb.ccdd.eeff STATIC CPU\n'
+            'Nile Mac Address Entries\nBD mac addr type ports\n'
+            '901 aabb.ccdd.eeff DYNAMIC PW123')
+    table = parse_mac_table(text, platform)
+    assert table.total == 3
+    assert [e.scope for e in table.entries] == ['vlan', 'bridge-domain', 'bridge-domain']
+    assert [e.attachment for e in table.entries] == ['Gi0/1', 'CPU', 'PW123']
+    for bad in ['Nile Mac Address Entries invalid', 'Nile Mac Address Entry', 'broken row']:
+        with pytest.raises(ValueError):
+            parse_mac_table(text + '\n' + bad, platform)
+    with pytest.raises(ValueError):
+        parse_mac_table(XR + '\nNile Mac Address Entries', 'cisco_xr')
+
+
+@pytest.mark.parametrize('encapsulation,bind,expected', [
+    ('dot1q 860', True, 'trunk'), ('untagged', True, 'access'),
+    ('dot1q 860', False, 'Unknown'), ('', True, 'Unknown'),
+    ('dot1q 860\n encapsulation untagged', True, 'Unknown'),
+])
+def test_ncs540_exact_ac_type_and_audit_isolation(encapsulation, bind, expected):
+    from orbitflow.compliance.resolvers import XRAuditResolver, forwarding_classifications
+    config = ('interface TenGigE0/0/0/1\n!\ninterface TenGigE0/0/0/1.99 l2transport\n'
+              + (f' encapsulation {encapsulation}\n' if encapsulation else '') + '!\n'
+              + ('l2vpn\n bridge group G\n  bridge-domain D\n   interface TenGigE0/0/0/1.99\n!' if bind else ''))
+    state = configured_state(config, 'cisco_xr')
+    context = NS(platform='cisco_xr', device_family='NCS540')
+    before = XRAuditResolver(context, state).result()
+    table = parse_mac_table('Mac Address Type Learned from/Filtered on\naabb.ccdd.eeff dynamic Te0/0/0/1.99 N/A N/A N/A', 'cisco_xr')
+    row = enrich(table, context, (), state)[0]
+    assert row.resolution.port_type == expected
+    assert row.resolution.physical == 'TenGigE0/0/0/1'
+    assert XRAuditResolver(context, state).result() == before
+    projection = {p.interface_name: p.port_type for p in forwarding_classifications(context, state)}
+    assert projection['TenGigE0/0/0/1'] == (expected if expected != 'Unknown' else 'review')
+
+
+def test_ncs540_mixed_parent_exact_ac_and_routed():
+    from orbitflow.compliance.resolvers import forwarding_classifications
+    config = '''interface TenGigE0/0/0/1
+!
+interface TenGigE0/0/0/1.1 l2transport
+ encapsulation untagged
+!
+interface TenGigE0/0/0/1.2 l2transport
+ encapsulation dot1q 860
+!
+interface TenGigE0/0/0/2
+!
+l2vpn
+ bridge group G
+  bridge-domain D
+   interface TenGigE0/0/0/1.1
+   interface TenGigE0/0/0/1.2
+!'''
+    context = NS(platform='cisco_xr', device_family='NCS540')
+    state = configured_state(config, 'cisco_xr')
+    types = {p.interface_name: p.port_type for p in forwarding_classifications(context, state)}
+    assert types == {'TenGigE0/0/0/1': 'hybrid', 'TenGigE0/0/0/1.1': 'access',
+                     'TenGigE0/0/0/1.2': 'trunk', 'TenGigE0/0/0/2': 'routed'}
+    conflict = configured_state(config + '\nl2vpn\n bridge group Other\n  bridge-domain D\n   interface TenGigE0/0/0/1.2\n!', 'cisco_xr')
+    assert {p.interface_name: p.port_type for p in forwarding_classifications(context, conflict)}['TenGigE0/0/0/1.2'] == 'review'
+
+
+@pytest.mark.parametrize('platform,family,attachment,interfaces', [
+    ('cisco_xr', 'NCS540', '(192.0.2.20, 2445)', []),
+    ('cisco_ios', 'C3750X', 'Drop', []),
+    ('ubiquiti_edgeswitch', 'EdgeSwitch', '3/2', ['lag 2', 'LAG 2']),
+    ('cisco_ios', 'ME3600X', '192.0.2.20', []),
+])
+def test_unresolved_destination_workbook_display(tmp_path, monkeypatch, platform, family, attachment, interfaces):
+    import orbitflow.mac_lookup as app
+    from orbitflow.capabilities.mac import MacEntry, MacSnapshot
+    @contextmanager
+    def connection(*a, **kw):
+        yield object()
+    monkeypatch.setattr(app, 'connect_device', connection)
+    monkeypatch.setattr(app, 'DeviceCLI', connection)
+    monkeypatch.setattr(app.DeviceInventoryResolver, 'resolve', lambda *a, **kw:
+                        NS(platform=platform, device_family=family, hostname='lab', hardware_model=family))
+    monkeypatch.setattr(app.MacService, 'collect', lambda *a, **kw:
+                        MacSnapshot((MacEntry('aa:bb:cc:dd:ee:ff', '', attachment, 'dynamic', 'dynamic'),), 1))
+    monkeypatch.setattr(app.InterfaceService, 'collect', lambda *a, **kw: [NS(port_name=n) for n in interfaces])
+    monkeypatch.setattr(app.VlanService, 'collect', lambda *a, **kw: None)
+    monkeypatch.setattr(app.BridgeDomainService, 'collect', lambda *a, **kw: None)
+    path = run_lookup([dict(management_ip='192.0.2.1', username='test', password='fixture')], None,
+                      reports_dir=tmp_path/'reports', spool_root=tmp_path/'runs',
+                      inventory_path=tmp_path/'inventory.json', log_root=tmp_path/'logs')
+    recovered = export_mac_spool(next((tmp_path/'runs').iterdir()), tmp_path/'recovered.xlsx')
+    for output in (path, recovered):
+        book = load_workbook(output)
+        assert book['MAC Addresses'].max_column == 7
+        assert book['MAC Addresses']['D2'].value == attachment
+        assert book['MAC Addresses']['E2'].value == 'Unknown'
+        assert book['MAC Addresses']['G2'].value is None
+        assert book['Details']['N2'].value is None
+        assert book['Details']['R2'].value == attachment
+        assert book['Totals']['C2'].value == '1'
+        book.close()

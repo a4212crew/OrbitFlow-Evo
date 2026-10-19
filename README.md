@@ -725,4 +725,17 @@ Synthetic ten-row collection counts fall from 22 to 3 full reads for interface
 templates and 12 to 2 for VLAN Database (including baseline/backup); these are not
 live speedup claims. Owner stage validation on all three families and Linux remain pending.
 
-Read-only [MAC Address Lookup](docs/user_manual/mac-address-lookup.md) provides single-IP search and VLAN listing through the console or direct CLI/API; owner live validation remains pending.
+Read-only [MAC Address Lookup](docs/user_manual/mac-address-lookup.md) provides single-IP search and VLAN listing through the console or direct CLI/API; owner live validation remains pending. MAC enrichment preserves exact EFP/VLAN identity,
+validated family port types, independently evidenced EdgeSwitch logical LAG ownership and guarded XR
+untagged peer-VLAN associations (Issue #132).
+
+Issue #132 / PR #133 owner revision appends **Interface Description** as the seventh
+MAC Addresses column, superseding the former six-column promise while preserving
+the first six columns and supporting sheets. Descriptions use exact verified
+parent/aggregate owner observations; missing/conflicting/nonphysical evidence stays
+blank. Export remains sanitized and literal-safe; offline recovery is supported.
+Operator live validation remains pending.
+
+Issue #132 review corrections add evidenced XR AC/parent port types, precise repeated
+Cisco Nile banner handling and original-attachment display fallback for unresolved
+main-sheet destinations; Details and exact-owner descriptions retain their provenance.

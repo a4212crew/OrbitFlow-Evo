@@ -36,6 +36,7 @@ def parse_table(output, platform):
         raise ValueError('Truncated Huawei MAC header')
     entries, scoped, total, slot, xr_scope = [], [], None, '', ''
     started = False
+    table_scope = ''
     for raw in output.splitlines():
         line = raw.strip()
         if platform == 'cisco_xr' and re.match(r'(?i)Bridge[- ](?:domain|group):', line):
@@ -43,6 +44,8 @@ def parse_table(output, platform):
             continue
         if re.search(headers[platform], line, re.I):
             started = True
+            if platform in {'cisco_ios', 'cisco_xe'}:
+                table_scope = 'vlan' if line.lower().startswith('vlan') else 'bridge-domain'
             continue
         m = re.search(r'MAC address table of slot (\d+):', line, re.I)
         if m:
@@ -55,6 +58,8 @@ def parse_table(output, platform):
         m = re.search(r'Total Mac Addresses for this criterion:\s*(\d+)', line, re.I)
         if m:
             total = int(m[1])
+            continue
+        if platform in {'cisco_ios', 'cisco_xe'} and line == 'Nile Mac Address Entries':
             continue
         if not started or not line or set(line) <= set('-= '):
             continue
@@ -91,5 +96,5 @@ def parse_table(output, platform):
         normalized_kind = {'learned': 'dynamic', 'dynamic': 'dynamic', 'static': 'static',
                            'management': 'management', 'evpn': 'remote', 'routed': 'routed'}.get(kind.lower(), 'unknown')
         entries.append(MacEntry(normalize_mac(mac), domain, attachment, kind, normalized_kind,
-                                ('slot ' + slot if slot else xr_scope), index))
+                                ('slot ' + slot if slot else xr_scope or table_scope), index))
     return MacSnapshot(tuple(entries), total if total is not None else len(entries), tuple(scoped))

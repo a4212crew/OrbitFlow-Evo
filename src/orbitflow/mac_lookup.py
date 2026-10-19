@@ -18,7 +18,7 @@ from orbitflow.logging import module_logger, sanitize_text
 from orbitflow.transport import connect_device, DeviceCredentials
 from orbitflow.vendors.common import DeviceCLI
 
-MAIN_COLUMNS = ('Device IP', 'Device Name', 'Equipment Type', 'Physical Interface name', 'Port Type', 'Mac address')
+MAIN_COLUMNS = ('Device IP', 'Device Name', 'Equipment Type', 'Physical Interface name', 'Port Type', 'Mac address', 'Interface Description')
 DETAIL_COLUMNS = ('Observation', 'Device IP', 'MAC', 'Observed Attachment', 'Domain', 'VLANs', 'Original Type', 'Normalized Type', 'Scope', 'Destination Detail', 'Mapping', 'Classification', 'Forwarding Semantics', 'Physical Interface', 'Port Type', 'Selected Device Row', 'Source', 'Raw Attachment')
 
 
@@ -52,7 +52,11 @@ def resolve_target(targets, address):
 
 
 def collect_device(target, transport_config, store, *, mac=None, vlan=None, xr_location='0/RP0/CPU0'):
-    """One connection; optional enrichment failures retain usable MAC observations."""
+    """One connection; optional enrichment failures retain usable MAC observations.
+
+    Main-sheet destination falls back to display-only original attachment;
+    Details and description ownership always retain exact resolution evidence.
+    """
     if mac is not None:
         mac = normalize_mac(mac)
     if vlan is not None:
@@ -94,8 +98,9 @@ def collect_device(target, transport_config, store, *, mac=None, vlan=None, xr_l
                         selected + 1 if matches else '', snapshot.source, entry.attachment])
         if matches:
             selected += 1
-            main.append([ip, context.hostname, context.hardware_model or context.device_family, resolution.physical,
-                         resolution.port_type, entry.mac])
+            main.append([ip, context.hostname, context.hardware_model or context.device_family,
+                         resolution.physical or display_interface(context.platform, entry.attachment),
+                         resolution.port_type, entry.mac, item.description])
     totals = [[ip, 'table', snapshot.total], [ip, 'selection', selected]]
     totals.extend([ip, scope, count] for scope, count in snapshot.scoped_totals)
     bridge_rows = []
@@ -116,7 +121,7 @@ def collect_device(target, transport_config, store, *, mac=None, vlan=None, xr_l
 def run_lookup(targets, transport_config, *, mac=None, vlan=None, inventory_path='data/inventory/inventory.json',
                reports_dir='outputs/reports/mac_table', spool_root='outputs/runs/mac_table',
                log_root='outputs/logs', execution_config=None, xr_location='0/RP0/CPU0'):
-    """Persist bounded per-device outcomes and produce one six-column workbook."""
+    """Persist bounded per-device outcomes and produce one seven-column workbook."""
     if mac is not None:
         mac = normalize_mac(mac)
     if vlan is not None:
@@ -157,7 +162,8 @@ def export_mac_spool(spool_path, path, *, allow_partial=False):
         def rows(index):
             for record in run.records():
                 if len(record['payload']) > index:
-                    yield from record['payload'][index]
+                    for row in record['payload'][index]:
+                        yield [*row, ''] if index == 0 and len(row) == 6 else row
         write_tables(path, [('MAC Addresses', MAIN_COLUMNS, rows(0)), ('Details', DETAIL_COLUMNS, rows(1)),
                             ('Totals', ('Device IP', 'Scope', 'Total'), rows(2)),
                             ('Run Errors', ('Device IP', 'Stage', 'Error Category'), rows(3)),

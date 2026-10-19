@@ -879,7 +879,7 @@ gains. Owner stage-execution validation on all three families and Linux remain p
 
 ## MAC Address Lookup (Issue #130)
 
-Independent MAC and XR bridge-domain services/pure parsers, observed-parent resolution, normalized forwarding composition, two-action console integration and direct CLI/API report recovery are implemented. Shared scheduling, session reuse, bounded normalized spool and literal-safe six-column Excel output are reused. Focused offline sample/console validation passes; full-suite result is recorded in the October devlog. No live-device or Linux validation was performed. Huawei/EdgeSwitch invocation remains unconfirmed; missing/ambiguous service mappings remain explicit, never VLAN matches. Existing service-profile VLAN-1 omissions and Excel limits remain. Atlas completed MAC/bridge-domain skill routing on this PR branch; see [handoff](operations/mac-lookup-atlas-skill-handoff.md). Owner live validation and merge remain pending.
+Independent MAC and XR bridge-domain services/pure parsers, observed-parent resolution, normalized forwarding composition, two-action console integration and direct CLI/API report recovery are implemented. Shared scheduling, session reuse, bounded normalized spool and literal-safe seven-column Excel output are reused. Focused offline sample/console validation passes; full-suite result is recorded in the October devlog. No live-device validation was performed; Issue #132 Linux offline results are recorded below. Huawei/EdgeSwitch invocation remains unconfirmed; missing/ambiguous service mappings remain explicit, never VLAN matches. Existing service-profile VLAN-1 omissions and Excel limits remain. Atlas completed MAC/bridge-domain skill routing on this PR branch; see [handoff](operations/mac-lookup-atlas-skill-handoff.md). Owner live validation and merge remain pending.
 
 Issue #130 review revision: XR MAC VLAN proofs now require exact operational and
 configured group/domain agreement; bridge summaries preserve reported total/up
@@ -887,3 +887,45 @@ counts and reject malformed attachment sections. Known empty VFI/Access VFI
 sections are accepted; nonempty VFI content remains explicitly unsupported. Search
 output correlates each match with its own identity and physical/type details. Deterministic validation
 is recorded in the October devlog; owner live validation remains pending.
+
+
+Issue #132: MAC enrichment now reuses family-validated port classifications for
+ME3600X/ASR920/EdgeSwitch, retains explicit ME3600X/ASR920 numeric VLAN scope,
+resolves EdgeSwitch MAC 3/N destinations to lag N only with one exact independent
+observed/configured aggregate identity (absent/ambiguous stays unresolved), and
+keeps management 5/1 nonphysical. Explicit EdgeSwitch trunk intent preserves empty
+membership and cannot create a compliance trigger. XR MAC-only untagged fallback
+requires exact operational/configured BG/BD agreement and one distinct explicit
+peer dot1q VLAN; shared XR observations are unchanged. Offline regression evidence
+is recorded in the October devlog: review revision focused validation passed 480
+tests; latest full suite is not clean (2,958 passed, 25 controller temp-guard failures).
+A clean external-temp rerun is blocked by sandbox filesystem permissions; operator
+live and Windows validation are pending.
+
+Issue #132 / PR #133 owner description revision supersedes the previous six-column
+MAC main-sheet promise: the existing six columns remain in order with Interface
+Description appended seventh. Exact resolved parent/aggregate owner descriptions
+come from independent interface/VLAN observations; conflicts and unverified or
+nonphysical destinations stay blank. Supporting sheets and other reports are
+unchanged. Offline recovery supports old six-value rows with a blank description.
+Deterministic description/export regressions pass; operator live and Windows
+validation remain pending.
+
+
+Issue #132 / PR #133 review corrections: the policy-free shared classification
+projection now classifies configured XR ACs by explicit encapsulation and one exact
+BG/BD binding: untagged is access, dot1q is trunk. Existing parents combine child
+roles (access/trunk/hybrid); invalid or conflicting child evidence is review/Unknown,
+and routed interfaces retain routed classification. Exact AC type takes precedence
+over the parent type for a MAC on that AC. This does not change numeric compliance
+membership, shared VLAN observation or BridgeDomainService. No peer VLAN association
+is used to claim tagged ingress.
+
+IOS/IOS-XE parsing accepts the exact repeated `Nile Mac Address Entries` banner
+and repeated column headers while preserving each row's VLAN/BD scope; other invalid
+rows still fail. The main sheet's existing `Physical Interface name` column shows
+the resolved physical/logical owner when proven, otherwise the normalized original
+attachment (including remote tuples, Drop and unresolved LAG/IP-like destinations).
+This fallback is display only: Details physical identity stays blank when unresolved,
+raw attachment is retained, and descriptions still require exact owner evidence.
+Seven-column output and historical six-column spool recovery remain supported.

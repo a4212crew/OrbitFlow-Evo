@@ -2,7 +2,7 @@
 
 Read-only terminal lookup for Catalyst C3750X/C3850, ME3600X, ASR920, NCS540,
 Huawei NE05/NE05E and EdgeSwitch. Implemented sample parsers have offline tests;
-owner live collection validation and Linux execution remain pending. Huawei
+owner live collection validation on Linux and Windows remains pending. Huawei
 `display mac-address` and EdgeSwitch `show mac-addr-table all` are owner-approved
 candidates whose original samples omitted invocation/prompt. No live testing by Codex.
 
@@ -33,7 +33,7 @@ OTPs and private key contents must never enter the profile or command arguments.
 
 One timestamp/UUID workbook per run appears in `outputs/reports/mac_table/`.
 The main **MAC Addresses** sheet has exactly, in order: Device IP; Device Name;
-Equipment Type; Physical Interface name; Port Type; Mac address. Equipment Type
+Equipment Type; Physical Interface name; Port Type; Mac address; Interface Description. Equipment Type
 uses observed hardware model, falling back to family. Each observation gets its own
 row, including repeated MACs and four separate rows for four entries on one trunk.
 **Details** keys observations by target position/IP/source position, with selected per-device row
@@ -41,7 +41,7 @@ ordinal, full attachment and separate raw attachment, domain, VLANs, original/no
 detail, mapping/classification, physical identity and forwarding semantics and collection source. **Bridge Domains** preserves XR group/domain/internal ID, AC/PW attachment states, backup flags and counts, keyed by device and domain. **Totals**
 separates table, local selection and supplied slot scopes. **Run Errors** contains
 device/stage/category only. Cells are literal text, headers frozen and filterable.
-Blank physical names and Unknown port type are deliberate when evidence is absent.
+Unknown port type is deliberate when classification evidence is absent; unresolved destinations use the display-only fallback described below.
 
 Normalized run spools remain under `outputs/runs/mac_table/`; sanitized module
 logs under `outputs/logs/mac_table/YYYY-MM-DD/`. Export failure retains collected
@@ -59,7 +59,7 @@ python -m orbitflow.mac_cli list --vlan 445 --rows 1,2 --concurrency 2 --confirm
 python -m orbitflow.mac_cli export outputs/runs/mac_table/RUN outputs/reports/mac_table/recovered.xlsx
 ```
 
-Linux equivalents (owner execution pending):
+Linux equivalents (operator live execution pending):
 
 ```bash
 export PYTHONPATH="$PWD/src"
@@ -97,13 +97,21 @@ advice or follow remote peers. Available MAC address space is never learned tota
 Known limits: supplied samples are excerpts, not complete release coverage. Exact
 EFP mapping needs preserved service facts. Unknown service relationships cannot
 match VLANs. Parents absent from both observed and configured interface facts cannot resolve physically. Aggregate entries retain
-aggregate ownership; EdgeSwitch non-0/x identity remains unresolved. Existing shared
+aggregate ownership; EdgeSwitch `3/N` maps to `lag N` only with one exact
+independently observed/configured aggregate identity. Missing or ambiguous
+identity stays blank/Unknown, even with member references. An evidenced logical
+aggregate occupies the existing Physical Interface name column; no physical member is selected. Raw `3/N` and IfIndex remain in Details. Management
+`5/1` stays nonphysical. Explicit trunk-only configuration preserves port intent
+with no inferred VLAN membership. ME3600X/ASR920 use shared validated access,
+EVC/trunk, hybrid and review classifications. XR untagged ACs associate only when
+a unique operational/configured group/domain has one distinct explicit numeric
+peer dot1q VLAN; this association does not imply tagged ingress. Existing shared
 VLAN normalization omits VLAN 1 in some service profiles; no audit-policy change
 is made here. Very large single-device tables remain in per-device memory and
 Excel's sheet/cell limits apply; select narrower runs if a sheet would exceed its row limit. Export errors retain the spool. No claim of
 live completeness or performance is made.
 
-Offline validation (Windows command executed; use `export PYTHONPATH` above on Linux):
+Offline validation (Issue #132 automated tests run on Linux; Windows execution pending):
 
 ```powershell
 python -m pytest tests/test_mac_lookup.py tests/test_operations_console.py -q
@@ -146,3 +154,95 @@ Bridge Domains evidence. Contradictory groups with identical domain names must
 remain unknown and absent from the VLAN selection. Summary counts and up counts
 are reported facts, including empty domains; they are never compared or recomputed.
 No new command or live data is required for the deterministic revision tests.
+
+
+Issue #132 offline verification (no credentials or network access):
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -m pytest tests/test_mac_lookup.py tests/test_vlan_configuration_audit.py tests/test_vlan_capability.py tests/test_vlan_compliance.py -q
+python -m pytest -q
+```
+
+```powershell
+$env:PYTHONPATH = (Resolve-Path src).Path
+python -m pytest tests/test_mac_lookup.py tests/test_vlan_configuration_audit.py tests/test_vlan_capability.py tests/test_vlan_compliance.py -q
+python -m pytest -q
+```
+
+For pending operator read-only verification, use the Bash/PowerShell search/list
+and offline export commands above with authorized lab inputs. Include EdgeSwitch
+3/1, 3/2 and 3/5, management 5/1, EFP encapsulation different from SI/BD, CPU/PW,
+SVI/Port-channel and an XR untagged AC with zero/one/multiple peer tags. Verify
+seven main columns, one row per source observation, exact filters, Details evidence,
+Totals, Run Errors, Bridge Domains and recovery export. Missing/ambiguous evidence
+must stay Unknown; run partial/failure scenarios before accepting completeness.
+Automated fixtures do not establish live-device or Windows validation.
+
+
+Issue #132 review rerun: use an OS temporary root outside every Git checkout.
+On Linux, when `/var/tmp` is writable and has no `.git` ancestor:
+
+```bash
+export PYTHONPATH="$PWD/src"
+validation_tmp=$(mktemp -d /var/tmp/orbitflow-132.XXXXXX)
+TMPDIR="$validation_tmp" python -m pytest -q --basetemp "$validation_tmp/pytest"
+```
+
+On Windows PowerShell, use an independently writable temporary root outside Git:
+
+```powershell
+$env:PYTHONPATH = (Resolve-Path src).Path
+$validationTmp = Join-Path $env:LOCALAPPDATA ("OrbitFlow-validation-" + [guid]::NewGuid())
+New-Item -ItemType Directory -Path $validationTmp | Out-Null
+$oldTemp, $oldTmp = $env:TEMP, $env:TMP
+try {
+    $env:TEMP = $validationTmp
+    $env:TMP = $validationTmp
+    python -m pytest -q --basetemp (Join-Path $validationTmp "pytest")
+} finally {
+    $env:TEMP = $oldTemp
+    $env:TMP = $oldTmp
+}
+```
+
+Retain test artifacts for diagnosis and remove only the generated validation directory
+when finished. The focused command above and operator search/list/export commands
+remain applicable. For EdgeSwitch compare present, absent and ambiguous LAG
+identities against independent interface/configuration evidence, including management
+`5/1`; raw MAC destinations alone must not establish aggregate existence.
+
+
+Issue #132 / PR #133 owner revision supersedes the previous six-column main-sheet
+promise: `Interface Description` is appended after `Mac address`; supporting sheets
+are unchanged. Descriptions join by exact canonical identity to the verified
+physical or logical aggregate owner, using InterfaceService `port_description`
+and/or VlanService interface `description`. EFP/subinterface rows use the resolved
+parent description; child and arbitrary aggregate-member text is not inherited.
+Conflicting nonempty owner descriptions, missing evidence, CPU/remote/Drop/SVI,
+and unresolved destinations produce blank descriptions. Optional evidence failures
+preserve MAC collection and counts. No description is inferred from VLAN/BD,
+suffix or peer identifiers. Sanitization/redaction and literal-text Excel cells
+also apply to descriptions beginning with `=`, `+`, `-` or `@`.
+Offline recovery preserves descriptions; historical six-value spool rows export
+with a blank seventh cell. Automated regressions cover supported families and
+recovery; operator read-only Linux/Windows validation remains pending.
+
+
+Issue #132 / PR #133 review corrections: the policy-free shared classification
+projection now classifies configured XR ACs by explicit encapsulation and one exact
+BG/BD binding: untagged is access, dot1q is trunk. Existing parents combine child
+roles (access/trunk/hybrid); invalid or conflicting child evidence is review/Unknown,
+and routed interfaces retain routed classification. Exact AC type takes precedence
+over the parent type for a MAC on that AC. This does not change numeric compliance
+membership, shared VLAN observation or BridgeDomainService. No peer VLAN association
+is used to claim tagged ingress.
+
+IOS/IOS-XE parsing accepts the exact repeated `Nile Mac Address Entries` banner
+and repeated column headers while preserving each row's VLAN/BD scope; other invalid
+rows still fail. The main sheet's existing `Physical Interface name` column shows
+the resolved physical/logical owner when proven, otherwise the normalized original
+attachment (including remote tuples, Drop and unresolved LAG/IP-like destinations).
+This fallback is display only: Details physical identity stays blank when unresolved,
+raw attachment is retained, and descriptions still require exact owner evidence.
+Seven-column output and historical six-column spool recovery remain supported.
