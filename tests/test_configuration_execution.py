@@ -503,7 +503,8 @@ def test_database_verification_unknown_vs_absent(monkeypatch, status, name, expe
     assert value['warnings'] == ['VLAN_INACTIVE']
 
 
-def test_safe_continuation_after_failed_row_and_device_isolation(tmp_path, monkeypatch):
+@pytest.mark.parametrize('lost_ssh', [False, True])
+def test_safe_continuation_after_failed_row_and_device_isolation(tmp_path, monkeypatch, lost_ssh):
     from threading import Barrier
     ctx, r, original = make_plan()
     obs = original.to_dict()['observations'][IP]
@@ -525,14 +526,28 @@ def test_safe_continuation_after_failed_row_and_device_isolation(tmp_path, monke
     monkeypatch.setattr(ex, 'DeviceInventoryResolver', lambda *a, **kw: SimpleNamespace(resolve=lambda session, **kw: ctx if session.ip == IP else other_ctx))
     monkeypatch.setattr(ex, '_observe', lambda session, *a: obs if session.ip == IP else other_obs)
     monkeypatch.setattr(ex, '_verify_observed', lambda session, context, cli, entry, *a, **kw: dict(status='Failed' if entry['request']['inputs']['vlan_id'] == 445 and session.ip == IP else 'Verified'))
+    if lost_ssh:
+        class LostCLI(WorkerCLI):
+            def run_command(self, command, **kwargs):
+                if self.session.ip == IP and command.startswith('name '):
+                    self.dead = True
+                    raise TimeoutError()
+                return super().run_command(command, **kwargs)
+        monkeypatch.setattr(ex, 'DeviceCLI', LostCLI)
+    save_impl = ex.save_configuration
+    def save_from_exec(session, context, *, cli, **kwargs):
+        cli.require_session(session)
+        assert cli.prompt == 'fixture#'
+        return save_impl(session, context, cli=cli, **kwargs)
+    monkeypatch.setattr(ex, 'save_configuration', save_from_exec)
     progress_events = []
     spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
                            credentials={ip: DeviceCredentials('user','hidden') for ip in (IP,other_ip)},
                            run_root=tmp_path / 'runs', backups_dir=tmp_path / 'backups', inventory_path=tmp_path / 'inventory.json', progress=progress_events.append)
     records = {v['target']: v['payload'] for v in spool.records()}
-    assert [v['status'] for v in records[IP]['rows']] == ['Failed','Verified']
+    assert [v['status'] for v in records[IP]['rows']] == (['Unknown','Not executed'] if lost_ssh else ['Failed','Verified'])
     assert records[other_ip]['rows'][0]['status'] == 'Verified'
-    assert len(saves) == 2 and len(WorkerCLI.instances) == 2
+    assert len(saves) == (1 if lost_ssh else 2) and len(WorkerCLI.instances) == 2
     assert WorkerCLI.instances[0].session is not WorkerCLI.instances[1].session
     assert all(cli.closed for cli in WorkerCLI.instances)
 
@@ -556,15 +571,16 @@ def test_backup_failure_blocks_all_writes(tmp_path, monkeypatch):
     assert 'secret-bearing unsafe message' not in (spool.path / 'events.jsonl').read_text()
 
 
-def test_drift_blocks_without_rerendering(tmp_path, monkeypatch):
+def test_approved_cli_executes_when_fresh_planning_would_be_noop(tmp_path, monkeypatch):
     run, saves, _ = run_prepared(tmp_path, monkeypatch)
     # Current device is already correct: do not silently substitute no-op CLI.
     ctx = context()
     obs = observation(ctx, 'hostname fixture\nvlan 445\n name Customer\n!\nend\n')
     monkeypatch.setattr(ex, '_observe', lambda *args: obs)
     spool = run()
-    assert next(spool.records())['payload']['rows'][0]['status'] == 'Not executed'
-    assert not saves and not WorkerCLI.instances[0].sent
+    assert next(spool.records())['payload']['rows'][0]['status'] == 'Verified'
+    assert len(saves) == 1
+    assert WorkerCLI.instances[0].sent == ['configure terminal', 'vlan 445', 'name Customer', 'end']
 
 
 @pytest.mark.parametrize('family', ['C3750X', 'C3850X', 'EdgeSwitch'])
@@ -681,7 +697,8 @@ def test_cisco_lookup_complete_name_with_status_word():
     assert result['operational_status'] == 'inactive'
 
 
-def test_failed_dependency_blocks_row_while_independent_row_continues(tmp_path, monkeypatch):
+@pytest.mark.parametrize('rejected', [False, True])
+def test_failed_dependency_blocks_row_while_independent_row_continues(tmp_path, monkeypatch, rejected):
     ctx, database, _ = make_plan()
     config = 'hostname fixture\ninterface GigabitEthernet1/0/1\n switchport mode access\n switchport access vlan 545\n!\nend\n'
     obs = observation(ctx, config)
@@ -694,6 +711,15 @@ def test_failed_dependency_blocks_row_while_independent_row_continues(tmp_path, 
     assert prepared['summary']['selected'][-1]['result']['dependencies'] == [database['row_id']]
     saves = fake_runtime(monkeypatch, ctx, obs)
     monkeypatch.setattr(ex, '_verify_observed', lambda session,context,cli,entry,*a,**kw: dict(status='Failed' if entry['request']['row_id'] == database['row_id'] else 'Verified'))
+    if rejected:
+        class RejectPrerequisiteCLI(WorkerCLI):
+            def run_command(self, command, **kwargs):
+                if command == 'name Customer' and 'vlan 700' not in self.sent:
+                    self.sent.append(command)
+                    return '% Invalid input'
+                return super().run_command(command, **kwargs)
+        monkeypatch.setattr(ex, 'DeviceCLI', RejectPrerequisiteCLI)
+        monkeypatch.setattr(ex, '_verify_observed', lambda *a, **kw: dict(status='Verified'))
     spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
                            credentials={IP:DeviceCredentials('user','hidden')}, run_root=tmp_path/'runs',
                            backups_dir=tmp_path/'backups', inventory_path=tmp_path/'inventory.json')

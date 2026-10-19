@@ -182,19 +182,17 @@ def test_ordered_template_reentry_description_supersession_and_external_drift(tm
     if external_drift:
         for node in changed['facts']:
             if node['kind'] == 'interface' and node['value'].endswith('/2'):
-                node['children'].append(dict(kind='description', value='external', children=[]))
+                for child in node['children']:
+                    if child['kind'] == 'access':
+                        child['value'] = [700]
     sequence = [before, middle, middle, described, changed, finished]
     rows, events, reads, saves, _ = execute(tmp_path, monkeypatch, ctx, [first, desc, last], before, finished,
                                            observe=lambda n: sequence[n-1])
     assert [r['stage_id'] for r in rows] == ['stage-1','stage-2','stage-3']
-    assert [r['status'] for r in rows] == ['Verified','Verified','Not executed' if external_drift else 'Verified']
+    assert [r['status'] for r in rows] == ['Verified','Verified','Verified']
     assert rows[0]['verification']['evidence']['description']['port_description'] == 'middle'
     assert rows[1]['verification']['evidence']['description']['port_description'] == 'final'
-    if external_drift:
-        assert rows[-1]['blocker'] == 'EXTERNAL_TARGET_DRIFT'
-        assert len(reads) == 5
-    else:
-        assert len(reads) == 6
+    assert len(reads) == 6
     assert len(saves) == 1
     ends = [i for i,e in enumerate(events) if e['stage']=='stage_result']
     starts = [i for i,e in enumerate(events) if e['stage']=='stage_precheck']
@@ -318,3 +316,45 @@ def test_fresh_observation_exec_presentation_can_anchor_save(tmp_path, monkeypat
     rows, _, _, saves, _ = execute(tmp_path, monkeypatch, ctx, requests, before, after, observe=collect)
     assert [r['status'] for r in rows] == ['Verified', 'Verified']
     assert len(saves) == 1
+
+
+def test_execution_never_calls_planner_and_retains_interface_shows(tmp_path, monkeypatch):
+    from orbitflow.configuration.v2 import planning
+    ctx, requests, before, after = fixture('C3750X', 'Access Port')
+    targets = []
+    def collect(count):
+        def forbidden(*args, **kwargs):
+            pytest.fail('confirmed execution must not replan approved intent')
+        monkeypatch.setattr(planning, 'plan', forbidden)
+        # Record per-interface operational reads separately from shared snapshot.
+        facts = dict(enabled=True, administrative_mode='static access', access_vlan=445)
+        def switch(session, context, target, **kwargs):
+            targets.append(target)
+            return SimpleNamespace(to_dict=lambda: dict(facts=facts))
+        monkeypatch.setattr(ex, 'SwitchportService', lambda **kw: SimpleNamespace(collect=switch))
+        return before if count == 1 else after
+    rows, events, reads, saves, prepared = execute(tmp_path, monkeypatch, ctx, requests, before, after, observe=collect)
+    assert [r['status'] for r in rows] == ['Verified', 'Verified']
+    assert targets == [r['inputs']['interface'] for r in requests]
+    assert len(reads) == 2 and len(saves) == 1
+    post = next(i for i, e in enumerate(events) if e['stage'] == 'stage_post_observation')
+    assert all(i < post for i, e in enumerate(events) if e['stage'] == 'command_result')
+
+
+@pytest.mark.parametrize('fault', ['missing', 'ambiguous', 'new_bundle', 'changed_owner'])
+def test_live_target_safety_without_replanning(fault):
+    ctx, requests, before, _ = fixture('C3750X', 'Access Port', 1)
+    original = plan(requests, {IP: before}, now=NOW)
+    entry = dict(request=requests[0], result=original.to_dict()['results'][0])
+    live = deepcopy(before)
+    interface = next(n for n in live['facts'] if n['kind'] == 'interface')
+    if fault == 'missing':
+        live['interfaces'] = []
+    elif fault == 'ambiguous':
+        live['facts'].append(deepcopy(interface))
+    else:
+        interface['children'].append(dict(kind='aggregate', value=2))
+        if fault == 'changed_owner':
+            entry['request'] = dict(requests[0], template_id=template('C3750X', 'Trunk Port').id)
+    with pytest.raises(ex.ExecutionBlocked):
+        ex._check_target(entry, live, ctx)

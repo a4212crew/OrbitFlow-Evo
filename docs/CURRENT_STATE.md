@@ -867,13 +867,16 @@ monotonic stage/command timings in shared bounded configuration logs. Ordered
 contiguous stages share fresh full baseline/pre/post observations across independent
 targets. Source/resolved target overlaps, dependencies and template changes split
 stages; noncontiguous templates never regroup. VLAN Database postchecks use shared
-fresh lookups. Fresh identity/privilege, protected backup, immutable commands/projected
-result checks, full relevant preservation/operational verification, journal/recovery,
+fresh lookups. Fresh identity/privilege, protected backup, immutable approved commands,
+full relevant preservation/operational verification, journal/recovery,
 confirmation/replay and independent save remain.
 
-A bounded device-owned baseline compares fresh relevant target facts between stages
-and advances only verified changes. No stale-only cache or scoped vendor parser is
-used. Verification establishes stage final state on independent targets, not
+Issue #137 implements the owner’s 2026-10-19 simplification: execution-stage
+replanning and exact fresh-state/command/projected-state/drift equality gates are
+removed. Fresh exact interface identity/bundle ownership, known prerequisites and
+failed-dependency blocking remain. Existing consolidated post-stage observation and
+per-row verification, including operational switchport/lookup reads, are unchanged.
+No stale-only cache or scoped vendor parser is used. Verification establishes stage final state on independent targets, not
 unobserved intermediate effects or continuous whole-device external drift detection.
 Unrelated out-of-scope changes are not globally compared. Standalone collectors,
 public signatures, report columns, concurrency and unsupported-family/EVC/Manual CLI
@@ -939,3 +942,16 @@ attachment (including remote tuples, Drop and unresolved LAG/IP-like destination
 This fallback is display only: Details physical identity stays blank when unresolved,
 raw attachment is retained, and descriptions still require exact owner evidence.
 Seven-column output and historical six-column spool recovery remain supported.
+
+
+Issue #137 validation is deterministic only; owner-run Linux/Windows and live validation
+of this simplification remain pending. Open documentation-only PR #136 overlaps this
+file, the execution manual and October devlog: its owner evidence concerns #134/#135
+(410 focused / 3,029 full Linux tests and owner-reported live success without separate
+C3850/EdgeSwitch evidence). Preserve that historical reconciliation when integrating;
+it does not validate #137. No GitHub state was changed by this implementation.
+#137 sandbox automated evidence: final 454 focused passed; full suite 3,010 passed /
+25 failed, all unchanged orchestration OS-temp safeguard cases (Git marker in temp
+ancestry). Clean controller/owner full-suite validation remains outstanding.
+The required configuration-management skill addendum is recorded verbatim in the
+October devlog for Atlas because `.agents/` is mounted read-only here.

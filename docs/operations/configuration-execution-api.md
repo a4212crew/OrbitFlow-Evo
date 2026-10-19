@@ -352,9 +352,10 @@ there is no additional confirmation or menu workflow.
 
 `confirm` uses the same selected device row order and shared worker/session ownership.
 There is no new caller setting or confirmation. Internal stage formation splits at
-changed templates, source/resolved target overlap and row dependencies. Relevant
-fresh facts are compared against a bounded device baseline that advances verified
-changes only. Failed prechecks block affected writes. Usable independent targets may
+changed templates, source/resolved target overlap and row dependencies. Issue #137
+removes execution-stage replanning and exact fresh-state/command/projected-state/drift
+equality gates. Approved commands remain exact; fresh interface identity, bundle
+ownership, known prerequisites and failed-dependency checks still block unsafe writes. Usable independent targets may
 continue after rejection; uncertain session outcomes remain Unknown. Stage final
 state is attributed to each independent target; overlap is observed in separate stages.
 

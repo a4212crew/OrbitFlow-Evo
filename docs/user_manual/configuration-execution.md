@@ -109,9 +109,11 @@ with OS permissions; backups contain sensitive full running configuration.
 
 One shared worker owns each IP/session/shell and executes worksheet/row order.
 Fresh identity/capability/privilege and state checks plus mandatory protected backup
-precede writes. Each row uses fresh consolidated stage state validation; changed CLI, target, no-op
-classification or projected result blocks that row instead of rerendering it under
-the old confirmation. This conservative behavior may require replanning after drift.
+precede writes. Approved CLI is delivered unchanged without execution-stage
+replanning or exact fresh-command/no-op/projected-state/drift equality gates.
+Fresh exact interface presence and unambiguous identity remain required; access
+rows cannot target newly bundled members, and trunk bundle ownership must still
+match the approved target. Planning warnings alone do not become new apply blockers.
 Earlier verified stage changes are observed before subsequent stages; failed dependencies
 are Not executed. Missing/unknown requested EdgeSwitch PVID/Include/tagging database
 prerequisites block that port row. They never implicitly create VLANs.
@@ -402,7 +404,7 @@ Transport and standalone capability diagnostics retain their existing ownership.
 Stages cover connection/admission/retry wait, shell setup, identification, initial
 preflight, protected backup collection/write, full observation, interface collection,
 VLAN/config collection, normalized snapshot/reuse, VLAN lookup, scoped evidence,
-pre-row planning/drift checks, mode validation, every approved command and underlying
+target/prerequisite checks, mode validation, every approved command and underlying
 CLI exchange, post-row verification, independent save, row/device/run totals.
 Failed exchanges retain category/outcome; uncertain sends and interrupted totals are
 Unknown. A Completed run total means collection finished, not all rows Verified.
@@ -518,8 +520,8 @@ drift detection between reads, nor individually observed intermediate effects in
 a stage.** Required target/preservation evidence still fails closed. Full collection
 is retained for interface stages; no scoped configuration parser or new device command
 has been introduced. Unrelated out-of-scope external changes are not globally compared
-or adopted as trusted baseline changes. They can remain undetected until a later target
-check; changes made and reverted between reads can escape detection.
+as drift. External changes can remain undetected; existing verification compares
+requested results and preserved settings at the stage boundary.
 
 Each device worker retains selected worksheet-left-to-right, row-top-to-bottom order.
 It forms maximal contiguous stages of the same template with independent normalized
@@ -529,17 +531,17 @@ appearances never merge. EVC remains planning-only, outside executor support.
 
 One full initial observation follows fresh identity/privilege checks; independent
 protected backup completes before writes. This initial observation supplies the first
-stage's precheck. Later stages take one fresh full observation and compare relevant
-normalized target/configuration/description/VLAN facts to the device-owned trusted
-baseline. The baseline is bounded to 8 MiB of serialized facts and advances only for
-successfully verified targets. External target drift blocks the affected row. Every
-row's exact approved commands, no-op flag, resolved target and complete projected
-result are compared with a fresh plan; EdgeSwitch prerequisites are checked per row.
+stage's precheck. Later stages take one fresh full observation for durable evidence,
+exact target/ownership and known prerequisite checks. The owner's 2026-10-19
+simplification supersedes the former bounded trusted-baseline comparison and fresh
+plan equality gates. Approved commands and projected intent remain unchanged;
+post-stage verification independently reports the observed result. EdgeSwitch
+prerequisites are still checked per row.
 All candidate prechecks and fsynced per-row pre-config records precede stage writes.
 A failed check blocks that row; trustworthy independent rows may continue.
 
-Approved commands execute sequentially, unchanged, with immediate response and known
-mode validation. Rejection stops that row; timeout or lost synchronization leaves
+Approved commands execute sequentially, unchanged, with immediate echo-associated response and structural
+prompt validation. Rejection stops that row; timeout or lost synchronization leaves
 uncertain writes Unknown and blocks further unsafe sends. No retries or rollback.
 One post-stage full interface/VLAN/configuration observation supplies all independent
 interface targets, with fresh per-target operational switchport checks. VLAN Database
@@ -771,3 +773,69 @@ reject this sandbox OS-temp root under `/tmp` because a Git marker is present
 in its ancestry. This is not a controller gate pass; its independent result is
 unavailable here. No temp safeguard was changed. Windows automated testing and
 owner Linux C3750X/C3850/EdgeSwitch live validation remain pending.
+
+## Approved command delivery (Issue #137)
+
+The 2026-10-19 simplification removes execution-stage replanning and exact fresh
+state/command/no-op/projected-state/drift equality gates. A row that is already
+correct can still receive its approved CLI. This does not authorize an alternate
+CLI or implicit VLAN creation. Known failed dependencies and EdgeSwitch prerequisites
+still block dependent work; ordinary planning warnings do not create new apply gates.
+Existing full post-stage snapshots and per-interface switchport/lookup verification
+remain. Fresh pre-config is evidence at the stage boundary, not continuous drift
+monitoring. Verification can fail if approved additive CLI no longer produces the
+approved full result. Inspect actual verification and save outcomes separately.
+
+Automated validation is offline and uses synthetic devices. Run from this worktree
+with the repository environment active; verify the printed import path first.
+Linux Bash:
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -c 'import orbitflow.configuration.execution as e; print(e.__file__)'
+python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_execution_observation_timing.py tests/test_shared_cli.py tests/test_configuration_backup.py -q
+python -m pytest -q
+python -m orbitflow.configuration.execution_cli --help
+python -m orbitflow.menu --help
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = "$PWD/src"
+python -c 'import orbitflow.configuration.execution as e; print(e.__file__)'
+python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_execution_observation_timing.py tests/test_shared_cli.py tests/test_configuration_backup.py -q
+python -m pytest -q
+python -m orbitflow.configuration.execution_cli --help
+python -m orbitflow.menu --help
+```
+
+Use a writable protected OS-temp directory outside Git checkouts if orchestration
+safeguards reject the environment's temporary root; do not disable those safeguards.
+Owner-run Linux/Windows and live validation of #137 are pending. PR #136 records
+prior #134/#135 owner evidence; its edits to this manual, CURRENT_STATE and October
+devlog must be preserved during integration and do not validate this change.
+
+For separately authorized owner lab validation, use the copy-ready Linux Bash or
+PowerShell execution examples above with fresh generated immutable JSON/reviewed
+workbook, correct digest and protected credentials/routing paths substituted locally.
+Use concurrency 1 initially; inspect the summary and answer the single confirmation
+only for that lab change. Include distinct interfaces in one template, a later
+overlapping/dependent stage, and an already-correct target with approved nonempty
+CLI. Retain source artifacts and the complete run privately. Check command order,
+backup-before-first-send, one post-stage snapshot plus required per-interface shows,
+independent row statuses and separate save from privileged EXEC. In an isolated
+operator-controlled fixture only, test rejection and lost SSH; never induce faults
+on production or replay uncertain writes. Review the journal/report and reconcile
+actual device state before any newly authorized plan. Use the offline `report`
+examples above to recover evidence without connecting. No production action or
+live validation was performed by Codex.
+
+The existing console Execute Approved Plan action calls the same executor, so no
+new menu entry, flags, defaults, signatures or confirmation step are required.
+
+Codex Linux sandbox evidence: final 454 focused tests passed (9.76s); full suite
+3,010 passed / 25 failed (119.18s), all failures in unchanged orchestration
+OS-temp safeguard tests. The sandbox temp root has a Git marker in its ancestry.
+This is not a clean controller-gate pass; rerun the full command in the owner or
+controller environment with a protected external temp root. No safeguard was changed.

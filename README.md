@@ -749,3 +749,10 @@ cover the Linux C3750X incident and immediate completion with zero new per-comma
 delay. No silence waits, retries or timeout extensions are added. Owner Linux/C3850/EdgeSwitch
 validation remains pending.
 See [Linux/Windows tests and owner verification](docs/user_manual/configuration-execution.md#flexible-execution-prompts-issue-134).
+
+
+Issue #137 simplifies confirmed predefined execution: exact approved commands run
+without execution-stage replanning/drift equality gates. Fresh identity, target and
+known prerequisite safety, protected backup, existing stage verification and partial
+save from privileged EXEC remain. See the [validation guide](docs/user_manual/configuration-execution.md#approved-command-delivery-issue-137).
+Owner validation of this revision remains pending.

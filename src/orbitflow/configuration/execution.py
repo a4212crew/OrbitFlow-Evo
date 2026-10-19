@@ -2,6 +2,8 @@
 
 Workbook ingestion is an adapter. Confirmation records are local replay guards,
 not authentication. No writes occur until confirm(..., apply=True).
+Confirmed commands are delivered unchanged without execution-stage replanning;
+fresh target/prerequisite safety and existing post-stage verification remain.
 """
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -19,7 +21,7 @@ from orbitflow.progress import Progress
 from orbitflow.timing import profiling, correlation, stage, measured, timed_call, timed_context, command_category
 from orbitflow.configuration.plans import canonical, decode, identity, require
 from orbitflow.configuration.v2.catalogue import BY_ID
-from orbitflow.configuration.v2.planning import BulkPlan, evaluate_decisions, plan
+from orbitflow.configuration.v2.planning import BulkPlan, evaluate_decisions
 from orbitflow.config import ExecutionConfig
 from orbitflow.logging import module_logger, sanitize_text, capability_metadata
 from orbitflow.result_spool import ResultSpool, ResultJournal
@@ -217,12 +219,37 @@ def _set(value):
     return set(value) if isinstance(value, list) else None
 
 
-@measured('pre_row_drift_checks')
-def _check_fresh_row(fresh, approved):
-    _gate(fresh['deployment_ready'], 'FRESH_PREFLIGHT_BLOCKED')
-    _gate(fresh.get('resolved_target') == approved.get('resolved_target'), 'TARGET_DRIFT')
-    _gate(fresh['commands'] == approved['commands'] and fresh['no_op'] == approved['no_op'], 'APPROVED_COMMAND_DRIFT')
-    _gate(fresh.get('projected_state') == approved.get('projected_state'), 'APPROVED_RESULT_DRIFT')
+def _check_target(entry, observed, context):
+    """Check exact interface identity and dangerous bundle ownership, without planning."""
+    request, approved = entry['request'], entry['result']
+    function = BY_ID[request['template_id']].function
+    if function == 'VLAN Database':
+        return
+    key = lambda name: canonical_interface_name(context.platform, name)
+    source = request['inputs']['interface']
+    target = approved.get('resolved_target') or source
+    def node(name):
+        found = [n for n in observed['facts'] if n['kind'] in {'interface', 'l2_interface'}
+                 and key(n['value']) == key(name)]
+        _gate(len(found) == 1, 'INTERFACE_ABSENT_OR_AMBIGUOUS')
+        records = [r for r in observed['interfaces'] if key(r['port_name']) == key(name)]
+        _gate(len(records) == 1, 'INTERFACE_ABSENT_OR_AMBIGUOUS')
+        return found[0]
+    source_node = node(source)
+    node(target)
+    members = [n['value'] for n in source_node['children'] if n['kind'] == 'aggregate']
+    if function == 'Access Port':
+        _gate(not members, 'PHYSICAL_PORT_CHANNEL_MEMBER')
+    if function == 'Trunk Port':
+        _gate(len(members) <= 1, 'PORT_CHANNEL_OWNER_UNRESOLVED')
+        owner = 'Port-channel' + str(members[0]) if members else source
+        _gate(key(owner) == key(target), 'TARGET_OWNER_CHANGED')
+        if members:
+            audit = [a for a in observed.get('audit', []) if key(a['config_interface_name']) == key(source)]
+            _gate(len(audit) == 1 and key(audit[0].get('configuration_owner', '')) == key(target),
+                  'PORT_CHANNEL_OWNER_UNRESOLVED')
+            _gate(not any(f['code'] == 'PORT_CHANNEL_CONFIG_CONFLICT'
+                          for f in audit[0]['configuration_findings']), 'PORT_CHANNEL_CONFIG_CONFLICT')
 
 
 @measured('row_verification', failure='Unknown')
@@ -340,40 +367,6 @@ def _verify_observed(session, context, cli, entry, before, *, timeout=30.0, corr
     return dict(status='Verified' if all(checks) else 'Failed', evidence=evidence)
 
 
-def _baseline_facts(observed, context):
-    """Stable normalized target facts for drift checks, excluding capture positions."""
-    def signature(node):
-        return [node['kind'], node['value'], [signature(c) for c in node.get('children', [])]]
-    values = {}
-    for node in observed['facts']:
-        if node['kind'] == 'interface':
-            key = ('interface', canonical_interface_name(context.platform, node['value']))
-            values.setdefault(key, []).append([signature(c) for c in node.get('children', [])])
-    for record in observed['interfaces']:
-        key = ('description', canonical_interface_name(context.platform, record['port_name']))
-        values.setdefault(key, []).append(record['port_description'])
-    for obj in observed['objects']:
-        if obj['object_type'] == 'vlan':
-            values.setdefault(('vlan', str(obj['object_id'])), []).append(obj['name'])
-    _gate(len(canonical(list(values.items())).encode()) <= observations.MAX_PROJECTION_BYTES,
-          'BASELINE_CAPACITY_EXCEEDED')
-    return values
-
-
-def _baseline_keys(entry, context):
-    r, result = entry['request'], entry['result']
-    p = r['inputs']
-    if BY_ID[r['template_id']].function == 'VLAN Database':
-        return {('vlan', str(p['vlan_id']))}
-    keys = {(kind, canonical_interface_name(context.platform, name))
-            for kind in ('interface', 'description')
-            for name in (p['interface'], result.get('resolved_target') or p['interface'])}
-    vids = {p[k] for k in ('vlan_id', 'pvid', 'native_vlan') if k in p}
-    vids.update(p.get('vlans', []))
-    vids.update(parse_vlan_list(p.get('tagged_vlans', '')))
-    return keys | {('vlan', str(v)) for v in vids}
-
-
 def _template_stages(entries):
     """Preserve selection order; split dependencies and potentially overlapping targets.
 
@@ -486,7 +479,6 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                         cli._reuse_session_setup = True
                         event(ip, 'preflight')
                         before = timed_call('initial_preflight', _observe, session, context, cli, entries, settings.command_timeout)
-                        trusted_baseline = _baseline_facts(before, context)
                         exec_prompt = cli.prompt
                         adapter = edge_execution if context.platform == 'ubiquiti_edgeswitch' else cisco_execution
                         require(adapter.is_exec_prompt(exec_prompt), 'privileged EXEC required')
@@ -518,7 +510,6 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                                         if stage_index != 1:
                                             before = timed_call('stage_pre_observation', _observe, session, context, cli, stage_entries, settings.command_timeout)
                                         _gate(before.get('configuration_reliable') is True, 'STAGE_EVIDENCE_UNAVAILABLE')
-                                        fresh_baseline = _baseline_facts(before, context)
                                         event(ip, 'stage_precheck', stage_id=stage_id, template_id=template_id,
                                               row_ids=[e['request']['row_id'] for e in stage_entries], observation=before)
                                     except Exception as exc:
@@ -534,15 +525,12 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                                             if pre_error is not None:
                                                 raise pre_error
                                             _gate(set(approved['dependencies']) <= completed, 'DEPENDENCY_FAILED')
-                                            _gate(all(fresh_baseline.get(key) == trusted_baseline.get(key)
-                                                      for key in _baseline_keys(entry, context)), 'EXTERNAL_TARGET_DRIFT')
+                                            _check_target(entry, before, context)
                                             event(ip, 'row_preflight', row_id=rid)
                                             from orbitflow.configuration.v2.evidence import scoped_evidence
                                             row['pre_config'] = timed_call('scoped_evidence', scoped_evidence, r, before)
                                             event(ip, 'pre_row_evidence', row_id=rid, stage_id=stage_id, evidence=row['pre_config'])
-                                            fresh = timed_call('pre_row_plan', plan, [r], {ip: before}, decisions={rid: 'Approve'}).to_dict()['results'][0]
-                                            row['preflight_findings'] = fresh.get('findings', [])
-                                            _check_fresh_row(fresh, approved)
+                                            row['preflight_findings'] = approved.get('findings', [])
                                             if BY_ID[r['template_id']].function == 'VLAN Port' and r['inputs']['action'] != 'Remove':
                                                 row['missing_prerequisite_vlans'] = [str(v) for v in (set(parse_vlan_list(r['inputs'].get('tagged_vlans', ''))) | ({r['inputs']['pvid']} if 'pvid' in r['inputs'] else set())) if before['vlan_lookups'].get(str(v), {}).get('status') != 'present']
                                                 _gate(not row['missing_prerequisite_vlans'], 'VLAN_PREREQUISITE_UNAVAILABLE')
@@ -629,7 +617,6 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                                             else:
                                                 after = timed_call('stage_post_observation', _observe, session, context, cli, stage_entries, settings.command_timeout)
                                             _gate(after.get('configuration_reliable') is True, 'STAGE_EVIDENCE_UNAVAILABLE')
-                                            post_baseline = _baseline_facts(after, context) if BY_ID[template_id].function != 'VLAN Database' else None
                                             event(ip, 'stage_post_observation', stage_id=stage_id, observation=after)
                                     except Exception as exc:
                                         observations.invalidate()
@@ -648,11 +635,6 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                                                     verification = timed_call('post_row_verification', _verify_observed,
                                                         session, context, cli, entry, before, timeout=settings.command_timeout,
                                                         correlation={'run_id': spool.path.name, 'digest': summary['source_digest'], 'row_id': rid, 'stage_id': stage_id}, after=after)
-                                                if post_baseline is not None:
-                                                    target = entry['result'].get('resolved_target') or entry['request']['inputs']['interface']
-                                                    changed_keys = {(kind, canonical_interface_name(context.platform, target)) for kind in ('interface', 'description')}
-                                                    if any(fresh_baseline.get(key) != post_baseline.get(key) for key in _baseline_keys(entry, context) - changed_keys):
-                                                        verification.update(status='Failed', error_category='DependentFactsChanged')
                                                 verification['stage_id'] = stage_id
                                                 verification['observation_scope'] = 'stage final state; independent target'
                                                 row.update(status='Failed' if rejected else verification['status'], verification=verification)
@@ -660,19 +642,6 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
                                                 for warning in verification.get('evidence', {}).get('warnings', []) if isinstance(verification.get('evidence'), dict) else []:
                                                     event(ip, 'verification_warning', row_id=rid, warning=warning)
                                                 if row['status'] == 'Verified':
-                                                    next_baseline = dict(trusted_baseline)
-                                                    if BY_ID[entry['request']['template_id']].function == 'VLAN Database':
-                                                        vid = str(entry['request']['inputs']['vlan_id'])
-                                                        next_baseline[('vlan', vid)] = [after['vlan_lookups'][vid]['name']]
-                                                    else:
-                                                        for key in changed_keys:
-                                                            if key[0] != 'vlan':
-                                                                if key in post_baseline:
-                                                                    next_baseline[key] = post_baseline[key]
-                                                                else:
-                                                                    next_baseline.pop(key, None)
-                                                    _gate(len(canonical(list(next_baseline.items())).encode()) <= observations.MAX_PROJECTION_BYTES, 'BASELINE_CAPACITY_EXCEEDED')
-                                                    trusted_baseline = next_baseline
                                                     completed.add(rid)
                                             except Exception as exc:
                                                 if not rejected:

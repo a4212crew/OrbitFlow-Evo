@@ -510,3 +510,27 @@ session invalidation. A prompt-shaped prefix followed by later bytes cannot be
 predicted under this timing contract. Independent rejection checks, verification
 and exact EXEC-anchor save completion remain required. Owner Linux/C3850/EdgeSwitch
 live validation remains pending.
+
+
+## Owner superseding execution simplification — 2026-10-19 (Issue #137)
+
+Implemented with deterministic fixtures; owner validation of this revision is pending.
+This decision supersedes the older fresh replan, exact command/no-op/projected-result
+and trusted-baseline drift equality gates above. Those descriptions retain historical
+provenance. Immutable plan/workbook/digest, Approve-only supported selection, one
+summary-bound explicit batch confirmation and anti-replay remain. Deliver approved
+CLI sequentially without rerendering. Fresh device identity/capability/privilege, owned
+synchronized SSH and mandatory protected pre-change backup still precede writes.
+Fresh exact interface presence/identity and relevant bundle ownership remain safety
+checks, as do known EdgeSwitch database prerequisites and failed row dependencies.
+Ordinary planning warnings do not independently block approved delivery.
+
+Keep the existing stage splitting, consolidated post-stage observations, per-interface
+switchport/lookup collection and independent per-row verification. Rejection stops
+that row; safe independent rows continue. Lost/ambiguous SSH stops device writes:
+uncertain writes are Unknown, remaining rows Not executed; other devices continue.
+Save once after attempted writes, including partial failures, only from verified
+privileged EXEC on the usable owned shell. Vendor save handling and separate row/save
+results, durable sanitized journals/reports and no blind replay remain unchanged.
+No new verification design, supported family, Manual CLI apply or production action
+is authorized. Open PR #136's #134 validation history must remain distinct from #137.
