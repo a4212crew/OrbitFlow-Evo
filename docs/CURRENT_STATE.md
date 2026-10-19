@@ -973,3 +973,17 @@ Final revision full command `PYTHONPATH=src python -m pytest -q`: **3,019 passed
 cases; `/tmp` contains a Git marker in this sandbox. This is a **failed full gate**,
 not a pass. Exact local log: `outputs/validation/issue-137-revision/full.log`.
 Clean/controller full validation remains required; no safeguard was changed.
+
+PR #138 second review (2026-10-19): the skill remains protected (`Errno 30`).
+The exact proposed correction is now preserved in the repository
+[review handoff](operations/issue-137-review-handoff.md), rather than only an
+ignored local patch. This is not an applied skill change. Clean full-suite evidence,
+owner-approved history remediation/risk decision, and current PR #136 reconciliation
+remain outstanding. No Git/GitHub lifecycle action or live validation was performed.
+
+Second-review rerun: focused **462 passed (9.97s)**; full
+`PYTHONPATH=src python -m pytest -q`: **3,019 passed / 25 failed (114.12s)**.
+All failures are orchestration cases affected by the unchanged OS-temp Git-ancestry
+safeguard. This is a failed full gate, with no external clean result available.
+Local logs: `outputs/validation/issue-137-review2/focused.log` and `full.log`.
+No safeguard was bypassed.

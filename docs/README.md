@@ -2,6 +2,7 @@
 
 - [Confirmed Catalyst/EdgeSwitch execution](user_manual/configuration-execution.md): CLI, recovery and owner lab-validated C3750X/EdgeSwitch ordered template stages; C3850 and Linux validation remain pending.
 - [Execution and standalone APIs](operations/configuration-execution-api.md): prepare/confirm, collectors/parsers, verification and save.
+- [Issue #137 second-review handoff](operations/issue-137-review-handoff.md): unapplied protected skill correction and outstanding controller/owner review blockers.
 
  > **Current layout:** The documentation migration is present on `main`; canonical executable guides live under `docs/user_manual/`. Legacy reference paths remain where source/tests depend on them.
 

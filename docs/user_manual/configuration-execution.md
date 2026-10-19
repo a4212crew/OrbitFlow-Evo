@@ -882,3 +882,17 @@ Final revision full command `PYTHONPATH=src python -m pytest -q`: **3,019 passed
 cases; `/tmp` contains a Git marker in this sandbox. This is a **failed full gate**,
 not a pass. Exact local log: `outputs/validation/issue-137-revision/full.log`.
 Clean/controller full validation remains required; no safeguard was changed.
+
+Second-review handoff (2026-10-19): see the repository
+[Atlas/controller review artifact](../operations/issue-137-review-handoff.md)
+for the exact unapplied skill diff and outstanding full-gate, historical-information
+and PR #136 coordination requirements. Existing Bash/PowerShell commands and
+owner-safe validation instructions above remain applicable. No clean full-suite,
+Windows or live #137 validation is claimed by this revision.
+
+Second-review rerun: focused **462 passed (9.97s)**; full
+`PYTHONPATH=src python -m pytest -q`: **3,019 passed / 25 failed (114.12s)**.
+All failures are orchestration cases affected by the unchanged OS-temp Git-ancestry
+safeguard. This is a failed full gate, with no external clean result available.
+Local logs: `outputs/validation/issue-137-review2/focused.log` and `full.log`.
+No safeguard was bypassed.
