@@ -41,7 +41,7 @@ ordinal, full attachment and separate raw attachment, domain, VLANs, original/no
 detail, mapping/classification, physical identity and forwarding semantics and collection source. **Bridge Domains** preserves XR group/domain/internal ID, AC/PW attachment states, backup flags and counts, keyed by device and domain. **Totals**
 separates table, local selection and supplied slot scopes. **Run Errors** contains
 device/stage/category only. Cells are literal text, headers frozen and filterable.
-Blank physical names and Unknown port type are deliberate when evidence is absent.
+Unknown port type is deliberate when classification evidence is absent; unresolved destinations use the display-only fallback described below.
 
 Normalized run spools remain under `outputs/runs/mac_table/`; sanitized module
 logs under `outputs/logs/mac_table/YYYY-MM-DD/`. Export failure retains collected
@@ -227,3 +227,22 @@ also apply to descriptions beginning with `=`, `+`, `-` or `@`.
 Offline recovery preserves descriptions; historical six-value spool rows export
 with a blank seventh cell. Automated regressions cover supported families and
 recovery; operator read-only Linux/Windows validation remains pending.
+
+
+Issue #132 / PR #133 review corrections: the policy-free shared classification
+projection now classifies configured XR ACs by explicit encapsulation and one exact
+BG/BD binding: untagged is access, dot1q is trunk. Existing parents combine child
+roles (access/trunk/hybrid); invalid or conflicting child evidence is review/Unknown,
+and routed interfaces retain routed classification. Exact AC type takes precedence
+over the parent type for a MAC on that AC. This does not change numeric compliance
+membership, shared VLAN observation or BridgeDomainService. No peer VLAN association
+is used to claim tagged ingress.
+
+IOS/IOS-XE parsing accepts the exact repeated `Nile Mac Address Entries` banner
+and repeated column headers while preserving each row's VLAN/BD scope; other invalid
+rows still fail. The main sheet's existing `Physical Interface name` column shows
+the resolved physical/logical owner when proven, otherwise the normalized original
+attachment (including remote tuples, Drop and unresolved LAG/IP-like destinations).
+This fallback is display only: Details physical identity stays blank when unresolved,
+raw attachment is retained, and descriptions still require exact owner evidence.
+Seven-column output and historical six-column spool recovery remain supported.

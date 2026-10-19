@@ -735,3 +735,7 @@ the first six columns and supporting sheets. Descriptions use exact verified
 parent/aggregate owner observations; missing/conflicting/nonphysical evidence stays
 blank. Export remains sanitized and literal-safe; offline recovery is supported.
 Operator live validation remains pending.
+
+Issue #132 review corrections add evidenced XR AC/parent port types, precise repeated
+Cisco Nile banner handling and original-attachment display fallback for unresolved
+main-sheet destinations; Details and exact-owner descriptions retain their provenance.

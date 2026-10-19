@@ -590,6 +590,41 @@ def forwarding_classifications(context, state):
     resolver = resolver_for(context)
     if resolver is None or state is None or not getattr(state, 'configuration', None):
         return ()
+    instance = resolver(context, state)
+    rows = instance.result()['interfaces']
+    if resolver is XRAuditResolver:
+        return xr_forwarding_classifications(instance, rows)
     return tuple(ForwardingClassification(row['config_interface_name'],
                  row['interface_type'], row['configuration_owner'])
-                 for row in resolver(context, state).result()['interfaces'].values())
+                 for row in rows.values())
+
+
+def xr_forwarding_classifications(resolver, rows):
+    """Project exact AC ingress roles separately from numeric audit membership.
+
+    Untagged ACs need no numeric VLAN. Parents combine configured child roles;
+    invalid bindings/encapsulation remain review. Audit rows are never mutated.
+    """
+    roles = {}
+    for key, node in resolver.config.items():
+        row = rows[key]
+        if node.kind != 'l2_interface':
+            roles[key] = 'routed'
+            continue
+        domains = {tuple(d) for m in row['numeric_mappings'] for d in m['bridge_domains']}
+        encaps = children(node.children, 'encapsulation')
+        untagged = children(node.children, 'untagged')
+        valid_tags = (len(encaps) == 1 and isinstance(encaps[0].value, tuple)
+                      and bool(encaps[0].value)
+                      and all(type(v) is int and 1 <= v <= 4094 for v in encaps[0].value))
+        roles[key] = ('access' if untagged else 'trunk') if (
+            len(domains) == 1 and ((len(untagged) == 1 and not encaps)
+                                  or (valid_tags and not untagged))) else 'review'
+    for key in resolver.config:
+        child_roles = {role for child, role in roles.items() if parent_name(child) == key}
+        if child_roles:
+            roles[key] = ('review' if child_roles - {'access', 'trunk'} else
+                          'hybrid' if child_roles == {'access', 'trunk'} else next(iter(child_roles)))
+    return tuple(ForwardingClassification(rows[key]['config_interface_name'], role,
+                                         rows[key]['configuration_owner'])
+                 for key, role in roles.items())

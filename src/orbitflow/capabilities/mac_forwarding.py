@@ -119,15 +119,16 @@ def enrich(snapshot, context, interfaces=(), vlans=None, bridges=None):
     profiles = () if vlans is None else vlans.interfaces
     from orbitflow.compliance.resolvers import forwarding_classifications
     classifications = {key(p.interface_name): p for p in forwarding_classifications(context, vlans)
-                       } if context.device_family in {'ME3600X', 'ASR920', 'EdgeSwitch'} else {}
+                       } if context.device_family in {'ME3600X', 'ASR920', 'EdgeSwitch', 'NCS540'} else {}
     result = []
     for entry in snapshot.entries:
         resolution = resolve_attachment(entry.attachment, context.platform, interfaces, vlans)
-        classification = classifications.get(key(resolution.physical))
+        classification = classifications.get(key(entry.attachment)) if context.platform == 'cisco_xr' else None
+        classification = classification or classifications.get(key(resolution.physical))
         if classification and resolution.classification in {'physical', 'aggregate'}:
             semantic = classification.port_type
             resolution = replace(resolution, semantics=semantic,
-                                 port_type='trunk' if semantic == 'evc' else semantic if semantic in {'access', 'trunk', 'hybrid'} else 'Unknown')
+                                 port_type='trunk' if semantic == 'evc' else semantic if (semantic in {'access', 'trunk', 'hybrid'} or (context.platform == 'cisco_xr' and semantic == 'routed')) else 'Unknown')
         domains = (entry.domain,) if entry.domain else ()
         candidates = () if bridges is None else bridges.for_destination(entry.attachment)
         if context.platform == 'cisco_xr':

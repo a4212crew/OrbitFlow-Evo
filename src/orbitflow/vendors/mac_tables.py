@@ -59,6 +59,8 @@ def parse_table(output, platform):
         if m:
             total = int(m[1])
             continue
+        if platform in {'cisco_ios', 'cisco_xe'} and line == 'Nile Mac Address Entries':
+            continue
         if not started or not line or set(line) <= set('-= '):
             continue
         if platform == 'cisco_xr':

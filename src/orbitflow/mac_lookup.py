@@ -52,7 +52,11 @@ def resolve_target(targets, address):
 
 
 def collect_device(target, transport_config, store, *, mac=None, vlan=None, xr_location='0/RP0/CPU0'):
-    """One connection; optional enrichment failures retain usable MAC observations."""
+    """One connection; optional enrichment failures retain usable MAC observations.
+
+    Main-sheet destination falls back to display-only original attachment;
+    Details and description ownership always retain exact resolution evidence.
+    """
     if mac is not None:
         mac = normalize_mac(mac)
     if vlan is not None:
@@ -94,7 +98,8 @@ def collect_device(target, transport_config, store, *, mac=None, vlan=None, xr_l
                         selected + 1 if matches else '', snapshot.source, entry.attachment])
         if matches:
             selected += 1
-            main.append([ip, context.hostname, context.hardware_model or context.device_family, resolution.physical,
+            main.append([ip, context.hostname, context.hardware_model or context.device_family,
+                         resolution.physical or display_interface(context.platform, entry.attachment),
                          resolution.port_type, entry.mac, item.description])
     totals = [[ip, 'table', snapshot.total], [ip, 'selection', selected]]
     totals.extend([ip, scope, count] for scope, count in snapshot.scoped_totals)

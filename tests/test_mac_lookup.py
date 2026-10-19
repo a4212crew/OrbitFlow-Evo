@@ -244,7 +244,7 @@ def test_one_session_partial_enrichment_and_no_match(monkeypatch):
     target = dict(management_ip='192.0.2.1', username='fixture', password='private-fixture')
     result = app.collect_device(target, None, None, mac='d401.c312.96f0')
     assert len(result[0]) == 1 and result[0][0][2] == 'WS-C3750X'
-    assert result[0][0][3:5] == ['', 'Unknown']
+    assert result[0][0][3:5] == ['GigabitEthernet1/0/46', 'Unknown']
     assert result[0][0][6] == ''
     assert len(result[3]) == 2 and 'secret-bearing' not in repr(result)
     assert calls == ['connect', 'disconnect']
@@ -654,3 +654,107 @@ def test_description_from_vlan_when_interface_collection_unavailable():
     assert resolution.physical == 'GigabitEthernet0/24'
     assert interface_description(resolution, 'cisco_ios', (), state) == 'configured uplink'
     assert interface_description(resolve_attachment('Gi0/25+Efp3999', 'cisco_ios', (), state), 'cisco_ios', (), state) == ''
+
+
+@pytest.mark.parametrize('platform', ['cisco_ios', 'cisco_xe'])
+def test_repeated_nile_banner_preserves_rows_and_scope(platform):
+    text = ('Nile Mac Address Entries\nVlan Mac Address Type Ports\n'
+            '445 aabb.ccdd.eeff DYNAMIC Gi0/1\nNile Mac Address Entries\n'
+            'BD mac addr type ports\n900 aabb.ccdd.eeff STATIC CPU\n'
+            'Nile Mac Address Entries\nBD mac addr type ports\n'
+            '901 aabb.ccdd.eeff DYNAMIC PW123')
+    table = parse_mac_table(text, platform)
+    assert table.total == 3
+    assert [e.scope for e in table.entries] == ['vlan', 'bridge-domain', 'bridge-domain']
+    assert [e.attachment for e in table.entries] == ['Gi0/1', 'CPU', 'PW123']
+    for bad in ['Nile Mac Address Entries invalid', 'Nile Mac Address Entry', 'broken row']:
+        with pytest.raises(ValueError):
+            parse_mac_table(text + '\n' + bad, platform)
+    with pytest.raises(ValueError):
+        parse_mac_table(XR + '\nNile Mac Address Entries', 'cisco_xr')
+
+
+@pytest.mark.parametrize('encapsulation,bind,expected', [
+    ('dot1q 860', True, 'trunk'), ('untagged', True, 'access'),
+    ('dot1q 860', False, 'Unknown'), ('', True, 'Unknown'),
+    ('dot1q 860\n encapsulation untagged', True, 'Unknown'),
+])
+def test_ncs540_exact_ac_type_and_audit_isolation(encapsulation, bind, expected):
+    from orbitflow.compliance.resolvers import XRAuditResolver, forwarding_classifications
+    config = ('interface TenGigE0/0/0/1\n!\ninterface TenGigE0/0/0/1.99 l2transport\n'
+              + (f' encapsulation {encapsulation}\n' if encapsulation else '') + '!\n'
+              + ('l2vpn\n bridge group G\n  bridge-domain D\n   interface TenGigE0/0/0/1.99\n!' if bind else ''))
+    state = configured_state(config, 'cisco_xr')
+    context = NS(platform='cisco_xr', device_family='NCS540')
+    before = XRAuditResolver(context, state).result()
+    table = parse_mac_table('Mac Address Type Learned from/Filtered on\naabb.ccdd.eeff dynamic Te0/0/0/1.99 N/A N/A N/A', 'cisco_xr')
+    row = enrich(table, context, (), state)[0]
+    assert row.resolution.port_type == expected
+    assert row.resolution.physical == 'TenGigE0/0/0/1'
+    assert XRAuditResolver(context, state).result() == before
+    projection = {p.interface_name: p.port_type for p in forwarding_classifications(context, state)}
+    assert projection['TenGigE0/0/0/1'] == (expected if expected != 'Unknown' else 'review')
+
+
+def test_ncs540_mixed_parent_exact_ac_and_routed():
+    from orbitflow.compliance.resolvers import forwarding_classifications
+    config = '''interface TenGigE0/0/0/1
+!
+interface TenGigE0/0/0/1.1 l2transport
+ encapsulation untagged
+!
+interface TenGigE0/0/0/1.2 l2transport
+ encapsulation dot1q 860
+!
+interface TenGigE0/0/0/2
+!
+l2vpn
+ bridge group G
+  bridge-domain D
+   interface TenGigE0/0/0/1.1
+   interface TenGigE0/0/0/1.2
+!'''
+    context = NS(platform='cisco_xr', device_family='NCS540')
+    state = configured_state(config, 'cisco_xr')
+    types = {p.interface_name: p.port_type for p in forwarding_classifications(context, state)}
+    assert types == {'TenGigE0/0/0/1': 'hybrid', 'TenGigE0/0/0/1.1': 'access',
+                     'TenGigE0/0/0/1.2': 'trunk', 'TenGigE0/0/0/2': 'routed'}
+    conflict = configured_state(config + '\nl2vpn\n bridge group Other\n  bridge-domain D\n   interface TenGigE0/0/0/1.2\n!', 'cisco_xr')
+    assert {p.interface_name: p.port_type for p in forwarding_classifications(context, conflict)}['TenGigE0/0/0/1.2'] == 'review'
+
+
+@pytest.mark.parametrize('platform,family,attachment,interfaces', [
+    ('cisco_xr', 'NCS540', '(192.0.2.20, 2445)', []),
+    ('cisco_ios', 'C3750X', 'Drop', []),
+    ('ubiquiti_edgeswitch', 'EdgeSwitch', '3/2', ['lag 2', 'LAG 2']),
+    ('cisco_ios', 'ME3600X', '192.0.2.20', []),
+])
+def test_unresolved_destination_workbook_display(tmp_path, monkeypatch, platform, family, attachment, interfaces):
+    import orbitflow.mac_lookup as app
+    from orbitflow.capabilities.mac import MacEntry, MacSnapshot
+    @contextmanager
+    def connection(*a, **kw):
+        yield object()
+    monkeypatch.setattr(app, 'connect_device', connection)
+    monkeypatch.setattr(app, 'DeviceCLI', connection)
+    monkeypatch.setattr(app.DeviceInventoryResolver, 'resolve', lambda *a, **kw:
+                        NS(platform=platform, device_family=family, hostname='lab', hardware_model=family))
+    monkeypatch.setattr(app.MacService, 'collect', lambda *a, **kw:
+                        MacSnapshot((MacEntry('aa:bb:cc:dd:ee:ff', '', attachment, 'dynamic', 'dynamic'),), 1))
+    monkeypatch.setattr(app.InterfaceService, 'collect', lambda *a, **kw: [NS(port_name=n) for n in interfaces])
+    monkeypatch.setattr(app.VlanService, 'collect', lambda *a, **kw: None)
+    monkeypatch.setattr(app.BridgeDomainService, 'collect', lambda *a, **kw: None)
+    path = run_lookup([dict(management_ip='192.0.2.1', username='test', password='fixture')], None,
+                      reports_dir=tmp_path/'reports', spool_root=tmp_path/'runs',
+                      inventory_path=tmp_path/'inventory.json', log_root=tmp_path/'logs')
+    recovered = export_mac_spool(next((tmp_path/'runs').iterdir()), tmp_path/'recovered.xlsx')
+    for output in (path, recovered):
+        book = load_workbook(output)
+        assert book['MAC Addresses'].max_column == 7
+        assert book['MAC Addresses']['D2'].value == attachment
+        assert book['MAC Addresses']['E2'].value == 'Unknown'
+        assert book['MAC Addresses']['G2'].value is None
+        assert book['Details']['N2'].value is None
+        assert book['Details']['R2'].value == attachment
+        assert book['Totals']['C2'].value == '1'
+        book.close()

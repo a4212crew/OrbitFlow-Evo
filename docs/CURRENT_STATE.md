@@ -898,7 +898,7 @@ membership and cannot create a compliance trigger. XR MAC-only untagged fallback
 requires exact operational/configured BG/BD agreement and one distinct explicit
 peer dot1q VLAN; shared XR observations are unchanged. Offline regression evidence
 is recorded in the October devlog: review revision focused validation passed 480
-tests; latest full suite is not clean (2,946 passed, 25 controller temp-guard failures).
+tests; latest full suite is not clean (2,958 passed, 25 controller temp-guard failures).
 A clean external-temp rerun is blocked by sandbox filesystem permissions; operator
 live and Windows validation are pending.
 
@@ -910,3 +910,22 @@ nonphysical destinations stay blank. Supporting sheets and other reports are
 unchanged. Offline recovery supports old six-value rows with a blank description.
 Deterministic description/export regressions pass; operator live and Windows
 validation remain pending.
+
+
+Issue #132 / PR #133 review corrections: the policy-free shared classification
+projection now classifies configured XR ACs by explicit encapsulation and one exact
+BG/BD binding: untagged is access, dot1q is trunk. Existing parents combine child
+roles (access/trunk/hybrid); invalid or conflicting child evidence is review/Unknown,
+and routed interfaces retain routed classification. Exact AC type takes precedence
+over the parent type for a MAC on that AC. This does not change numeric compliance
+membership, shared VLAN observation or BridgeDomainService. No peer VLAN association
+is used to claim tagged ingress.
+
+IOS/IOS-XE parsing accepts the exact repeated `Nile Mac Address Entries` banner
+and repeated column headers while preserving each row's VLAN/BD scope; other invalid
+rows still fail. The main sheet's existing `Physical Interface name` column shows
+the resolved physical/logical owner when proven, otherwise the normalized original
+attachment (including remote tuples, Drop and unresolved LAG/IP-like destinations).
+This fallback is display only: Details physical identity stays blank when unresolved,
+raw attachment is retained, and descriptions still require exact owner evidence.
+Seven-column output and historical six-column spool recovery remain supported.
