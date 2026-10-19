@@ -817,3 +817,7 @@ Final full suite **FAILED: 3,062 passed / 25 failed (114.12s), exit 1**; all fai
 are orchestration tests blocked by the Git-marked OS-temp root. Guards were retained.
 The separate clean controller gate is pending; prior #134/#135 owner validation
 and PR #136 records do not establish validation of this revision.
+
+#### Issue #139 — owner Linux validation update (2026-10-20)
+
+From the clean `codex/issue-139` worktree at original implementation head `481e712c`, with `PYTHONPATH` pointing at that worktree's `src`, the owner ran the focused suite covering execution, stages, performance, timing, shared CLI, backup and console: **591 passed in 14.56s**. The complete Linux deterministic suite also passed: **3,087 passed in 117.23s**. These are owner-reported automated results and supersede the earlier sandbox-only full-suite failure for the owner's Linux environment; they do **not** establish successful live configuration application or Windows regression results. Existing explicit summary confirmation, protected pre-change backup, interface ownership checks and privileged EXEC-only save remain mandatory. For operator-controlled live validation, use only a newly reviewed, approved test plan on designated devices and never replay an uncertain interrupted run.
