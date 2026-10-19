@@ -29,7 +29,7 @@ outputs/reports/mac_table; recovery via direct API/CLI only. See the [MAC manual
 
 Configuration Management: Generate Input Template; Generate Configuration Plan; Execute Approved Plan; Review Executed Plan; Regenerate Execution Report; Back. Do not add a separate Review Plans option. VLAN Compliance: standard run, run with methodology, offline export/regeneration, Back. See architecture for paths and interaction contracts.
 
-Engineer manually changes decision cells in generated `plan.xlsx`; console does not approve rows. The separate execution summary confirmation and all immutable digest/plan, preflight/drift, identity, backup, verification, save, replay and interrupted/Unknown protections remain owned by existing executor. Report-only views never reconnect or apply.
+Engineer manually changes decision cells in generated `plan.xlsx`; console does not approve rows. The separate execution summary confirmation and all immutable digest/plan, fresh target/prerequisite safety, identity, backup, verification, save, replay and interrupted/Unknown protections remain owned by existing executor. Report-only views never reconnect or apply.
 
 ## Future user-executable workflows
 For **every** new or materially changed user-executable script/workflow:
@@ -41,3 +41,15 @@ For **every** new or materially changed user-executable script/workflow:
 6. If Codex lacks write access to `.agents/`, it must note the exact needed Markdown changes for Atlas's separate reviewable documentation-only PR; never change permissions, invent a completed update, or block legitimate executable work unnecessarily.
 
 No new documentation-enforcement CI jobs or scripts without owner request.
+
+
+## Confirmed execution simplification — Issue #139 / PR #140
+
+The existing **Execute Approved Plan** console action remains a thin adapter over
+confirmed execution. Preserve its single batch confirmation, digest-bound selection,
+per-device concurrency control, command/response evidence, backup, consolidated
+post-template verification and EXEC-only partial save. Do not add a second menu
+workflow or reintroduce execution-stage replanning/trusted-baseline equality as
+console-level gates. The executor still checks live identity, interface/bundle
+ownership, known prerequisites and SSH synchronization. PR #140 remains unmerged
+and owner/live validation of Issue #139 remains pending at the time of this note.
