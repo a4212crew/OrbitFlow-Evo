@@ -6,6 +6,8 @@ This directory is the **canonical home for user guides for user-executable scrip
 
 - [Interactive Operations Console — operator guide](interactive-operations-console.md): implemented menus, environment profile, cancellation, recovery and validation commands; direct CLIs remain supported.
 
+- [CLI progress and durable results](cli-progress.md): shared dashboards, counters, final paths and justified specialist/lifecycle exemptions.
+
 ## Guide index
 
 - [Confirmed Catalyst/EdgeSwitch execution](configuration-execution.md): apply CLI, Linux/Windows commands, recovery and validation.

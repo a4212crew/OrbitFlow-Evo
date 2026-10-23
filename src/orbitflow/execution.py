@@ -24,11 +24,30 @@ class Progress:
         self._lock = Lock()
 
     def __call__(self, message):
+        from orbitflow.terminal_progress import current_display, current_position, WorkflowProgress
+        display, position = current_display.get(), current_position.get()
+        if display is not None and display.enabled and not display.closed:
+            # Never echo arbitrary caller text into a dashboard.
+            import re
+            import sys
+            from orbitflow.terminal_progress import QuietOutput
+            words = set(re.findall(r'[a-z]+', str(message).lower()))
+            words.update({'connecting': 'connect', 'interfaces': 'interface', 'vlans': 'vlan', 'evaluated': 'evaluate'}[word]
+                         for word in tuple(words) if word in {'connecting', 'interfaces', 'vlans', 'evaluated'})
+            stage = next((stage for stage in WorkflowProgress.STAGES if stage in words), 'processing')
+            if position is not None:
+                display.worker(position, stage)
+            else:
+                with display.lock:
+                    display.recent.append('Workflow | ' + stage)
+                    display.tick()
+            if self.output is sys.stdout or isinstance(self.output, QuietOutput):
+                return
         with self._lock:
             print(message, file=self.output, flush=True)
 
 
-def execute_devices(targets, worker, *, config=None, on_outcome=None):
+def _execute_devices(targets, worker, *, config=None, on_outcome=None):
     """Return input-ordered outcomes with bounded submissions and dynamic refill.
 
     With on_outcome, deliver completions on the caller and return an empty list;
@@ -42,7 +61,16 @@ def execute_devices(targets, worker, *, config=None, on_outcome=None):
     """
     config = config if config is not None else load_execution_config()
     pacer = ConnectionStartPacer(config.connection_start_interval)
+    from orbitflow.terminal_progress import current_display, current_position
+    display = current_display.get()
+    display.workers = config.max_concurrent_devices
+    if display.total is None and hasattr(targets, '__len__'):
+        display.total = len(targets)
     def invoke(position, target):
+        presentation_token = current_position.set(position)
+        if not display.structured:
+            display.assign(position, target)
+            display.worker(position, 'processing')
         token = connection_pacer.set(pacer)
         retry_token = connection_retry_delay.set(config.connection_retry_delay)
         try:
@@ -50,6 +78,9 @@ def execute_devices(targets, worker, *, config=None, on_outcome=None):
         except Exception as exc:
             return DeviceOutcome(position, error_category=type(exc).__name__)
         finally:
+            if not display.structured:
+                display.returned(position)
+            current_position.reset(presentation_token)
             connection_retry_delay.reset(retry_token)
             connection_pacer.reset(token)
 
@@ -59,6 +90,8 @@ def execute_devices(targets, worker, *, config=None, on_outcome=None):
             outcomes.append(outcome)
         else:
             on_outcome(outcome)
+        if not display.durable:
+            display.outcome(outcome.position, True if outcome.error_category else None)
 
     indexed = iter(enumerate(targets, 1))
     if config.max_concurrent_devices == 1:
@@ -84,3 +117,15 @@ def execute_devices(targets, worker, *, config=None, on_outcome=None):
             del future
             refill()
     return sorted(outcomes, key=lambda outcome: outcome.position)
+
+
+def execute_devices(targets, worker, *, config=None, on_outcome=None):
+    """Run bounded device work with best-effort, output-neutral presentation.
+
+    Processing counts do not establish durable collection or export success.
+    Existing callback, ordering, concurrency and failure contracts are unchanged.
+    """
+    from orbitflow.terminal_progress import workflow_progress, current_display
+    total = len(targets) if hasattr(targets, '__len__') else None
+    with workflow_progress('Device processing', total=total, quiet=current_display.get() is None):
+        return _execute_devices(targets, worker, config=config, on_outcome=on_outcome)

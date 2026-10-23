@@ -155,5 +155,5 @@ def test_execution_tty_events_flush_and_clear_partial_indicator(monkeypatch):
     display.start()
     display.event(dict(stage='preflight', management_ip='192.0.2.1'))
     display.finish(False)
-    assert '\r192.0.2.1 | Initial preflight\x1b[K\n' in stream.getvalue()
-    assert stream.getvalue().endswith('\n') and stream.flushes >= 3
+    assert 'input 192.0.2.1 | Initial preflight' in display.dashboard.recent
+    assert stream.getvalue().endswith('\n') and stream.flushes >= 2

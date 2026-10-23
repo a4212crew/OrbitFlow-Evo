@@ -86,6 +86,7 @@ def refresh_inventory_from_excel(
     with module_logger("inventory", "inventory_refresh", log_root=log_root) as (logger, _):
         logger.info("Inventory refresh started")
         def collect(item):
+            from orbitflow.terminal_progress import worker_stage
             position, target = item
             resolver = DeviceInventoryResolver(store, clock=clock, sanitize_fact=clean)
             statuses = {}
@@ -101,14 +102,17 @@ def refresh_inventory_from_excel(
                 if clean(ip) != ip:
                     raise ValueError("Unsafe target address")
                 stage = "connect"
+                worker_stage(stage)
                 with connect_device(ip, DeviceCredentials(target["username"], target["password"], secret=target.get("secret")),
                                     transport_config) as session:
                     stage = "inventory"
+                    worker_stage(stage)
                     context = resolver.resolve(session, management_ip=ip)
                     events = resolver.last_events
                     affected = (context.device_id,)
                     statuses[context.device_id] = REFRESHED
                     stage = "disconnect"
+                    worker_stage('cleanup')
                 stage = "complete"
             except Exception as exc:
                 category = type(exc).__name__

@@ -246,3 +246,11 @@ attachment (including remote tuples, Drop and unresolved LAG/IP-like destination
 This fallback is display only: Details physical identity stays blank when unresolved,
 raw attachment is retained, and descriptions still require exact owner evidence.
 Seven-column output and historical six-column spool recovery remain supported.
+
+## Shared progress presentation (Issue #144)
+
+See [CLI progress and durable results](cli-progress.md) for interactive and redirected
+output, phase-specific counters, saved paths, partial/interrupted/export-failure
+semantics and the coverage table (including specialist/lifecycle exemptions).
+Device/workflow semantics and existing arguments are unchanged. Deterministic
+terminal fixtures are separate from pending owner-operated Linux/Windows validation.

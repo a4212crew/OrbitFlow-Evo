@@ -1,5 +1,6 @@
 """Refresh approved Excel targets and export the complete latest-known inventory."""
 
+from orbitflow.terminal_progress import cli_progress
 import argparse
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ from orbitflow.inventory_refresh import refresh_inventory_from_excel
 from orbitflow.transport import TransportConfig
 
 
+@cli_progress('Inventory refresh stages')
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("excel_path")

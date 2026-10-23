@@ -821,3 +821,11 @@ and PR #136 records do not establish validation of this revision.
 #### Issue #139 — owner Linux validation update (2026-10-20)
 
 From the clean `codex/issue-139` worktree at original implementation head `481e712c`, with `PYTHONPATH` pointing at that worktree's `src`, the owner ran the focused suite covering execution, stages, performance, timing, shared CLI, backup and console: **591 passed in 14.56s**. The complete Linux deterministic suite also passed: **3,087 passed in 117.23s**. These are owner-reported automated results and supersede the earlier sandbox-only full-suite failure for the owner's Linux environment; they do **not** establish successful live configuration application or Windows regression results. Existing explicit summary confirmation, protected pre-change backup, interface ownership checks and privileged EXEC-only save remain mandatory. For operator-controlled live validation, use only a newly reviewed, approved test plan on designated devices and never replay an uncertain interrupted run.
+
+## Shared progress presentation (Issue #144)
+
+See [CLI progress and durable results](cli-progress.md) for interactive and redirected
+output, phase-specific counters, saved paths, partial/interrupted/export-failure
+semantics and the coverage table (including specialist/lifecycle exemptions).
+Device/workflow semantics and existing arguments are unchanged. Deterministic
+terminal fixtures are separate from pending owner-operated Linux/Windows validation.

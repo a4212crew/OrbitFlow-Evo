@@ -5,6 +5,8 @@
 
  > **Current layout:** The documentation migration is present on `main`; canonical executable guides live under `docs/user_manual/`. Legacy reference paths remain where source/tests depend on them.
 
+- [CLI progress and durable results](user_manual/cli-progress.md): shared terminal presentation and workflow coverage.
+
 ## Start here
 
 | Need | Source | Status |

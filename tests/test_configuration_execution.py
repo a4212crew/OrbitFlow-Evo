@@ -1181,7 +1181,7 @@ def test_cli_decline_emits_no_progress_or_device_access(tmp_path, monkeypatch, c
     save(original, json_path)
     workbook=tmp_path/'plan.xlsx'; export_plan(original,workbook)
     monkeypatch.setattr('builtins.input',lambda *a:'n')
-    monkeypatch.setattr(execution_cli,'console_progress',lambda e:pytest.fail('decline progress'))
+    monkeypatch.setattr(execution_cli,'ExecutionProgress',lambda *a, **kw:pytest.fail('decline progress'))
     monkeypatch.setattr(ex,'connect_device',lambda *a:pytest.fail('decline connect'))
     execution_cli.main(['execute',str(json_path),str(workbook),'--expected-digest',original.digest,
         '--authority-dir',str(tmp_path/'authority'),'--proxy','fixture','--cluster','fixture','--bastion-host','fixture','--bastion-user','fixture'])
@@ -1371,7 +1371,7 @@ def test_cli_final_elapsed_once_before_report(tmp_path, monkeypatch, capsys, fai
         assert 'devices: Unknown/incomplete=1' in text and 'rows: Unknown/incomplete=1' in text
     else:
         assert 'Execution Partial' in text and 'Failed=1' in text
-        assert text.index('total elapsed:') < text.index('[report_generation]')
+        assert text.index('total elapsed:') < text.index('Execution report stages')
 
 
 def test_multitemplate_ip_dispatch_row_order_one_backup_and_save(tmp_path, monkeypatch):

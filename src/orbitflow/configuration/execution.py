@@ -413,6 +413,9 @@ def _run_with_progress(summary, credentials, transport_config, *, inventory_path
     (spool.path / 'summary.json').write_text(canonical(summary), encoding='utf-8')
     journal = ResultJournal(spool.path / 'events.jsonl', clean=clean)
     backup = BackupWriter(Path(backups_dir) / spool.path.name if backups_dir else spool.path / 'backups', datetime.now(timezone.utc), exact_directory=True)
+    from orbitflow.terminal_progress import location
+    location('Execution run', clean(str(spool.path)))
+    location('Protected backup folder (capture pending)', clean(str(backup.path)))
     store = JsonInventoryStore(inventory_path)
     with module_logger('configuration', 'execution') as (logger, log_path):
         locations = {e['request']['row_id']: f"{BY_ID[e['request']['template_id']].sheet} row {e['request'].get('row', '?')}" for e in summary['selected']}
@@ -856,6 +859,26 @@ def verification_text(verification, result, request):
 
 
 def export_results(run_path, output):
+    """Export retained execution evidence offline, with optional CLI presentation.
+
+    No collection state is changed and Unknown outcomes are never reclassified.
+    Library calls retain output ownership; the returned path is unchanged.
+    """
+    from orbitflow.terminal_progress import workflow_progress, current_display, location
+    with workflow_progress('Execution report stages', quiet=current_display.get() is None) as display:
+        try:
+            result = _export_results(run_path, output)
+        except BaseException:
+            display.finish(False)
+            location('Export failed/interrupted; retained execution run', run_path)
+            raise
+        display.finish(True)
+        location('Execution report saved', result)
+        location('Retained execution run (historical outcomes unchanged)', run_path)
+        return result
+
+
+def _export_results(run_path, output):
     """Offline literal report grouped by original template, from retained journal only."""
     from openpyxl import Workbook
     from openpyxl.cell import WriteOnlyCell

@@ -150,6 +150,12 @@ def module_logger(module, filename=None, *, log_root=None):
     logger.propagate = False
     logger.addHandler(handler)
     token = _root.set(root)
+    from orbitflow.terminal_progress import current_display
+    display = current_display.get()
+    if display is not None:
+        # Register metadata only; worker threads never print or refresh here.
+        with display.lock:
+            display.resources.add(str(path))
     try:
         yield logger, path
     finally:

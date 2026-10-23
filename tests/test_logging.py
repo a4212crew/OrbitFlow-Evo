@@ -228,7 +228,8 @@ def test_cli_run_failure_is_logged_before_safe_exit(tmp_path, monkeypatch, capsy
     assert any(frame['file'] == 'src/orbitflow/result_spool.py' and frame['function'] == 'create'
                for item in record['exception_chain'] for frame in item['frames'])
     console = capsys.readouterr()
-    for forbidden in ('never-log-this', 'private-user-path', str(tmp_path)):
+    assert 'Log: ' + str(tmp_path / 'logs') in console.out
+    for forbidden in ('never-log-this', 'private-user-path'):
         assert forbidden not in content + str(caught.value) + console.out + console.err
     assert 'Traceback' not in console.err
 

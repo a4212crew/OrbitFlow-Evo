@@ -162,6 +162,19 @@ class ResultSpool:
 
     @contextmanager
     def collection(self):
+        from orbitflow.terminal_progress import workflow_progress, current_display
+        with workflow_progress('Collection records', total=self.manifest['target_count'], durable=True, quiet=current_display.get() is None):
+            try:
+                with self._collection():
+                    yield self
+            finally:
+                from orbitflow.terminal_progress import current_display
+                display = current_display.get()
+                display.finish(bool(self.manifest.get('collection_complete')))
+                display._emit(self.clean(f"Collection {self.manifest['status']}: records={self.manifest['completed_count']}/{self.manifest['target_count']}; errors={self.manifest['failed_count']}; report/export pending; spool: {self.path}"), True)
+
+    @contextmanager
+    def _collection(self):
         with _lease(self.path):
             self.manifest = json.loads((self.path / 'manifest.json').read_text(encoding='utf-8'))
             if self.manifest['status'] != 'created':
@@ -213,6 +226,15 @@ class ResultSpool:
         except BaseException:
             self._append_failed = True
             raise
+        # Optional subscribers must never turn a committed append into a sink
+        # failure or invite retry of an already recorded device outcome.
+        try:
+            from orbitflow.terminal_progress import current_display
+            display = current_display.get()
+            if display is not None:
+                display.outcome(position, None if target in display.unknown_targets else record['status'] == 'failed')
+        except Exception:
+            pass
 
     def records(self):
         """Input order via a bounded-cache disk index; JSONL remains authoritative."""
@@ -258,6 +280,27 @@ class ResultSpool:
                 yield json.loads(line)
 
     def consume(self, consumer, *, cleanup=True, allow_partial=False):
+        """Export separately from collection; report only actual saved outcomes."""
+        from orbitflow.terminal_progress import workflow_progress, current_display
+        with workflow_progress('Report/export stages', quiet=current_display.get() is None) as display:
+            try:
+                result = self._consume(consumer, cleanup=cleanup, allow_partial=allow_partial)
+            except BaseException:
+                display.finish(False)
+                display._emit(self.clean(f'Export failed/interrupted; no completed output established; retained spool: {self.path}'), True)
+                raise
+            display.finish(True)
+            try:
+                saved = isinstance(result, (str, Path)) and Path(result).is_file()
+                spool_location = str(self.path) if self.path.exists() else 'removed after successful export'
+            except OSError:
+                saved = False
+                spool_location = 'retention unknown; run location: ' + str(self.path)
+            output = str(result) if saved else 'no saved file established by consumer'
+            display._emit(self.clean(f"Export {self.manifest['status']}: records={self.manifest['completed_count']}/{self.manifest['target_count']}; collection/processing errors={self.manifest['failed_count']}; findings are separate; output: {output}; spool: {spool_location}"), True)
+            return result
+
+    def _consume(self, consumer, *, cleanup=True, allow_partial=False):
         with _lease(self.path):
             # Reload under the lease to prevent stale objects replaying lifecycle state.
             self.manifest = json.loads((self.path / 'manifest.json').read_text(encoding='utf-8'))

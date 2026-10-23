@@ -48,9 +48,19 @@ class Console:
     @contextmanager
     def activity(self, label, total=None, *, execution=False):
         """Render presentation-only activity; always clear it before prompts."""
-        from orbitflow.terminal_progress import TerminalProgress, ExecutionProgress
-        renderer = ExecutionProgress if execution else TerminalProgress
+        from orbitflow.terminal_progress import WorkflowProgress, ExecutionProgress, current_display
+        renderer = ExecutionProgress if execution else WorkflowProgress
         display = renderer(label, write=self.write, total=total)
+        token = current_display.set(display) if not execution else None
+        try:
+            with self._activity_timer(display):
+                yield display
+        finally:
+            if token is not None:
+                current_display.reset(token)
+
+    @contextmanager
+    def _activity_timer(self, display):
         with Progress(lambda event: display.tick()) as timer:
             timer.emit('', 'preflight')
             display.start()
@@ -61,12 +71,21 @@ class Console:
                 raise
             else:
                 display.finish(True)
+            finally:
+                from orbitflow.terminal_progress import location
+                for path in sorted(getattr(display, 'resources', ())):
+                    location('Log', path)
 
     def observation_progress(self, ips, display):
         """Only persisted outcome events advance observation progress."""
         completed = set()
         def subscriber(message):
             address, _, tail = message.partition(': ')
+            from orbitflow.terminal_progress import worker_stage
+            stage = tail.split(';', 1)[0]
+            stage = {'interface collection': 'interface', 'VLAN/config collection': 'vlan',
+                     'audit/snapshot': 'evaluate'}.get(stage, stage)
+            worker_stage(stage)
             if address in ips and tail.split(';', 1)[0] in {'completed', 'failed'}:
                 completed.add(address)
                 display.update(len(completed), len(ips))

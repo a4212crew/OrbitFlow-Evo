@@ -678,8 +678,8 @@ def test_activity_elapsed_snapshot_and_cleanup(monkeypatch):
     monkeypatch.setattr(menu, 'Progress', factory)
     from orbitflow import terminal_progress
     monkeypatch.setattr(terminal_progress, 'monotonic', lambda: clock[0])
-    original = terminal_progress.TerminalProgress
-    monkeypatch.setattr(terminal_progress, 'TerminalProgress', lambda *a, **k: original(*a, clock=lambda: clock[0], **k))
+    original = terminal_progress.WorkflowProgress
+    monkeypatch.setattr(terminal_progress, 'WorkflowProgress', lambda *a, **k: original(*a, clock=lambda: clock[0], **k))
     with ui.activity('Planning'):
         clock[0] = 6
         progress.tick()

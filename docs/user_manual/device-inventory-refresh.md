@@ -27,3 +27,11 @@ This workflow is also available through `python -m orbitflow.menu`; see the [con
 Console target selection (Issue #123 revision): after choosing a device workbook, choose all (blank) or unique comma-separated nonempty device row numbers, counted from 1 after the header. Only selected rows are dispatched; concurrency is still prompted every run. See the [console guide](interactive-operations-console.md) for cancellation and fixed actionable failure diagnostics. Direct CLI input selection is unchanged.
 
 Python API: `orbitflow.inventory_refresh.refresh_inventory_from_excel(..., target_positions=None)` additionally accepts a nonempty iterable of unique zero-based loaded device row positions. Positions must be integers in range (booleans rejected); invalid selections raise `ValueError` before connecting. Selected rows run in workbook order through shared execution. Omitted stored devices retain the existing not-requested export semantics. The default `None` preserves whole-workbook refresh.
+
+## Shared progress presentation (Issue #144)
+
+See [CLI progress and durable results](cli-progress.md) for interactive and redirected
+output, phase-specific counters, saved paths, partial/interrupted/export-failure
+semantics and the coverage table (including specialist/lifecycle exemptions).
+Device/workflow semantics and existing arguments are unchanged. Deterministic
+terminal fixtures are separate from pending owner-operated Linux/Windows validation.

@@ -56,6 +56,7 @@ def collect_device(target, transport_config, store, *, mac=None, vlan=None, xr_l
 
     Main-sheet destination falls back to display-only original attachment;
     Details and description ownership always retain exact resolution evidence.
+    Fixed CLI/menu stage notices never include collected evidence or credentials.
     """
     if mac is not None:
         mac = normalize_mac(mac)
@@ -63,15 +64,20 @@ def collect_device(target, transport_config, store, *, mac=None, vlan=None, xr_l
         vlan = validate_vlan(vlan)
     MacService(xr_location=xr_location)
     ip = str(ip_address(target['management_ip']))
+    from orbitflow.terminal_progress import worker_stage
     errors = []
+    worker_stage('connect')
     with connect_device(ip, DeviceCredentials(target['username'], target['password'], secret=target.get('secret')), transport_config) as session:
         with DeviceCLI(session) as cli:
+            worker_stage('inventory')
             context = DeviceInventoryResolver(store).resolve(session, management_ip=ip, cli=cli)
+            worker_stage('collect')
             snapshot = MacService(xr_location=xr_location).collect(session, context, cli=cli)
             interfaces, vlans, bridges = (), None, None
             for stage, service in [('interfaces', InterfaceService()), ('vlans', VlanService()),
                                    *([('bridges', BridgeDomainService())] if context.platform == 'cisco_xr' else [])]:
                 try:
+                    worker_stage({'interfaces': 'interface', 'vlans': 'vlan', 'bridges': 'collect'}[stage])
                     value = service.collect(session, context, cli=cli)
                     if stage == 'interfaces':
                         interfaces = value
@@ -81,6 +87,7 @@ def collect_device(target, transport_config, store, *, mac=None, vlan=None, xr_l
                         bridges = value
                 except Exception as exc:
                     errors.append([ip, stage, type(exc).__name__])
+    worker_stage('normalize')
     try:
         observations = enrich(snapshot, context, interfaces, vlans, bridges)
     except Exception as exc:
