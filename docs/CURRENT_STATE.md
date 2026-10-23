@@ -568,6 +568,12 @@ cannot create normal interface rows. No validation-findings subsystem is added.
 ID, and configured name or ID fallback. Huawei VSI objects require declarations;
 ASR920 context selects the EVC bridge-domain database model. Legacy detail fields
 remain available to capability consumers, but reporting uses normalized fields.
+Interface/VLAN export compacts consecutive numeric VLAN/domain lists and exact
+identity mappings losslessly, including expanded rows from retained legacy
+spools. Synthetic IOS allowed 2-4094/native 445 and offline 699-outcome/seven-failure
+recovery are covered by deterministic tests; remaining oversized fields fail
+with a content-free cell location and preserve atomic output/spool recovery.
+Owner spool recovery and Windows validation for Issue #142 remain pending.
 No live reporting validation has been performed.
 
 ## Known Limitations

@@ -10,7 +10,11 @@ from openpyxl.utils import get_column_letter
 
 
 def write_tables(path, tables, *, clean=sanitize_text):
-    """Write once using bounded worksheet memory; untrusted values are literal text."""
+    """Atomically stream literal text; reject oversized cells with their location.
+
+    ValueError identifies sheet, one-based row, column letter and character
+    count without including cell contents. The existing destination is retained.
+    """
     workbook = Workbook(write_only=True)
     path = Path(path)
     temporary = path.with_name(path.name + ".tmp")
@@ -29,10 +33,14 @@ def write_tables(path, tables, *, clean=sanitize_text):
                 )
             for index, row in enumerate(_with_header(columns, rows)):
                 cells = []
-                for value in row:
+                for column_index, value in enumerate(row, 1):
                     text = ILLEGAL_CHARACTERS_RE.sub("", str(value) if index == 0 else clean(value))
                     if len(text) > 32767:
-                        raise ValueError("Report cell exceeds Excel text limit")
+                        raise ValueError(
+                            f"Report cell exceeds Excel text limit (32767): "
+                            f"sheet={title}, row={index + 1}, "
+                            f"column={get_column_letter(column_index)}, characters={len(text)}"
+                        )
                     cell = WriteOnlyCell(sheet, value=text)
                     cell.data_type = "s"
                     cell.alignment = Alignment(vertical="top", wrap_text=True)

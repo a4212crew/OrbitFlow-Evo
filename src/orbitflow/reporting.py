@@ -31,7 +31,11 @@ ERROR_COLUMNS = ("Device IP", "Device Name", "Stage", "Error Category", "Time")
 
 
 def build_rows(context, interfaces, vlans):
-    """Present normalized capability facts for actual InterfaceService identities."""
+    """Present actual interface facts with reversible numeric/identity ranges.
+
+    Inclusive ``identity(a-b)`` denotes ordered pairs ``a -> a`` through
+    ``b -> b``; it never denotes a cross product. Capability data is unchanged.
+    """
     key = lambda name: canonical_interface_name(context.platform, name)
     records = {key(record.port_name): record for record in interfaces}
     observations = {} if vlans is None else {
@@ -46,7 +50,7 @@ def build_rows(context, interfaces, vlans):
             value = getattr(item, field) if item else ""
             if isinstance(value, tuple):
                 value = ("; " if field == "service_mappings" else ", ").join(map(str, value))
-            fields.append(value)
+            fields.append(_compact_field(field, value))
         rows.append(identity + [context.device_family, record.port_name,
             record.port_description, record.admin_status, record.oper_status,
             *fields, record.collection_time.isoformat()])
@@ -58,10 +62,59 @@ def build_rows(context, interfaces, vlans):
     return rows, database
 
 
+def _compact_field(field, value):
+    """Compact only canonical consecutive IDs; retain order and opaque evidence."""
+    if field not in {"tagged_vlans", "bridge_domains", "service_mappings"} or not isinstance(value, str):
+        return value
+    mapping = field == "service_mappings"
+    separator = "; " if mapping else ", "
+    tokens = value.split(separator)
+
+    def number(token):
+        match = re.fullmatch(r"([1-9][0-9]{0,3}) -> \1" if mapping else r"([1-9][0-9]{0,3})", token)
+        if match and 1 <= int(match[1]) <= 4094:
+            return int(match[1])
+        return None
+
+    # Named domains can themselves contain hyphens. Only an entirely numeric
+    # domain list is eligible, so mixed service relationships stay literal.
+    if field == "bridge_domains" and any(number(token) is None for token in tokens):
+        return value
+
+    result = []
+    start = 0
+    while start < len(tokens):
+        first = number(tokens[start])
+        end = start + 1
+        if first is not None:
+            while end < len(tokens) and number(tokens[end]) == first + end - start:
+                end += 1
+        # Keep singletons and pairs as before; compact longer consecutive runs.
+        if end - start >= 3:
+            span = f"{first}-{first + end - start - 1}"
+            result.append(f"identity({span})" if mapping else span)
+        else:
+            result.extend(tokens[start:end])
+        start = end
+    return separator.join(result)
+
+
 def write_workbook(path, interfaces, database, errors, *, clean=sanitize_text):
-    """Write the normalized Interface/VLAN tables through shared Excel output."""
+    """Atomically stream the three report sheets with lossless range rendering.
+
+    Also accepts expanded rows from older spools. Only consecutive canonical
+    VLAN IDs (1..4094) and exact identity pairs are compacted, in source order.
+    Other oversized cells raise ValueError with their location, never contents.
+    """
+    def compact_rows():
+        for row in interfaces:
+            row = list(row)
+            for index, field in ((10, "tagged_vlans"), (11, "bridge_domains"), (12, "service_mappings")):
+                row[index] = _compact_field(field, row[index])
+            yield row
+
     return write_tables(path, (
-        ("Interfaces", INTERFACE_COLUMNS, interfaces),
+        ("Interfaces", INTERFACE_COLUMNS, compact_rows()),
         ("VLAN_Database", DATABASE_COLUMNS, database),
         ("Run_Errors", ERROR_COLUMNS, errors),
     ), clean=clean)
@@ -183,7 +236,12 @@ def run_report(targets, transport_config, *, inventory_path="data/inventory/inve
 
 
 def export_report_spool(spool_path, path, *, cleanup=True, allow_partial=False):
-    """Regenerate a workbook using persisted normalized data, with no connections."""
+    """Regenerate offline, including expanded legacy rows, without connections.
+
+    Completed collection is required unless allow_partial=True. Successful export
+    removes the spool by default; cleanup=False retains it. Output failure keeps
+    the spool for retry and leaves any existing destination workbook unchanged.
+    """
     spool = ResultSpool(spool_path)
     if spool.manifest['task'] != 'interface_vlan_report':
         raise ValueError('Not an Interface/VLAN report spool')

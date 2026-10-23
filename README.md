@@ -215,15 +215,18 @@ through overrides. Reporting logs are written to
 includes stage progress and a completion summary with the failure count.
 
 Interface aliases join within each resolved device; subinterfaces remain
-separate. Multiple service observations use aligned lines in the detail columns
-(`-` means unavailable on that observation). An explicit empty allowed list is
-`none`; an unavailable list is blank. Attached VLANs is a sorted union of observed
-VLAN IDs, excluding excluded VLANs and service identifiers. Additional Control
-VLAN, Excluded VLANs, and VLAN Source columns retain normalized facts. Descriptions
-and status come from InterfaceService. Service objects retain their object type
-and identity separately from VLAN IDs. Text is stored literally, without Excel
-formula interpretation. Cells exceeding Excel's text limit fail explicitly
-instead of silently truncating observations.
+separate. Reports present normalized port type, untagged VLAN, tagged VLANs,
+bridge domains and exact service mappings for actual interfaces. `ALL`, `NONE`
+and blank remain distinct. Consecutive numeric IDs use inclusive ranges;
+`identity(a-b)` compactly preserves the exact ordered pairs `a -> a` through
+`b -> b`. Untagged and nonidentity mappings remain explicit. Descriptions and
+status come from InterfaceService; database objects retain their types and IDs.
+Text is stored literally. Remaining oversized cells fail with sheet/row/column
+and character count, retaining the spool and existing destination workbook.
+Completed spools, including older expanded rows, regenerate without reconnecting
+via `orbitflow.reporting.export_report_spool(spool_path, path, cleanup=False)`.
+See the [report manual](docs/user_manual/device-interface-vlan-report.md#full-range-vlan-rendering-and-offline-recovery-issue-142)
+for exact range semantics and Linux/Windows recovery and validation commands.
 
 ## Read-only VLAN compliance
 
