@@ -252,8 +252,7 @@ Stages: confirmed_start, connect, identify, preflight, backup, backup_complete,
 row_preflight, pre_row_evidence, command_intent, command_result/command_unknown,
 mode_intent/mode_result, verification_intent, verification_warning, row_result,
 save_intent, save_confirmation_recognized, save_answer_y_waiting_original_exec,
-save_result, device_failure, cleanup_start/cleanup, device_complete and recording. The CLI also
-uses report_generation/report_complete with IP `-` for offline reporting.
+save_result, device_failure, cleanup_start/cleanup, device_complete and recording. Offline CLI reporting uses a separate shared stage display; service event contracts remain unchanged.
 `row_result.status` is the verification outcome; command_result Returned is only exchange
 progress. Totals count completed row/device outcomes, including failures, not success.
 
@@ -269,8 +268,7 @@ owns a device session, sends data or retries writes. No progress is retained aft
 reporter closure. The owner worker alone emits recognized save-question/y stages.
 Progress is best-effort display; the fsynced ResultJournal remains authoritative.
 
-The shared renderer is `orbitflow.progress.console_progress(event)`; it prints one
-flushed line. `Progress(subscriber=None, *, interval=5.0, clock=monotonic)` is the
+`orbitflow.progress.console_progress(event)` remains the compact line helper. CLI/menu presentation now uses `orbitflow.terminal_progress.ExecutionProgress` with allowlisted stages, worker rows and last-ten activity; see the [progress guide](../user_manual/cli-progress.md). Library subscriptions and durable evidence are unchanged. `Progress(subscriber=None, *, interval=5.0, clock=monotonic)` is the
 context-managed dispatcher used by execution and offline CLI reporting. Its `emit`
 and deterministic `tick` are presentation mechanisms; they do not authorize actions.
 See the [manual](../user_manual/configuration-execution.md#iteration-3-presentation-and-live-progress-issue-117)
@@ -405,3 +403,13 @@ session invalidation. A prompt-shaped prefix followed by later bytes cannot be
 predicted under this timing contract. Independent rejection checks, verification
 and exact EXEC-anchor save completion remain required. Owner Linux/C3850/EdgeSwitch
 live validation remains pending.
+
+## Shared CLI presentation (Issue #144)
+
+Direct execution and menu subscribers use the shared bounded dashboard; the compact
+`console_progress` helper remains available. Service callback fields/signatures and
+`ResultSpool`/journal/Unknown semantics are unchanged. `export_results(run_path, output)`
+still returns the report Path, preserves historical classifications and never reconnects;
+CLI/menu presentation now distinguishes report export failure from collection and prints
+the actual saved report/retained run paths. Quiet library calls retain output ownership.
+See [terminal behaviour and full workflow coverage](../user_manual/cli-progress.md).

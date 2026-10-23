@@ -1,4 +1,5 @@
 """Read-only MAC lookup using the existing non-secret console profile."""
+from orbitflow.terminal_progress import cli_progress
 import argparse
 from pathlib import Path
 from orbitflow.environment import PROFILE, load_profile, validate_session, validate_paths
@@ -9,6 +10,7 @@ from orbitflow.targets import load_targets
 from orbitflow.transport import TransportConfig
 
 
+@cli_progress('MAC lookup stages')
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest='action', required=True)

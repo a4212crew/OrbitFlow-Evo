@@ -4,7 +4,7 @@ from pathlib import Path
 from time import monotonic
 from collections import Counter
 
-from orbitflow.progress import Progress, console_progress
+from orbitflow.terminal_progress import ExecutionProgress, workflow_progress, location
 from orbitflow.configuration.execution import ApplySettings, ExecutionService, export_results, operator_summary, render_summary
 from orbitflow.configuration.v2.planning import load
 from orbitflow.configuration.plans import require
@@ -66,13 +66,12 @@ def main(argv=None):
     apply.add_argument('--teleport-key-path', type=Path)
     apply.add_argument('--teleport-cert-path', type=Path)
     args = parser.parse_args(argv)
-    with module_logger('configuration', 'execution') as (logger, _):
+    with module_logger('configuration', 'execution') as (logger, log_path):
         try:
             if args.command == 'report':
-                with Progress(console_progress) as progress:
-                    progress.emit('-', 'report_generation')
-                    print(export_results(args.run_path, args.output))
-                    progress.emit('-', 'report_complete')
+                with workflow_progress('Execution report stages') as display:
+                    display.resources.add(str(log_path))
+                    export_results(args.run_path, args.output)
                 return
             settings = ApplySettings(args.apply_concurrency, args.command_timeout, args.save_timeout,
                                      args.connection_start_interval, args.connection_retry_delay)
@@ -96,22 +95,30 @@ def main(argv=None):
                     completed_rows[event.get('status', 'Unknown')] += 1
                 elif event['stage'] == 'device_complete':
                     completed_devices[event.get('status', 'Unknown')] += 1
-                console_progress(event)
+                display.event(event)
+            display = ExecutionProgress('Confirmed execution', total=len(ips))
+            display.dashboard.workers = args.apply_concurrency
+            display.dashboard.resources.add(str(log_path))
+            display.start()
             started = monotonic()
             try:
                 spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
                                         credentials=credentials, transport_config=transport, inventory_path=args.inventory_path,
                                         run_root=args.run_root, backups_dir=args.backups_dir, progress=show_progress)
             except BaseException:
+                display.finish(False)
                 completed_devices['Unknown/incomplete'] += max(0, len(ips)-sum(completed_devices.values()))
                 completed_rows['Unknown/incomplete'] += max(0, len(prepared['summary']['selected'])-sum(completed_rows.values()))
                 print(f'Execution interrupted/failed | devices: {_counts(completed_devices)} | rows: {_counts(completed_rows)}; skipped={len(prepared["summary"]["skipped"])}; see retained run and logs | total elapsed: {monotonic()-started:.1f}s', flush=True)
                 raise
+            display.finish(True)
             print(outcome_summary(spool, monotonic()-started, skipped=len(prepared['summary']['skipped'])), flush=True)
-            with Progress(console_progress) as progress:
-                progress.emit('-', 'report_generation')
-                print(export_results(spool.path, spool.path / 'execution-results.xlsx'))
-                progress.emit('-', 'report_complete')
+            with workflow_progress('Execution report stages') as report_display:
+                report_display.resources.add(str(log_path))
+                backups = Path(args.backups_dir) / spool.path.name if args.backups_dir else spool.path / 'backups'
+                if backups.exists():
+                    location('Protected backups', backups)
+                export_results(spool.path, spool.path / 'execution-results.xlsx')
         except Exception as exc:
             logger.error('Execution command failed', extra={'error_category': type(exc).__name__})
             parser.exit(2, f'Execution failed ({type(exc).__name__}); see configuration module logs.\n')

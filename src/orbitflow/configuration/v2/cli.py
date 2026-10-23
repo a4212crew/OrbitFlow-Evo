@@ -1,4 +1,5 @@
 """Operator adapters for v2 input, live read-only planning and workbook decisions."""
+from orbitflow.terminal_progress import cli_progress, location, workflow_progress, current_display
 import argparse
 import sys
 import re
@@ -62,6 +63,7 @@ def _main(argv, logger, progress):
     try:
         if args.command == "input":
             create_input(args.path)
+            location('Input workbook saved', args.path)
             return
         if args.output is not None:
             require(args.output.suffix == ".json", "plan output must use .json")
@@ -91,19 +93,25 @@ def _main(argv, logger, progress):
                 stage = "observation"
                 spool = collect(requests, credentials, config, inventory_path=args.inventory_path,
                                 execution_config=execution, progress=progress)
-                observations = bounded_observations(spool)
+                with workflow_progress('Loading observation records', quiet=current_display.get() is None):
+                    observations = bounded_observations(spool)
             progress(f"Planning proposals; rows={len(requests)}; live targets={len(ips)}")
             logger.info("Planning proposals")
             stage = "planning"
-            result = plan(requests, observations, source="workbook-sha256:" + requests.source_digest)
+            with workflow_progress('Planning requests', quiet=current_display.get() is None):
+                result = plan(requests, observations, source="workbook-sha256:" + requests.source_digest)
         args.output = args.output or _default_output(requests)
         require(not args.output.exists() and not args.output.with_suffix(".xlsx").exists(), "output already exists")
         progress("Exporting immutable plan and decision workbook")
         logger.info("Export start: " + str(args.output))
         stage = "plan export"
-        save(result, args.output)
+        with workflow_progress('Saving immutable plan', quiet=current_display.get() is None):
+            save(result, args.output)
+        location('Immutable plan saved', args.output)
         stage = "workbook export"
-        export_plan(result, args.output.with_suffix(".xlsx"))
+        with workflow_progress('Exporting decision workbook', quiet=current_display.get() is None):
+            export_plan(result, args.output.with_suffix(".xlsx"))
+        location('Decision workbook saved', args.output.with_suffix(".xlsx"))
         logger.info("Export completed: " + str(args.output) + "; review=" + str(args.output.with_suffix(".xlsx")))
         progress(f"Plan {result.digest}; offline review only; device execution is not authorized.")
     except Exception as exc:
@@ -114,6 +122,7 @@ def _main(argv, logger, progress):
         parser.exit(2, f"Planning failed ({category}); see configuration module logs.\n")
 
 
+@cli_progress('Planning stages')
 def main(argv=None):
     with module_logger("configuration", "bulk_planning") as (logger, _):
         try:

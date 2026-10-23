@@ -609,7 +609,7 @@ unchanged.
 A worker owns the complete device workflow, resolver, context, connection and CLI
 resources. A free slot immediately accepts another target, even while earlier
 devices are slow. Device failures are isolated and cleanup precedes slot reuse.
-Console progress lines are synchronized but may interleave across devices.
+CLI/menu progress uses serialized worker rows and a last-ten activity view; redirected output is throttled. See the [progress guide](docs/user_manual/cli-progress.md).
 Workbook generation runs once on the caller after all workers finish; report
 rows, errors and inventory attempts retain input order (inventory identities
 remain sorted by address/ID). For repeated/alias targets, exported run membership
@@ -700,7 +700,7 @@ Issue #117 iteration 3: execution summaries group findings by source sheet/row r
 without nested evidence; template reports expose individual input columns, compact
 checks and linked complete detail, and preserve manifest run identity after relocation.
 Presentation alone suppresses tagged/membership overlap warnings. Optional structured
-progress drives immediate flushed CLI stages and five-second waiting updates without
+progress supplies allowlisted dashboard stages and five-second waiting updates without
 accessing channels or replaying writes; Python API calls remain quiet by default.
 Fallback field/source and journal warning messages survive shared safe log formatting.
 Owner live/lab validation and protected skill reconciliation remain pending.
@@ -760,3 +760,5 @@ already correct, with shared stage verification and EXEC-only partial save retai
 Automated regression evidence and owner validation status are recorded in the
 [execution manual](docs/user_manual/configuration-execution.md#simplified-approved-execution--issue-139).
 Owner/live validation of this revision is pending.
+
+CLI/menu dashboards now share recorded-outcome accounting by committed input position (including repeated target rows); observation stage text never advances counts. Collection and export summaries remain separate; see [CLI progress and durable results](docs/user_manual/cli-progress.md) for terminal fallbacks, actual saved paths, recovery and specialist exemptions. Operator validation of this revision remains pending.

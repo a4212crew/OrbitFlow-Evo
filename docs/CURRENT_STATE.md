@@ -954,3 +954,9 @@ raw attachment is retained, and descriptions still require exact owner evidence.
 Seven-column output and historical six-column spool recovery remain supported.
 
 Owner Linux worktree verification for Issue #139/PR #140 (head `481e712c` before Atlas documentation-only additions) passed 591 focused tests in 14.56s and the complete deterministic suite of 3,087 tests in 117.23s (2026-10-20 Australia/Melbourne). This resolves the earlier Codex sandbox-only temp-root test failures for the owner Linux environment; Windows tests and new owner/live-device validation for Issue #139 remain unverified. The reviewed PR is not itself evidence of live device behavior.
+
+## Shared CLI progress (Issue #144)
+
+CLI/menu batch workflows share serialized worker rows, a bounded last-ten activity view, compact terminal fallbacks and throttled redirected snapshots. Recorded collection, processing returns and report/export completion have separate accounting; actual output, retained spool, allocated backup and log paths are reported. Library output ownership and execution safety remain unchanged. See [coverage and exemptions](user_manual/cli-progress.md). Synthetic regressions cover concurrency, rollover, platform/terminal fallbacks and partial/export-failure accounting; owner-operated Windows/Linux terminal and device validation of this revision remains pending. This supersedes the compact-only progress descriptions above.
+
+Issue #144 review revision: console observation stage text no longer updates counters. Shared spool checkpoints count committed input positions, preserving duplicate target rows in row-based workflows. Deterministic menu/direct-boundary regressions cover mixed results, out-of-order completion and failed checkpoints; operator terminal validation remains pending.

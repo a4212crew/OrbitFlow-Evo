@@ -1,5 +1,6 @@
 """Capture sensitive running-configuration backups from approved Excel targets."""
 
+from orbitflow.terminal_progress import cli_progress
 import argparse
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from orbitflow.targets import load_targets
 from orbitflow.transport import TransportConfig
 
 
+@cli_progress('Backup stages')
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("excel_path")

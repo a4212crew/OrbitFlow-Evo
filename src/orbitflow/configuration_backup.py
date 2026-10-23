@@ -156,6 +156,8 @@ def run_backup(targets, transport_config, *, inventory_path='data/inventory/inve
         return pattern.sub('[REDACTED]', text) if pattern else text
 
     writer = BackupWriter(backups_dir, (clock or (lambda: datetime.now(timezone.utc)))())
+    from orbitflow.terminal_progress import location
+    location('Backup folder (capture pending)', clean(str(writer.path)))
     store = JsonInventoryStore(inventory_path)
     status = Progress(output if output is not None else sys.stdout)
     completed = failed = 0
@@ -174,22 +176,28 @@ def run_backup(targets, transport_config, *, inventory_path='data/inventory/inve
         logger.info('Configuration backup started')
         status(f'Configuration backup started: {len(targets)} devices')
         def capture(target):
+            from orbitflow.terminal_progress import worker_stage
             stage = 'input'
+            worker_stage(stage)
             context = None
             try:
                 if not all(isinstance(target.get(field), str) and target[field].strip() for field in REQUIRED_COLUMNS):
                     raise ValueError('Missing required target field')
                 ip_address(target['management_ip'])
                 stage = 'connect'
+                worker_stage(stage)
                 with connect_device(target['management_ip'], DeviceCredentials(target['username'], target['password'], secret=target.get('secret')), transport_config) as session:
                     stage = 'inventory'
+                    worker_stage(stage)
                     with DeviceCLI(session) as cli:
                         context = DeviceInventoryResolver(store, sanitize_fact=clean).resolve(
                             session, management_ip=target['management_ip'], cli=cli)
                         stage = 'capture'
+                        worker_stage(stage)
                         content = ConfigurationService(timeout=timeout).collect(session, context, cli=cli)
                     stage = 'disconnect'
                 stage = 'write'
+                worker_stage(stage)
                 # Captures retain configuration, but never supplied login/enable
                 # credentials, even if a device echoes them into the response.
                 if capture_pattern:
@@ -223,6 +231,10 @@ def run_backup(targets, transport_config, *, inventory_path='data/inventory/inve
                 logger.error(f'Configuration backup target {outcome.position} failed', extra={'error_category': category})
             else:
                 logger.info(f'Configuration backup target {outcome.position} saved')
+            from orbitflow.terminal_progress import current_display
+            display = current_display.get()
+            if display is not None:
+                display.outcome(outcome.position, bool(category))
             status(f'[{outcome.position}/{len(targets)}]: ' + (f'failed ({category})' if category else 'saved'))
 
         try:

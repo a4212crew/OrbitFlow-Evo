@@ -634,3 +634,11 @@ requires its parent-initialization dependency. Planning preserves shutdown state
 This workflow is also available through `python -m orbitflow.menu`; see the [console manual](interactive-operations-console.md) for environment profile, target workbook selection, per-run concurrency, confirmation and output/recovery behavior. Direct CLI flags and service contracts remain supported. Default `orbitflow.toml` execution loading now prefers validated shared profile pacing when present; explicit alternate config files retain their semantics.
 
 Issue #123 console revision: The console can select all or a subset of loaded device rows for read-only planning. Predefined requests are retained for selected addresses; Manual CLI requests remain offline. Original workbook source digest and planner dependency/eligibility checks are preserved. Invalid configuration workbooks produce fixed guidance without exposing their contents. See the [console guide](interactive-operations-console.md).
+
+## Shared progress presentation (Issue #144)
+
+See [CLI progress and durable results](cli-progress.md) for interactive and redirected
+output, phase-specific counters, saved paths, partial/interrupted/export-failure
+semantics and the coverage table (including specialist/lifecycle exemptions).
+Device/workflow semantics and existing arguments are unchanged. Deterministic
+terminal fixtures are separate from pending owner-operated Linux/Windows validation.

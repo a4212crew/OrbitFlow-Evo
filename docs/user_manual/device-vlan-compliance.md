@@ -28,3 +28,11 @@ Produces an Excel workbook from retained data, without connecting to network dev
 This workflow is also available through `python -m orbitflow.menu`; see the [console manual](interactive-operations-console.md) for environment profile, target workbook selection, per-run concurrency, confirmation and output/recovery behavior. Direct CLI flags and service contracts remain supported. Default `orbitflow.toml` execution loading now prefers validated shared profile pacing when present; explicit alternate config files retain their semantics.
 
 Console target selection (Issue #123 revision): after choosing a device workbook, choose all (blank) or unique comma-separated nonempty device row numbers, counted from 1 after the header. Only selected rows are dispatched; concurrency is still prompted every run. See the [console guide](interactive-operations-console.md) for cancellation and fixed actionable failure diagnostics. Direct CLI input selection is unchanged.
+
+## Shared progress presentation (Issue #144)
+
+See [CLI progress and durable results](cli-progress.md) for interactive and redirected
+output, phase-specific counters, saved paths, partial/interrupted/export-failure
+semantics and the coverage table (including specialist/lifecycle exemptions).
+Device/workflow semantics and existing arguments are unchanged. Deterministic
+terminal fixtures are separate from pending owner-operated Linux/Windows validation.

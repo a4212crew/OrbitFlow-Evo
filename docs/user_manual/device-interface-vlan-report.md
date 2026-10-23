@@ -112,3 +112,11 @@ For live read-only validation, use the Linux or Windows collection command in
 Inspect the same fields and error records. This issue's automated fixtures are
 synthetic; owner spool recovery, Windows execution and live-device validation
 remain operator-controlled and are not claimed as performed.
+
+## Shared progress presentation (Issue #144)
+
+See [CLI progress and durable results](cli-progress.md) for interactive and redirected
+output, phase-specific counters, saved paths, partial/interrupted/export-failure
+semantics and the coverage table (including specialist/lifecycle exemptions).
+Device/workflow semantics and existing arguments are unchanged. Deterministic
+terminal fixtures are separate from pending owner-operated Linux/Windows validation.

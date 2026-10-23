@@ -1,5 +1,6 @@
 """Run read-only VLAN compliance or regenerate Excel from a retained result spool."""
 
+from orbitflow.terminal_progress import cli_progress
 import argparse
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from orbitflow.transport import TransportConfig
 from orbitflow.vlan_compliance import DEFAULT_POLICY, run_compliance
 
 
+@cli_progress('Compliance stages')
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)

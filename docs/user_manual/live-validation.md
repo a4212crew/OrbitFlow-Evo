@@ -141,3 +141,11 @@ or service counts, present/up for the two owner-confirmed SI 545 targets, and a
 synchronized clock reply. A down/missing service needs owner investigation;
 do not change the device to satisfy this check. For temporary-shell checks use
 fresh connections if the device permits only one shell per SSH connection.
+
+## Shared progress presentation (Issue #144)
+
+See [CLI progress and durable results](cli-progress.md) for interactive and redirected
+output, phase-specific counters, saved paths, partial/interrupted/export-failure
+semantics and the coverage table (including specialist/lifecycle exemptions).
+Device/workflow semantics and existing arguments are unchanged. Deterministic
+terminal fixtures are separate from pending owner-operated Linux/Windows validation.
