@@ -82,7 +82,10 @@ Owner revision checks: with a large lab workbook, select `all` and decline; veri
 
 ## Progress and evidence presentation (PR #124 UX revision)
 
-Each menu render has one blank separator. Issue #144 replaces the earlier compact-only console indicators with shared per-worker dashboard presentation for batch work. See [CLI progress and durable results](cli-progress.md) for representative TTY and redirected output, terminal/platform fallbacks, truthful phase counters and actual output/spool/log paths. Recorded collection completion and workbook export are separate phases. Offline preparation/analysis/export uses stage activity without an invented device denominator. Fast review, selection, environment and cancellation prompts retain their immediate output.
+Each menu render has one blank separator. Issue #144 replaces the earlier compact-only console indicators with shared per-worker dashboard presentation for batch work. See [CLI progress and durable results](cli-progress.md) for representative TTY and redirected output, terminal/platform fallbacks, truthful phase counters and actual output/spool/log paths. Recorded collection completion and workbook export are separate phases. The spool
+checkpoint owns the count by input position, preserving repeated target rows.
+Text notifications saying completed/failed only present worker stages; they cannot
+advance the count before persistence. Planning still observes distinct IPs once. Offline preparation/analysis/export uses stage activity without an invented device denominator. Fast review, selection, environment and cancellation prompts retain their immediate output.
 
 Execution still begins only after its existing explicit confirmation. Commands, raw evidence and arbitrary exceptions are omitted from dashboard events. Unknown/interrupted outcomes remain unknown; presentation never retries changes or replaces durable execution evidence. Detailed safety, workbook comparison and recovery contracts are unchanged.
 

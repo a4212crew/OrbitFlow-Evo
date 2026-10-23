@@ -28,7 +28,12 @@ input 4 (192.0.2.4) | normalize
 ```
 
 The counter advances once per recorded target outcome, after the spool checkpoint,
-including failed outcomes. Row, command and stage events never advance it. A shared
+including failed outcomes. Counts use committed input positions, so repeated IP
+rows remain distinct wherever the workflow processes separate input rows. Console
+observation notifications (including `completed` and `failed`) are presentation-only;
+a worker notification before a failed spool checkpoint cannot advance the count.
+Planning retains its existing one-observation-per-distinct-IP contract. Row, command
+and stage events never advance it. A shared
 runner without a spool reports **processing** returns; these alone do not establish
 collection success. Unknown counts represent outcomes that presentation cannot
 classify, and on interruption include missing outcomes. `active` means an owning
@@ -115,3 +120,30 @@ PYTHONPATH=src:. python -m pytest tests/test_workflow_progress.py tests/test_ter
 On PowerShell with the repository environment installed, use `python -m pytest`
 with the same test paths. Simulated terminal/platform tests do not constitute live
 PowerShell/Linux terminal or network validation.
+
+Issue #144 counter-revision operator checks (pending; no device testing by Codex):
+run the deterministic suite first, then launch the menu to inspect local/offline
+stages and cancellation. Linux:
+
+```bash
+export PYTHONPATH="$PWD/src:."
+python -m pytest tests/test_operations_console.py tests/test_workflow_progress.py -q
+python -m orbitflow.menu
+printf '8\n' | python -m orbitflow.menu > menu-progress.txt
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = "$PWD/src;."
+python -m pytest tests/test_operations_console.py tests/test_workflow_progress.py -q
+python -m orbitflow.menu
+'8' | python -m orbitflow.menu > menu-progress.txt
+```
+
+The redirected exit command checks clean menu output without starting any network
+operation. Live counter checks require separate operator authorization: use the
+same read-only fixture workbook with repeated target rows for direct CLI and menu,
+compare recorded counts with spool input positions (or backup records), include a
+failed target, and confirm collection and export remain distinct. Planning observes
+one target per distinct IP by design. Do not replay interrupted configuration work.

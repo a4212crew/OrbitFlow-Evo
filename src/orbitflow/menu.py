@@ -77,18 +77,19 @@ class Console:
                     location('Log', path)
 
     def observation_progress(self, ips, display):
-        """Only persisted outcome events advance observation progress."""
-        completed = set()
+        """Render stages only; ResultSpool checkpoints own positional counts.
+
+        Targets may repeat an IP. Neither identity nor worker status text is
+        evidence of a committed result; the active display receives that from
+        the shared persistence owner.
+        """
         def subscriber(message):
-            address, _, tail = message.partition(': ')
+            tail = message.partition(': ')[2]
             from orbitflow.terminal_progress import worker_stage
             stage = tail.split(';', 1)[0]
             stage = {'interface collection': 'interface', 'VLAN/config collection': 'vlan',
                      'audit/snapshot': 'evaluate'}.get(stage, stage)
             worker_stage(stage)
-            if address in ips and tail.split(';', 1)[0] in {'completed', 'failed'}:
-                completed.add(address)
-                display.update(len(completed), len(ips))
         return subscriber
 
     def choose_plan(self, directory):

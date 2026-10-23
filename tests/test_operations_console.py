@@ -487,6 +487,12 @@ def test_real_planner_subset(settings, monkeypatch):
         captured.append((list(requests), credentials))
         kwargs['progress']('192.0.2.2: connect; identity=private')
         kwargs['progress']('192.0.2.2: completed; identity=private')
+        from orbitflow.execution import DeviceOutcome
+        from orbitflow.result_spool import ResultSpool
+        spool = ResultSpool.create('runs', 'configuration_observation_v2', 1)
+        with spool.collection():
+            spool.append(DeviceOutcome(1), target='192.0.2.2', payload={})
+        return spool
     monkeypatch.setattr(observation, 'collect', collect)
     monkeypatch.setattr(observation, 'bounded_observations', lambda spool: {})
     ui, output = console(['1', 'subset.xlsx', '', '2', '', 'y'], session_check=lambda _: None)
@@ -616,20 +622,72 @@ def test_mac_list_concurrency_and_subset(settings, monkeypatch):
     assert kwargs['execution_config'].max_concurrent_devices == 5
 
 
-def test_observation_progress_counts_persisted_and_hides_event_text():
+@pytest.mark.parametrize('workers', [1, 3])
+@pytest.mark.parametrize('boundary', ['menu', 'cli'])
+def test_observation_progress_counts_committed_positions(tmp_path, workers, boundary, capsys):
+    from orbitflow.execution import execute_devices
+    from orbitflow.result_spool import ResultSpool
+    from threading import Event
+
     ui, output = console([])
-    from orbitflow.terminal_progress import TerminalProgress
-    display = TerminalProgress('Processing', write=output.append, total=2)
-    callback = ui.observation_progress({'192.0.2.1', '2001:db8::1'}, display)
-    callback('192.0.2.1: connect; identity=secret')
-    assert display.done == 0
-    callback('192.0.2.1: completed; identity=secret')
-    callback('192.0.2.1: completed; identity=secret')
-    assert display.done == 1
-    callback('2001:db8::1: failed; identity=secret (SecretError)')
-    display.finish(True)
-    assert '100% (2/2)' in output[-1]
+    targets = ['192.0.2.1', '192.0.2.1', '2001:db8::1']
+    spool = ResultSpool.create(tmp_path / 'runs', 'console_test', len(targets))
+    released = Event()
+    committed = []
+    from orbitflow.terminal_progress import workflow_progress
+    activity = (ui.activity('Processing', len(targets)) if boundary == 'menu' else
+                workflow_progress('Processing', total=len(targets)))
+    with activity as display:
+        callback = ui.observation_progress(targets, display)
+        def worker(target):
+            from orbitflow.terminal_progress import current_position
+            position = current_position.get()
+            if workers > 1 and position == 1:
+                assert released.wait(5)
+            callback(target + ': completed; identity=secret')
+            callback(target + ': failed; identity=secret (SecretError)')
+            if position == 2:
+                raise ValueError('secret')
+        def record(outcome):
+            before = display.done
+            assert before == len(committed)
+            spool.append(outcome, target=targets[outcome.position - 1], payload={})
+            committed.append(outcome.position)
+            assert display.done == len(committed)
+            released.set()
+        with spool.collection():
+            execute_devices(targets, worker, config=ExecutionConfig(workers), on_outcome=record)
+        assert display.done == spool.manifest['completed_count'] == 3
+        assert display.success == 2 and display.failure == 1
+    records = list(spool.records())
+    assert [r['input_position'] for r in records] == [1, 2, 3]
+    assert sum(r['status'] == 'failed' for r in records) == spool.manifest['failed_count'] == display.failure
+    output.append(capsys.readouterr().out)
+    if workers > 1:
+        assert committed[0] != 1
     assert not any('secret' in line or 'SecretError' in line for line in output)
+
+
+def test_observation_completed_stage_before_uncommitted_sink(tmp_path, monkeypatch):
+    from orbitflow.execution import execute_devices
+    from orbitflow.result_spool import ResultSpool
+
+    ui, output = console([])
+    spool = ResultSpool.create(tmp_path / 'runs', 'console_test', 2)
+    with pytest.raises(OSError), ui.activity('Processing', 2) as display:
+        callback = ui.observation_progress(['192.0.2.1'] * 2, display)
+        with spool.collection():
+            def worker(target):
+                callback(target + ': completed; identity=secret')
+                assert display.done == 0
+            def failed_checkpoint(state):
+                raise OSError('secret')
+            monkeypatch.setattr(spool, '_state', failed_checkpoint)
+            execute_devices(['192.0.2.1'], worker, config=ExecutionConfig(1),
+                            on_outcome=lambda outcome: spool.append(outcome, payload={}))
+    assert display.done == 0  # No notification for a failed checkpoint.
+    assert display.completed_positions == set()
+    assert not any('secret' in line for line in output)
 
 
 def test_activity_failure_never_claims_finished():
