@@ -394,7 +394,7 @@ def test_full_vlan_range_is_not_truncated_by_log_sanitizer(tmp_path):
     path = tmp_path / 'full-range.xlsx'
     reporting.write_workbook(path, rows, [], [])
     workbook = load_workbook(path)
-    assert workbook['Interfaces']['K2'].value == ', '.join(map(str, range(1, 4095)))
+    assert workbook['Interfaces']['K2'].value == '1-4094'
     workbook.close()
 
 
@@ -600,3 +600,196 @@ def test_report_spool_retry_without_connections(tmp_path, monkeypatch, explicit_
     assert sum(1 for _ in book['Interfaces'].values) == 2
     book.close()
     assert not spool.exists()
+
+
+def expand_report_ids(value):
+    """Independent decoder for the documented inclusive numeric report syntax."""
+    result = []
+    for token in value.split(', '):
+        if '-' in token:
+            first, last = map(int, token.split('-'))
+            result.extend(map(str, range(first, last + 1)))
+        else:
+            result.append(token)
+    return tuple(result)
+
+
+def expand_report_mappings(value):
+    result = []
+    for token in value.split('; '):
+        if token.startswith('identity(') and token.endswith(')'):
+            result.extend(f'{v} -> {v}' for v in expand_report_ids(token[9:-1]))
+        else:
+            result.append(token)
+    return tuple(result)
+
+
+def full_range_observation():
+    return parse_ios_running_config('''interface GigabitEthernet1/0/40
+ switchport mode trunk
+ switchport trunk allowed vlan 2-4094
+ switchport trunk native vlan 445
+!''')[0][0]
+
+
+def legacy_full_range_row():
+    observation = full_range_observation()
+    rows, _ = reporting.build_rows(context(), [interface('Gi1/0/40')], state(observation))
+    row = rows[0]
+    row[10] = ', '.join(map(str, observation.tagged_vlans))
+    row[11] = ', '.join(observation.bridge_domains)
+    row[12] = '; '.join(observation.service_mappings)
+    assert len(row[12]) > 32767
+    return row
+
+
+def test_ios_full_range_native_trunk_lossless_workbook(tmp_path):
+    observation = full_range_observation()
+    before = replace(observation)
+    rows, objects = reporting.build_rows(context(), [interface('Gi1/0/40')], state(observation))
+    path = tmp_path / 'full-native.xlsx'
+    reporting.write_workbook(path, rows, objects, [])
+    book = load_workbook(path)
+    try:
+        row = list(book['Interfaces'].values)[1]
+        assert row[9] == '445'
+        assert row[10] == '2-4094'
+        assert row[11] == '445, 2-444, 446-4094'
+        assert row[12] == 'untagged -> 445; identity(2-4094)'
+        assert expand_report_ids(row[10]) == tuple(map(str, observation.tagged_vlans))
+        assert expand_report_ids(row[11]) == observation.bridge_domains
+        assert expand_report_mappings(row[12]) == observation.service_mappings
+        assert observation == before
+        assert all(len(str(cell.value or '')) <= 32767 for sheet in book for cells in sheet for cell in cells)
+    finally:
+        book.close()
+
+
+def test_mixed_mapping_ranges_reconstruct_exact_order_and_duplicates(tmp_path):
+    mappings = ('untagged -> 445', '2 -> 2', '3 -> 3', '4 -> 4',
+                '5 -> 900', '6 -> 6', '7 -> 7', '8 -> 8', '8 -> 8',
+                '10-12 -> 10-12', '10,11 -> named', 'ALL -> ALL',
+                '010 -> 010', '4095 -> 4095', '9 -> routed')
+    domains = ('445', '2', '3', '4', '900', '6', '7', '8', '8')
+    tags = (8, 2, 3, 4, 4, 1, 9)
+    rows, _ = reporting.build_rows(context(), [interface()], state(
+        InterfaceVlanObservation('Gi0/1', tagged_vlans=tags,
+                                 bridge_domains=domains, service_mappings=mappings)))
+    assert expand_report_ids(rows[0][10]) == tuple(map(str, tags))
+    assert expand_report_ids(rows[0][11]) == domains
+    assert expand_report_mappings(rows[0][12]) == mappings
+    assert '10-12 -> 10-12' in rows[0][12]
+    path = tmp_path / 'mixed.xlsx'
+    reporting.write_workbook(path, rows, [], [])
+    book = load_workbook(path)
+    assert list(book['Interfaces'].values)[1][12] == rows[0][12]  # idempotent
+    book.close()
+
+
+@pytest.mark.parametrize('length', [32767, 32768, 70000])
+def test_long_report_text_is_literal_or_fails_atomically_with_location(tmp_path, length):
+    path = tmp_path / 'long.xlsx'
+    path.write_bytes(b'existing destination')
+    rows, _ = reporting.build_rows(context(), [interface(description='x' * length)], state())
+    if length > 32767:
+        with pytest.raises(ValueError, match=r'sheet=Interfaces, row=2, column=F, characters=') as error:
+            reporting.write_workbook(path, rows, [], [])
+        assert 'x' * 30 not in str(error.value)
+        assert path.read_bytes() == b'existing destination'
+        assert not path.with_name(path.name + '.tmp').exists()
+    else:
+        reporting.write_workbook(path, rows, [], [])
+        book = load_workbook(path)
+        assert book['Interfaces']['F2'].value == 'x' * length
+        book.close()
+
+
+def test_legacy_699_outcomes_offline_retry_preserves_seven_failures(tmp_path, monkeypatch):
+    from orbitflow.execution import DeviceOutcome
+    from orbitflow.result_spool import ResultSpool
+
+    monkeypatch.setattr(reporting, 'connect_device', Mock(side_effect=AssertionError('offline only')))
+    spool = ResultSpool.create(tmp_path / 'runs', 'interface_vlan_report', 699)
+    legacy = legacy_full_range_row()
+    with spool.collection():
+        for position in range(1, 700):
+            ip = f'target-{position}'
+            row = [*legacy]
+            row[1] = ip
+            failed = position <= 7
+            errors = [[ip, '', 'connect', 'TimeoutError', NOW.isoformat()]] if failed else []
+            payload = [[], [], errors] if failed else [[row], [], []]
+            spool.append(DeviceOutcome(position), payload=payload, target=ip, failed=failed)
+    source = (spool.path / 'results.jsonl').read_bytes()
+    # A remaining noncompactable field must retain the spool and existing output.
+    original = reporting.write_workbook
+    def oversized(path, interfaces, database, errors):
+        def long_rows():
+            for row in interfaces:
+                row[5] = 'z' * 32768
+                yield row
+        return original(path, long_rows(), database, errors)
+    monkeypatch.setattr(reporting, 'write_workbook', oversized)
+    path = tmp_path / 'recovered.xlsx'
+    path.write_bytes(b'previous report')
+    with pytest.raises(ValueError, match='column=F'):
+        reporting.export_report_spool(spool.path, path)
+    assert path.read_bytes() == b'previous report'
+    assert ResultSpool(spool.path).manifest['status'] == 'output_failed'
+    monkeypatch.setattr(reporting, 'write_workbook', original)
+    reporting.export_report_spool(spool.path, path, cleanup=False)
+    assert (spool.path / 'results.jsonl').read_bytes() == source
+    manifest = ResultSpool(spool.path).manifest
+    assert manifest['completed_count'] == 699
+    book = load_workbook(path, read_only=True)
+    try:
+        assert book.sheetnames == ['Interfaces', 'VLAN_Database', 'Run_Errors']
+        records = list(book['Interfaces'].values)[1:]
+        assert len(records) == 692
+        assert {row[1] for row in records} == {f'target-{p}' for p in range(8, 700)}
+        assert all(row[12] == 'untagged -> 445; identity(2-4094)' for row in records)
+        errors = list(book['Run_Errors'].values)[1:]
+        assert len(errors) == 7
+        assert {row[0] for row in errors} == {f'target-{p}' for p in range(1, 8)}
+        assert all(row[2:4] == ('connect', 'TimeoutError') for row in errors)
+    finally:
+        book.close()
+    reporting.export_report_spool(spool.path, path)
+    assert not spool.path.exists()
+    reporting.connect_device.assert_not_called()
+
+
+@pytest.mark.parametrize('platform', ['cisco_xr', 'cisco_xe', 'huawei_vrp', 'ubiquiti_edgeswitch'])
+def test_report_keeps_cross_vendor_service_relationships_literal(tmp_path, platform):
+    observation = InterfaceVlanObservation('Gi0/1', port_type='service',
+        untagged_vlan='CUSTOMER', tagged_vlans=(100, 200),
+        bridge_domains=('BG/DOMAIN', '100-200', '100', '101', '102'),
+        service_mappings=('untagged -> CUSTOMER', '100 -> BG/DOMAIN',
+                          '200 inner 900 -> 100-200'))
+    rows, _ = reporting.build_rows(context(platform=platform), [interface()], state(observation))
+    path = tmp_path / f'{platform}.xlsx'
+    reporting.write_workbook(path, rows, [], [])
+    book = load_workbook(path)
+    try:
+        row = list(book['Interfaces'].values)[1]
+        assert row[9:13] == ('CUSTOMER', '100, 200', ', '.join(observation.bridge_domains),
+                             '; '.join(observation.service_mappings))
+    finally:
+        book.close()
+
+
+def test_oversized_unsupported_mappings_fail_without_suppressing_evidence(tmp_path):
+    mappings = tuple(f'{v} -> domain-{v}' for v in range(2, 4095))
+    rows, _ = reporting.build_rows(context(), [interface()], state(
+        InterfaceVlanObservation('Gi0/1', service_mappings=mappings)))
+    assert rows[0][12] == '; '.join(mappings)
+    with pytest.raises(ValueError, match='column=M'):
+        reporting.write_workbook(tmp_path / 'unsupported.xlsx', rows, [], [])
+    assert not (tmp_path / 'unsupported.xlsx').exists()
+
+
+def test_oversized_numeric_domain_is_opaque_and_fails_with_location(tmp_path):
+    rows, _ = reporting.build_rows(context(), [interface()], state(
+        InterfaceVlanObservation('Gi0/1', bridge_domains=('9' * 40000,))))
+    with pytest.raises(ValueError, match='column=L'):
+        reporting.write_workbook(tmp_path / 'domain.xlsx', rows, [], [])
