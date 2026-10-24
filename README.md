@@ -805,3 +805,11 @@ sections close, the final `exit` closes `configure`; no additional outer exit
 is required. Missing final exit remains Unknown even with a returned prompt.
 Only physical interface `addport` bindings determine members. Owner mini-live
 EdgeSwitch validation, followed by NCS540 validation, remains pending.
+
+Issue #147 / PR #148 aggregate VLAN join correction: EdgeSwitch `lag N`
+configuration now joins observed `3/N` report rows using the shared device-local
+canonical key. Display/evidence headings and physical-port VLAN facts are
+preserved; duplicate canonical observations fail explicitly per device.
+See the [reporting manual](docs/user_manual/device-interface-vlan-report.md#edgeswitch-aggregate-vlan-join-correction-issue-147--pr-148)
+for automated and owner read-only validation commands. Live validation is pending;
+the separately observed 1.9.2-lite paging timeout is not parser validation.

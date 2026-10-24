@@ -64,11 +64,7 @@ class AggregationSnapshot:
 
 
 def identity(platform, name):
-    if platform == 'ubiquiti_edgeswitch':
-        match = re.fullmatch(r'lag\s+(\d+)', name.strip(), re.I)
-        if match:
-            return '3/' + str(int(match[1]))
-    return canonical_interface_name(platform, name)
+    return canonical_interface_name(platform, name, normalize_aggregation=True)
 
 
 def parent_name(platform, number):

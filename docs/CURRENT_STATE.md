@@ -995,3 +995,22 @@ remain preserved; legacy VLAN/audit/planning/execution behavior is unchanged.
 Synthetic regressions cover populated 3/1 with repeated 0/49 and 0/51 stanzas,
 six empty parents, truncation, missing section/final exits and extra exits.
 Owner EdgeSwitch mini-live validation, followed by NCS540, remains pending.
+
+### Issue #147 / PR #148: EdgeSwitch aggregate VLAN report join correction
+
+Shared vendor-aware interface canonicalization maps `lag N` and logical `3/N`
+to one device-local key across reporting and aggregation. Existing VlanService
+forwarding facts now reach the observed aggregate row; display/source headings,
+physical-port facts, row/sheet structure and legacy audit/planning/execution
+semantics remain intact. Duplicate canonical report keys raise a safe per-device
+normalization error instead of silently replacing facts. Synthetic coverage
+includes excluded-only/no-active observations, source evidence, spool/workbook
+export and other vendor aggregate joins. Owner live validation is pending;
+EdgeSwitch 1.9.2-lite paging timeouts are a separate collection limitation.
+
+The aggregate-alias option is explicitly enabled by reporting and aggregation
+only. Existing two-argument canonical-name consumers retain their keys, including
+legacy audit/planning and MAC attachment resolution; their implementation is
+unchanged.
+Automated validation of the final correction: full deterministic suite,
+3,214 passed (246.33s); owner live validation remains pending.

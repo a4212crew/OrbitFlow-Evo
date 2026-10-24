@@ -5,10 +5,20 @@ import re
 from orbitflow.vendors.huawei.interfaces import _canonical_interface_name
 
 
-def canonical_interface_name(platform: str, name: str) -> str:
+def canonical_interface_name(platform: str, name: str, *, normalize_aggregation=False) -> str:
+    """Return a device-local join key, preserving callers' source/display names.
+
+    With normalize_aggregation=True, EdgeSwitch configuration ``lag N`` and
+    observed logical port ``3/N`` identify the same aggregate; physical ``0/N``
+    ports remain distinct. The default preserves legacy audit/planning keys.
+    """
     if platform == "huawei_vrp":
         return _canonical_interface_name(name.strip())
     key = name.strip().casefold()
+    if normalize_aggregation and platform == "ubiquiti_edgeswitch":
+        match = re.fullmatch(r"(?:lag\s+|3/)(\d+)", key)
+        if match:
+            return "3/" + str(int(match[1]))
     if platform in {"cisco_ios", "cisco_xe", "cisco_xr"}:
         match = re.fullmatch(r"([a-z-]+)\s*(\d.*)", key)
         if match:

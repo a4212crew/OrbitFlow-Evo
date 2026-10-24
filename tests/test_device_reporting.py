@@ -794,3 +794,119 @@ def test_oversized_numeric_domain_is_opaque_and_fails_with_location(tmp_path):
         InterfaceVlanObservation('Gi0/1', bridge_domains=('9' * 40000,))))
     with pytest.raises(ValueError, match='column=O'):
         reporting.write_workbook(tmp_path / 'domain.xlsx', rows, [], [])
+
+@pytest.mark.parametrize('body,expected', [
+    ('vlan pvid 100\nvlan participation include 100,200\nvlan tagging 200',
+     ['hybrid', '100', '200', '100, 200', 'untagged -> 100; 200 -> 200']),
+    ('vlan participation exclude 100,200', ['access', '', '', '', '']),
+    ('vlan pvid 100\nvlan participation include 100\nvlan participation exclude 100\nvlan tagging 100',
+     ['access', '', '', '', '']),
+    ('description no forwarding observation', ['', '', '', '', '']),
+])
+def test_edgeswitch_aggregate_vlan_join_full_spool(tmp_path, body, expected):
+    from dataclasses import asdict
+    from orbitflow.vendors.ubiquiti.interfaces import _HEADERS, parse_interfaces_status
+    from orbitflow.vendors.aggregation import parse_aggregation, identity
+    from orbitflow.execution import DeviceOutcome
+    from orbitflow.result_spool import ResultSpool
+    ctx = replace(context(platform='ubiquiti_edgeswitch'), device_family='EdgeSwitch')
+    config = ('interface lag 1\n' + body + '\nexit\n'
+              'interface lag 2\nvlan pvid 300\nvlan participation include 300\nexit\n'
+              'interface 0/1\naddport 3/1\nvlan pvid 400\nvlan participation include 400\nexit\n'
+              'interface lag 6\nvlan participation include 600\nexit\n')
+    observed = parse_interfaces_status('\n'.join(_HEADERS[0]) + '\n' + '\n'.join(
+        f'{name:<11}{"":28}  Down' for name in ('0/1', '3/1', '3/2')))
+    records = [replace(interface(x.port_name), platform=ctx.platform) for x in observed]
+    observations, objects = parse_edgeswitch_config(config)
+    snapshot = parse_aggregation(config, ctx, observed=[x.port_name for x in records])
+    assert identity(ctx.platform, 'lag 01') == canonical_interface_name(ctx.platform, '3/1')
+    rows, database = reporting.build_rows(ctx, records, replace(state(*observations, objects=objects), platform=ctx.platform), snapshot)
+    by_name = {row[4]: row for row in rows}
+    assert set(by_name) == {'0/1', '3/1', '3/2'}
+    assert by_name['3/1'][11:16] == expected
+    assert by_name['3/2'][11:16] == ['access', '300', '', '300', 'untagged -> 300']
+    assert by_name['0/1'][11:16] == ['access', '400', '', '400', 'untagged -> 400']
+    assert by_name['0/1'][7] == 'lag 1'
+    assert 'interface lag 1' in dict(snapshot.evidence)['3/1']
+    spool = ResultSpool.create(tmp_path / 'runs', 'interface_vlan_report', 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload=[rows, database, [], asdict(snapshot)], target=ctx.management_ip)
+    path = reporting.export_report_spool(spool.path, tmp_path / 'report.xlsx')
+    workbook = load_workbook(path)
+    try:
+        assert workbook.sheetnames == ['Interfaces', 'VLAN_Database', 'Run_Errors']
+        exported = {row[4]: row for row in workbook['Interfaces'].iter_rows(min_row=2, values_only=True)}
+        assert [x or '' for x in exported['3/1'][11:16]] == expected
+        assert workbook['Interfaces'].max_row == 4
+        assert any('interface lag 1' in cell.comment.text for row in workbook['Interfaces'] for cell in row if cell.comment)
+    finally:
+        workbook.close()
+
+
+@pytest.mark.parametrize('duplicate', ['interfaces', 'vlans'])
+def test_report_rejects_duplicate_canonical_edgeswitch_keys(duplicate):
+    ctx = context(platform='ubiquiti_edgeswitch')
+    records = [interface('3/1')]
+    observations = [InterfaceVlanObservation('lag 1', port_type='access')]
+    if duplicate == 'interfaces':
+        records.append(interface('lag 01'))
+    else:
+        observations.append(InterfaceVlanObservation('3/1', port_type='trunk'))
+    with pytest.raises(ValueError, match='Duplicate canonical report identity'):
+        reporting.build_rows(ctx, records, state(*observations))
+
+
+
+@pytest.mark.parametrize('platform,heading,display,body,terminator,options,expected', [
+    ('cisco_ios', 'Port-channel1', 'Po1', 'switchport mode trunk\nswitchport trunk allowed vlan 100', '!', {}, ['trunk', '', '100', '100', '100 -> 100']),
+    ('cisco_xe', 'Port-channel1', 'Po1', 'service instance 1 ethernet\n encapsulation dot1q 100\n bridge-domain 500\n exit', '!', {'evc': True}, ['evc', '', '100', '500', '100 -> 500']),
+    ('huawei_vrp', 'Eth-Trunk1', 'Eth-Trunk1', 'port link-type trunk\nport trunk allow-pass vlan 100', '#', {}, ['trunk', '', '100', '100', '100 -> 100']),
+    ('cisco_xr', 'Bundle-Ether1.100 l2transport', 'BE1.100', 'encapsulation dot1q 100', '!', {}, ['service', '', '100', '', '']),
+    ('cisco_xr', 'Bundle-Ether1', 'BE1', 'ipv4 address 192.0.2.1 255.255.255.0', '!', {}, ['routed', '', '', '', '']),
+])
+def test_aggregate_vendor_vlan_join_regression(platform, heading, display, body, terminator, options, expected):
+    from orbitflow.vendors.cisco.vlans import parse_ios_xr_running_config
+    parser = (parse_huawei_config if platform == 'huawei_vrp' else
+              parse_ios_xr_running_config if platform == 'cisco_xr' else parse_ios_running_config)
+    body = '\n'.join(' ' + line for line in body.splitlines())
+    observations, objects = parser(f'interface {heading}\n{body}\n{terminator}\n', **options)
+    rows, _ = reporting.build_rows(context(platform=platform), [interface(display)], state(*observations, objects=objects))
+    assert len(rows) == 1
+    assert rows[0][4] == display
+    assert rows[0][11:16] == expected
+
+
+
+
+def test_duplicate_report_identity_isolated_to_one_device(tmp_path, monkeypatch):
+    install_fakes(monkeypatch)
+    def collect(session, ctx, *, cli):
+        observations = [InterfaceVlanObservation('Gi0/1', port_type='access')]
+        if ctx.management_ip == '192.0.2.1':
+            observations.append(InterfaceVlanObservation('GigabitEthernet0/1', port_type='trunk'))
+        return state(*observations)
+    monkeypatch.setattr(reporting, 'VlanService', Mock(return_value=Mock(collect=collect)))
+    targets = [{'management_ip': f'192.0.2.{i}', 'username': 'synthetic-user',
+                'password': 'synthetic-password'} for i in (1, 2)]
+    path = reporting.run_report(targets, CONFIG, reports_dir=tmp_path,
+                                log_root=tmp_path / 'logs', output=StringIO())
+    workbook = load_workbook(path, read_only=True)
+    try:
+        rows = list(workbook['Interfaces'].values)
+        assert len(rows) == 2
+        assert rows[1][1] == '192.0.2.2'
+        errors = list(workbook['Run_Errors'].values)
+        assert len(errors) == 2
+        assert errors[1][0] == '192.0.2.1'
+        assert errors[1][2:4] == ('normalize', 'ValueError')
+    finally:
+        workbook.close()
+
+
+def test_edgeswitch_shared_join_key_preserves_legacy_consumers():
+    for number in (1, 2, 6):
+        for heading in (f'lag {number}', f'LAG 0{number}', f'3/0{number}'):
+            assert canonical_interface_name('ubiquiti_edgeswitch', heading, normalize_aggregation=True) == f'3/{number}'
+        assert canonical_interface_name('ubiquiti_edgeswitch', f'lag {number}') == f'lag {number}'
+        assert canonical_interface_name('ubiquiti_edgeswitch', f'0/{number}', normalize_aggregation=True) == f'0/{number}'
+        assert canonical_interface_name('cisco_ios', f'lag {number}', normalize_aggregation=True) == f'lag{number}'

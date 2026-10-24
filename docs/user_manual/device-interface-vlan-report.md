@@ -414,3 +414,68 @@ same environment. Linux: `PYTHONPATH=src python -m pytest -q` (full) or
 `PYTHONPATH=src python -m pytest -q tests/test_aggregation.py` (focused).
 These results supersede earlier intermediate automated totals, not the pending
 owner live acceptance requirement.
+
+## EdgeSwitch aggregate VLAN join correction (Issue #147 / PR #148)
+
+The device-scoped canonical join now maps configuration `lag N` to observed
+logical `3/N` consistently with AggregationSnapshot. Interface display names and
+exact configuration headings in LAG Member/evidence remain unchanged. The five
+forwarding columns come only from VlanService: actual PVID, participation and
+tagging facts. No values are inherited from physical members or copied to
+children; unobserved configuration interfaces do not create rows. Existing
+excluded-only/empty and absent observations remain distinct capability states.
+Physical `0/N` and other aggregate numbers remain separate. No commands changed.
+
+`canonical_interface_name(platform, name, *, normalize_aggregation=False)` returns
+this vendor-aware join key when `normalize_aggregation=True`, as used by reporting
+and AggregationSnapshot. The default retains legacy audit/planning/MAC keys;
+other vendor alias rules are unchanged. `build_rows` raises a sanitized
+`ValueError` for duplicate canonical InterfaceService or VLAN observation keys,
+even when duplicates agree, rather than selecting one silently. In batch reports
+this becomes a per-device `normalize` error; the affected device contributes no
+normalized rows, and other devices continue. Workbook schemas and legacy
+14-column spool recovery are unchanged. Existing balanced repeated aggregation
+evidence stanzas retain their separate, existing handling.
+
+Automated commands (from repository root):
+
+```bash
+PYTHONPATH=src python -m pytest -q tests/test_device_reporting.py tests/test_aggregation.py tests/test_vlan_capability.py tests/test_result_spool.py
+PYTHONPATH=src python -m pytest -q
+```
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m pytest -q tests/test_device_reporting.py tests/test_aggregation.py tests/test_vlan_capability.py tests/test_result_spool.py
+python -m pytest -q
+```
+
+Owner read-only mini-validation remains pending. Use a local approved target
+workbook with one or two EdgeSwitch devices with known aggregate VLAN settings,
+and optionally one safely unreachable target. After owner-controlled Teleport
+authentication, run (replace example routing locally):
+
+```bash
+PYTHONPATH=src python scripts/device_interface_vlan_report.py outputs/edgeswitch-validation.xlsx --proxy teleport.example.net:443 --cluster example-cluster --bastion-host example-bastion --bastion-user example-user --teleport-key-path "$TELEPORT_KEY_PATH" --teleport-cert-path "$TELEPORT_CERT_PATH"
+```
+
+```powershell
+$env:PYTHONPATH = 'src'
+python .\scripts\device_interface_vlan_report.py .\outputs\edgeswitch-validation.xlsx --proxy teleport.example.net:443 --cluster example-cluster --bastion-host example-bastion --bastion-user example-user
+```
+
+Expect exactly one existing `3/N` row per observed logical port. Compare Port
+Type, Untagged VLAN, Tagged VLANs, Bridge Domains and Service Mappings against
+that aggregate's own PVID/participation/tagging configuration. Check excluded-only
+and configured-empty cases separately from missing observations, unchanged
+physical ports/VLAN database, exact `lag N` evidence headings, and Run_Errors.
+Console Interface & VLAN Reporting uses this same path. Do not publish raw
+configurations or credentials. A paging timeout on EdgeSwitch 1.9.2-lite is a
+separate collection limitation: a failed collection does not validate this join.
+No live devices were contacted during implementation.
+
+Final automated validation for this correction: PowerShell
+`$env:PYTHONPATH = 'src'` then `python -m pytest -q` completed with
+**3,214 passed in 246.33s**. Linux equivalent: `PYTHONPATH=src python -m pytest -q`.
+This includes legacy audit/planning/MAC and reporting/spool recovery regressions.
+Owner live acceptance remains pending.

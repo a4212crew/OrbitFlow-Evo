@@ -39,12 +39,21 @@ def build_rows(context, interfaces, vlans, aggregation=None):
     ``b -> b``; it never denotes a cross product. Capability data is unchanged.
     Optional normalized aggregation supplies three LAG fields after Interface;
     only actual InterfaceService rows are emitted.
+    Duplicate canonical interface or VLAN keys raise ValueError without source
+    contents; run_report isolates this as a per-device normalization failure.
     """
-    key = lambda name: canonical_interface_name(context.platform, name)
-    records = {key(record.port_name): record for record in interfaces}
-    observations = {} if vlans is None else {
-        key(item.interface_name): item for item in vlans.interfaces
-    }
+    key = lambda name: canonical_interface_name(context.platform, name, normalize_aggregation=True)
+    def unique(items, attribute):
+        result = {}
+        for item in items:
+            name = key(getattr(item, attribute))
+            if name in result:
+                raise ValueError("Duplicate canonical report identity")
+            result[name] = item
+        return result
+
+    records = unique(interfaces, "port_name")
+    observations = unique(vlans.interfaces, "interface_name") if vlans else {}
     rows = []
     identity = [context.hostname, context.management_ip, context.platform]
     for name, record in sorted(records.items()):
