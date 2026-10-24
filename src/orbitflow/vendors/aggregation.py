@@ -35,15 +35,20 @@ class AggregationSnapshot:
     problems: tuple[str, ...]
     device_family: str = ""
     configuration_command: str = ""
+    configuration_names: tuple[tuple[str, str], ...] = ()
+
+    def display_name(self, key):
+        """Return an actual source heading, or an explicitly qualified fallback."""
+        return dict(self.configuration_names).get(key, f'{key} [canonical fallback: configuration heading unavailable]')
 
     def fields(self, name):
         key = identity(self.platform, name)
         if key in self.parents:
             members = sorted(child for child, parent in self.bindings if parent == key)
-            return ['Yes', 'Parent', ', '.join(members) if self.complete else 'Unknown']
+            return ['Yes', 'Parent', ', '.join(self.display_name(m) for m in members) if self.complete else 'Unknown']
         for child, parent in self.bindings:
             if child == key:
-                return ['Yes', 'Child', parent]
+                return ['Yes', 'Child', self.display_name(parent)]
         return ['', '', '']
 
     def references(self, name):
@@ -76,6 +81,12 @@ def is_parent(platform, name):
                              'ubiquiti_edgeswitch': r'3/\d+'}.get(platform, r'port-channel\d+'), name, re.I))
 
 
+def _edge_context(text):
+    """Recognized FASTPATH block openers; unknown blocks remain incomplete."""
+    return bool(re.fullmatch(r'(?:interface .+|vlan database|line (?:console|telnet|ssh)(?: .+)?|'
+                             r'(?:ip|ipv6) access-list .+|policy-map .+|class .+)', text))
+
+
 def parse_aggregation(output, context, observed=(), *, collection_time='', complete=None):
     """Parse complete interface stanzas, never operational state or descriptions.
 
@@ -84,7 +95,10 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
     retain affirmative bindings but cannot prove any parent empty. Empty/rejected
     commands raise safe ValueError subclasses; shape/closure issues are fixed
     problem labels in the returned snapshot, never raw output.
-    Duplicate/contradictory bindings are reported and excluded rather than guessed.
+    Compatible repeated stanzas retain original headers under one canonical key.
+    Display names select the lexicographically smallest actual heading; bindings
+    and evidence references remain canonical. Contradictory bindings are reported
+    and excluded rather than guessed.
     """
     platform = context.platform
     edge = platform == 'ubiquiti_edgeswitch'
@@ -98,7 +112,7 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
                 text = line.strip()
                 if text == 'configure' and depth == 0 and not opened:
                     depth, opened = 1, True
-                elif opened and (text.startswith('interface ') or text == 'vlan database'):
+                elif opened and not closed and _edge_context(text):
                     depth += 1
                 elif opened and text == 'exit':
                     depth -= 1
@@ -116,13 +130,12 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
     if re.search(r'(?im)^\s*(?:%.*(?:Invalid|Error|Unknown)|Error:|Invalid command|Command not found)', output):
         raise AggregationConfigurationRejected('aggregation configuration rejected')
     stanzas = {}
+    source_names = {}
     current, lines = None, []
+    nested = 0
     def finish():
         nonlocal current, lines, complete
         if current is not None:
-            if current in stanzas:
-                problems.append('duplicate interface stanza')
-                complete = False
             stanzas.setdefault(current, []).extend(lines)
         current, lines = None, []
     output = re.sub(r"-----BEGIN [^-]*PRIVATE KEY-----.*?(?:-----END [^-]*PRIVATE KEY-----|\Z)", "[REDACTED PRIVATE KEY]", output, flags=re.S)
@@ -132,8 +145,16 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
             finish()
             original = heading[1].split(' l2transport')[0]
             current = identity(platform, original)
+            source_names.setdefault(current, set()).add(original)
             lines = [raw]
+            nested = 0
         elif current is not None:
+            if edge and _edge_context(raw.strip()):
+                nested += 1
+            elif edge and raw.strip() == 'exit' and nested:
+                nested -= 1
+                lines.append(raw)
+                continue
             terminator = (raw.strip() == 'exit' if edge else
                           raw in {'!', '#'} or raw.strip() in {'end', 'return'})
             if terminator:
@@ -177,4 +198,5 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
     evidence = tuple((n, '\n'.join(_safe_source(re.sub(r'(?i)((?:uisp|api)[-_ ]?key)(?:\s*[:=]\s*|\s+).*', r'\1 [REDACTED]', line), platform) for line in body)) for n, body in sorted(stanzas.items()))
     return AggregationSnapshot(context.device_id, platform, collection_time, bool(complete), tuple(sorted(parents)),
                                tuple(sorted(bindings)), subs, evidence, tuple(sorted(set(problems))), context.device_family,
-                               "display current-configuration" if platform == "huawei_vrp" else "show running-config")
+                               "display current-configuration" if platform == "huawei_vrp" else "show running-config",
+                               tuple((key, min(names)) for key, names in sorted(source_names.items())))

@@ -37,8 +37,8 @@ def test_all_seven_families_down_explicit_binding_and_evidence(spec):
     snapshot = parse_aggregation(text, ctx)
     p, c = identity(platform, parent), identity(platform, child)
     assert snapshot.complete
-    assert snapshot.fields(parent) == ['Yes', 'Parent', c]
-    assert snapshot.fields(child) == ['Yes', 'Child', p]
+    assert snapshot.fields(parent) == ['Yes', 'Parent', child]
+    assert snapshot.fields(child) == ['Yes', 'Child', parent]
     assert snapshot.references(parent) == tuple(sorted((p, c)))
     assert snapshot.references(child) == tuple(sorted((p, c)))
     assert 'synthetic-private' not in repr(snapshot)
@@ -100,7 +100,7 @@ def test_conflicting_membership_and_missing_parent_are_nonfatal_unknown():
     assert 'contradictory member binding' in snap.problems
     snap = parse_aggregation('interface Gi0/1\n channel-group 1\n!\nend\n', context())
     assert not snap.complete and not snap.parents
-    assert snap.fields('Gi0/1') == ['Yes', 'Child', 'port-channel1']
+    assert snap.fields('Gi0/1') == ['Yes', 'Child', 'port-channel1 [canonical fallback: configuration heading unavailable]']
 
 
 def test_operational_counts_descriptions_and_partner_tables_never_bind():
@@ -203,7 +203,7 @@ def test_reporting_stage_integration_and_isolated_failure(tmp_path, monkeypatch,
     book = load_workbook(path)
     rows = list(book['Interfaces'].values)[1:]
     assert len(rows) == 2 and calls == ['192.0.2.1', '192.0.2.2']
-    assert rows[1][5:8] == ('Yes', 'Child', 'port-channel1')
+    assert rows[1][5:8] == ('Yes', 'Child', 'Po1')
     errors = list(book['Run_Errors'].values)[1:]
     assert len(errors) == int(failed)
     if failed:
@@ -249,7 +249,7 @@ def test_xr_two_down_members_subinterface_and_zero_active_counts():
         text += f'interface Te0/0/0/{n}\n shutdown\n bundle id 1 mode active\n!\n'
     snap = parse_aggregation(text + 'end\nBE1 0/0/2\n', ctx)
     assert snap.complete
-    assert snap.fields('BE1')[2] == 'tengige0/0/0/1, tengige0/0/0/2'
+    assert snap.fields('BE1')[2] == 'Te0/0/0/1, Te0/0/0/2'
     assert snap.fields('BE1.445') == ['', '', '']
     assert snap.subinterfaces == (('bundle-ether1.445', 'bundle-ether1'),)
 
@@ -260,7 +260,9 @@ def test_duplicate_alias_stanzas_and_malformed_binding_are_unknown():
     assert 'malformed member binding' in parse_aggregation(text, ctx).problems
     text = 'interface Po1\n!\ninterface Port-channel1\n!\nend\n'
     snap = parse_aggregation(text, ctx)
-    assert not snap.complete and 'duplicate interface stanza' in snap.problems
+    assert snap.complete
+    assert snap.display_name('port-channel1') == 'Po1'
+    assert dict(snap.evidence)['port-channel1'].count('interface ') == 2
 
 
 def test_rejects_unavailable_configuration_and_unsupported_family():
@@ -346,7 +348,7 @@ def test_fastpath_closed_export_trailing_prompt_and_sections(prompt):
     assert all(snap.fields(f'3/{n}')[-1] == '' for n in (1, 3, 4, 5, 6))
     partial = parse_aggregation(text.replace('exit\n! trailing', '! trailing'), ctx, ['3/2'])
     assert not partial.complete
-    assert partial.fields('0/12') == ['Yes', 'Child', '3/2']
+    assert partial.fields('0/12') == ['Yes', 'Child', 'lag 2']
     assert partial.fields('3/2')[-1] == 'Unknown'
     assert 'addport 3/2' in dict(partial.evidence)['0/12']
     # A section following closure is not a prompt; never silently discard it.
@@ -379,3 +381,98 @@ def test_safe_configuration_failure_categories():
         parse_aggregation('% Invalid input detected', context())
     with pytest.raises(AggregationParserUnsupported):
         AggregationService().collect(object(), replace(context(), device_family='unknown'))
+
+
+@pytest.mark.parametrize('spec', FAMILIES)
+def test_source_heading_display_survives_spool_and_export(spec, tmp_path):
+    ctx, text = fixture(*spec)
+    parent, child = spec[2:4]
+    snap = parse_aggregation(text, ctx)
+    p, c = identity(ctx.platform, parent), identity(ctx.platform, child)
+    assert dict(snap.configuration_names) == {p: parent, c: child}
+    assert f'interface {parent}' in dict(snap.evidence)[p]
+    assert f'interface {child}' in dict(snap.evidence)[c]
+    # Deliberately use canonical observations, different from configuration case.
+    rows, db = build_rows(ctx, [interface(p), interface(c)], None, snap)
+    assert {r[4] for r in rows} == {p, c}
+    by_name = {r[4]: r for r in rows}
+    assert by_name[p][7] == child and by_name[c][7] == parent
+    spool = ResultSpool.create(tmp_path/'spools', 'interface_vlan_report', 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload=[rows, db, [], asdict(snap)])
+    path = tmp_path/'report.xlsx'
+    export_report_spool(spool.path, path)
+    book = load_workbook(path)
+    exported = list(book['Interfaces'].values)[1:]
+    assert len(exported) == 2
+    by_name = {r[4]: r for r in exported}
+    assert by_name[p][7] == child and by_name[c][7] == parent
+    assert p in book['Interfaces']['E2'].comment.text
+    book.close()
+
+
+def test_compatible_repeated_stanzas_preserve_alias_provenance_and_conflicts():
+    text = ('interface Port-channel1\n!\ninterface Po1\n!\n'
+            'interface GigabitEthernet0/1\n channel-group 1\n!\n'
+            'interface Gi0/1\n shutdown\n channel-group 1\n!\nend\n')
+    snap = parse_aggregation(text, context())
+    assert snap.complete and len(snap.bindings) == 1
+    assert snap.fields('Gi0/1')[-1] == 'Po1'
+    assert snap.fields('Po1')[-1] == 'Gi0/1'
+    assert 'interface GigabitEthernet0/1' in dict(snap.evidence)['gigabitethernet0/1']
+    assert 'interface Gi0/1' in dict(snap.evidence)['gigabitethernet0/1']
+    conflict = parse_aggregation(text.replace(' shutdown\n channel-group 1', ' shutdown\n channel-group 2'), context())
+    assert not conflict.complete and not conflict.bindings
+    assert 'contradictory member binding' in conflict.problems
+
+
+def test_fastpath_nested_sections_and_repeated_members():
+    ctx = replace(context(platform='ubiquiti_edgeswitch'), device_family='EdgeSwitch')
+    text = ('!Current Configuration:\nconfigure\nline console\n exit\n'
+            'policy-map synthetic\n class synthetic\n  exit\n exit\n'
+            'interface lag 2\nexit\ninterface 0/12\n description first\nexit\n'
+            'interface 0/12\n addport 3/2\nexit\nexit\n(synthetic) #\n')
+    snap = parse_aggregation(text, ctx)
+    assert snap.complete and snap.fields('3/2')[-1] == '0/12'
+    assert snap.fields('0/12')[-1] == 'lag 2'
+    assert dict(snap.evidence)['0/12'].count('interface 0/12') == 2
+    assert not parse_aggregation(text.replace('line console', 'unknown block'), ctx).complete
+
+
+@pytest.mark.parametrize('spec', FAMILIES[:4])
+def test_cisco_full_configuration_names_keep_operational_interface_labels(spec):
+    ctx, _ = fixture(*spec)
+    text = ('interface Port-channel1\n!\n'
+            'interface GigabitEthernet1/0/41\n channel-group 1\n!\n'
+            'interface GigabitEthernet1/0/42\n channel-group 1\n!\nend\n')
+    snap = parse_aggregation(text, ctx)
+    rows, _ = build_rows(ctx, [interface('Po1'), interface('Gi1/0/41'), interface('Gi1/0/42')], None, snap)
+    by_name = {r[4]: r for r in rows}
+    assert len(rows) == 3
+    assert by_name['Po1'][7] == 'GigabitEthernet1/0/41, GigabitEthernet1/0/42'
+    assert by_name['Gi1/0/41'][7] == 'Port-channel1'
+    assert by_name['Gi1/0/42'][7] == 'Port-channel1'
+
+
+@pytest.mark.parametrize('spec', FAMILIES)
+def test_missing_parent_heading_is_explicit_fallback_for_every_family(spec):
+    ctx, text = fixture(*spec)
+    parent, child, term = spec[2], spec[3], spec[-1]
+    text = text.replace(f'interface {parent}\n description parent\n{term}\n', '')
+    snap = parse_aggregation(text, ctx)
+    p, c = identity(ctx.platform, parent), identity(ctx.platform, child)
+    assert snap.fields(child) == ['Yes', 'Child', f'{p} [canonical fallback: configuration heading unavailable]']
+    assert not snap.complete and 'unobserved aggregate parent' in snap.problems
+    assert snap.references(child) == (c,)
+
+
+def test_alias_heading_selection_is_order_independent():
+    sections = ['interface Po1\n!\n', 'interface Port-channel1\n!\n',
+                'interface Gi0/1\n channel-group 1\n!\n',
+                'interface GigabitEthernet0/1\n channel-group 1\n!\n']
+    first = parse_aggregation(''.join(sections) + 'end\n', context())
+    second = parse_aggregation(''.join(reversed(sections)) + 'end\n', context())
+    assert first.complete and second.complete
+    assert first.configuration_names == second.configuration_names
+    assert first.bindings == second.bindings
+    assert first.fields('Po1') == second.fields('Po1') == ['Yes', 'Parent', 'Gi0/1']

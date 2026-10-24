@@ -576,6 +576,12 @@ with a content-free cell location and preserve atomic output/spool recovery.
 Owner spool recovery and Windows validation for Issue #142 remain pending.
 Issue #147 adds a device-scoped AggregationService for seven approved families:
 C3750X, C3850, ME3600X, ASR920, NCS540 IOS-XR, Huawei VRP and EdgeSwitch.
+LAG Member display names retain exact configuration-heading spelling/case,
+separate from canonical relationship/evidence IDs and InterfaceService names.
+Missing headings use an explicitly qualified canonical fallback. Compatible
+repeated stanzas preserve original headers; recognized balanced FASTPATH
+line/access-list/policy/class blocks are supported, with unknown layouts still
+incomplete. Owner validation of these revisions remains pending.
 Explicit configuration bindings drive the three LAG columns after Interface;
 subinterfaces remain separate and incomplete collection cannot prove empty.
 Sanitized full stanzas are stored once with references, including parent/child

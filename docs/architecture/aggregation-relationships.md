@@ -43,8 +43,8 @@ Use a dedicated vendor-aware aggregation collector/parser behind a reusable read
 In `Interfaces`, insert exactly three columns after `Interface` and before `Description`:
 `LAG`, `LAG Relationship`, `LAG Member`.
 
-- Parent: `Yes`, `Parent`, comma-separated physical member names (blank for confirmed empty).
-- Physical child: `Yes`, `Child`, canonical parent name.
+- Parent: `Yes`, `Parent`, comma-separated physical member source-configuration heading names (blank for confirmed empty).
+- Physical child: `Yes`, `Child`, base parent source-configuration heading name.
 - Standalone interface and aggregate subinterface: three columns blank. Existing rows and service mappings remain unchanged.
 - Avoid creating interface rows solely from service references. Preserve existing `VLAN_Database` and `Run_Errors` schemas.
 - Audit and update position-based tagged VLAN/bridge domain/service mapping compaction in `reporting.py` when inserting columns; otherwise old data can shift into incorrect post-processing.
@@ -125,3 +125,13 @@ snippets. Unknown nested contexts remain incomplete, never proven empty. Safe
 rejected/unavailable/unsupported/incomplete error classes retain ValueError
 compatibility. Existing spool cleanup/recovery and legacy aggregation semantics
 are unchanged; OneDrive cleanup was deferred. Revised owner validation is pending.
+
+
+### Owner naming clarification (Issue #147 / PR #148)
+
+Canonical device-scoped identities remain authoritative for joins and evidence
+references. Separate `configuration_names` records exact source heading spelling
+for `LAG Member`; `Interface` retains InterfaceService display names. Compatible
+repeated aliases select the lexicographically smallest actual heading, retaining
+all original headers in sanitized evidence. Missing headings use an explicitly
+qualified canonical fallback, never a fabricated as-configured label.

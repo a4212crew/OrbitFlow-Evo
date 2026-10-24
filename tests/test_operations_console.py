@@ -860,6 +860,8 @@ def test_console_report_runs_real_aggregation_export(settings, monkeypatch, edge
     book = load_workbook(path)
     rows = {row[4]: row for row in list(book['Interfaces'].values)[1:]}
     assert len(rows) == len(names)
+    assert set(rows) == set(names)
+    assert rows['0/12' if edge else 'Te0/0/0/1'][7] == ('lag 2' if edge else 'Bundle-Ether1')
     assert book['Run_Errors'].max_row == (2 if partial else 1)
     if partial:
         assert book['Run_Errors']['D2'].value == 'AggregationConfigurationIncomplete'
@@ -869,7 +871,7 @@ def test_console_report_runs_real_aggregation_export(settings, monkeypatch, edge
         assert rows['3/2'][7] == '0/12, 0/16'
         assert all(rows[f'3/{n}'][7] is None for n in (1, 3, 4, 5, 6))
     else:
-        assert rows['BE1'][7] == 'tengige0/0/0/1, tengige0/0/0/2'
+        assert rows['BE1'][7] == 'Te0/0/0/1, Te0/0/0/2'
         assert rows['BE1.445'][5:8] == (None, None, None)
     assert book['Interfaces']['E2'].comment
     assert channel.close_calls == 1 and client.closed

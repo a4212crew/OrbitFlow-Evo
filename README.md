@@ -791,3 +791,10 @@ safe rejected/unavailable/unsupported/incomplete categories. Owner's first
 console report retained interface/VLAN output but failed EdgeSwitch/XR aggregation;
 actual response snippets and revised live validation remain pending. OneDrive
 spool cleanup was deferred; see the [revision limitations and validation commands](docs/user_manual/device-interface-vlan-report.md#first-windows-console-run-revision-2026-10-24).
+
+
+Issue #147 / PR #148 naming revision: `LAG Member` preserves source configuration
+heading spelling/case; `Interface` and canonical joins remain unchanged.
+Compatible repeated stanzas retain original headers. Missing headings display an
+explicitly qualified canonical fallback. See the [reporting manual](docs/user_manual/device-interface-vlan-report.md#configuration-heading-display-revision-issue-147--pr-148)
+for repeat/nesting limits and pending owner read-only validation.

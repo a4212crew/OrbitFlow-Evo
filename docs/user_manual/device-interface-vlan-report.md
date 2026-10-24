@@ -131,8 +131,15 @@ Inventory family selection and session/transport ownership remain unchanged.
 
 `Interfaces` has 17 columns: the original 14 plus `LAG`, `LAG Relationship`,
 `LAG Member` immediately after `Interface`. Parent rows show `Yes`, `Parent`,
-canonical physical members separated by commas. Child rows show `Yes`, `Child`,
-the canonical base parent. Standalone and aggregate subinterface rows have
+physical member names exactly as spelled/cased in source `interface ...`
+configuration headings, separated by commas. Child rows show `Yes`, `Child`,
+the base parent name from its source configuration heading. `Interface` remains
+the InterfaceService spelling; canonical IDs still own all joins and references.
+If a heading is unavailable, the displayed canonical ID is explicitly marked
+`[canonical fallback: configuration heading unavailable]`. Compatible repeated
+stanzas share one canonical identity; the lexicographically smallest actual
+heading is selected deterministically, with every original header retained in
+sanitized evidence. Conflicting bindings remain unknown. Standalone and aggregate subinterface rows have
 three blanks. Down/shutdown members remain members. A confirmed empty parent
 has blank members; incomplete configuration shows `Unknown` on parent rows and
 an `aggregation` error. If that capability fails completely, the LAG columns
@@ -195,9 +202,11 @@ reporting isolates these as aggregation-stage errors. This API performs no apply
 Snapshot fields: device_id, platform, device_family, collection_time (ISO text),
 configuration_command, complete, parents, bindings (physical child/base parent),
 subinterfaces (logical/base parent), evidence (canonical name/sanitized full
-stanza), problems (fixed nonfatal categories). Identities are canonical join
+stanza), problems (fixed nonfatal categories), configuration_names (canonical
+ID/source-heading display pairs, default empty for older payloads). Identities are canonical join
 keys, not inferred operational health. `fields(name)` gives the three report
-values; `references(name)` gives ordered evidence keys for that view.
+values; `display_name(key)` returns the recorded heading or qualified fallback;
+`references(name)` gives ordered evidence keys for that view.
 `build_rows(context, interfaces, vlans, aggregation=None)` still returns
 `(interface_rows, database_rows)`; callers should use INTERFACE_COLUMNS rather
 than fixed numeric offsets. `None` preserves the preexisting call signature
@@ -332,3 +341,35 @@ four-file suite 246 passed (including the four new console cases); final
 parser-only check 55 passed. Linux commands are documented but were not run in
 this Windows workspace. These results do not confirm the failed live firmware
 shapes or revised owner live acceptance.
+
+
+### Configuration-heading display revision (Issue #147 / PR #148)
+
+`LAG Member` now uses configuration-heading names across all seven families,
+including `Port-channel1`, `GigabitEthernet1/0/41`, `Bundle-Ether1`,
+`Eth-Trunk1` or `lag 2` only when that spelling actually occurs in the source.
+No name is inferred from a description or operational display. Aggregate
+subinterfaces remain separate. Existing spools without heading metadata remain
+exportable; their already-recorded cells are preserved.
+
+FASTPATH completeness recognizes balanced `configure`, interface, VLAN database,
+line console/telnet/ssh, IP/IPv6 access-list, policy-map and class blocks.
+Compatible repeated interface sections are combined without losing headers or
+marking collection incomplete solely for repetition. Unknown block layouts and
+contradictory bindings still require review; this is not universal FASTPATH
+syntax support. No legacy audit/planning/execution processing changed.
+
+Run the automated and Linux/Windows read-only commands above. In the resulting
+workbook compare every parent/child `LAG Member` label directly with the referenced
+sanitized configuration heading, including case and abbreviation. Verify the
+`Interface` column and row counts match the original InterfaceService output.
+For alias repeats, check the selected label exists in evidence and both original
+headers survive. Owner live validation remains pending for all seven families.
+
+
+Final naming-revision automated validation (Windows PowerShell):
+`$env:PYTHONPATH = 'src'` then `python -m pytest -q` completed with **3,198 passed**
+(243.53 seconds). This includes all seven source-heading/export cases, fallback,
+repeat/alias/conflict checks, console integration, overflow/spool recovery and
+legacy interface/VLAN/audit/planning/backup/inventory/execution/transport tests.
+These synthetic results do not confirm owner live firmware compatibility.
