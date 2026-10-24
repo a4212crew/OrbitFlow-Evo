@@ -373,3 +373,17 @@ Final naming-revision automated validation (Windows PowerShell):
 repeat/alias/conflict checks, console integration, overflow/spool recovery and
 legacy interface/VLAN/audit/planning/backup/inventory/execution/transport tests.
 These synthetic results do not confirm owner live firmware compatibility.
+
+### EdgeSwitch capture-boundary revision (2026-10-24)
+
+LAG membership still comes only from explicit `addport 3/N` in physical interface
+blocks. Known `line console/telnet/ssh` and `service unms` boundaries are checked
+only for full-capture completeness, including sections after the outer
+`configure` block. Each section must close; extra `exit`, unknown trailing
+sections or missing closure cannot confirm zero members. Affirmative child
+bindings survive incomplete captures; parent completeness remains Unknown.
+A missing interface exit cannot absorb bindings from a following service block.
+This is a bounded capture check, not a general configuration parser. Repeated
+compatible stanzas and exact source headings remain preserved. The automated
+and owner read-only Linux/Windows commands above apply unchanged; owner live
+validation remains pending.

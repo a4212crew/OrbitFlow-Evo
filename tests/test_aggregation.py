@@ -476,3 +476,38 @@ def test_alias_heading_selection_is_order_independent():
     assert first.configuration_names == second.configuration_names
     assert first.bindings == second.bindings
     assert first.fields('Po1') == second.fields('Po1') == ['Yes', 'Parent', 'Gi0/1']
+
+
+@pytest.mark.parametrize('outside', [False, True])
+def test_edgeswitch_capture_line_service_boundaries_only_prove_completeness(outside):
+    ctx = replace(context(platform='ubiquiti_edgeswitch'), device_family='EdgeSwitch')
+    unrelated = ('line console\n addport 3/1\nexit\nline telnet\nexit\n'
+                 'line ssh\nexit\nservice unms\n addport 3/1\nexit\n')
+    interfaces = ('interface lag 2\nexit\ninterface 0/12\n description first\nexit\n'
+                  'interface 0/12\n shutdown\n addport 3/2\nexit\n')
+    text = ('!Current Configuration:\nvlan database\n vlan 10\nexit\nconfigure\n' + interfaces +
+            ('exit\n' + unrelated if outside else unrelated + 'exit\n') + '(synthetic) #\n')
+    snap = parse_aggregation(text, ctx, ['3/1', '3/2'])
+    assert snap.complete
+    assert snap.fields('3/1') == ['Yes', 'Parent', '']
+    assert snap.fields('3/2') == ['Yes', 'Parent', '0/12']
+    assert snap.fields('0/12') == ['Yes', 'Child', 'lag 2']
+    assert snap.bindings == (('0/12', '3/2'),)
+    assert dict(snap.evidence)['0/12'].count('interface 0/12') == 2
+    for bad in (text.replace('service unms', 'unknown section'), text + 'exit\n',
+                text.replace('service unms\n addport 3/1\nexit', 'service unms\n addport 3/1')):
+        partial = parse_aggregation(bad, ctx, ['3/1', '3/2'])
+        assert not partial.complete
+        assert partial.fields('3/1')[-1] == 'Unknown'
+        assert partial.bindings == snap.bindings
+        assert partial.fields('0/12')[-1] == 'lag 2'
+
+
+def test_edgeswitch_unclosed_physical_block_cannot_absorb_service_binding():
+    ctx = replace(context(platform='ubiquiti_edgeswitch'), device_family='EdgeSwitch')
+    text = ('!Current Configuration:\nconfigure\ninterface lag 2\nexit\n'
+            'interface 0/12\n addport 3/2\nservice unms\n addport 3/1\nexit\nexit\n')
+    snap = parse_aggregation(text, ctx)
+    assert not snap.complete
+    assert snap.bindings == (('0/12', '3/2'),)
+    assert 'service unms' not in dict(snap.evidence)['0/12']

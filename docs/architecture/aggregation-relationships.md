@@ -135,3 +135,13 @@ for `LAG Member`; `Interface` retains InterfaceService display names. Compatible
 repeated aliases select the lexicographically smallest actual heading, retaining
 all original headers in sanitized evidence. Missing headings use an explicitly
 qualified canonical fallback, never a fabricated as-configured label.
+
+### Owner capture-boundary clarification (2026-10-24)
+
+Known EdgeSwitch line console/telnet/ssh and `service unms` block boundaries,
+including after outer configure closure, are checked solely for completeness.
+Physical interface blocks and explicit `addport 3/N` remain the only membership
+source. Arbitrary exits do not prove completeness; unverified closure leaves
+absence Unknown while retaining affirmative bindings. This bounded recognition
+is not a general configuration parser. Legacy interfaces/VLAN/audit/planning
+and execution processing are unchanged; owner live validation remains pending.

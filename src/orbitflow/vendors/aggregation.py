@@ -84,7 +84,38 @@ def is_parent(platform, name):
 def _edge_context(text):
     """Recognized FASTPATH block openers; unknown blocks remain incomplete."""
     return bool(re.fullmatch(r'(?:interface .+|vlan database|line (?:console|telnet|ssh)(?: .+)?|'
-                             r'(?:ip|ipv6) access-list .+|policy-map .+|class .+)', text))
+                             r'service unms|(?:ip|ipv6) access-list .+|policy-map .+|class .+)', text))
+
+
+def _edge_complete(output):
+    """Check known capture boundaries only; never extract relationships here.
+
+    Line/service sections may follow the closed configure block. Each must close
+    itself; an arbitrary exit or an unknown trailing section proves nothing.
+    """
+    depth, configured, closed = 0, False, False
+    for line in output.splitlines():
+        text = line.strip()
+        if not text or text.startswith('!'):
+            continue
+        if re.fullmatch(r'(?:[^\s<>#]+|\([^()\r\n]+\))\s*[>#]', text):
+            if depth or not closed:
+                return False
+            continue
+        if text == 'configure' and depth == 0 and not configured:
+            depth, configured = 1, True
+        elif _edge_context(text):
+            if not depth and not (text == 'vlan database' and not configured) and not re.fullmatch(r'line (?:console|telnet|ssh)(?: .+)?|service unms', text):
+                return False
+            depth += 1
+        elif text == 'exit':
+            if not depth:
+                return False
+            depth -= 1
+            closed = configured and depth == 0
+        elif not depth and configured:
+            return False
+    return configured and closed and depth == 0
 
 
 def parse_aggregation(output, context, observed=(), *, collection_time='', complete=None):
@@ -107,19 +138,7 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
         # FASTPATH exports can close the outer configure context with exit,
         # rather than using an IOS-style end marker. Require balanced contexts.
         if edge and not complete:
-            depth, opened, closed = 0, False, False
-            for line in output.splitlines():
-                text = line.strip()
-                if text == 'configure' and depth == 0 and not opened:
-                    depth, opened = 1, True
-                elif opened and not closed and _edge_context(text):
-                    depth += 1
-                elif opened and text == 'exit':
-                    depth -= 1
-                    closed = depth == 0
-                elif closed and text and not text.startswith('!') and not re.fullmatch(r'(?:[^\s<>#]+|\([^()\r\n]+\))\s*[>#]', text):
-                    closed = False
-            complete = opened and closed and depth == 0
+            complete = _edge_complete(output)
     recognized = bool(re.search(
         r'(?im)^\s*(?:interface\s+|hostname\s+|sysname\s+|version\s+|'
         r'vlan\s+|l2vpn(?:\s|$)|vsi\s+|bridge-domain\s+|Building configuration|Current configuration|!Current Configuration|!! IOS)', output))
@@ -132,7 +151,6 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
     stanzas = {}
     source_names = {}
     current, lines = None, []
-    nested = 0
     def finish():
         nonlocal current, lines, complete
         if current is not None:
@@ -147,13 +165,12 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
             current = identity(platform, original)
             source_names.setdefault(current, set()).add(original)
             lines = [raw]
-            nested = 0
         elif current is not None:
             if edge and _edge_context(raw.strip()):
-                nested += 1
-            elif edge and raw.strip() == 'exit' and nested:
-                nested -= 1
-                lines.append(raw)
+                # An unrelated section cannot contribute a physical binding.
+                # Missing interface exit also prevents proving absence.
+                finish()
+                complete = False
                 continue
             terminator = (raw.strip() == 'exit' if edge else
                           raw in {'!', '#'} or raw.strip() in {'end', 'return'})
