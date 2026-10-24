@@ -265,7 +265,7 @@ def test_duplicate_alias_stanzas_and_malformed_binding_are_unknown():
 
 def test_rejects_unavailable_configuration_and_unsupported_family():
     for output in ('', '% Invalid input detected'):
-        with pytest.raises(ValueError, match='unavailable'):
+        with pytest.raises(ValueError, match='unavailable|rejected'):
             parse_aggregation(output, context())
     with pytest.raises(ValueError, match='unsupported'):
         AggregationService().collect(object(), replace(context(), device_family='unknown'))
@@ -317,6 +317,7 @@ def test_unrecognized_or_wrapped_partial_output_never_proves_empty():
     ctx = context()
     snap = parse_aggregation('unexpected output\nend\n', ctx, ['Po1'])
     assert not snap.complete and snap.fields('Po1')[-1] == 'Unknown'
+    assert 'unsupported configuration shape' in snap.problems
     snap = parse_aggregation('interface Po1\n!\ninterface Gi0/1\n channel-group\n 1 mode active\n!\nend\n', ctx)
     assert not snap.complete and 'malformed member binding' in snap.problems
 
@@ -330,3 +331,51 @@ def test_edgeswitch_fastpath_outer_configure_exit_completeness():
     assert snap.fields('3/2') == ['Yes', 'Parent', '0/12']
     partial = parse_aggregation(text.removesuffix('exit\n'), ctx, ['3/1'])
     assert not partial.complete and partial.fields('3/1')[-1] == 'Unknown'
+
+
+@pytest.mark.parametrize('prompt', ['synthetic#', '(synthetic) #'])
+def test_fastpath_closed_export_trailing_prompt_and_sections(prompt):
+    # Constructed firmware-shaped export, not a captured owner transcript.
+    ctx = replace(context(platform='ubiquiti_edgeswitch'), device_family='EdgeSwitch')
+    text = ('!Current Configuration:\nconfigure\nvlan database\n vlan 10\nexit\n'
+            'interface lag 2\nexit\ninterface 0/12\n shutdown\n addport 3/2\nexit\n'
+            'interface 0/16\n addport 3/2\nexit\nexit\n! trailing comment\n' + prompt + '\n')
+    snap = parse_aggregation(text, ctx, [f'3/{n}' for n in range(1, 7)])
+    assert snap.complete
+    assert snap.fields('3/2')[-1] == '0/12, 0/16'
+    assert all(snap.fields(f'3/{n}')[-1] == '' for n in (1, 3, 4, 5, 6))
+    partial = parse_aggregation(text.replace('exit\n! trailing', '! trailing'), ctx, ['3/2'])
+    assert not partial.complete
+    assert partial.fields('0/12') == ['Yes', 'Child', '3/2']
+    assert partial.fields('3/2')[-1] == 'Unknown'
+    assert 'addport 3/2' in dict(partial.evidence)['0/12']
+    # A section following closure is not a prompt; never silently discard it.
+    extra = parse_aggregation(text + 'router unsupported-section\nexit\n', ctx, ['3/2'])
+    assert not extra.complete and extra.fields('3/2')[-1] == 'Unknown'
+
+
+def test_xr_indented_final_end_preserves_down_members_and_projection():
+    ctx = replace(context(platform='cisco_xr'), device_family='NCS540')
+    text = ('!! IOS XR Configuration\ninterface Bundle-Ether1\n shutdown\n!\n'
+            'interface Bundle-Ether1.445 l2transport\n encapsulation dot1q 445\n!\n'
+            'interface Te0/0/0/1\n shutdown\n bundle id 1 mode active\n!\n'
+            'interface Te0/0/0/2\n shutdown\n bundle id 1 mode active\n end\n')
+    snap = parse_aggregation(text, ctx)
+    assert snap.complete and len(snap.bindings) == 2
+    assert snap.fields('BE1.445') == ['', '', '']
+    assert len(snap.references('BE1')) == 4
+    assert len(snap.references('Te0/0/0/1')) == 2
+    partial = parse_aggregation(text.removesuffix(' end\n'), ctx)
+    assert not partial.complete and len(partial.bindings) == 2
+
+
+def test_safe_configuration_failure_categories():
+    from orbitflow.vendors.aggregation import (
+        AggregationConfigurationUnavailable, AggregationConfigurationRejected,
+        AggregationParserUnsupported)
+    with pytest.raises(AggregationConfigurationUnavailable):
+        parse_aggregation('', context())
+    with pytest.raises(AggregationConfigurationRejected):
+        parse_aggregation('% Invalid input detected', context())
+    with pytest.raises(AggregationParserUnsupported):
+        AggregationService().collect(object(), replace(context(), device_family='unknown'))

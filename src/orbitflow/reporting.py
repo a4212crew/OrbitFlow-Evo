@@ -8,7 +8,7 @@ import sys
 from orbitflow.excel_output import write_tables
 
 from orbitflow.capabilities.aggregation import AggregationService
-from orbitflow.vendors.aggregation import AggregationSnapshot, identity as aggregation_identity
+from orbitflow.vendors.aggregation import AggregationSnapshot, AggregationConfigurationIncomplete, AggregationParserUnsupported, identity as aggregation_identity
 from orbitflow.capabilities.interfaces import InterfaceService
 from orbitflow.capabilities.vlans import VlanService
 from orbitflow.execution import execute_devices, Progress
@@ -217,7 +217,9 @@ def run_report(targets, transport_config, *, inventory_path="data/inventory/inve
                         try:
                             aggregation = AggregationService().collect(session, context, cli=cli, interfaces=interfaces)
                             if aggregation and aggregation.problems:
-                                failure(ip, name, stage, ValueError("incomplete aggregation evidence"))
+                                error_type = (AggregationParserUnsupported if "unsupported configuration shape" in aggregation.problems
+                                              else AggregationConfigurationIncomplete)
+                                failure(ip, name, stage, error_type("; ".join(aggregation.problems)))
                         except Exception as exc:
                             failure(ip, name, stage, exc)
                         stage = "disconnect"

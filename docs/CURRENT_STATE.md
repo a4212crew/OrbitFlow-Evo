@@ -584,7 +584,13 @@ chunks. Existing console reporting/recovery uses the same service. Operational
 LACP health/corroboration tables are not collected. Legacy compliance/planning
 aggregation and configuration execution are unchanged. Deterministic synthetic
 coverage is separate from pending owner live validation on all seven families.
-No live reporting validation has been performed.
+Owner's first Windows console run completed 147-device reporting with retained
+interface/VLAN output but 95 EdgeSwitch and one NCS540 aggregation failures.
+Revision accepts trailing FASTPATH prompts after balanced closure and indented
+XR final terminators, with distinct safe aggregation error categories. These
+are deterministic constructed fixtures; actual failed response shapes still
+require minimal sanitized owner snippets and revised live validation. OneDrive
+cleanup was deferred; valid workbook output and existing cleanup safety remain.
 
 ## Known Limitations
 

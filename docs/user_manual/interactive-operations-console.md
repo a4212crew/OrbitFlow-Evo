@@ -147,3 +147,10 @@ LAG columns and referenced sanitized configuration evidence through the existing
 report service. There is no additional menu action or confirmation. Profile,
 selected target rows, per-run concurrency and recovery rules are unchanged.
 See [LAG relationships and owner validation](device-interface-vlan-report.md#lag-relationships-issue-147).
+
+Issue #147's first Windows Interface & VLAN Reporting run retained interface/VLAN
+output but failed EdgeSwitch/XR aggregation. The same console path now has
+complete/partial parser-to-workbook regression coverage and distinct safe error
+categories. Revised live validation and actual sanitized termination snippets
+remain pending; OneDrive spool cleanup was deferred, without invalidating the
+workbook. See [report revision status](device-interface-vlan-report.md#first-windows-console-run-revision-2026-10-24).

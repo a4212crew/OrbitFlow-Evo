@@ -5,6 +5,22 @@ from orbitflow.vendors.interface_names import canonical_interface_name
 from orbitflow.vendors.configuration_facts import _safe_source
 
 
+class AggregationConfigurationRejected(ValueError):
+    """Configuration command rejected; message contains no device output."""
+
+
+class AggregationConfigurationIncomplete(ValueError):
+    """Missing closure or inconsistent bindings; affirmative evidence survives."""
+
+
+class AggregationParserUnsupported(ValueError):
+    """Unrecognized configuration shape or unsupported family/platform."""
+
+
+class AggregationConfigurationUnavailable(ValueError):
+    """No configuration returned."""
+
+
 @dataclass(frozen=True)
 class AggregationSnapshot:
     """Device-scoped sanitized stanzas and explicit bindings; empty != unknown."""
@@ -63,8 +79,11 @@ def is_parent(platform, name):
 def parse_aggregation(output, context, observed=(), *, collection_time='', complete=None):
     """Parse complete interface stanzas, never operational state or descriptions.
 
-    Completeness requires the platform's final configuration terminator. Partial
-    stanzas retain affirmative bindings but cannot prove any parent empty.
+    Completeness requires a configuration signature and final terminator, or
+    balanced FASTPATH contexts (optional trailing EXEC prompt). Partial stanzas
+    retain affirmative bindings but cannot prove any parent empty. Empty/rejected
+    commands raise safe ValueError subclasses; shape/closure issues are fixed
+    problem labels in the returned snapshot, never raw output.
     Duplicate/contradictory bindings are reported and excluded rather than guessed.
     """
     platform = context.platform
@@ -84,15 +103,18 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
                 elif opened and text == 'exit':
                     depth -= 1
                     closed = depth == 0
-                elif closed and text and not text.startswith('!'):
+                elif closed and text and not text.startswith('!') and not re.fullmatch(r'(?:[^\s<>#]+|\([^()\r\n]+\))\s*[>#]', text):
                     closed = False
             complete = opened and closed and depth == 0
-    complete = bool(complete and re.search(
+    recognized = bool(re.search(
         r'(?im)^\s*(?:interface\s+|hostname\s+|sysname\s+|version\s+|'
         r'vlan\s+|l2vpn(?:\s|$)|vsi\s+|bridge-domain\s+|Building configuration|Current configuration|!Current Configuration|!! IOS)', output))
-    problems = []
-    if not output.strip() or re.search(r'(?im)^\s*(?:%.*(?:Invalid|Error|Unknown)|Error:|Invalid command)', output):
-        raise ValueError('aggregation configuration unavailable')
+    complete = bool(complete and recognized)
+    problems = [] if recognized else ['unsupported configuration shape']
+    if not output.strip():
+        raise AggregationConfigurationUnavailable('aggregation configuration unavailable')
+    if re.search(r'(?im)^\s*(?:%.*(?:Invalid|Error|Unknown)|Error:|Invalid command|Command not found)', output):
+        raise AggregationConfigurationRejected('aggregation configuration rejected')
     stanzas = {}
     current, lines = None, []
     def finish():
@@ -112,7 +134,9 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
             current = identity(platform, original)
             lines = [raw]
         elif current is not None:
-            if (raw.strip() == 'exit' if edge else raw in {'!', '#', 'end', 'return'}):
+            terminator = (raw.strip() == 'exit' if edge else
+                          raw in {'!', '#'} or raw.strip() in {'end', 'return'})
+            if terminator:
                 lines.append(raw)
                 finish()
             elif raw and not raw[0].isspace() and not edge:

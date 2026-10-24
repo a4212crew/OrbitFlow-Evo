@@ -784,3 +784,10 @@ Automated regression evidence and owner validation status are recorded in the
 Owner/live validation of this revision is pending.
 
 CLI/menu dashboards now share recorded-outcome accounting by committed input position (including repeated target rows); observation stage text never advances counts. Collection and export summaries remain separate; see [CLI progress and durable results](docs/user_manual/cli-progress.md) for terminal fallbacks, actual saved paths, recovery and specialist exemptions. Operator validation of this revision remains pending.
+
+Issue #147 Windows validation revision: balanced FASTPATH exports may retain a
+trailing prompt, and XR final `end` may be indented. Aggregation errors now use
+safe rejected/unavailable/unsupported/incomplete categories. Owner's first
+console report retained interface/VLAN output but failed EdgeSwitch/XR aggregation;
+actual response snippets and revised live validation remain pending. OneDrive
+spool cleanup was deferred; see the [revision limitations and validation commands](docs/user_manual/device-interface-vlan-report.md#first-windows-console-run-revision-2026-10-24).

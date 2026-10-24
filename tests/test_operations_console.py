@@ -820,3 +820,57 @@ def test_mac_search_correlates_each_observation(settings, monkeypatch, tmp_path)
     for row, text in zip(details, records):
         assert all(value in text for value in [row[0], row[2], row[3], row[4], row[13], row[14]])
     assert 'Matches: 2' in output[-1]
+
+
+@pytest.mark.parametrize('edge', [True, False])
+@pytest.mark.parametrize('partial', [False, True])
+def test_console_report_runs_real_aggregation_export(settings, monkeypatch, edge, partial):
+    """Console -> shared report/execution/CLI/parser/spool/workbook, no network."""
+    from dataclasses import replace
+    from unittest.mock import Mock
+    from test_cli_lifecycle import Channel, session_for
+    from test_device_reporting import context, interface, state
+    from orbitflow import reporting
+    platform = 'ubiquiti_edgeswitch' if edge else 'cisco_xr'
+    ctx = replace(context(), platform=platform, device_family='EdgeSwitch' if edge else 'NCS540')
+    if edge:
+        names = [f'3/{n}' for n in range(1, 7)] + ['0/12', '0/16']
+        text = ('!Current Configuration:\nconfigure\nvlan database\n vlan 10\nexit\n'
+                'interface lag 2\nexit\ninterface 0/12\n shutdown\n addport 3/2\nexit\n'
+                'interface 0/16\n addport 3/2\nexit\nexit\n')
+    else:
+        names = ['BE1', 'BE1.445', 'Te0/0/0/1', 'Te0/0/0/2']
+        text = ('!! IOS XR Configuration\ninterface Bundle-Ether1\n shutdown\n!\n'
+                'interface Bundle-Ether1.445 l2transport\n encapsulation dot1q 445\n!\n'
+                'interface Te0/0/0/1\n shutdown\n bundle id 1 mode active\n!\n'
+                'interface Te0/0/0/2\n shutdown\n bundle id 1 mode active\n end\n')
+    if partial:
+        text = text.removesuffix('exit\n') if edge else text.removesuffix(' end\n')
+    channel = Channel('synthetic#', {'': '', 'terminal length 0': '', 'terminal width 511': '',
+                                    'show running-config': text})
+    session, client = session_for([channel])
+    monkeypatch.setattr(reporting, 'connect_device', lambda *a, **k: session)
+    monkeypatch.setattr(reporting, 'DeviceInventoryResolver', Mock(return_value=Mock(resolve=lambda *a, **k: ctx)))
+    monkeypatch.setattr(reporting, 'InterfaceService', Mock(return_value=Mock(collect=lambda *a, **k: [
+        replace(interface(name), platform=platform) for name in names])))
+    monkeypatch.setattr(reporting, 'VlanService', Mock(return_value=Mock(collect=lambda *a, **k: state())))
+    ui, output = console(['', '', '5', 'y'], session_check=lambda _: None)
+    ui.run_workflow('report')
+    path = Path(next(line.removeprefix('Output: ') for line in output if line.startswith('Output: ')))
+    book = load_workbook(path)
+    rows = {row[4]: row for row in list(book['Interfaces'].values)[1:]}
+    assert len(rows) == len(names)
+    assert book['Run_Errors'].max_row == (2 if partial else 1)
+    if partial:
+        assert book['Run_Errors']['D2'].value == 'AggregationConfigurationIncomplete'
+        assert rows['3/2' if edge else 'BE1'][7] == 'Unknown'
+        assert rows['0/12' if edge else 'Te0/0/0/1'][6] == 'Child'
+    elif edge:
+        assert rows['3/2'][7] == '0/12, 0/16'
+        assert all(rows[f'3/{n}'][7] is None for n in (1, 3, 4, 5, 6))
+    else:
+        assert rows['BE1'][7] == 'tengige0/0/0/1, tengige0/0/0/2'
+        assert rows['BE1.445'][5:8] == (None, None, None)
+    assert book['Interfaces']['E2'].comment
+    assert channel.close_calls == 1 and client.closed
+    book.close()

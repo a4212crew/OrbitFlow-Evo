@@ -114,3 +114,14 @@ for lookup, recovery, exact commands and owner acceptance expectations.
 The earlier readiness checklist records pre-implementation provenance, not an
 outstanding request to create another task. Legacy aggregation retirement and
 any merge remain outside this implementation authorization.
+
+### First owner Windows run revision
+
+The 2026-10-24 owner console export preserved interface/VLAN output but reported
+aggregation failures on EdgeSwitch and NCS540. Parser revisions accept trailing
+EXEC prompts after balanced FASTPATH closure and indented XR final terminators;
+these constructed regression shapes await comparison with minimal sanitized owner
+snippets. Unknown nested contexts remain incomplete, never proven empty. Safe
+rejected/unavailable/unsupported/incomplete error classes retain ValueError
+compatibility. Existing spool cleanup/recovery and legacy aggregation semantics
+are unchanged; OneDrive cleanup was deferred. Revised owner validation is pending.

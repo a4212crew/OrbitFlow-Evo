@@ -260,3 +260,75 @@ firmware, expected/observed counts and sanitized pass/fail only. No raw PuTTY
 logs, tokens, keys or credential-bearing evidence belong in Issues/PRs.
 Legacy audit/planning/execution aggregation remains available for separately
 owner-operated compatibility tests; it has not been retired or reinterpreted.
+
+### First Windows console run revision (2026-10-24)
+
+Owner reported a completed 147-device Windows console export (concurrency 5):
+5,384 interface rows, 8,295 VLAN database rows and 96 aggregation errors
+(95 EdgeSwitch, one NCS540). Existing observations survived; this run does
+not validate the failed aggregation stage. No production transcript is stored.
+
+The revised parser accepts a trailing EXEC prompt after a balanced FASTPATH
+`configure`/interface/VLAN `exit` export and an indented XR final `end`.
+Missing outer exits, unsupported nested section layouts and truncated stanzas
+remain unknown; the parser does not guess closures from a returned prompt.
+Explicit member bindings and sanitized parent/child evidence survive incomplete
+collection. Supporting operational tables are still not collected.
+
+`Run_Errors` retains its schema, with safe aggregation categories:
+`AggregationConfigurationRejected` (recognized CLI rejection),
+`AggregationConfigurationUnavailable` (empty response),
+`AggregationParserUnsupported` (unsupported family/platform or unrecognized
+configuration shape), and `AggregationConfigurationIncomplete` (missing closure,
+duplicate/contradictory/malformed relationships). Fixed parser problem labels
+are recorded in sanitized diagnostics; raw configuration is never an error
+message. These exception types subclass `ValueError` for existing callers.
+Other transport/CLI errors retain their existing categories.
+
+The new fixtures are constructed firmware-shaped examples, **not sanitized
+captures of the failed live responses**. Minimal sanitized beginning/end snippets
+are still required to establish the actual EdgeSwitch nested/trailing sections
+and NCS540 termination shape. The two source-level fixes are not confirmation
+of the live root causes. Repeat owner read-only validation using the Linux and
+Windows commands above, or `python -m orbitflow.menu` > Interface & VLAN Reporting
+> Run, select the approved workbook and concurrency 5. Expect existing interface,
+VLAN database and service mappings to remain intact; all six observed EdgeSwitch
+default parents remain visible, and XR down physical members remain children
+while bundle subinterfaces have blank LAG fields. Complete supported configuration
+must have no aggregation error; partial output must retain an error and unknown
+parent membership, never a false empty list. Revised live validation is pending.
+
+The reported OneDrive permission-denied cleanup is **deferred**, not confirmed
+completed. The exported workbook is valid. Existing bounded retries and retained
+cleanup-only manifest protection are unchanged; deterministic permission-injection
+tests cover file/lock/manifest/final-directory denial and later cleanup. No real
+OneDrive lock was reproduced. Preserve the retained run for owner inspection and
+when ready, the existing `orbitflow.result_spool.cleanup_stale_runs(root, *,
+before)` API accepts the spool root and a timezone-aware datetime cutoff and
+returns removed run paths (leased, malformed or unrelated runs are skipped); a cleanup-started run cannot be replayed as a complete spool. Do not delete
+unknown files or bypass the spool safety checks.
+
+Revision automated commands (repository root; no devices required):
+
+```bash
+PYTHONPATH=src python -m pytest -q tests/test_aggregation.py tests/test_operations_console.py tests/test_device_reporting.py tests/test_result_spool.py
+PYTHONPATH=src python -m pytest -q
+```
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m pytest -q tests/test_aggregation.py tests/test_operations_console.py tests/test_device_reporting.py tests/test_result_spool.py
+python -m pytest -q
+```
+
+Console regressions exercise the real report service, shared execution, borrowed
+CLI, aggregation parser, sanitized spool and workbook export for complete and
+partial EdgeSwitch/XR configurations; inventory/interface/VLAN observations and
+transport responses are deterministic substitutes. They do not validate firmware
+or production connectivity. Legacy audit/planning/execution remains unchanged.
+
+Revision Windows automated results: full suite 3,173 passed; subsequent focused
+four-file suite 246 passed (including the four new console cases); final
+parser-only check 55 passed. Linux commands are documented but were not run in
+this Windows workspace. These results do not confirm the failed live firmware
+shapes or revised owner live acceptance.
