@@ -18,6 +18,7 @@
 | Project usage and setup | [README.md](../README.md) | Operator entry point; some introductory wording outdated |
 | Architecture overview | [architecture overview](architecture/README.md) | Architecture; iteration governance needs reconciliation |
 | Numbered decisions | [architecture decisions](architecture/DECISIONS.md) | Decision history; later decisions override earlier rules |
+| Proposed LAG capability | [Cross-vendor aggregation relationships](architecture/aggregation-relationships.md) | Owner-accepted template design; architecture draft, not implemented |
 | Future planning | [ROADMAP.md](ROADMAP.md) | Future plans; configuration v2 planning status reconciled |
 | Development history index | [devlog/README.md](devlog/README.md) | Monthly index including September and October |
 | September devlog | [2026-09.md](devlog/2026-09.md) | Historical |
