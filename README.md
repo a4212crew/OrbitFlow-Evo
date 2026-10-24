@@ -200,27 +200,25 @@ successful observations and subsequent devices remain in the report.
 Programmatic callers can pass the same target dictionaries to
 `orbitflow.reporting.run_report(targets, transport_config)`.
 
-Issue #147 adds normalized read-only LAG relationships for C3750X, C3850,
-ME3600X, ASR920, NCS540 IOS-XR, Huawei VRP and EdgeSwitch. `LAG`,
-`LAG Relationship`, `LAG Member` follow `Interface`; existing VLAN and error
-schemas remain unchanged. Explicit bindings preserve down members; incomplete
-configuration is reported as unknown with a stage error. Interface-cell comments
-reference sanitized stanzas, with conditional `Configuration_Evidence` chunks
-for overflow. Existing console Run/recovery and direct CLI use the same service.
-Legacy aggregation in audit/planning/execution remains available. See the
-[LAG contract and validation commands](docs/user_manual/device-interface-vlan-report.md#lag-relationships-issue-147).
-Owner-operated live validation remains pending.
+Issue #147 adds read-only LAG relationships for C3750X, C3850, ME3600X,
+ASR920, NCS540 IOS-XR, Huawei VRP and EdgeSwitch. `LAG`, `LAG Relationship`,
+`LAG Member` follow `Interface`; down members and confirmed empty versus Unknown
+parents are preserved. Interface display and source-heading member labels remain
+separate. Each aggregate retains its own five normalized forwarding fields;
+EdgeSwitch `lag N` joins observed `3/N` with opt-in canonicalization. Duplicate
+canonical observations produce isolated per-device `normalize` errors.
+Sanitized evidence comments, conditional lossless `Configuration_Evidence`,
+atomic export and retained-spool recovery use the existing console/direct CLI path.
+Legacy audit/planning/execution and default canonical API keys remain unchanged;
+no legacy functionality is retired. See the [reporting manual](docs/user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
+for Linux/Windows commands, column semantics, API and acceptance checks.
 
-Issue #147 adds normalized read-only LAG relationships for C3750X, C3850,
-ME3600X, ASR920, NCS540 IOS-XR, Huawei VRP and EdgeSwitch. `LAG`,
-`LAG Relationship`, `LAG Member` follow `Interface`; existing VLAN and error
-schemas remain unchanged. Explicit bindings preserve down members; incomplete
-configuration is reported as unknown with a stage error. Interface-cell comments
-reference sanitized stanzas, with conditional `Configuration_Evidence` chunks
-for overflow. Existing console Run/recovery and direct CLI use the same service.
-Legacy aggregation in audit/planning/execution remains available. See the
-[LAG contract and validation commands](docs/user_manual/device-interface-vlan-report.md#lag-relationships-issue-147).
-Owner-operated live validation remains pending.
+Owner's private 2026-10-24 workbook confirms the 17-column schema, physical and
+aggregate forwarding data and zero recorded run-stage errors for its tested input.
+Codex reported 3,214 passing Windows tests at `98d6e20`; Atlas did not rerun them.
+This is not individual proof for all seven families or service constructs.
+EdgeSwitch 1.9.2-lite paging timeout and NCS540 service-specific validation remain
+limitations; broader owner acceptance and explicit merge approval remain separate.
 
 One workbook is written at the end under
 `outputs/reports/interface_vlan/device_interface_vlan_report_<UTC timestamp>.xlsx`, with `Interfaces`,
@@ -784,32 +782,3 @@ Automated regression evidence and owner validation status are recorded in the
 Owner/live validation of this revision is pending.
 
 CLI/menu dashboards now share recorded-outcome accounting by committed input position (including repeated target rows); observation stage text never advances counts. Collection and export summaries remain separate; see [CLI progress and durable results](docs/user_manual/cli-progress.md) for terminal fallbacks, actual saved paths, recovery and specialist exemptions. Operator validation of this revision remains pending.
-
-Issue #147 Windows validation revision: balanced FASTPATH exports may retain a
-trailing prompt, and XR final `end` may be indented. Aggregation errors now use
-safe rejected/unavailable/unsupported/incomplete categories. Owner's first
-console report retained interface/VLAN output but failed EdgeSwitch/XR aggregation;
-actual response snippets and revised live validation remain pending. OneDrive
-spool cleanup was deferred; see the [revision limitations and validation commands](docs/user_manual/device-interface-vlan-report.md#first-windows-console-run-revision-2026-10-24).
-
-
-Issue #147 / PR #148 naming revision: `LAG Member` preserves source configuration
-heading spelling/case; `Interface` and canonical joins remain unchanged.
-Compatible repeated stanzas retain original headers. Missing headings display an
-explicitly qualified canonical fallback. See the [reporting manual](docs/user_manual/device-interface-vlan-report.md#configuration-heading-display-revision-issue-147--pr-148)
-for repeat/nesting limits and pending owner read-only validation.
-
-Issue #147 capture-boundary revision: EdgeSwitch `service unms` and its key
-setting are global commands, not nested sections. After all interface/line
-sections close, the final `exit` closes `configure`; no additional outer exit
-is required. Missing final exit remains Unknown even with a returned prompt.
-Only physical interface `addport` bindings determine members. Owner mini-live
-EdgeSwitch validation, followed by NCS540 validation, remains pending.
-
-Issue #147 / PR #148 aggregate VLAN join correction: EdgeSwitch `lag N`
-configuration now joins observed `3/N` report rows using the shared device-local
-canonical key. Display/evidence headings and physical-port VLAN facts are
-preserved; duplicate canonical observations fail explicitly per device.
-See the [reporting manual](docs/user_manual/device-interface-vlan-report.md#edgeswitch-aggregate-vlan-join-correction-issue-147--pr-148)
-for automated and owner read-only validation commands. Live validation is pending;
-the separately observed 1.9.2-lite paging timeout is not parser validation.

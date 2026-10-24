@@ -1,6 +1,6 @@
 # Cross-Vendor Aggregation Relationships — Architecture and Acceptance Contract
 
-**Status:** Owner-approved merged design authority. Issue #147 implements the read-only capability and reporting integration; owner-operated live validation remains pending.
+**Status:** Owner-approved merged design authority. Issue #147 implements the read-only capability and reporting integration; owner-operated batch evidence is recorded in the canonical manual; broader per-family acceptance remains outstanding.
 **Scope:** Read-only LAG/aggregation membership observation, interface report presentation and sanitized configuration evidence.  
 **Non-goals:** LACP health/compliance, VLAN/service inference from membership, configuration apply, replacement of existing audit/planning resolvers.
 
@@ -150,3 +150,15 @@ remain preserved; legacy VLAN/audit/planning/execution behavior is unchanged.
 Synthetic regressions cover populated 3/1 with repeated 0/49 and 0/51 stanzas,
 six empty parents, truncation, missing section/final exits and extra exits.
 Owner EdgeSwitch mini-live validation, followed by NCS540, remains pending.
+
+### Documentation acceptance reconciliation (2026-10-24)
+
+The merged design authority remains in force. Earlier pending-live statements in
+implementation notes above describe prior revisions; the owner's latest private
+workbook now confirms a 17-column report with physical/aggregate forwarding data
+and zero recorded run-stage errors for the tested input. It does not prove every
+family/service construct. EdgeSwitch 1.9.2-lite paging and NCS540 service-specific
+validation remain separate limitations. See the
+[current evidence and acceptance limits](../user_manual/device-interface-vlan-report.md#verified-evidence-and-remaining-owner-acceptance-2026-10-24).
+AuditResolver.aggregates remains an active audit/planning dependency, not a
+retirement candidate within this Issue. No merge is authorized by this document.

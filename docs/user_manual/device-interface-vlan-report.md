@@ -100,7 +100,7 @@ $env:PYTHONPATH = 'src'
 python -m pytest -q tests/test_device_reporting.py tests/test_vlan_capability.py tests/test_result_spool.py tests/test_production_paths.py
 ```
 
-For offline validation, run the recovery command above, inspect the three sheets,
+For offline validation, run the recovery command above, inspect the expected sheets,
 expand the compact ranges, and compare against the retained local spool. For the
 owner's 699-outcome case, confirm all 699 outcomes remain accounted for and the
 seven failed outcomes retain their error records; partial capability failures
@@ -110,8 +110,8 @@ on the affected trunk.
 For live read-only validation, use the Linux or Windows collection command in
 **Examples** above with operator-approved targets and actual routing options.
 Inspect the same fields and error records. This issue's automated fixtures are
-synthetic; owner spool recovery, Windows execution and live-device validation
-remain operator-controlled and are not claimed as performed.
+synthetic; owner spool recovery remains operator-controlled. Current Issue #147 Windows
+automated results and owner live evidence are distinguished below.
 
 ## Shared progress presentation (Issue #144)
 
@@ -130,7 +130,10 @@ Huawei VRP and Ubiquiti EdgeSwitch. No new flags or configuration writes.
 Inventory family selection and session/transport ownership remain unchanged.
 
 `Interfaces` has 17 columns: the original 14 plus `LAG`, `LAG Relationship`,
-`LAG Member` immediately after `Interface`. Parent rows show `Yes`, `Parent`,
+`LAG Member` immediately after `Interface`. Full order: Device Name, Device IP,
+Platform, Device Family, Interface, LAG, LAG Relationship, LAG Member,
+Description, Admin Status, Oper Status, Port Type, Untagged VLAN, Tagged VLANs,
+Bridge Domains, Service Mappings, Collection Time. Parent rows show `Yes`, `Parent`,
 physical member names exactly as spelled/cased in source `interface ...`
 configuration headings, separated by commas. Child rows show `Yes`, `Child`,
 the base parent name from its source configuration heading. `Interface` remains
@@ -234,8 +237,8 @@ python -m pytest -q
 
 Full-suite validation covers existing interface/VLAN, audit/compliance, planning
 v1/v2, backup, inventory, shared execution, transport and CLI/API consumers.
-Synthetic tests do not establish live firmware compatibility. Owner live
-validation is **pending for all seven families**. No devices were contacted by
+Synthetic tests do not establish live firmware compatibility. The owner-run
+evidence and remaining validation limits are recorded below. No devices were contacted by
 Codex. After review, the owner can run the following read-only collection with
 an owner-controlled workbook containing representative approved targets, after
 operator-controlled `tsh` authentication. Substitute routing and key/certificate
@@ -270,212 +273,100 @@ logs, tokens, keys or credential-bearing evidence belong in Issues/PRs.
 Legacy audit/planning/execution aggregation remains available for separately
 owner-operated compatibility tests; it has not been retired or reinterpreted.
 
-### First Windows console run revision (2026-10-24)
+### Aggregate forwarding and identity joins
 
-Owner reported a completed 147-device Windows console export (concurrency 5):
-5,384 interface rows, 8,295 VLAN database rows and 96 aggregation errors
-(95 EdgeSwitch, one NCS540). Existing observations survived; this run does
-not validate the failed aggregation stage. No production transcript is stored.
+Each aggregate row carries its **own** five normalized VlanService fields:
+Port Type, Untagged VLAN, Tagged VLANs, Bridge Domains and Service Mappings.
+Reporting never copies physical children's forwarding data onto an aggregate,
+or propagates aggregate forwarding data onto children. Missing observations
+remain blank; configured-empty/excluded-only states retain capability semantics.
+For EdgeSwitch, configuration `interface lag 2` joins an observed `3/2` row;
+`Interface` still displays `3/2`, while a child's `LAG Member` displays `lag 2`
+when that is the actual base-parent source heading. Physical `0/2` stays separate.
 
-The revised parser accepts a trailing EXEC prompt after a balanced FASTPATH
-`configure`/interface/VLAN `exit` export and an indented XR final `end`.
-Missing outer exits, unsupported nested section layouts and truncated stanzas
-remain unknown; the parser does not guess closures from a returned prompt.
-Explicit member bindings and sanitized parent/child evidence survive incomplete
-collection. Supporting operational tables are still not collected.
+| Observation | LAG | LAG Relationship | LAG Member |
+|---|---|---|---|
+| Complete populated base parent | Yes | Parent | Physical source-heading names, comma-separated |
+| Complete zero-member base parent | Yes | Parent | Blank |
+| Incomplete base-parent membership | Yes | Parent | Unknown |
+| Explicit physical child, including down/shutdown | Yes | Child | Base-parent source heading |
+| Standalone or aggregate subinterface | Blank | Blank | Blank |
+| Aggregation capability unavailable | Blank | Blank | Blank; inspect Run_Errors |
 
-`Run_Errors` retains its schema, with safe aggregation categories:
-`AggregationConfigurationRejected` (recognized CLI rejection),
-`AggregationConfigurationUnavailable` (empty response),
-`AggregationParserUnsupported` (unsupported family/platform or unrecognized
-configuration shape), and `AggregationConfigurationIncomplete` (missing closure,
-duplicate/contradictory/malformed relationships). Fixed parser problem labels
-are recorded in sanitized diagnostics; raw configuration is never an error
-message. These exception types subclass `ValueError` for existing callers.
-Other transport/CLI errors retain their existing categories.
+`canonical_interface_name(platform, name, *, normalize_aggregation=False)`
+provides the aggregate alias join only when explicitly enabled, as reporting
+and AggregationSnapshot do. Default legacy MAC/audit/planning keys are unchanged.
+Duplicate canonical InterfaceService or VlanService observations, even identical
+ones, raise sanitized `ValueError` rather than overwrite. Batch reporting records
+stage `normalize`, category `ValueError`; that device contributes no normalized
+interface/database rows, while other devices continue. Compatible repeated
+configuration evidence stanzas are handled separately and are not duplicate
+capability observations.
 
-The new fixtures are constructed firmware-shaped examples, **not sanitized
-captures of the failed live responses**. Minimal sanitized beginning/end snippets
-are still required to establish the actual EdgeSwitch nested/trailing sections
-and NCS540 termination shape. The two source-level fixes are not confirmation
-of the live root causes. Repeat owner read-only validation using the Linux and
-Windows commands above, or `python -m orbitflow.menu` > Interface & VLAN Reporting
-> Run, select the approved workbook and concurrency 5. Expect existing interface,
-VLAN database and service mappings to remain intact; all six observed EdgeSwitch
-default parents remain visible, and XR down physical members remain children
-while bundle subinterfaces have blank LAG fields. Complete supported configuration
-must have no aggregation error; partial output must retain an error and unknown
-parent membership, never a false empty list. Revised live validation is pending.
+### Collection failures and recovery
 
-The reported OneDrive permission-denied cleanup is **deferred**, not confirmed
-completed. The exported workbook is valid. Existing bounded retries and retained
-cleanup-only manifest protection are unchanged; deterministic permission-injection
-tests cover file/lock/manifest/final-directory denial and later cleanup. No real
-OneDrive lock was reproduced. Preserve the retained run for owner inspection and
-when ready, the existing `orbitflow.result_spool.cleanup_stale_runs(root, *,
-before)` API accepts the spool root and a timezone-aware datetime cutoff and
-returns removed run paths (leased, malformed or unrelated runs are skipped); a cleanup-started run cannot be replayed as a complete spool. Do not delete
-unknown files or bypass the spool safety checks.
+`Run_Errors` columns remain Device IP, Device Name, Stage, Error Category, Time.
+A successful batch has a header-only error sheet. Review errors before treating
+blank LAG cells as standalone or a blank member list as confirmed empty.
+Aggregation categories include `AggregationConfigurationRejected`,
+`AggregationConfigurationUnavailable`, `AggregationParserUnsupported` and
+`AggregationConfigurationIncomplete` (ValueError subclasses). Transport/CLI
+failures retain their categories. Other successful capability observations survive
+an aggregation failure; a normalize failure prevents unsafe joins for that device.
 
-Revision automated commands (repository root; no devices required):
+FASTPATH supports balanced configure/interface/VLAN/line/access-list/policy/class
+contexts and a trailing EXEC prompt. `service unms` and its key setting are global
+commands, not nested sections; the final `exit` closes `configure` after inner
+sections close. XR final `end` may be indented. Unknown sections, missing closures,
+truncation and contradictory relationships remain incomplete/Unknown.
 
-```bash
-PYTHONPATH=src python -m pytest -q tests/test_aggregation.py tests/test_operations_console.py tests/test_device_reporting.py tests/test_result_spool.py
-PYTHONPATH=src python -m pytest -q
-```
+Export is atomic: output failure preserves the destination workbook and retained
+spool. Use the offline recovery commands above without recollecting devices.
+OneDrive cleanup permission denial was previously reported; real lock resolution
+has not been confirmed. Existing bounded retry and cleanup-only manifest safety
+remain. A cleanup-started run cannot be replayed as a completed spool; preserve
+retained artifacts for protected local inspection rather than deleting unknown files.
 
-```powershell
-$env:PYTHONPATH = "src"
-python -m pytest -q tests/test_aggregation.py tests/test_operations_console.py tests/test_device_reporting.py tests/test_result_spool.py
-python -m pytest -q
-```
+### Verified evidence and remaining owner acceptance (2026-10-24)
 
-Console regressions exercise the real report service, shared execution, borrowed
-CLI, aggregation parser, sanitized spool and workbook export for complete and
-partial EdgeSwitch/XR configurations; inventory/interface/VLAN observations and
-transport responses are deterministic substitutes. They do not validate firmware
-or production connectivity. Legacy audit/planning/execution remains unchanged.
+The owner-supplied private workbook
+`device_interface_vlan_report_20261024T113249_512594Z.xlsx` has the expected
+17-column Interfaces schema, observed physical and aggregate forwarding data,
+and header-only Run_Errors (zero reported run-stage errors). This establishes
+owner-operated batch completion without recorded errors for the tested input.
+It does **not** establish individual acceptance of all seven platforms, all service
+constructs, or universal firmware/transport compatibility. The workbook remains
+private and must not be uploaded with raw logs or credentials.
 
-Revision Windows automated results: full suite 3,173 passed; subsequent focused
-four-file suite 246 passed (including the four new console cases); final
-parser-only check 55 passed. Linux commands are documented but were not run in
-this Windows workspace. These results do not confirm the failed live firmware
-shapes or revised owner live acceptance.
+Earlier owner runs included aggregation failures and a separate EdgeSwitch
+1.9.2-lite shared-CLI paging timeout. The later successful workbook supersedes
+the blanket claim that all live validation is pending; it does not disprove that
+timeout or prove every firmware shape. NCS540 service-specific behavior and
+per-platform/construct acceptance still require direct owner validation. Linux
+commands are supported but were not run during this Windows revision. Overflow
+reconstruction, contradictory/partial output and spool retry/atomicity have
+synthetic coverage; the latest workbook alone does not prove these edge cases.
 
+At implementation head `98d6e20`, Codex reported Windows full-suite validation:
+`$env:PYTHONPATH = 'src'` then `python -m pytest -q`: **3,214 passed in 246.33s**.
+Atlas did not independently rerun that suite. This documentation-only revision
+does not change executable commands or claim a new full-suite run. Use the exact
+focused/full commands and owner read-only Linux/Windows commands above for
+repeat validation. Compare each aggregate's five forwarding fields with its own
+configuration, plus physical members, empty versus Unknown, source headings,
+subinterfaces, evidence and unchanged VLAN_Database; record family/firmware and
+sanitized expected/observed results. Do not enlarge production configuration to
+trigger evidence overflow.
 
-### Configuration-heading display revision (Issue #147 / PR #148)
+### Legacy dependency and compatibility boundary
 
-`LAG Member` now uses configuration-heading names across all seven families,
-including `Port-channel1`, `GigabitEthernet1/0/41`, `Bundle-Ether1`,
-`Eth-Trunk1` or `lag 2` only when that spelling actually occurs in the source.
-No name is inferred from a description or operational display. Aggregate
-subinterfaces remain separate. Existing spools without heading metadata remain
-exportable; their already-recorded cells are preserved.
-
-FASTPATH completeness recognizes balanced `configure`, interface, VLAN database,
-line console/telnet/ssh, IP/IPv6 access-list, policy-map and class blocks.
-Compatible repeated interface sections are combined without losing headers or
-marking collection incomplete solely for repetition. Unknown block layouts and
-contradictory bindings still require review; this is not universal FASTPATH
-syntax support. No legacy audit/planning/execution processing changed.
-
-Run the automated and Linux/Windows read-only commands above. In the resulting
-workbook compare every parent/child `LAG Member` label directly with the referenced
-sanitized configuration heading, including case and abbreviation. Verify the
-`Interface` column and row counts match the original InterfaceService output.
-For alias repeats, check the selected label exists in evidence and both original
-headers survive. Owner live validation remains pending for all seven families.
-
-
-Final naming-revision automated validation (Windows PowerShell):
-`$env:PYTHONPATH = 'src'` then `python -m pytest -q` completed with **3,198 passed**
-(243.53 seconds). This includes all seven source-heading/export cases, fallback,
-repeat/alias/conflict checks, console integration, overflow/spool recovery and
-legacy interface/VLAN/audit/planning/backup/inventory/execution/transport tests.
-These synthetic results do not confirm owner live firmware compatibility.
-
-### EdgeSwitch capture-boundary revision (2026-10-24)
-
-### Issue #147 revision 4: FASTPATH global service commands
-
-The earlier service-as-section interpretation is superseded: `service unms`
-and `service unms key ...` are global commands, not nested mode openers.
-After each interface/line section closes, the single final `exit` closes
-`configure`. The owner-described 1.9.3-lite ending needs no additional outer
-exit. Missing final exit remains incomplete even with a returned prompt.
-Explicit physical `addport` bindings, repeated stanzas and exact heading names
-remain preserved; legacy VLAN/audit/planning/execution behavior is unchanged.
-Synthetic regressions cover populated 3/1 with repeated 0/49 and 0/51 stanzas,
-six empty parents, truncation, missing section/final exits and extra exits.
-Owner EdgeSwitch mini-live validation, followed by NCS540, remains pending.
-
-The FASTPATH [CLI guide, section 7.4.15](https://netbergtw.com/wp-content/uploads/Files/Fastpath_cli_guide.pdf)
-describes running configuration as a command script. The first-person
-[EdgeSwitch CLI example](https://community.ui.com/questions/Eliminating-needless-prompts-using-the-CLI-of-an-EdgeSwitch/5875d321-d6c5-40af-a946-e0ea92fda2d7)
-shows `service unms` at the global `(Config)#` prompt. The specific owner
-capture ending is the regression contract, not a general firmware guarantee:
-
-```text
-service unms key [REDACTED]
-service unms
-exit
-(synthetic) #
-```
-
-Use the exact automated and read-only Linux/Windows commands above unchanged.
-Check populated 3/1, source names, down members 0/49+0/51, six empty parents,
-no aggregation errors and unchanged interface/VLAN database output first;
-then validate NCS540. No live validation was performed in this revision.
-
-Revision 4 automated result after the source/test correction: Windows PowerShell
-`$env:PYTHONPATH = 'src'; python -m pytest -q` ? **3,201 passed in 247.02s**.
-Focused `python -m pytest -q tests/test_aggregation.py` ? **79 passed** with the
-same environment. Linux: `PYTHONPATH=src python -m pytest -q` (full) or
-`PYTHONPATH=src python -m pytest -q tests/test_aggregation.py` (focused).
-These results supersede earlier intermediate automated totals, not the pending
-owner live acceptance requirement.
-
-## EdgeSwitch aggregate VLAN join correction (Issue #147 / PR #148)
-
-The device-scoped canonical join now maps configuration `lag N` to observed
-logical `3/N` consistently with AggregationSnapshot. Interface display names and
-exact configuration headings in LAG Member/evidence remain unchanged. The five
-forwarding columns come only from VlanService: actual PVID, participation and
-tagging facts. No values are inherited from physical members or copied to
-children; unobserved configuration interfaces do not create rows. Existing
-excluded-only/empty and absent observations remain distinct capability states.
-Physical `0/N` and other aggregate numbers remain separate. No commands changed.
-
-`canonical_interface_name(platform, name, *, normalize_aggregation=False)` returns
-this vendor-aware join key when `normalize_aggregation=True`, as used by reporting
-and AggregationSnapshot. The default retains legacy audit/planning/MAC keys;
-other vendor alias rules are unchanged. `build_rows` raises a sanitized
-`ValueError` for duplicate canonical InterfaceService or VLAN observation keys,
-even when duplicates agree, rather than selecting one silently. In batch reports
-this becomes a per-device `normalize` error; the affected device contributes no
-normalized rows, and other devices continue. Workbook schemas and legacy
-14-column spool recovery are unchanged. Existing balanced repeated aggregation
-evidence stanzas retain their separate, existing handling.
-
-Automated commands (from repository root):
-
-```bash
-PYTHONPATH=src python -m pytest -q tests/test_device_reporting.py tests/test_aggregation.py tests/test_vlan_capability.py tests/test_result_spool.py
-PYTHONPATH=src python -m pytest -q
-```
-
-```powershell
-$env:PYTHONPATH = 'src'
-python -m pytest -q tests/test_device_reporting.py tests/test_aggregation.py tests/test_vlan_capability.py tests/test_result_spool.py
-python -m pytest -q
-```
-
-Owner read-only mini-validation remains pending. Use a local approved target
-workbook with one or two EdgeSwitch devices with known aggregate VLAN settings,
-and optionally one safely unreachable target. After owner-controlled Teleport
-authentication, run (replace example routing locally):
-
-```bash
-PYTHONPATH=src python scripts/device_interface_vlan_report.py outputs/edgeswitch-validation.xlsx --proxy teleport.example.net:443 --cluster example-cluster --bastion-host example-bastion --bastion-user example-user --teleport-key-path "$TELEPORT_KEY_PATH" --teleport-cert-path "$TELEPORT_CERT_PATH"
-```
-
-```powershell
-$env:PYTHONPATH = 'src'
-python .\scripts\device_interface_vlan_report.py .\outputs\edgeswitch-validation.xlsx --proxy teleport.example.net:443 --cluster example-cluster --bastion-host example-bastion --bastion-user example-user
-```
-
-Expect exactly one existing `3/N` row per observed logical port. Compare Port
-Type, Untagged VLAN, Tagged VLANs, Bridge Domains and Service Mappings against
-that aggregate's own PVID/participation/tagging configuration. Check excluded-only
-and configured-empty cases separately from missing observations, unchanged
-physical ports/VLAN database, exact `lag N` evidence headings, and Run_Errors.
-Console Interface & VLAN Reporting uses this same path. Do not publish raw
-configurations or credentials. A paging timeout on EdgeSwitch 1.9.2-lite is a
-separate collection limitation: a failed collection does not validate this join.
-No live devices were contacted during implementation.
-
-Final automated validation for this correction: PowerShell
-`$env:PYTHONPATH = 'src'` then `python -m pytest -q` completed with
-**3,214 passed in 246.33s**. Linux equivalent: `PYTHONPATH=src python -m pytest -q`.
-This includes legacy audit/planning/MAC and reporting/spool recovery regressions.
-Owner live acceptance remains pending.
+`src/orbitflow/compliance/resolvers.py::AuditResolver.aggregates` and family
+resolver paths remain active for VLAN audit/compliance, aggregate parent/member
+VLAN inheritance and conflict findings, and configuration planning. The new
+AggregationService observes relationships for reporting; it is not a replacement
+for audit/planning. No legacy resolver, public CLI/API or configuration execution
+workflow is retired, replaced or reinterpreted. Planning v1/v2, audit/compliance,
+backup, inventory, execution, transport and existing consumers retain regression
+coverage in the full suite. Owner-operated cross-workflow compatibility testing
+remains separate; any retirement requires a future owner-authorized Issue and
+compatibility proof. Merge requires separate explicit owner approval.

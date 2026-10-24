@@ -574,29 +574,36 @@ spools. Synthetic IOS allowed 2-4094/native 445 and offline 699-outcome/seven-fa
 recovery are covered by deterministic tests; remaining oversized fields fail
 with a content-free cell location and preserve atomic output/spool recovery.
 Owner spool recovery and Windows validation for Issue #142 remain pending.
-Issue #147 adds a device-scoped AggregationService for seven approved families:
+Issue #147 implements device-scoped read-only AggregationService observation for
 C3750X, C3850, ME3600X, ASR920, NCS540 IOS-XR, Huawei VRP and EdgeSwitch.
-LAG Member display names retain exact configuration-heading spelling/case,
-separate from canonical relationship/evidence IDs and InterfaceService names.
-Missing headings use an explicitly qualified canonical fallback. Compatible
-repeated stanzas preserve original headers; recognized balanced FASTPATH
-line/access-list/policy/class blocks are supported, with unknown layouts still
-incomplete. Owner validation of these revisions remains pending.
-Explicit configuration bindings drive the three LAG columns after Interface;
-subinterfaces remain separate and incomplete collection cannot prove empty.
-Sanitized full stanzas are stored once with references, including parent/child
-projections, bounded result-spool recovery and conditional lossless evidence
-chunks. Existing console reporting/recovery uses the same service. Operational
-LACP health/corroboration tables are not collected. Legacy compliance/planning
-aggregation and configuration execution are unchanged. Deterministic synthetic
-coverage is separate from pending owner live validation on all seven families.
-Owner's first Windows console run completed 147-device reporting with retained
-interface/VLAN output but 95 EdgeSwitch and one NCS540 aggregation failures.
-Revision accepts trailing FASTPATH prompts after balanced closure and indented
-XR final terminators, with distinct safe aggregation error categories. These
-are deterministic constructed fixtures; actual failed response shapes still
-require minimal sanitized owner snippets and revised live validation. OneDrive
-cleanup was deferred; valid workbook output and existing cleanup safety remain.
+Explicit physical bindings retain down members; configured-empty and incomplete
+Unknown remain distinct, and aggregate subinterfaces remain separate. The three
+LAG columns follow Interface in the 17-column schema. InterfaceService owns row
+membership/display; LAG Member uses source-heading names. Each aggregate's five
+forwarding fields come from its own VlanService observation. Opt-in EdgeSwitch
+`lag N`/`3/N` joins leave default legacy canonical keys unchanged. Duplicate
+canonical interface/VLAN observations cause isolated per-device `normalize`
+errors without overwrite. VLAN database/error schemas, compaction, CLI/API,
+shared bounded execution, sanitized evidence comments/conditional lossless
+Configuration_Evidence and atomic spool recovery remain supported.
+
+AuditResolver.aggregates and family audit/planning inheritance/conflict paths
+remain active; this relationship capability does not replace them. No legacy
+workflow or configuration execution is retired or reinterpreted. See the
+[canonical manual](user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
+for Linux/Windows menu/CLI commands, API, errors and acceptance checks.
+
+Owner evidence dated 2026-10-24: private workbook
+`device_interface_vlan_report_20261024T113249_512594Z.xlsx` has 17 interface
+columns, physical/aggregate forwarding data and zero recorded Run_Errors.
+This confirms batch completion for the tested input, not each family/service
+construct or universal firmware compatibility. Earlier EdgeSwitch 1.9.2-lite
+shared-CLI paging timeout and NCS540 service-specific behavior require separate
+direct validation. Real OneDrive cleanup-lock resolution is unconfirmed.
+Codex reported full Windows suite 3,214 passed (246.33s) at `98d6e20`; Atlas
+did not independently rerun it. Synthetic edge-case tests are distinct from
+owner live evidence; Linux revision testing and broader per-platform acceptance
+remain outstanding. No device operations occur in this documentation revision.
 
 ## Known Limitations
 
@@ -982,35 +989,3 @@ Owner Linux worktree verification for Issue #139/PR #140 (head `481e712c` before
 CLI/menu batch workflows share serialized worker rows, a bounded last-ten activity view, compact terminal fallbacks and throttled redirected snapshots. Recorded collection, processing returns and report/export completion have separate accounting; actual output, retained spool, allocated backup and log paths are reported. Library output ownership and execution safety remain unchanged. See [coverage and exemptions](user_manual/cli-progress.md). Synthetic regressions cover concurrency, rollover, platform/terminal fallbacks and partial/export-failure accounting; owner-operated Windows/Linux terminal and device validation of this revision remains pending. This supersedes the compact-only progress descriptions above.
 
 Issue #144 review revision: console observation stage text no longer updates counters. Shared spool checkpoints count committed input positions, preserving duplicate target rows in row-based workflows. Deterministic menu/direct-boundary regressions cover mixed results, out-of-order completion and failed checkpoints; operator terminal validation remains pending.
-
-### Issue #147 revision 4: FASTPATH global service commands
-
-The earlier service-as-section interpretation is superseded: `service unms`
-and `service unms key ...` are global commands, not nested mode openers.
-After each interface/line section closes, the single final `exit` closes
-`configure`. The owner-described 1.9.3-lite ending needs no additional outer
-exit. Missing final exit remains incomplete even with a returned prompt.
-Explicit physical `addport` bindings, repeated stanzas and exact heading names
-remain preserved; legacy VLAN/audit/planning/execution behavior is unchanged.
-Synthetic regressions cover populated 3/1 with repeated 0/49 and 0/51 stanzas,
-six empty parents, truncation, missing section/final exits and extra exits.
-Owner EdgeSwitch mini-live validation, followed by NCS540, remains pending.
-
-### Issue #147 / PR #148: EdgeSwitch aggregate VLAN report join correction
-
-Shared vendor-aware interface canonicalization maps `lag N` and logical `3/N`
-to one device-local key across reporting and aggregation. Existing VlanService
-forwarding facts now reach the observed aggregate row; display/source headings,
-physical-port facts, row/sheet structure and legacy audit/planning/execution
-semantics remain intact. Duplicate canonical report keys raise a safe per-device
-normalization error instead of silently replacing facts. Synthetic coverage
-includes excluded-only/no-active observations, source evidence, spool/workbook
-export and other vendor aggregate joins. Owner live validation is pending;
-EdgeSwitch 1.9.2-lite paging timeouts are a separate collection limitation.
-
-The aggregate-alias option is explicitly enabled by reporting and aggregation
-only. Existing two-argument canonical-name consumers retain their keys, including
-legacy audit/planning and MAC attachment resolution; their implementation is
-unchanged.
-Automated validation of the final correction: full deterministic suite,
-3,214 passed (246.33s); owner live validation remains pending.
