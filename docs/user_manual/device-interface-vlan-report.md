@@ -376,14 +376,41 @@ These synthetic results do not confirm owner live firmware compatibility.
 
 ### EdgeSwitch capture-boundary revision (2026-10-24)
 
-LAG membership still comes only from explicit `addport 3/N` in physical interface
-blocks. Known `line console/telnet/ssh` and `service unms` boundaries are checked
-only for full-capture completeness, including sections after the outer
-`configure` block. Each section must close; extra `exit`, unknown trailing
-sections or missing closure cannot confirm zero members. Affirmative child
-bindings survive incomplete captures; parent completeness remains Unknown.
-A missing interface exit cannot absorb bindings from a following service block.
-This is a bounded capture check, not a general configuration parser. Repeated
-compatible stanzas and exact source headings remain preserved. The automated
-and owner read-only Linux/Windows commands above apply unchanged; owner live
-validation remains pending.
+### Issue #147 revision 4: FASTPATH global service commands
+
+The earlier service-as-section interpretation is superseded: `service unms`
+and `service unms key ...` are global commands, not nested mode openers.
+After each interface/line section closes, the single final `exit` closes
+`configure`. The owner-described 1.9.3-lite ending needs no additional outer
+exit. Missing final exit remains incomplete even with a returned prompt.
+Explicit physical `addport` bindings, repeated stanzas and exact heading names
+remain preserved; legacy VLAN/audit/planning/execution behavior is unchanged.
+Synthetic regressions cover populated 3/1 with repeated 0/49 and 0/51 stanzas,
+six empty parents, truncation, missing section/final exits and extra exits.
+Owner EdgeSwitch mini-live validation, followed by NCS540, remains pending.
+
+The FASTPATH [CLI guide, section 7.4.15](https://netbergtw.com/wp-content/uploads/Files/Fastpath_cli_guide.pdf)
+describes running configuration as a command script. The first-person
+[EdgeSwitch CLI example](https://community.ui.com/questions/Eliminating-needless-prompts-using-the-CLI-of-an-EdgeSwitch/5875d321-d6c5-40af-a946-e0ea92fda2d7)
+shows `service unms` at the global `(Config)#` prompt. The specific owner
+capture ending is the regression contract, not a general firmware guarantee:
+
+```text
+service unms key [REDACTED]
+service unms
+exit
+(synthetic) #
+```
+
+Use the exact automated and read-only Linux/Windows commands above unchanged.
+Check populated 3/1, source names, down members 0/49+0/51, six empty parents,
+no aggregation errors and unchanged interface/VLAN database output first;
+then validate NCS540. No live validation was performed in this revision.
+
+Revision 4 automated result after the source/test correction: Windows PowerShell
+`$env:PYTHONPATH = 'src'; python -m pytest -q` ? **3,201 passed in 247.02s**.
+Focused `python -m pytest -q tests/test_aggregation.py` ? **79 passed** with the
+same environment. Linux: `PYTHONPATH=src python -m pytest -q` (full) or
+`PYTHONPATH=src python -m pytest -q tests/test_aggregation.py` (focused).
+These results supersede earlier intermediate automated totals, not the pending
+owner live acceptance requirement.

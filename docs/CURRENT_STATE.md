@@ -983,8 +983,15 @@ CLI/menu batch workflows share serialized worker rows, a bounded last-ten activi
 
 Issue #144 review revision: console observation stage text no longer updates counters. Shared spool checkpoints count committed input positions, preserving duplicate target rows in row-based workflows. Deterministic menu/direct-boundary regressions cover mixed results, out-of-order completion and failed checkpoints; operator terminal validation remains pending.
 
-Issue #147 EdgeSwitch boundary revision: known line and `service unms` sections
-may follow outer configure closure. Their closure contributes only to capture
-completeness, never membership. Extra exits, missing closure and unknown trailing
-sections cannot prove zero members. Synthetic regressions preserve repeated
-stanzas/source names and affirmative bindings; owner live validation is pending.
+### Issue #147 revision 4: FASTPATH global service commands
+
+The earlier service-as-section interpretation is superseded: `service unms`
+and `service unms key ...` are global commands, not nested mode openers.
+After each interface/line section closes, the single final `exit` closes
+`configure`. The owner-described 1.9.3-lite ending needs no additional outer
+exit. Missing final exit remains incomplete even with a returned prompt.
+Explicit physical `addport` bindings, repeated stanzas and exact heading names
+remain preserved; legacy VLAN/audit/planning/execution behavior is unchanged.
+Synthetic regressions cover populated 3/1 with repeated 0/49 and 0/51 stanzas,
+six empty parents, truncation, missing section/final exits and extra exits.
+Owner EdgeSwitch mini-live validation, followed by NCS540, remains pending.

@@ -799,7 +799,9 @@ Compatible repeated stanzas retain original headers. Missing headings display an
 explicitly qualified canonical fallback. See the [reporting manual](docs/user_manual/device-interface-vlan-report.md#configuration-heading-display-revision-issue-147--pr-148)
 for repeat/nesting limits and pending owner read-only validation.
 
-Issue #147 capture-boundary revision: EdgeSwitch line and `service unms` sections
-are recognized solely to verify closure, including after the configure block.
-Only physical interface `addport` bindings determine members. Extra exits or
-unverified closure leave absence Unknown; owner live validation remains pending.
+Issue #147 capture-boundary revision: EdgeSwitch `service unms` and its key
+setting are global commands, not nested sections. After all interface/line
+sections close, the final `exit` closes `configure`; no additional outer exit
+is required. Missing final exit remains Unknown even with a returned prompt.
+Only physical interface `addport` bindings determine members. Owner mini-live
+EdgeSwitch validation, followed by NCS540 validation, remains pending.

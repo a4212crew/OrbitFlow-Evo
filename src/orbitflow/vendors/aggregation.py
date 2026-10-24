@@ -84,14 +84,15 @@ def is_parent(platform, name):
 def _edge_context(text):
     """Recognized FASTPATH block openers; unknown blocks remain incomplete."""
     return bool(re.fullmatch(r'(?:interface .+|vlan database|line (?:console|telnet|ssh)(?: .+)?|'
-                             r'service unms|(?:ip|ipv6) access-list .+|policy-map .+|class .+)', text))
+                             r'(?:ip|ipv6) access-list .+|policy-map .+|class .+)', text))
 
 
 def _edge_complete(output):
     """Check known capture boundaries only; never extract relationships here.
 
-    Line/service sections may follow the closed configure block. Each must close
-    itself; an arbitrary exit or an unknown trailing section proves nothing.
+    Line sections must close themselves. service unms [key ...] is a global
+    command, not a mode opener; the final exit closes configure. A returned
+    prompt never substitutes for that exit or closes an unfinished section.
     """
     depth, configured, closed = 0, False, False
     for line in output.splitlines():
@@ -104,8 +105,11 @@ def _edge_complete(output):
             continue
         if text == 'configure' and depth == 0 and not configured:
             depth, configured = 1, True
+        elif re.fullmatch(r'(?:no )?service unms(?: key .+)?', text):
+            if depth != 1 or not configured or closed:
+                return False
         elif _edge_context(text):
-            if not depth and not (text == 'vlan database' and not configured) and not re.fullmatch(r'line (?:console|telnet|ssh)(?: .+)?|service unms', text):
+            if not depth and not (text == 'vlan database' and not configured) and not re.fullmatch(r'line (?:console|telnet|ssh)(?: .+)?', text):
                 return False
             depth += 1
         elif text == 'exit':
@@ -166,7 +170,7 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
             source_names.setdefault(current, set()).add(original)
             lines = [raw]
         elif current is not None:
-            if edge and _edge_context(raw.strip()):
+            if edge and (_edge_context(raw.strip()) or re.match(r'(?:no )?service unms(?:\s|$)', raw.strip())):
                 # An unrelated section cannot contribute a physical binding.
                 # Missing interface exit also prevents proving absence.
                 finish()

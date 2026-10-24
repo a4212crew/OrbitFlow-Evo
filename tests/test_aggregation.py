@@ -478,29 +478,42 @@ def test_alias_heading_selection_is_order_independent():
     assert first.fields('Po1') == second.fields('Po1') == ['Yes', 'Parent', 'Gi0/1']
 
 
-@pytest.mark.parametrize('outside', [False, True])
-def test_edgeswitch_capture_line_service_boundaries_only_prove_completeness(outside):
+@pytest.mark.parametrize('populated', [False, True])
+def test_edgeswitch_193_lite_export_global_service_final_exit(populated):
     ctx = replace(context(platform='ubiquiti_edgeswitch'), device_family='EdgeSwitch')
-    unrelated = ('line console\n addport 3/1\nexit\nline telnet\nexit\n'
-                 'line ssh\nexit\nservice unms\n addport 3/1\nexit\n')
-    interfaces = ('interface lag 2\nexit\ninterface 0/12\n description first\nexit\n'
-                  'interface 0/12\n shutdown\n addport 3/2\nexit\n')
-    text = ('!Current Configuration:\nvlan database\n vlan 10\nexit\nconfigure\n' + interfaces +
-            ('exit\n' + unrelated if outside else unrelated + 'exit\n') + '(synthetic) #\n')
-    snap = parse_aggregation(text, ctx, ['3/1', '3/2'])
-    assert snap.complete
-    assert snap.fields('3/1') == ['Yes', 'Parent', '']
-    assert snap.fields('3/2') == ['Yes', 'Parent', '0/12']
-    assert snap.fields('0/12') == ['Yes', 'Child', 'lag 2']
-    assert snap.bindings == (('0/12', '3/2'),)
-    assert dict(snap.evidence)['0/12'].count('interface 0/12') == 2
-    for bad in (text.replace('service unms', 'unknown section'), text + 'exit\n',
-                text.replace('service unms\n addport 3/1\nexit', 'service unms\n addport 3/1')):
-        partial = parse_aggregation(bad, ctx, ['3/1', '3/2'])
+    parents = [f'3/{n}' for n in range(1, 7)]
+    interfaces = ''.join(f'interface lag {n}\nexit\n' for n in range(1, 7))
+    if populated:
+        interfaces += ''.join(
+            f'interface {port}\n description synthetic member\nexit\n'
+            f'interface {port}\n shutdown\n addport 3/1\nexit\n'
+            for port in ('0/49', '0/51'))
+    prefix = ('!Current Configuration:\nvlan database\n vlan 10\nexit\nconfigure\n'
+              'line console\nexit\nline telnet\nexit\n' + interfaces + 'line ssh\nexit\n')
+    # Only one final exit: service unms does not enter a nested mode.
+    tail = 'service unms key [REDACTED]\nservice unms\nexit\n(synthetic) #\n'
+    text = prefix + tail
+    snap = parse_aggregation(text, ctx, parents)
+    assert snap.complete and not snap.problems
+    assert snap.fields('3/1') == ['Yes', 'Parent', '0/49, 0/51' if populated else '']
+    assert all(snap.fields(p) == ['Yes', 'Parent', ''] for p in parents[1:])
+    if populated:
+        assert snap.bindings == (('0/49', '3/1'), ('0/51', '3/1'))
+        assert snap.fields('0/49') == ['Yes', 'Child', 'lag 1']
+        assert snap.references('3/1') == ('0/49', '0/51', '3/1')
+        assert snap.references('0/49') == ('0/49', '3/1')
+        assert dict(snap.evidence)['0/49'].count('interface 0/49') == 2
+    for bad in (prefix, prefix + 'service unms key [REDACTED]\n',
+                prefix + 'service unms key [REDACTED]\nservice unms\n',
+                text.replace('service unms\nexit', 'service unms'),
+                text.replace('line ssh\nexit', 'line ssh'),
+                text.replace('line ssh', 'unknown section'), text + 'exit\n'):
+        partial = parse_aggregation(bad, ctx, parents)
         assert not partial.complete
-        assert partial.fields('3/1')[-1] == 'Unknown'
+        assert all(partial.fields(p)[-1] == 'Unknown' for p in parents)
         assert partial.bindings == snap.bindings
-        assert partial.fields('0/12')[-1] == 'lag 2'
+        if populated:
+            assert partial.fields('0/49')[-1] == 'lag 1'
 
 
 def test_edgeswitch_unclosed_physical_block_cannot_absorb_service_binding():

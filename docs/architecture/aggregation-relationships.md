@@ -138,10 +138,15 @@ qualified canonical fallback, never a fabricated as-configured label.
 
 ### Owner capture-boundary clarification (2026-10-24)
 
-Known EdgeSwitch line console/telnet/ssh and `service unms` block boundaries,
-including after outer configure closure, are checked solely for completeness.
-Physical interface blocks and explicit `addport 3/N` remain the only membership
-source. Arbitrary exits do not prove completeness; unverified closure leaves
-absence Unknown while retaining affirmative bindings. This bounded recognition
-is not a general configuration parser. Legacy interfaces/VLAN/audit/planning
-and execution processing are unchanged; owner live validation remains pending.
+### Issue #147 revision 4: FASTPATH global service commands
+
+The earlier service-as-section interpretation is superseded: `service unms`
+and `service unms key ...` are global commands, not nested mode openers.
+After each interface/line section closes, the single final `exit` closes
+`configure`. The owner-described 1.9.3-lite ending needs no additional outer
+exit. Missing final exit remains incomplete even with a returned prompt.
+Explicit physical `addport` bindings, repeated stanzas and exact heading names
+remain preserved; legacy VLAN/audit/planning/execution behavior is unchanged.
+Synthetic regressions cover populated 3/1 with repeated 0/49 and 0/51 stanzas,
+six empty parents, truncation, missing section/final exits and extra exits.
+Owner EdgeSwitch mini-live validation, followed by NCS540, remains pending.
