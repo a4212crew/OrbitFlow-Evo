@@ -172,6 +172,10 @@ def test_shared_shell_rejects_wrong_parent_and_closed_context():
 def test_report_real_capabilities_one_shell_and_failure_isolation(tmp_path, monkeypatch, device, failure):
     session, client, channel = device_session(device)
     platform = device[1]
+    # Reporting now also proves LAG membership completeness from this config.
+    # The older VLAN-only fixture intentionally omitted its final terminator.
+    config_command = VLANS[platform][2]
+    channel.outputs[config_command] += "\nreturn\n" if platform == "huawei_vrp" else "\nend\n"
     command = {"inventory": "show version", "interfaces": INTERFACES[platform]["command"],
                "vlans": VLANS[platform][2], "parse": INTERFACES[platform]["command"]}.get(failure)
     if command:

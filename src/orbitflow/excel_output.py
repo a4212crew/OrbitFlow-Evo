@@ -4,16 +4,19 @@ from pathlib import Path
 from orbitflow.logging import sanitize_text
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
+from openpyxl.comments import Comment
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 
-def write_tables(path, tables, *, clean=sanitize_text):
+def write_tables(path, tables, *, clean=sanitize_text, comments=None):
     """Atomically stream literal text; reject oversized cells with their location.
 
     ValueError identifies sheet, one-based row, column letter and character
     count without including cell contents. The existing destination is retained.
+    Optional comments(title, one_based_column) supplies sanitized text for the
+    current data row; callers own evidence size/projection policy.
     """
     workbook = Workbook(write_only=True)
     path = Path(path)
@@ -43,6 +46,10 @@ def write_tables(path, tables, *, clean=sanitize_text):
                         )
                     cell = WriteOnlyCell(sheet, value=text)
                     cell.data_type = "s"
+                    if index and comments:
+                        comment = comments(title, column_index)
+                        if comment:
+                            cell.comment = Comment(clean(comment), "OrbitFlow")
                     cell.alignment = Alignment(vertical="top", wrap_text=True)
                     if index == 0:
                         cell.font = Font(bold=True, color="FFFFFF")

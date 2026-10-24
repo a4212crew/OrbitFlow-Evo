@@ -200,6 +200,26 @@ successful observations and subsequent devices remain in the report.
 Programmatic callers can pass the same target dictionaries to
 `orbitflow.reporting.run_report(targets, transport_config)`.
 
+Issue #147 adds read-only LAG relationships for C3750X, C3850, ME3600X,
+ASR920, NCS540 IOS-XR, Huawei VRP and EdgeSwitch. `LAG`, `LAG Relationship`,
+`LAG Member` follow `Interface`; down members and confirmed empty versus Unknown
+parents are preserved. Interface display and source-heading member labels remain
+separate. Each aggregate retains its own five normalized forwarding fields;
+EdgeSwitch `lag N` joins observed `3/N` with opt-in canonicalization. Duplicate
+canonical observations produce isolated per-device `normalize` errors.
+Sanitized evidence comments, conditional lossless `Configuration_Evidence`,
+atomic export and retained-spool recovery use the existing console/direct CLI path.
+Legacy audit/planning/execution and default canonical API keys remain unchanged;
+no legacy functionality is retired. See the [reporting manual](docs/user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
+for Linux/Windows commands, column semantics, API and acceptance checks.
+
+Owner's private 2026-10-24 workbook confirms the 17-column schema, physical and
+aggregate forwarding data and zero recorded run-stage errors for its tested input.
+Codex reported 3,214 passing Windows tests at `98d6e20`; Atlas did not rerun them.
+This is not individual proof for all seven families or service constructs.
+EdgeSwitch 1.9.2-lite paging timeout and NCS540 service-specific validation remain
+limitations; broader owner acceptance and explicit merge approval remain separate.
+
 One workbook is written at the end under
 `outputs/reports/interface_vlan/device_interface_vlan_report_<UTC timestamp>.xlsx`, with `Interfaces`,
 `VLAN_Database`, and `Run_Errors` sheets. Use `--reports-dir`, `--inventory-path`,

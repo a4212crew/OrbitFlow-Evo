@@ -131,8 +131,8 @@ def test_workbook_headers_formatting_and_literal_text(tmp_path):
             assert sheet.freeze_panes == 'A2'
             assert sheet.auto_filter.ref.endswith(str(sheet.max_row))
             assert sheet.column_dimensions['A'].width >= 18
-        assert with_workbook['Interfaces']['F2'].data_type == 's'
-        assert with_workbook['Interfaces']['F2'].value == '=HYPERLINK("bad")'
+        assert with_workbook['Interfaces']['I2'].data_type == 's'
+        assert with_workbook['Interfaces']['I2'].value == '=HYPERLINK("bad")'
     finally:
         with_workbook.close()
 
@@ -177,6 +177,7 @@ def install_fakes(monkeypatch, failing_stage=None, fail_ip='192.0.2.1'):
     monkeypatch.setattr(reporting, 'connect_device', connect)
     monkeypatch.setattr(reporting, 'DeviceInventoryResolver', Mock(return_value=Mock(resolve=resolve)))
     monkeypatch.setattr(reporting, 'InterfaceService', Mock(return_value=Mock(collect=collect('interfaces'))))
+    monkeypatch.setattr(reporting, 'AggregationService', Mock(return_value=Mock(collect=lambda *a, **k: None)))
     monkeypatch.setattr(reporting, 'VlanService', Mock(return_value=Mock(collect=collect('vlans'))))
     return events, closed
 
@@ -250,7 +251,7 @@ def test_batch_isolation_session_context_and_secrets(tmp_path, monkeypatch, stag
         if stage == 'interfaces':
             assert all(row[1] != '192.0.2.1' for row in workbook['Interfaces'].iter_rows(min_row=2, values_only=True))
         if stage == 'vlans':
-            assert workbook['Interfaces']['J2'].value is None
+            assert workbook['Interfaces']['M2'].value is None
         rendered = str([[row for row in sheet.values] for sheet in workbook])
     finally:
         workbook.close()
@@ -394,7 +395,7 @@ def test_full_vlan_range_is_not_truncated_by_log_sanitizer(tmp_path):
     path = tmp_path / 'full-range.xlsx'
     reporting.write_workbook(path, rows, [], [])
     workbook = load_workbook(path)
-    assert workbook['Interfaces']['K2'].value == '1-4094'
+    assert workbook['Interfaces']['N2'].value == '1-4094'
     workbook.close()
 
 
@@ -636,11 +637,11 @@ def legacy_full_range_row():
     observation = full_range_observation()
     rows, _ = reporting.build_rows(context(), [interface('Gi1/0/40')], state(observation))
     row = rows[0]
-    row[10] = ', '.join(map(str, observation.tagged_vlans))
-    row[11] = ', '.join(observation.bridge_domains)
-    row[12] = '; '.join(observation.service_mappings)
-    assert len(row[12]) > 32767
-    return row
+    row[13] = ', '.join(map(str, observation.tagged_vlans))
+    row[14] = ', '.join(observation.bridge_domains)
+    row[15] = '; '.join(observation.service_mappings)
+    assert len(row[15]) > 32767
+    return row[:5] + row[8:]
 
 
 def test_ios_full_range_native_trunk_lossless_workbook(tmp_path):
@@ -652,13 +653,13 @@ def test_ios_full_range_native_trunk_lossless_workbook(tmp_path):
     book = load_workbook(path)
     try:
         row = list(book['Interfaces'].values)[1]
-        assert row[9] == '445'
-        assert row[10] == '2-4094'
-        assert row[11] == '445, 2-444, 446-4094'
-        assert row[12] == 'untagged -> 445; identity(2-4094)'
-        assert expand_report_ids(row[10]) == tuple(map(str, observation.tagged_vlans))
-        assert expand_report_ids(row[11]) == observation.bridge_domains
-        assert expand_report_mappings(row[12]) == observation.service_mappings
+        assert row[12] == '445'
+        assert row[13] == '2-4094'
+        assert row[14] == '445, 2-444, 446-4094'
+        assert row[15] == 'untagged -> 445; identity(2-4094)'
+        assert expand_report_ids(row[13]) == tuple(map(str, observation.tagged_vlans))
+        assert expand_report_ids(row[14]) == observation.bridge_domains
+        assert expand_report_mappings(row[15]) == observation.service_mappings
         assert observation == before
         assert all(len(str(cell.value or '')) <= 32767 for sheet in book for cells in sheet for cell in cells)
     finally:
@@ -675,14 +676,14 @@ def test_mixed_mapping_ranges_reconstruct_exact_order_and_duplicates(tmp_path):
     rows, _ = reporting.build_rows(context(), [interface()], state(
         InterfaceVlanObservation('Gi0/1', tagged_vlans=tags,
                                  bridge_domains=domains, service_mappings=mappings)))
-    assert expand_report_ids(rows[0][10]) == tuple(map(str, tags))
-    assert expand_report_ids(rows[0][11]) == domains
-    assert expand_report_mappings(rows[0][12]) == mappings
-    assert '10-12 -> 10-12' in rows[0][12]
+    assert expand_report_ids(rows[0][13]) == tuple(map(str, tags))
+    assert expand_report_ids(rows[0][14]) == domains
+    assert expand_report_mappings(rows[0][15]) == mappings
+    assert '10-12 -> 10-12' in rows[0][15]
     path = tmp_path / 'mixed.xlsx'
     reporting.write_workbook(path, rows, [], [])
     book = load_workbook(path)
-    assert list(book['Interfaces'].values)[1][12] == rows[0][12]  # idempotent
+    assert list(book['Interfaces'].values)[1][15] == rows[0][15]  # idempotent
     book.close()
 
 
@@ -692,7 +693,7 @@ def test_long_report_text_is_literal_or_fails_atomically_with_location(tmp_path,
     path.write_bytes(b'existing destination')
     rows, _ = reporting.build_rows(context(), [interface(description='x' * length)], state())
     if length > 32767:
-        with pytest.raises(ValueError, match=r'sheet=Interfaces, row=2, column=F, characters=') as error:
+        with pytest.raises(ValueError, match=r'sheet=Interfaces, row=2, column=I, characters=') as error:
             reporting.write_workbook(path, rows, [], [])
         assert 'x' * 30 not in str(error.value)
         assert path.read_bytes() == b'existing destination'
@@ -700,7 +701,7 @@ def test_long_report_text_is_literal_or_fails_atomically_with_location(tmp_path,
     else:
         reporting.write_workbook(path, rows, [], [])
         book = load_workbook(path)
-        assert book['Interfaces']['F2'].value == 'x' * length
+        assert book['Interfaces']['I2'].value == 'x' * length
         book.close()
 
 
@@ -723,16 +724,16 @@ def test_legacy_699_outcomes_offline_retry_preserves_seven_failures(tmp_path, mo
     source = (spool.path / 'results.jsonl').read_bytes()
     # A remaining noncompactable field must retain the spool and existing output.
     original = reporting.write_workbook
-    def oversized(path, interfaces, database, errors):
+    def oversized(path, interfaces, database, errors, **kwargs):
         def long_rows():
             for row in interfaces:
                 row[5] = 'z' * 32768
                 yield row
-        return original(path, long_rows(), database, errors)
+        return original(path, long_rows(), database, errors, **kwargs)
     monkeypatch.setattr(reporting, 'write_workbook', oversized)
     path = tmp_path / 'recovered.xlsx'
     path.write_bytes(b'previous report')
-    with pytest.raises(ValueError, match='column=F'):
+    with pytest.raises(ValueError, match='column=I'):
         reporting.export_report_spool(spool.path, path)
     assert path.read_bytes() == b'previous report'
     assert ResultSpool(spool.path).manifest['status'] == 'output_failed'
@@ -747,7 +748,7 @@ def test_legacy_699_outcomes_offline_retry_preserves_seven_failures(tmp_path, mo
         records = list(book['Interfaces'].values)[1:]
         assert len(records) == 692
         assert {row[1] for row in records} == {f'target-{p}' for p in range(8, 700)}
-        assert all(row[12] == 'untagged -> 445; identity(2-4094)' for row in records)
+        assert all(row[15] == 'untagged -> 445; identity(2-4094)' for row in records)
         errors = list(book['Run_Errors'].values)[1:]
         assert len(errors) == 7
         assert {row[0] for row in errors} == {f'target-{p}' for p in range(1, 8)}
@@ -772,7 +773,7 @@ def test_report_keeps_cross_vendor_service_relationships_literal(tmp_path, platf
     book = load_workbook(path)
     try:
         row = list(book['Interfaces'].values)[1]
-        assert row[9:13] == ('CUSTOMER', '100, 200', ', '.join(observation.bridge_domains),
+        assert row[12:16] == ('CUSTOMER', '100, 200', ', '.join(observation.bridge_domains),
                              '; '.join(observation.service_mappings))
     finally:
         book.close()
@@ -782,8 +783,8 @@ def test_oversized_unsupported_mappings_fail_without_suppressing_evidence(tmp_pa
     mappings = tuple(f'{v} -> domain-{v}' for v in range(2, 4095))
     rows, _ = reporting.build_rows(context(), [interface()], state(
         InterfaceVlanObservation('Gi0/1', service_mappings=mappings)))
-    assert rows[0][12] == '; '.join(mappings)
-    with pytest.raises(ValueError, match='column=M'):
+    assert rows[0][15] == '; '.join(mappings)
+    with pytest.raises(ValueError, match='column=P'):
         reporting.write_workbook(tmp_path / 'unsupported.xlsx', rows, [], [])
     assert not (tmp_path / 'unsupported.xlsx').exists()
 
@@ -791,5 +792,121 @@ def test_oversized_unsupported_mappings_fail_without_suppressing_evidence(tmp_pa
 def test_oversized_numeric_domain_is_opaque_and_fails_with_location(tmp_path):
     rows, _ = reporting.build_rows(context(), [interface()], state(
         InterfaceVlanObservation('Gi0/1', bridge_domains=('9' * 40000,))))
-    with pytest.raises(ValueError, match='column=L'):
+    with pytest.raises(ValueError, match='column=O'):
         reporting.write_workbook(tmp_path / 'domain.xlsx', rows, [], [])
+
+@pytest.mark.parametrize('body,expected', [
+    ('vlan pvid 100\nvlan participation include 100,200\nvlan tagging 200',
+     ['hybrid', '100', '200', '100, 200', 'untagged -> 100; 200 -> 200']),
+    ('vlan participation exclude 100,200', ['access', '', '', '', '']),
+    ('vlan pvid 100\nvlan participation include 100\nvlan participation exclude 100\nvlan tagging 100',
+     ['access', '', '', '', '']),
+    ('description no forwarding observation', ['', '', '', '', '']),
+])
+def test_edgeswitch_aggregate_vlan_join_full_spool(tmp_path, body, expected):
+    from dataclasses import asdict
+    from orbitflow.vendors.ubiquiti.interfaces import _HEADERS, parse_interfaces_status
+    from orbitflow.vendors.aggregation import parse_aggregation, identity
+    from orbitflow.execution import DeviceOutcome
+    from orbitflow.result_spool import ResultSpool
+    ctx = replace(context(platform='ubiquiti_edgeswitch'), device_family='EdgeSwitch')
+    config = ('interface lag 1\n' + body + '\nexit\n'
+              'interface lag 2\nvlan pvid 300\nvlan participation include 300\nexit\n'
+              'interface 0/1\naddport 3/1\nvlan pvid 400\nvlan participation include 400\nexit\n'
+              'interface lag 6\nvlan participation include 600\nexit\n')
+    observed = parse_interfaces_status('\n'.join(_HEADERS[0]) + '\n' + '\n'.join(
+        f'{name:<11}{"":28}  Down' for name in ('0/1', '3/1', '3/2')))
+    records = [replace(interface(x.port_name), platform=ctx.platform) for x in observed]
+    observations, objects = parse_edgeswitch_config(config)
+    snapshot = parse_aggregation(config, ctx, observed=[x.port_name for x in records])
+    assert identity(ctx.platform, 'lag 01') == canonical_interface_name(ctx.platform, '3/1')
+    rows, database = reporting.build_rows(ctx, records, replace(state(*observations, objects=objects), platform=ctx.platform), snapshot)
+    by_name = {row[4]: row for row in rows}
+    assert set(by_name) == {'0/1', '3/1', '3/2'}
+    assert by_name['3/1'][11:16] == expected
+    assert by_name['3/2'][11:16] == ['access', '300', '', '300', 'untagged -> 300']
+    assert by_name['0/1'][11:16] == ['access', '400', '', '400', 'untagged -> 400']
+    assert by_name['0/1'][7] == 'lag 1'
+    assert 'interface lag 1' in dict(snapshot.evidence)['3/1']
+    spool = ResultSpool.create(tmp_path / 'runs', 'interface_vlan_report', 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload=[rows, database, [], asdict(snapshot)], target=ctx.management_ip)
+    path = reporting.export_report_spool(spool.path, tmp_path / 'report.xlsx')
+    workbook = load_workbook(path)
+    try:
+        assert workbook.sheetnames == ['Interfaces', 'VLAN_Database', 'Run_Errors']
+        exported = {row[4]: row for row in workbook['Interfaces'].iter_rows(min_row=2, values_only=True)}
+        assert [x or '' for x in exported['3/1'][11:16]] == expected
+        assert workbook['Interfaces'].max_row == 4
+        assert any('interface lag 1' in cell.comment.text for row in workbook['Interfaces'] for cell in row if cell.comment)
+    finally:
+        workbook.close()
+
+
+@pytest.mark.parametrize('duplicate', ['interfaces', 'vlans'])
+def test_report_rejects_duplicate_canonical_edgeswitch_keys(duplicate):
+    ctx = context(platform='ubiquiti_edgeswitch')
+    records = [interface('3/1')]
+    observations = [InterfaceVlanObservation('lag 1', port_type='access')]
+    if duplicate == 'interfaces':
+        records.append(interface('lag 01'))
+    else:
+        observations.append(InterfaceVlanObservation('3/1', port_type='trunk'))
+    with pytest.raises(ValueError, match='Duplicate canonical report identity'):
+        reporting.build_rows(ctx, records, state(*observations))
+
+
+
+@pytest.mark.parametrize('platform,heading,display,body,terminator,options,expected', [
+    ('cisco_ios', 'Port-channel1', 'Po1', 'switchport mode trunk\nswitchport trunk allowed vlan 100', '!', {}, ['trunk', '', '100', '100', '100 -> 100']),
+    ('cisco_xe', 'Port-channel1', 'Po1', 'service instance 1 ethernet\n encapsulation dot1q 100\n bridge-domain 500\n exit', '!', {'evc': True}, ['evc', '', '100', '500', '100 -> 500']),
+    ('huawei_vrp', 'Eth-Trunk1', 'Eth-Trunk1', 'port link-type trunk\nport trunk allow-pass vlan 100', '#', {}, ['trunk', '', '100', '100', '100 -> 100']),
+    ('cisco_xr', 'Bundle-Ether1.100 l2transport', 'BE1.100', 'encapsulation dot1q 100', '!', {}, ['service', '', '100', '', '']),
+    ('cisco_xr', 'Bundle-Ether1', 'BE1', 'ipv4 address 192.0.2.1 255.255.255.0', '!', {}, ['routed', '', '', '', '']),
+])
+def test_aggregate_vendor_vlan_join_regression(platform, heading, display, body, terminator, options, expected):
+    from orbitflow.vendors.cisco.vlans import parse_ios_xr_running_config
+    parser = (parse_huawei_config if platform == 'huawei_vrp' else
+              parse_ios_xr_running_config if platform == 'cisco_xr' else parse_ios_running_config)
+    body = '\n'.join(' ' + line for line in body.splitlines())
+    observations, objects = parser(f'interface {heading}\n{body}\n{terminator}\n', **options)
+    rows, _ = reporting.build_rows(context(platform=platform), [interface(display)], state(*observations, objects=objects))
+    assert len(rows) == 1
+    assert rows[0][4] == display
+    assert rows[0][11:16] == expected
+
+
+
+
+def test_duplicate_report_identity_isolated_to_one_device(tmp_path, monkeypatch):
+    install_fakes(monkeypatch)
+    def collect(session, ctx, *, cli):
+        observations = [InterfaceVlanObservation('Gi0/1', port_type='access')]
+        if ctx.management_ip == '192.0.2.1':
+            observations.append(InterfaceVlanObservation('GigabitEthernet0/1', port_type='trunk'))
+        return state(*observations)
+    monkeypatch.setattr(reporting, 'VlanService', Mock(return_value=Mock(collect=collect)))
+    targets = [{'management_ip': f'192.0.2.{i}', 'username': 'synthetic-user',
+                'password': 'synthetic-password'} for i in (1, 2)]
+    path = reporting.run_report(targets, CONFIG, reports_dir=tmp_path,
+                                log_root=tmp_path / 'logs', output=StringIO())
+    workbook = load_workbook(path, read_only=True)
+    try:
+        rows = list(workbook['Interfaces'].values)
+        assert len(rows) == 2
+        assert rows[1][1] == '192.0.2.2'
+        errors = list(workbook['Run_Errors'].values)
+        assert len(errors) == 2
+        assert errors[1][0] == '192.0.2.1'
+        assert errors[1][2:4] == ('normalize', 'ValueError')
+    finally:
+        workbook.close()
+
+
+def test_edgeswitch_shared_join_key_preserves_legacy_consumers():
+    for number in (1, 2, 6):
+        for heading in (f'lag {number}', f'LAG 0{number}', f'3/0{number}'):
+            assert canonical_interface_name('ubiquiti_edgeswitch', heading, normalize_aggregation=True) == f'3/{number}'
+        assert canonical_interface_name('ubiquiti_edgeswitch', f'lag {number}') == f'lag {number}'
+        assert canonical_interface_name('ubiquiti_edgeswitch', f'0/{number}', normalize_aggregation=True) == f'0/{number}'
+        assert canonical_interface_name('cisco_ios', f'lag {number}', normalize_aggregation=True) == f'lag{number}'

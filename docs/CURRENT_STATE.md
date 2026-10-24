@@ -574,7 +574,36 @@ spools. Synthetic IOS allowed 2-4094/native 445 and offline 699-outcome/seven-fa
 recovery are covered by deterministic tests; remaining oversized fields fail
 with a content-free cell location and preserve atomic output/spool recovery.
 Owner spool recovery and Windows validation for Issue #142 remain pending.
-No live reporting validation has been performed.
+Issue #147 implements device-scoped read-only AggregationService observation for
+C3750X, C3850, ME3600X, ASR920, NCS540 IOS-XR, Huawei VRP and EdgeSwitch.
+Explicit physical bindings retain down members; configured-empty and incomplete
+Unknown remain distinct, and aggregate subinterfaces remain separate. The three
+LAG columns follow Interface in the 17-column schema. InterfaceService owns row
+membership/display; LAG Member uses source-heading names. Each aggregate's five
+forwarding fields come from its own VlanService observation. Opt-in EdgeSwitch
+`lag N`/`3/N` joins leave default legacy canonical keys unchanged. Duplicate
+canonical interface/VLAN observations cause isolated per-device `normalize`
+errors without overwrite. VLAN database/error schemas, compaction, CLI/API,
+shared bounded execution, sanitized evidence comments/conditional lossless
+Configuration_Evidence and atomic spool recovery remain supported.
+
+AuditResolver.aggregates and family audit/planning inheritance/conflict paths
+remain active; this relationship capability does not replace them. No legacy
+workflow or configuration execution is retired or reinterpreted. See the
+[canonical manual](user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
+for Linux/Windows menu/CLI commands, API, errors and acceptance checks.
+
+Owner evidence dated 2026-10-24: private workbook
+`device_interface_vlan_report_20261024T113249_512594Z.xlsx` has 17 interface
+columns, physical/aggregate forwarding data and zero recorded Run_Errors.
+This confirms batch completion for the tested input, not each family/service
+construct or universal firmware compatibility. Earlier EdgeSwitch 1.9.2-lite
+shared-CLI paging timeout and NCS540 service-specific behavior require separate
+direct validation. Real OneDrive cleanup-lock resolution is unconfirmed.
+Codex reported full Windows suite 3,214 passed (246.33s) at `98d6e20`; Atlas
+did not independently rerun it. Synthetic edge-case tests are distinct from
+owner live evidence; Linux revision testing and broader per-platform acceptance
+remain outstanding. No device operations occur in this documentation revision.
 
 ## Known Limitations
 
