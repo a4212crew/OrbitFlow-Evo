@@ -200,6 +200,28 @@ successful observations and subsequent devices remain in the report.
 Programmatic callers can pass the same target dictionaries to
 `orbitflow.reporting.run_report(targets, transport_config)`.
 
+Issue #147 adds normalized read-only LAG relationships for C3750X, C3850,
+ME3600X, ASR920, NCS540 IOS-XR, Huawei VRP and EdgeSwitch. `LAG`,
+`LAG Relationship`, `LAG Member` follow `Interface`; existing VLAN and error
+schemas remain unchanged. Explicit bindings preserve down members; incomplete
+configuration is reported as unknown with a stage error. Interface-cell comments
+reference sanitized stanzas, with conditional `Configuration_Evidence` chunks
+for overflow. Existing console Run/recovery and direct CLI use the same service.
+Legacy aggregation in audit/planning/execution remains available. See the
+[LAG contract and validation commands](docs/user_manual/device-interface-vlan-report.md#lag-relationships-issue-147).
+Owner-operated live validation remains pending.
+
+Issue #147 adds normalized read-only LAG relationships for C3750X, C3850,
+ME3600X, ASR920, NCS540 IOS-XR, Huawei VRP and EdgeSwitch. `LAG`,
+`LAG Relationship`, `LAG Member` follow `Interface`; existing VLAN and error
+schemas remain unchanged. Explicit bindings preserve down members; incomplete
+configuration is reported as unknown with a stage error. Interface-cell comments
+reference sanitized stanzas, with conditional `Configuration_Evidence` chunks
+for overflow. Existing console Run/recovery and direct CLI use the same service.
+Legacy aggregation in audit/planning/execution remains available. See the
+[LAG contract and validation commands](docs/user_manual/device-interface-vlan-report.md#lag-relationships-issue-147).
+Owner-operated live validation remains pending.
+
 One workbook is written at the end under
 `outputs/reports/interface_vlan/device_interface_vlan_report_<UTC timestamp>.xlsx`, with `Interfaces`,
 `VLAN_Database`, and `Run_Errors` sheets. Use `--reports-dir`, `--inventory-path`,

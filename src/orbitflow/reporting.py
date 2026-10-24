@@ -1,4 +1,4 @@
-"""Read-only batch Interface/VLAN reporting over shared device capabilities."""
+"""Read-only batch Interface/VLAN/LAG reporting over shared device capabilities."""
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,6 +7,8 @@ import sys
 
 from orbitflow.excel_output import write_tables
 
+from orbitflow.capabilities.aggregation import AggregationService
+from orbitflow.vendors.aggregation import AggregationSnapshot, identity as aggregation_identity
 from orbitflow.capabilities.interfaces import InterfaceService
 from orbitflow.capabilities.vlans import VlanService
 from orbitflow.execution import execute_devices, Progress
@@ -20,7 +22,7 @@ from orbitflow.vendors.interface_names import canonical_interface_name
 
 INTERFACE_COLUMNS = (
     "Device Name", "Device IP", "Platform", "Device Family", "Interface",
-    "Description", "Admin Status", "Oper Status", "Port Type", "Untagged VLAN",
+    "LAG", "LAG Relationship", "LAG Member", "Description", "Admin Status", "Oper Status", "Port Type", "Untagged VLAN",
     "Tagged VLANs", "Bridge Domains", "Service Mappings", "Collection Time",
 )
 DATABASE_COLUMNS = (
@@ -30,11 +32,13 @@ DATABASE_COLUMNS = (
 ERROR_COLUMNS = ("Device IP", "Device Name", "Stage", "Error Category", "Time")
 
 
-def build_rows(context, interfaces, vlans):
+def build_rows(context, interfaces, vlans, aggregation=None):
     """Present actual interface facts with reversible numeric/identity ranges.
 
     Inclusive ``identity(a-b)`` denotes ordered pairs ``a -> a`` through
     ``b -> b``; it never denotes a cross product. Capability data is unchanged.
+    Optional normalized aggregation supplies three LAG fields after Interface;
+    only actual InterfaceService rows are emitted.
     """
     key = lambda name: canonical_interface_name(context.platform, name)
     records = {key(record.port_name): record for record in interfaces}
@@ -52,6 +56,7 @@ def build_rows(context, interfaces, vlans):
                 value = ("; " if field == "service_mappings" else ", ").join(map(str, value))
             fields.append(_compact_field(field, value))
         rows.append(identity + [context.device_family, record.port_name,
+            *(aggregation.fields(name) if aggregation else ["", "", ""]),
             record.port_description, record.admin_status, record.oper_status,
             *fields, record.collection_time.isoformat()])
     database = [] if vlans is None else [
@@ -99,31 +104,48 @@ def _compact_field(field, value):
     return separator.join(result)
 
 
-def write_workbook(path, interfaces, database, errors, *, clean=sanitize_text):
-    """Atomically stream the three report sheets with lossless range rendering.
+def write_workbook(path, interfaces, database, errors, *, clean=sanitize_text, evidence=()):
+    """Atomically stream report sheets and optional chunked configuration evidence.
 
     Also accepts expanded rows from older spools. Only consecutive canonical
     VLAN IDs (1..4094) and exact identity pairs are compacted, in source order.
     Other oversized cells raise ValueError with their location, never contents.
     """
+    comments = {}
     def compact_rows():
         for row in interfaces:
             row = list(row)
-            for index, field in ((10, "tagged_vlans"), (11, "bridge_domains"), (12, "service_mappings")):
+            comments.clear()
+            if len(row) == 18:
+                comments[5] = row.pop()
+            if len(row) == 14:  # Pre-LAG spool compatibility.
+                row[5:5] = ["", "", ""]
+            for index, field in ((13, "tagged_vlans"), (14, "bridge_domains"), (15, "service_mappings")):
                 row[index] = _compact_field(field, row[index])
             yield row
 
-    return write_tables(path, (
-        ("Interfaces", INTERFACE_COLUMNS, compact_rows()),
-        ("VLAN_Database", DATABASE_COLUMNS, database),
-        ("Run_Errors", ERROR_COLUMNS, errors),
-    ), clean=clean)
+    def tables():
+        yield "Interfaces", INTERFACE_COLUMNS, compact_rows()
+        yield "VLAN_Database", DATABASE_COLUMNS, database
+        yield "Run_Errors", ERROR_COLUMNS, errors
+        iterator = iter(evidence)
+        first = next(iterator, None)
+        if first is not None:
+            from itertools import chain
+            yield "Configuration_Evidence", ("Device Name", "Device IP", "Interface", "Evidence ID",
+                "Evidence Part", "Total Parts", "Configuration Evidence"), chain([first], iterator)
+    return write_tables(path, tables(), clean=clean,
+                        comments=lambda title, col: comments.get(col) if title == "Interfaces" else None)
 
 
 def run_report(targets, transport_config, *, inventory_path="data/inventory/inventory.json",
                reports_dir="outputs/reports/interface_vlan", log_root="outputs/logs", output=None, clock=None,
                execution_config=None, spool_root=None):
-    """Accept approved targets; isolate failures and default spools to reports_dir/runs."""
+    """Collect interface/VLAN/LAG facts sequentially per device on shared execution.
+
+    Isolate capability failures, preserve sanitized evidence in the shared spool,
+    and default spools to reports_dir/runs. Legacy VLAN/audit logic is unchanged.
+    """
     output = output if output is not None else sys.stdout
     clock = clock or (lambda: datetime.now(timezone.utc))
     targets = list(targets)
@@ -167,7 +189,7 @@ def run_report(targets, transport_config, *, inventory_path="data/inventory/inve
             identity = clean(ip).encode("unicode_escape").decode("ascii")
             label = f"[{position}/{len(targets)}] {identity or '(missing target)'}"
             failures_before = len(errors)
-            context, interfaces, vlans = None, [], None
+            context, interfaces, vlans, aggregation = None, [], None, None
             status(f"{label}: input")
             try:
                 if not all(isinstance(target.get(field), str) and target[field].strip() for field in REQUIRED_COLUMNS):
@@ -190,6 +212,14 @@ def run_report(targets, transport_config, *, inventory_path="data/inventory/inve
                                     vlans = result
                             except Exception as exc:
                                 failure(ip, name, stage, exc)
+                        stage = "aggregation"
+                        status(f"{label}: {stage}")
+                        try:
+                            aggregation = AggregationService().collect(session, context, cli=cli, interfaces=interfaces)
+                            if aggregation and aggregation.problems:
+                                failure(ip, name, stage, ValueError("incomplete aggregation evidence"))
+                        except Exception as exc:
+                            failure(ip, name, stage, exc)
                         stage = "disconnect"
                         status(f"{label}: {stage}")
             except Exception as exc:
@@ -197,14 +227,15 @@ def run_report(targets, transport_config, *, inventory_path="data/inventory/inve
             if context is not None:
                 status(f"{label}: normalize")
                 try:
-                    rows, objects = build_rows(context, interfaces, vlans)
+                    rows, objects = build_rows(context, interfaces, vlans, aggregation)
                     interface_rows.extend(rows)
                     database_rows.extend(objects)
                 except Exception as exc:
                     failure(ip, name, "normalize", exc)
             count = len(errors) - failures_before
             status(f"{label}: completed" + (f" with {count} stage failure(s)" if count else ""))
-            return interface_rows, database_rows, errors
+            from dataclasses import asdict
+            return interface_rows, database_rows, errors, asdict(aggregation) if aggregation else None
 
         def persist(outcome):
             nonlocal failure_count
@@ -246,9 +277,67 @@ def export_report_spool(spool_path, path, *, cleanup=True, allow_partial=False):
     if spool.manifest['task'] != 'interface_vlan_report':
         raise ValueError('Not an Interface/VLAN report spool')
     def consume(run):
+        def project(record):
+            payload = record['payload']
+            snapshot = AggregationSnapshot(**payload[3])
+            stanzas = dict(snapshot.evidence)
+            def evidence_id(ref):
+                return f"{record['run_id']}:{record['input_position']}:{ref}"
+            refs = [snapshot.references(row[4]) for row in payload[0]]
+            overflow = any(len("\n\n".join(evidence_id(ref) + "\n" + stanzas[ref] for ref in selected)) > 32767 for selected in refs)
+            # Store each selected stanza once; other views carry stable references.
+            owners = {}
+            actual = {aggregation_identity(snapshot.platform, row[4]): i for i, row in enumerate(payload[0])}
+            for i, selected in enumerate(refs):
+                for ref in selected:
+                    owners.setdefault(ref, actual.get(ref, i))
+            comments = []
+            for i, selected in enumerate(refs):
+                reference = "Configuration_Evidence" if overflow else "Evidence references"
+                comment = reference + ": " + ", ".join(evidence_id(ref) for ref in selected) if selected else ""
+                if not overflow:
+                    stored = [evidence_id(ref) + "\n" + stanzas[ref] for ref, owner in owners.items() if owner == i]
+                    if stored:
+                        comment += "\n\nEvidence store:\n" + "\n\n".join(stored)
+                comments.append(comment)
+            if any(len(text) > 32767 for text in comments):
+                overflow = True
+                comments = ["Configuration_Evidence: " + ", ".join(evidence_id(ref) for ref in selected) if selected else "" for selected in refs]
+            for i, text in enumerate(comments):
+                if len(text) > 32767:
+                    key = aggregation_identity(snapshot.platform, payload[0][i][4])
+                    comments[i] = "Configuration_Evidence: " + evidence_id(key) + ":references"
+            return snapshot, comments, overflow, evidence_id
+
         def rows(index):
             for record in run.records():
-                yield from record['payload'][index]
-        write_workbook(path, rows(0), rows(1), rows(2))
+                payload = record['payload']
+                if index != 0 or len(payload) < 4 or not payload[3]:
+                    yield from payload[index]
+                    continue
+                _, comments, _, _ = project(record)
+                for row, comment in zip(payload[0], comments):
+                    yield list(row) + [comment]
+
+        def evidence_rows():
+            for record in run.records():
+                payload = record['payload']
+                if len(payload) < 4 or not payload[3]:
+                    continue
+                snapshot, _, overflow, evidence_id = project(record)
+                if not overflow:
+                    continue
+                entries = list(snapshot.evidence)
+                for row in payload[0]:
+                    refs = snapshot.references(row[4])
+                    reference_text = ", ".join(evidence_id(ref) for ref in refs)
+                    if len("Configuration_Evidence: " + reference_text) > 32767:
+                        entries.append((aggregation_identity(snapshot.platform, row[4]) + ":references", reference_text))
+                for ref, text in entries:
+                    parts = [text[i:i+30000] for i in range(0, len(text), 30000)] or [""]
+                    for part, chunk in enumerate(parts, 1):
+                        yield [payload[0][0][0] if payload[0] else "", record.get('target', ''), ref,
+                               evidence_id(ref), part, len(parts), chunk]
+        write_workbook(path, rows(0), rows(1), rows(2), evidence=evidence_rows())
         return Path(path)
     return spool.consume(consume, cleanup=cleanup, allow_partial=allow_partial)

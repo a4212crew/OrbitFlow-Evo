@@ -1,4 +1,4 @@
-"""Generate a read-only Interface/VLAN workbook from approved Excel targets."""
+"""Generate a read-only Interface/VLAN/LAG workbook from approved Excel targets."""
 
 from orbitflow.terminal_progress import cli_progress
 import argparse

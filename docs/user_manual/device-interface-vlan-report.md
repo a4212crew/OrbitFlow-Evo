@@ -28,8 +28,8 @@ Console target selection (Issue #123 revision): after choosing a device workbook
 
 ## Full-range VLAN rendering and offline recovery (Issue #142)
 
-The existing `Interfaces`, `VLAN_Database`, and `Run_Errors` sheets and columns
-are preserved. In Tagged VLANs and wholly numeric Bridge Domains lists,
+The existing `Interfaces`, `VLAN_Database`, and `Run_Errors` sheets and original
+fields are preserved; Issue #147 adds the three LAG columns described below. In Tagged VLANs and wholly numeric Bridge Domains lists,
 consecutive canonical IDs in 1–4094 are rendered as inclusive `a-b` ranges
 (runs of at least three). Ordering and duplicate IDs are preserved; numeric
 runs are never sorted or merged across intervening values. Mixed named domain
@@ -120,3 +120,143 @@ output, phase-specific counters, saved paths, partial/interrupted/export-failure
 semantics and the coverage table (including specialist/lifecycle exemptions).
 Device/workflow semantics and existing arguments are unchanged. Deterministic
 terminal fixtures are separate from pending owner-operated Linux/Windows validation.
+
+## LAG relationships (Issue #147)
+
+The same direct CLI and Interface & VLAN Reporting console Run/recovery actions
+now observe explicit aggregation bindings. Seven approved family templates:
+C3750X IOS, C3850 IOS-XE, ME3600X IOS, ASR920 IOS-XE, NCS540 IOS-XR,
+Huawei VRP and Ubiquiti EdgeSwitch. No new flags or configuration writes.
+Inventory family selection and session/transport ownership remain unchanged.
+
+`Interfaces` has 17 columns: the original 14 plus `LAG`, `LAG Relationship`,
+`LAG Member` immediately after `Interface`. Parent rows show `Yes`, `Parent`,
+canonical physical members separated by commas. Child rows show `Yes`, `Child`,
+the canonical base parent. Standalone and aggregate subinterface rows have
+three blanks. Down/shutdown members remain members. A confirmed empty parent
+has blank members; incomplete configuration shows `Unknown` on parent rows and
+an `aggregation` error. If that capability fails completely, the LAG columns
+remain blank and `Run_Errors` records the stage/category; those blanks are not
+proof of standalone status. Other successful capability output survives.
+`VLAN_Database` and `Run_Errors` columns are unchanged. Actual InterfaceService
+identities still own report rows; service-only references create no rows.
+
+The collector runs `show running-config` on Cisco/EdgeSwitch or
+`display current-configuration` on Huawei using the existing shared CLI. It
+recognizes `channel-group`, `bundle id`, `eth-trunk` or `addport 3/N` in physical
+interface stanzas. Operational summary tables, active counts, descriptions and
+LACP health are not membership sources and are not collected in this revision.
+A complete configuration terminator (`end` or `return`, or balanced EdgeSwitch
+`configure`/`exit` contexts) is needed to prove empty membership; incomplete output and conflicting bindings retain fixed
+problem categories without guessing. Missing parent identities are not created
+from bindings. EdgeSwitch observed default `3/N` parents do not imply explicit
+operator provisioning. Live firmware/format acceptance remains owner-owned.
+
+### Evidence lookup and overflow
+
+Open the comment/note on the `Interface` cell (column E). Each view lists stable
+`run-id:input-position:canonical-interface` evidence references. Parent views
+reference the base parent, all configured aggregate subinterfaces and physical
+members. Child views reference their own stanza and base parent only; siblings
+and aggregate subinterfaces are excluded. Logical subinterfaces reference their
+own stanza and remain outside physical membership. Find the matching ID in an
+Interface comment's `Evidence store`; each selected sanitized stanza is stored
+once, usually beside its own real interface. Related stanzas with no observed
+row are stored beside the first referencing interface. Original headers and
+nested EVC/QoS/service settings remain present after credential sanitization.
+
+If any projection or evidence store exceeds 32,767 characters, comments point
+to the conditional consolidated `Configuration_Evidence` sheet. Its columns
+are `Device Name`, `Device IP`, `Interface`, `Evidence ID`, `Evidence Part`,
+`Total Parts`, `Configuration Evidence`. For each Evidence ID, order by integer
+Evidence Part, verify parts 1..Total Parts, then concatenate Configuration
+Evidence **without adding separators**. Chunks are at most 30,000 characters
+and reconstruct the complete sanitized stanza. A very large reference list also
+uses chunks, with an Evidence ID ending in `:references`; reconstruct it the
+same way to obtain the comma-separated stanza IDs. Stanzas occur once per device
+in the spool and once in the workbook evidence store. Ordinary reports retain
+three sheets. Non-evidence overflow still fails atomically, retaining the spool
+and previous destination workbook. Existing offline recovery commands above
+preserve evidence and never reconnect. Old three-element/14-column spool rows
+remain readable and export with three blank LAG columns.
+
+### Python API
+
+`orbitflow.capabilities.aggregation.AggregationService(*, timeout=30,
+clock=None).collect(session, context, *, cli=None, interfaces=())` returns an
+`AggregationSnapshot`. `timeout` is seconds per command; clock optionally returns
+an aware datetime. A resolved DeviceContext is required; no discovery is done.
+`interfaces` supplies already-observed InterfaceRecords, including empty/default
+parents. Supplying a shared CLI borrows it; omission owns a temporary vendor CLI
+and leaves the transport session with the caller. Unsupported platforms/families,
+unavailable/rejected configuration and transport failures raise exceptions;
+reporting isolates these as aggregation-stage errors. This API performs no apply.
+
+Snapshot fields: device_id, platform, device_family, collection_time (ISO text),
+configuration_command, complete, parents, bindings (physical child/base parent),
+subinterfaces (logical/base parent), evidence (canonical name/sanitized full
+stanza), problems (fixed nonfatal categories). Identities are canonical join
+keys, not inferred operational health. `fields(name)` gives the three report
+values; `references(name)` gives ordered evidence keys for that view.
+`build_rows(context, interfaces, vlans, aggregation=None)` still returns
+`(interface_rows, database_rows)`; callers should use INTERFACE_COLUMNS rather
+than fixed numeric offsets. `None` preserves the preexisting call signature
+with blank LAG values. `run_report` arguments and Path result are unchanged.
+The report spool retains its first three payload lists and adds an optional
+fourth normalized snapshot. Spools are internal recovery artifacts; use
+`export_report_spool` rather than modifying their records.
+
+### Automated and owner live validation
+
+Run from repository root with installed requirements. Focused automated tests:
+
+```bash
+PYTHONPATH=src python -m pytest -q tests/test_aggregation.py tests/test_device_reporting.py tests/test_result_spool.py tests/test_operations_console.py tests/test_shared_cli.py
+PYTHONPATH=src python -m pytest -q
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m pytest -q tests/test_aggregation.py tests/test_device_reporting.py tests/test_result_spool.py tests/test_operations_console.py tests/test_shared_cli.py
+python -m pytest -q
+```
+
+Full-suite validation covers existing interface/VLAN, audit/compliance, planning
+v1/v2, backup, inventory, shared execution, transport and CLI/API consumers.
+Synthetic tests do not establish live firmware compatibility. Owner live
+validation is **pending for all seven families**. No devices were contacted by
+Codex. After review, the owner can run the following read-only collection with
+an owner-controlled workbook containing representative approved targets, after
+operator-controlled `tsh` authentication. Substitute routing and key/certificate
+paths locally; never commit the workbook or raw logs.
+
+Linux:
+
+```bash
+export PYTHONPATH=src
+python scripts/device_interface_vlan_report.py outputs/lag-validation-devices.xlsx --proxy teleport.example.net:443 --cluster example-cluster --bastion-host example-bastion --bastion-user example-user --teleport-key-path "$TELEPORT_KEY_PATH" --teleport-cert-path "$TELEPORT_CERT_PATH"
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = 'src'
+python .\scripts\device_interface_vlan_report.py .\outputs\lag-validation-devices.xlsx --proxy teleport.example.net:443 --cluster example-cluster --bastion-host example-bastion --bastion-user example-user
+```
+
+Expect the timestamped report under outputs/reports/interface_vlan and concise
+per-stage progress. Compare membership with operator-known explicit bindings
+on each family, including down members and observed empty parents; compare
+aggregate subinterfaces separately. Check aliases, parent/child evidence IDs,
+full EVC/QoS preservation, secret redaction and unchanged VLAN database/service
+mappings. Include a safely unreachable test target to verify device isolation;
+inspect aggregation-stage errors before interpreting blank fields. Verify
+console Run uses the same columns and retained-spool recovery reproduces them
+without reconnecting. Overflow reconstruction is covered synthetically; no
+production configuration should be enlarged to trigger it. Record family,
+firmware, expected/observed counts and sanitized pass/fail only. No raw PuTTY
+logs, tokens, keys or credential-bearing evidence belong in Issues/PRs.
+Legacy audit/planning/execution aggregation remains available for separately
+owner-operated compatibility tests; it has not been retired or reinterpreted.

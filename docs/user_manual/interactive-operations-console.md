@@ -140,3 +140,10 @@ shared stage verification, confirmation, replay protection and EXEC-only partial
 save remain. Menu/profile/defaults are unchanged. See the
 [execution guide](configuration-execution.md#simplified-approved-execution--issue-139).
 Owner/live validation of this revision remains pending.
+
+
+Interface & VLAN Reporting Run and offline regeneration also include Issue #147
+LAG columns and referenced sanitized configuration evidence through the existing
+report service. There is no additional menu action or confirmation. Profile,
+selected target rows, per-run concurrency and recovery rules are unchanged.
+See [LAG relationships and owner validation](device-interface-vlan-report.md#lag-relationships-issue-147).

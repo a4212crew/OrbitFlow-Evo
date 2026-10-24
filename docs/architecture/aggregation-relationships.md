@@ -1,6 +1,6 @@
 # Cross-Vendor Aggregation Relationships — Architecture and Acceptance Contract
 
-**Status:** Owner-accepted device-family template design; **not implemented**. Phase 3 documentation draft, pending owner review/merge.  
+**Status:** Owner-approved merged design authority. Issue #147 implements the read-only capability and reporting integration; owner-operated live validation remains pending.
 **Scope:** Read-only LAG/aggregation membership observation, interface report presentation and sanitized configuration evidence.  
 **Non-goals:** LACP health/compliance, VLAN/service inference from membership, configuration apply, replacement of existing audit/planning resolvers.
 
@@ -8,7 +8,7 @@
 
 Follow [repository rules](../../AGENTS.md), [interface collector skill](../../.agents/skills/interface-collector/SKILL.md), [reporting skill](../../.agents/skills/device-reporting/SKILL.md) and [documentation management](../../.agents/skills/documentation-management/SKILL.md).
 
-As inspected on 2026-10-24, `src/orbitflow/reporting.py` joins existing `InterfaceService` and `VlanService` outputs, has 14 `Interfaces` columns and writes `Interfaces`, `VLAN_Database`, `Run_Errors`. `src/orbitflow/excel_output.py` rejects Excel cell contents over 32,767 characters and atomically replaces reports. `src/orbitflow/compliance/resolvers.py` has aggregation-related VLAN audit behavior which **must remain intact** until separately approved and regression-validated. Planning v2 shares configuration facts and compliance/audit observations. This proposal is not a claim of implemented LAG capability.
+Pre-Issue #147 baseline, inspected on 2026-10-24: `src/orbitflow/reporting.py` joins existing `InterfaceService` and `VlanService` outputs, has 14 `Interfaces` columns and writes `Interfaces`, `VLAN_Database`, `Run_Errors`. `src/orbitflow/excel_output.py` rejects Excel cell contents over 32,767 characters and atomically replaces reports. `src/orbitflow/compliance/resolvers.py` has aggregation-related VLAN audit behavior which **must remain intact** until separately approved and regression-validated. Planning v2 shares configuration facts and compliance/audit observations. Issue #147 adds the separate aggregation capability, three LAG columns and conditional evidence overflow without retiring that legacy behavior.
 
 ## 2. Device-family relationship templates
 
@@ -79,7 +79,7 @@ Carry evidence references/payload through the shared bounded `ResultSpool`; offl
 
 Codex must add deterministic sanitized fixtures/tests in an **owner-authorized development Issue**, update the monthly devlog and impacted user manuals/API/README/function descriptions, and supply precise Linux/Windows automated and owner-operated read-only live validation commands for review. Live validation is owner-operated. No merge without explicit owner approval.
 
-## 7. Pending readiness decisions
+## 7. Historical readiness decisions (resolved for authorized Issue #147)
 
 1. Review and approve this normalized schema's exposed public/API shape and any compatibility versioning required for report/spool consumers.
 2. Establish live controller/worktree and outstanding owner-validation status immediately before any new Codex Issue; GitHub searches alone cannot prove the serial slot is free.
@@ -88,3 +88,29 @@ Codex must add deterministic sanitized fixtures/tests in an **owner-authorized d
 5. Keep legacy audit aggregation logic; any eventual replacement is a separate design and owner decision.
 
 **Gate:** This document authorizes no code changes, development Issue, device configuration action, or PR merge.
+
+
+## 8. Issue #147 implementation mapping
+
+`AggregationService.collect(session, context, *, cli=None, interfaces=())` borrows
+shared CLI/session ownership; `vendors/aggregation.py` parses explicit full-config
+bindings without changing compliance or planning. Supporting operational tables
+are not collected in this revision: binding truth comes from configuration,
+never active-member counters, Local/Partner lists or description text. Missing
+configuration terminators produce unknown membership completeness and an
+aggregation-stage error, while affirmative bindings and other capability rows
+survive. Family live validation is pending.
+
+Each sanitized stanza occurs once in the device spool payload. Normal workbooks
+store selected stanzas once in Interface-cell comments with run/target/interface
+IDs; parent and child comments reference their exact projections. Unobserved
+related stanzas are stored beside the first referencing real interface. If a
+projection/store exceeds 32,767 characters, the device evidence is stored once
+in the consolidated conditional `Configuration_Evidence` sheet in ordered
+30,000-character chunks. Comments then carry references only. See the
+[operator/API manual](../user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
+for lookup, recovery, exact commands and owner acceptance expectations.
+
+The earlier readiness checklist records pre-implementation provenance, not an
+outstanding request to create another task. Legacy aggregation retirement and
+any merge remain outside this implementation authorization.

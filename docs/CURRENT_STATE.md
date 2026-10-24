@@ -574,6 +574,16 @@ spools. Synthetic IOS allowed 2-4094/native 445 and offline 699-outcome/seven-fa
 recovery are covered by deterministic tests; remaining oversized fields fail
 with a content-free cell location and preserve atomic output/spool recovery.
 Owner spool recovery and Windows validation for Issue #142 remain pending.
+Issue #147 adds a device-scoped AggregationService for seven approved families:
+C3750X, C3850, ME3600X, ASR920, NCS540 IOS-XR, Huawei VRP and EdgeSwitch.
+Explicit configuration bindings drive the three LAG columns after Interface;
+subinterfaces remain separate and incomplete collection cannot prove empty.
+Sanitized full stanzas are stored once with references, including parent/child
+projections, bounded result-spool recovery and conditional lossless evidence
+chunks. Existing console reporting/recovery uses the same service. Operational
+LACP health/corroboration tables are not collected. Legacy compliance/planning
+aggregation and configuration execution are unchanged. Deterministic synthetic
+coverage is separate from pending owner live validation on all seven families.
 No live reporting validation has been performed.
 
 ## Known Limitations

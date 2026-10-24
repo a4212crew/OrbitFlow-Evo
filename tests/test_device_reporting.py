@@ -131,8 +131,8 @@ def test_workbook_headers_formatting_and_literal_text(tmp_path):
             assert sheet.freeze_panes == 'A2'
             assert sheet.auto_filter.ref.endswith(str(sheet.max_row))
             assert sheet.column_dimensions['A'].width >= 18
-        assert with_workbook['Interfaces']['F2'].data_type == 's'
-        assert with_workbook['Interfaces']['F2'].value == '=HYPERLINK("bad")'
+        assert with_workbook['Interfaces']['I2'].data_type == 's'
+        assert with_workbook['Interfaces']['I2'].value == '=HYPERLINK("bad")'
     finally:
         with_workbook.close()
 
@@ -177,6 +177,7 @@ def install_fakes(monkeypatch, failing_stage=None, fail_ip='192.0.2.1'):
     monkeypatch.setattr(reporting, 'connect_device', connect)
     monkeypatch.setattr(reporting, 'DeviceInventoryResolver', Mock(return_value=Mock(resolve=resolve)))
     monkeypatch.setattr(reporting, 'InterfaceService', Mock(return_value=Mock(collect=collect('interfaces'))))
+    monkeypatch.setattr(reporting, 'AggregationService', Mock(return_value=Mock(collect=lambda *a, **k: None)))
     monkeypatch.setattr(reporting, 'VlanService', Mock(return_value=Mock(collect=collect('vlans'))))
     return events, closed
 
@@ -250,7 +251,7 @@ def test_batch_isolation_session_context_and_secrets(tmp_path, monkeypatch, stag
         if stage == 'interfaces':
             assert all(row[1] != '192.0.2.1' for row in workbook['Interfaces'].iter_rows(min_row=2, values_only=True))
         if stage == 'vlans':
-            assert workbook['Interfaces']['J2'].value is None
+            assert workbook['Interfaces']['M2'].value is None
         rendered = str([[row for row in sheet.values] for sheet in workbook])
     finally:
         workbook.close()
@@ -394,7 +395,7 @@ def test_full_vlan_range_is_not_truncated_by_log_sanitizer(tmp_path):
     path = tmp_path / 'full-range.xlsx'
     reporting.write_workbook(path, rows, [], [])
     workbook = load_workbook(path)
-    assert workbook['Interfaces']['K2'].value == '1-4094'
+    assert workbook['Interfaces']['N2'].value == '1-4094'
     workbook.close()
 
 
@@ -636,11 +637,11 @@ def legacy_full_range_row():
     observation = full_range_observation()
     rows, _ = reporting.build_rows(context(), [interface('Gi1/0/40')], state(observation))
     row = rows[0]
-    row[10] = ', '.join(map(str, observation.tagged_vlans))
-    row[11] = ', '.join(observation.bridge_domains)
-    row[12] = '; '.join(observation.service_mappings)
-    assert len(row[12]) > 32767
-    return row
+    row[13] = ', '.join(map(str, observation.tagged_vlans))
+    row[14] = ', '.join(observation.bridge_domains)
+    row[15] = '; '.join(observation.service_mappings)
+    assert len(row[15]) > 32767
+    return row[:5] + row[8:]
 
 
 def test_ios_full_range_native_trunk_lossless_workbook(tmp_path):
@@ -652,13 +653,13 @@ def test_ios_full_range_native_trunk_lossless_workbook(tmp_path):
     book = load_workbook(path)
     try:
         row = list(book['Interfaces'].values)[1]
-        assert row[9] == '445'
-        assert row[10] == '2-4094'
-        assert row[11] == '445, 2-444, 446-4094'
-        assert row[12] == 'untagged -> 445; identity(2-4094)'
-        assert expand_report_ids(row[10]) == tuple(map(str, observation.tagged_vlans))
-        assert expand_report_ids(row[11]) == observation.bridge_domains
-        assert expand_report_mappings(row[12]) == observation.service_mappings
+        assert row[12] == '445'
+        assert row[13] == '2-4094'
+        assert row[14] == '445, 2-444, 446-4094'
+        assert row[15] == 'untagged -> 445; identity(2-4094)'
+        assert expand_report_ids(row[13]) == tuple(map(str, observation.tagged_vlans))
+        assert expand_report_ids(row[14]) == observation.bridge_domains
+        assert expand_report_mappings(row[15]) == observation.service_mappings
         assert observation == before
         assert all(len(str(cell.value or '')) <= 32767 for sheet in book for cells in sheet for cell in cells)
     finally:
@@ -675,14 +676,14 @@ def test_mixed_mapping_ranges_reconstruct_exact_order_and_duplicates(tmp_path):
     rows, _ = reporting.build_rows(context(), [interface()], state(
         InterfaceVlanObservation('Gi0/1', tagged_vlans=tags,
                                  bridge_domains=domains, service_mappings=mappings)))
-    assert expand_report_ids(rows[0][10]) == tuple(map(str, tags))
-    assert expand_report_ids(rows[0][11]) == domains
-    assert expand_report_mappings(rows[0][12]) == mappings
-    assert '10-12 -> 10-12' in rows[0][12]
+    assert expand_report_ids(rows[0][13]) == tuple(map(str, tags))
+    assert expand_report_ids(rows[0][14]) == domains
+    assert expand_report_mappings(rows[0][15]) == mappings
+    assert '10-12 -> 10-12' in rows[0][15]
     path = tmp_path / 'mixed.xlsx'
     reporting.write_workbook(path, rows, [], [])
     book = load_workbook(path)
-    assert list(book['Interfaces'].values)[1][12] == rows[0][12]  # idempotent
+    assert list(book['Interfaces'].values)[1][15] == rows[0][15]  # idempotent
     book.close()
 
 
@@ -692,7 +693,7 @@ def test_long_report_text_is_literal_or_fails_atomically_with_location(tmp_path,
     path.write_bytes(b'existing destination')
     rows, _ = reporting.build_rows(context(), [interface(description='x' * length)], state())
     if length > 32767:
-        with pytest.raises(ValueError, match=r'sheet=Interfaces, row=2, column=F, characters=') as error:
+        with pytest.raises(ValueError, match=r'sheet=Interfaces, row=2, column=I, characters=') as error:
             reporting.write_workbook(path, rows, [], [])
         assert 'x' * 30 not in str(error.value)
         assert path.read_bytes() == b'existing destination'
@@ -700,7 +701,7 @@ def test_long_report_text_is_literal_or_fails_atomically_with_location(tmp_path,
     else:
         reporting.write_workbook(path, rows, [], [])
         book = load_workbook(path)
-        assert book['Interfaces']['F2'].value == 'x' * length
+        assert book['Interfaces']['I2'].value == 'x' * length
         book.close()
 
 
@@ -723,16 +724,16 @@ def test_legacy_699_outcomes_offline_retry_preserves_seven_failures(tmp_path, mo
     source = (spool.path / 'results.jsonl').read_bytes()
     # A remaining noncompactable field must retain the spool and existing output.
     original = reporting.write_workbook
-    def oversized(path, interfaces, database, errors):
+    def oversized(path, interfaces, database, errors, **kwargs):
         def long_rows():
             for row in interfaces:
                 row[5] = 'z' * 32768
                 yield row
-        return original(path, long_rows(), database, errors)
+        return original(path, long_rows(), database, errors, **kwargs)
     monkeypatch.setattr(reporting, 'write_workbook', oversized)
     path = tmp_path / 'recovered.xlsx'
     path.write_bytes(b'previous report')
-    with pytest.raises(ValueError, match='column=F'):
+    with pytest.raises(ValueError, match='column=I'):
         reporting.export_report_spool(spool.path, path)
     assert path.read_bytes() == b'previous report'
     assert ResultSpool(spool.path).manifest['status'] == 'output_failed'
@@ -747,7 +748,7 @@ def test_legacy_699_outcomes_offline_retry_preserves_seven_failures(tmp_path, mo
         records = list(book['Interfaces'].values)[1:]
         assert len(records) == 692
         assert {row[1] for row in records} == {f'target-{p}' for p in range(8, 700)}
-        assert all(row[12] == 'untagged -> 445; identity(2-4094)' for row in records)
+        assert all(row[15] == 'untagged -> 445; identity(2-4094)' for row in records)
         errors = list(book['Run_Errors'].values)[1:]
         assert len(errors) == 7
         assert {row[0] for row in errors} == {f'target-{p}' for p in range(1, 8)}
@@ -772,7 +773,7 @@ def test_report_keeps_cross_vendor_service_relationships_literal(tmp_path, platf
     book = load_workbook(path)
     try:
         row = list(book['Interfaces'].values)[1]
-        assert row[9:13] == ('CUSTOMER', '100, 200', ', '.join(observation.bridge_domains),
+        assert row[12:16] == ('CUSTOMER', '100, 200', ', '.join(observation.bridge_domains),
                              '; '.join(observation.service_mappings))
     finally:
         book.close()
@@ -782,8 +783,8 @@ def test_oversized_unsupported_mappings_fail_without_suppressing_evidence(tmp_pa
     mappings = tuple(f'{v} -> domain-{v}' for v in range(2, 4095))
     rows, _ = reporting.build_rows(context(), [interface()], state(
         InterfaceVlanObservation('Gi0/1', service_mappings=mappings)))
-    assert rows[0][12] == '; '.join(mappings)
-    with pytest.raises(ValueError, match='column=M'):
+    assert rows[0][15] == '; '.join(mappings)
+    with pytest.raises(ValueError, match='column=P'):
         reporting.write_workbook(tmp_path / 'unsupported.xlsx', rows, [], [])
     assert not (tmp_path / 'unsupported.xlsx').exists()
 
@@ -791,5 +792,5 @@ def test_oversized_unsupported_mappings_fail_without_suppressing_evidence(tmp_pa
 def test_oversized_numeric_domain_is_opaque_and_fails_with_location(tmp_path):
     rows, _ = reporting.build_rows(context(), [interface()], state(
         InterfaceVlanObservation('Gi0/1', bridge_domains=('9' * 40000,))))
-    with pytest.raises(ValueError, match='column=L'):
+    with pytest.raises(ValueError, match='column=O'):
         reporting.write_workbook(tmp_path / 'domain.xlsx', rows, [], [])
