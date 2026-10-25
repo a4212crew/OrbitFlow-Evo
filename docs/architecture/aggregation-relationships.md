@@ -249,3 +249,12 @@ forwarding validation, plan-template constraints, approval digest, fresh executi
 gates, and historical observation/spool compatibility. Application code/tests to
 implement the new policy remain Codex-owned under the one active Issue workflow;
 this paragraph documents an approved requirement, not verified behavior.
+
+
+### Owner clarification and observed plan defect — 2026-10-25
+
+The owner specifies the exact new blocking finding **`NOT_ALLOW_ON_CHILD_PORT_CHANNEL`** for child-targeted access/trunk/VLAN-forwarding changes. Use the same semantic outcome across platforms and at both planning and fresh execution gates; preserve older finding names only where backward-compatible historical artifacts require them. This decision does not authorize changing existing executable code outside the Codex workflow.
+
+The owner-provided v2 plan (`plan(20261025-052137).json`) shows EdgeSwitch Interface Description for `0/17` incorrectly blocked as `INTERFACE_ABSENT_OR_AMBIGUOUS` and consistency `unresolved`. Its single observed interface `0/17` has **two saved `interface 0/17` stanzas**: one contains `addport 3/2` and the other contains the interface settings/description. Both refer to one canonical interface and the confirmed owner is `lag 2`; counting configuration stanzas as distinct physical interfaces is incorrect. In `configuration/v2/services.py`, `len(nodes) != 1` triggers the blocker; `configuration/execution.py::_check_target` independently requires exactly one fact declaration and can reject the same safe description operation at execution. Reconcile complementary same-identity source stanzas without suppressing contradictory evidence, uncertain identities or actual duplicate observed physical interfaces.
+
+**Expected after a future code revision:** a description-only request for confirmed `0/17` remains exact-target, may have an independent informational existing-VLAN/aggregate-conflict warning, and has `consistent` planning consistency if no other blocker exists. It is not exempt from regular existence, fresh observation, immutable approval and execution safety checks. Any physical-child *forwarding* change remains blocked as `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`, never redirected to its parent. No network configuration was changed in the review.
