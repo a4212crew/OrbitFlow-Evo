@@ -270,8 +270,7 @@ the JSON for diagnosis, and retry must use a new path or operator cleanup.
 ## Ordering and readiness
 
 For each device, order is worksheet-left-to-right, then row-top-to-bottom.
-Earlier approved, unblocked VLAN creation rows can satisfy later prerequisites;
-these remain projected effects, never evidence of existing device state.
+Earlier VLAN creation rows are separate requests and never establish observed device state. Predefined non-Ubiquiti rows do not depend on their approval; EdgeSwitch retains genuine per-port prerequisites and its separate fresh-execution VLAN checks.
 Overlapping interface, VLAN or shared bridge-domain requests are explicit
 conflicts, including overlaps involving unknown Manual CLI effects. Consolidate
 overlapping intent and regenerate; the planner never silently selects a winner.
@@ -350,10 +349,7 @@ unparseable/rejected detail uses annotated reliable config fallback.
 Use the `codex/issue-100` worktree only for authorised read-only validation.
 Do not interpret this section as an assertion that main has been updated.
 
-- A pending VLAN Database prerequisite yields `DEPENDENCY_NOT_APPROVED` as a
-  **warning**, and the dependent proposal may be `consistent` with no blocker,
-  but stays `deployment_ready=false` until prerequisite approval. The dependency
-  references, workbook order and downstream authority checks remain.
+- **Historical Issue #100 behavior, superseded by merged Issue #152:** Pending VLAN Database requests formerly produced `DEPENDENCY_NOT_APPROVED` and held dependent readiness. Current predefined non-Ubiquiti templates do not create these database approval dependencies; EdgeSwitch's genuine prerequisites are retained. Refer to the Issue #152 rule at the top of this guide.
 - An Interface Description operation overlapping another operation on the same
   interface yields `ORDERED_RESOURCE_OVERLAP_WARNING` for **all supported
   device families**, in either workbook order. Genuine incompatible operations,
@@ -597,7 +593,7 @@ Never paste generated configuration back to a device. Read-only checks:
   explicit scoped absence and Up/Down output. Unrecognized detail layouts
   deliberately use a labeled config fallback. No alternate commands are guessed.
 - ME3600X: `show vlan id <ID>`; verify present/inactive/absent/rejected lookup,
-  global BD VLAN warnings and explicit database dependencies, compatible empty-parent initialization, normal
+  global BD VLAN warnings without database approval dependencies, compatible empty-parent initialization, normal
   trunk/access/routed/physical-member blockers and unrelated-child retention.
 - EdgeSwitch: `show vlan <ID>` plus full `show running-config`. Verify VLAN
   headers/names/absence, inclusive lists, full interface exit, excluded+tagged
@@ -640,17 +636,17 @@ On ASR920, independent service instances with disjoint ingress on an existing
 compatible physical interface can be reviewed independently even when it has no
 EVCs yet (`no ip address` and `shutdown` are supported). Active L3 addressing and
 incompatible ownership still block. Shutdown is preserved. Explicit shared parent
-description changes retain ordering. ME3600X still requires trunk mode and allowed
-VLAN none, with sequencing and approval dependencies for initial conversion.
-No device apply is provided.
+description changes still require conflict review. ME3600X still requires trunk mode and allowed
+VLAN none, but disjoint EVCs do not require sibling approval for compatible empty-parent initialization.
+No ME3600X/ASR920 EVC device apply is provided.
 
 Independent ASR920 EVC services on an address-free parent (including a shutdown
 parent with no existing EVC) may be reviewed separately. Sharing a bridge domain,
 including repeated BD 1237, does not create an ordering warning or approval
 dependency for distinct SIs with disjoint ingress. Parent descriptions and actual
-parent conversions retain ordered review; same-interface ingress overlaps and
-duplicate SI intent remain blocked. ME3600X initial trunk conversion still
-requires its parent-initialization dependency. Planning preserves shutdown state.
+parent conversions retain safety review; same-interface ingress overlaps and
+duplicate SI intent remain blocked. Issue #152 removed the ME3600X sibling
+parent-initialization approval dependency for independent EVCs. Planning preserves shutdown state.
 
 ## Interactive console adapter (Issue #123)
 
