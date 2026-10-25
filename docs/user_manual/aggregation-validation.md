@@ -316,3 +316,30 @@ Codex policy revision, validate each matrix row with sanitized planned inputs,
 inspect blockers, `resolved_target`, rendered commands and deployment readiness,
 then review fresh execution-target safety in deterministic tests only. Never use
 an owner production device to manufacture a Port-channel membership conflict.
+
+
+### Approved blocker naming and EdgeSwitch description-stanza regression (2026-10-25)
+
+For future child-targeted access, trunk and VLAN-forwarding operations, report
+`NOT_ALLOW_ON_CHILD_PORT_CHANNEL` consistently in planning and fresh execution,
+without retargeting the operation to the logical aggregate. This is owner-approved
+future behavior, **not yet implemented** in the current PR source.
+
+Owner plan row: `EdgeSwitch Description` worksheet row 4 (`0/17`, intended
+`OrbitflowTest`) currently returns `INTERFACE_ABSENT_OR_AMBIGUOUS`,
+`unresolved`, even though InterfaceService observes exactly one `0/17` and
+`AggregationSnapshot` confirms parent `lag 2`. Saved config contains two
+complementary `interface 0/17` stanzas, one for `addport 3/2` and one for
+interface properties; duplicate source headings are **not** duplicate physical
+interfaces. V2 planning counts raw fact stanzas, and execution's fresh check also
+rejects more than one declaration. Correct both checks through canonical identity
+and merged compatible evidence, retaining fail-closed handling of actually
+contradictory declarations or ambiguous/missing observed interfaces.
+
+Expected future read-only validation: description-only `0/17` resolves to
+itself, consistency `consistent` with no duplicate-stanza blocker, existing
+aggregate/VLAN configuration conflict remains a non-blocking warning for the
+description request, and an unapproved Pending decision remains
+`deployment_ready=false`. No CLI execution should be used to validate this
+change until deterministic planning and fresh-execution tests pass. Independently
+selected logical aggregates remain distinct from physical members.
