@@ -195,12 +195,10 @@ writes or new live family acceptance are claimed. The [operator/API matrix](../u
 contains exact Bash/PowerShell read-only collection, offline recovery, automated
 commands and outstanding owner checks. Existing console entries remain applicable.
 
-The protected `.agents/` skill files were read but not edited. Atlas should update
-`vlan-configuration-audit/SKILL.md` Port-channel/LAG sections to name
-AggregationSnapshot as relationship authority and document visible child skips,
-independent health and ME3600X compliance-only pseudowire filtering. Its forwarding
-rules remain authoritative and unchanged. The historical Issue #147 notes above
-are retained as provenance, not current relationship-discovery instructions.
+The VLAN audit skill now names `AggregationSnapshot` as the authoritative
+member/parent relationship source and retains vendor-specific forwarding, EVC,
+health and evidence validation. This reconciles the historical Issue #147
+relationship-discovery instructions without changing their recorded provenance.
 
 ### PR #150 comparable forwarding evidence correction
 
@@ -222,3 +220,32 @@ and informational explicitly excluded Edge tags. Update the Edge membership
 bullet to exclude only effectively excluded tags from invalid tagging, retaining
 active errors and configured evidence. The .agents files are read-only here and
 were not edited or bypassed.
+
+
+### Owner decision, 2026-10-25 — deny child-targeted access/trunk changes (implementation pending)
+
+The owner requires configuration **planning and execution** to reject Access Port,
+Trunk Port or equivalent access/trunk forwarding changes whenever the request
+explicitly targets a *confirmed physical member* of a Port-channel/LAG.
+A logical parent must be selected explicitly by the operator for any parent
+forwarding modification. Never silently redirect a child-targeted change to its
+parent, even if the shared `AggregationSnapshot` can identify the parent. Unknown,
+contradictory or incomplete ownership evidence must fail closed for forwarding
+changes. Descriptions and other non-forwarding actions retain their distinct
+current contracts; no implicit policy broadening is authorized here.
+
+**Verified implementation gap at this PR head:** Catalyst v2 planning
+(`configuration/v2/catalyst.py`) presently rejects child-targeted Access Port
+but can redirect child-targeted Trunk Port to the logical parent. The fresh
+Catalyst execution target blocker (`vendors/cisco/configuration_execution.py`)
+accepts that previously resolved parent target when ownership matches. EdgeSwitch
+VLAN Port and other families have distinct safety gates. The shared aggregation
+snapshot is already consumed in these paths, so an identity-parser retirement
+must not be confused with the still-pending **child-target policy** change.
+
+Retirement recommendation: retire only redundant **relationship-discovery** logic
+once all callers are migrated and regression-covered. Retain the family-specific
+forwarding validation, plan-template constraints, approval digest, fresh execution
+gates, and historical observation/spool compatibility. Application code/tests to
+implement the new policy remain Codex-owned under the one active Issue workflow;
+this paragraph documents an approved requirement, not verified behavior.
