@@ -159,3 +159,62 @@ against the EdgeSwitch matrix entry, then compare the separate report's
 `Interfaces` row named `3/N`. Review missing-heading cases with deterministic
 fixtures only; do not alter device configuration to produce them. This revision
 has no new live validation evidence.
+
+## PR #150 operator-column correction (2026-10-25)
+
+Owner-reported workbooks contained 167 confirmed child rows with matching
+parents and not_applicable status; this is reported evidence, not independent
+live validation of this revision. Membership, owner headings and child skips
+remain unchanged.
+
+The resolver compares ME3600X explicit source switchport mode/native/access and
+allowed-list intent before EVC-derived bridge-domain values can be confused with
+those controls. Missing comparable controls on a partially configured member
+require further evidence; services need not be duplicated onto physical members.
+Parent service binding, database and required-VLAN checks remain independent.
+Child database findings are emitted only from that child's own explicit commands,
+never copied from parent-owned allowed lists or services.
+
+For EdgeSwitch, source-ordered participation exclusion makes residual tags
+inactive; EXCLUDED_VLAN_TAGGING_INACTIVE is informational and does not impair
+configuration health. Include after exclude reactivates membership. Tags lacking
+valid membership without an explicit effective exclusion remain
+TAGGED_VLAN_NOT_IN_MEMBERSHIP, including participating VLANs absent from the
+database. Explicit member/parent tagging differences still produce conflicts.
+Neither a shutdown flag nor an empty/default LAG alone authorizes suppression.
+Configured tags and source evidence remain available in both reports.
+
+Sanitized expected-row comparison (other columns/schema unchanged):
+
+| Source shape / row | Before | After |
+|---|---|---|
+| ME parent trunk allowed none + valid EVC BDs; child matching trunk allowed none | Child conflict from EVC versus switchport VLAN comparison | Child not_applicable, healthy; owner Port-channel1; parent BDs/policy unchanged |
+| Same ME parent; child explicit allowed 445 or access mode | Conflict with generic recommendation | Conflict retained; explanation names differing controls/values; recommendation compares controls without copying EVC services |
+| ME child trunk mode only, parent has allowed none | Partial evidence could appear as resolved mismatch | Child skip retained; incomplete forwarding evidence finding requests missing participation evidence |
+| Edge lag 1 excludes 545 and retains tagging 545 | Compliance wrong_configuration; methodology informational | Both retain EXCLUDED_VLAN_TAGGING_INACTIVE; compliance healthy if no independent errors |
+| Edge includes 545 but DB lacks 545 | Invalid membership/tagging | Both errors retained; no compliance pass |
+| Edge physical child explicitly differs from lag 1 | Aggregate conflict | Conflict retained with actionable field/value detail; child skip unchanged |
+
+Repeatable owner review: run the exact Bash or PowerShell read-only collection
+and offline export commands above using the same approved input workbook.
+Use fresh output/run paths and retain the spool. Compare original and recovered
+Configuration Findings, Explanation, Recommendation, Type, Status, Configuration
+Owner and Configuration Health. Check source excerpts/lines against protected
+local captures. Do not publish captures or workbooks containing management
+identities. Counts should match for the same input/configuration; investigate
+collection errors before comparing counts. Offline exports preserve recorded
+findings and do not recompute old spool semantics.
+
+| Repeat check | Expected result |
+|---|---|
+| ME3600X matching controls + parent services | No conflict solely from child absence of EVC BDs; parent missing-VLAN/service findings retained |
+| ME3600X explicit mode/native/allowed mismatch | Specific conflict, child skip, correct owner and evidence; no child-service duplication recommendation |
+| ME3600X partial or missing/contradictory relationship | Further evidence/review, no invented owner or silent compliance pass |
+| EdgeSwitch excluded/default LAG | Informational only for explicitly excluded tags; actual lag N heading, one row |
+| EdgeSwitch active invalid tagging or child mismatch | Error retained independently of required-VLAN status |
+| C3750X/C3850, ASR920, NCS540, Huawei | Repeat family matrix above; compare non-LAG/database, forwarding/service findings and ownership |
+| All compatibility workflows | Repeat compatibility matrix above; execution reviewed offline only, no device writes |
+
+The existing console entries and API signatures remain unchanged. This correction
+adds no operator workflow or menu. Automated fixtures are synthetic; repeat owner
+validation and Linux execution remain pending.

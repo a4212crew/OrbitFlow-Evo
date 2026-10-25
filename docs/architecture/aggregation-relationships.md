@@ -201,3 +201,24 @@ AggregationSnapshot as relationship authority and document visible child skips,
 independent health and ME3600X compliance-only pseudowire filtering. Its forwarding
 rules remain authoritative and unchanged. The historical Issue #147 notes above
 are retained as provenance, not current relationship-discovery instructions.
+
+### PR #150 comparable forwarding evidence correction
+
+Relationship authority is unchanged. ME3600X member conflicts compare preserved
+explicit switchport controls rather than parent EVC-derived BD membership.
+Partial controls retain an incomplete-evidence finding. EdgeSwitch effective
+explicit exclusions retain informational inactive-tag evidence; active invalid
+tagging and member/parent conflicts remain independent errors. Child explanation
+and recommendation include actionable field differences or further-evidence
+requirements. See the validation manual for sanitized before/after rows and the
+repeatable owner matrix. No new live validation is claimed.
+
+Atlas protected-skill handoff: in vlan-configuration-audit/SKILL.md, replace
+legacy discovery instructions in Catalyst Port-channel and EdgeSwitch LAG
+sections with AggregationSnapshot relationship authority; preserve forwarding
+validation ownership. Document visible Child Port-Channel skips, independent
+health, ME compliance-only pseudowire exclusion, explicit comparable ME controls
+and informational explicitly excluded Edge tags. Update the Edge membership
+bullet to exclude only effectively excluded tags from invalid tagging, retaining
+active errors and configured evidence. The .agents files are read-only here and
+were not edited or bypassed.

@@ -786,3 +786,8 @@ Automated regression evidence and owner validation status are recorded in the
 Owner/live validation of this revision is pending.
 
 CLI/menu dashboards now share recorded-outcome accounting by committed input position (including repeated target rows); observation stage text never advances counts. Collection and export summaries remain separate; see [CLI progress and durable results](docs/user_manual/cli-progress.md) for terminal fallbacks, actual saved paths, recovery and specialist exemptions. Operator validation of this revision remains pending.
+
+PR #150's relationship follow-up corrects comparable ME3600X forwarding findings
+and explicitly excluded EdgeSwitch tagging context while retaining child skips
+and independent errors. See the [sanitized expected rows and repeat validation
+matrix](docs/user_manual/aggregation-validation.md#pr-150-operator-column-correction-2026-10-25).

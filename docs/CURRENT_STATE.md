@@ -1001,3 +1001,15 @@ Owner Linux worktree verification for Issue #139/PR #140 (head `481e712c` before
 CLI/menu batch workflows share serialized worker rows, a bounded last-ten activity view, compact terminal fallbacks and throttled redirected snapshots. Recorded collection, processing returns and report/export completion have separate accounting; actual output, retained spool, allocated backup and log paths are reported. Library output ownership and execution safety remain unchanged. See [coverage and exemptions](user_manual/cli-progress.md). Synthetic regressions cover concurrency, rollover, platform/terminal fallbacks and partial/export-failure accounting; owner-operated Windows/Linux terminal and device validation of this revision remains pending. This supersedes the compact-only progress descriptions above.
 
 Issue #144 review revision: console observation stage text no longer updates counters. Shared spool checkpoints count committed input positions, preserving duplicate target rows in row-based workflows. Deterministic menu/direct-boundary regressions cover mixed results, out-of-order completion and failed checkpoints; operator terminal validation remains pending.
+
+PR #150 operator-column correction: ME3600X compares explicit switchport controls
+instead of EVC-derived parent VLANs; partial controls require evidence. EdgeSwitch
+explicitly excluded tagging is informational; active invalid tags and aggregate
+conflicts remain errors. Child skip/owner/schema/spool contracts remain intact.
+Synthetic regression coverage is recorded in the October devlog; owner workbook
+repeat and Linux validation remain pending.
+
+Final operator-column correction Windows validation: full suite 3,265 passed;
+broader suite 1,276 passed including the last parent-only database regression
+added after full-suite collection. Exact commands and timing are in
+[October devlog](devlog/2026-10.md). Owner repeat/Linux validation is pending.

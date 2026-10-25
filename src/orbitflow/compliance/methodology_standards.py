@@ -1,7 +1,8 @@
 """Operator standards over review facts only; never compliance or live health.
 
-All comparisons use preserved typed facts. The report merely displays this
-projection; audit findings remain intact even when standards assign less severity.
+Comparisons use preserved typed facts; policy-free field projections are also
+reused by aggregate audit validation. The report displays this projection; audit
+findings remain intact even when standards assign less severity.
 """
 
 from dataclasses import replace
@@ -246,7 +247,10 @@ def classify_records(resolver, records):
             code = problem["code"]
             if code in ignored:
                 continue
-            if code == "ALLOWED_VLAN_NOT_IN_DATABASE":
+            if code == "EXCLUDED_VLAN_TAGGING_INACTIVE":
+                finding(code, "standard_configuration", "informational", problem.get("evidence", ()),
+                        vlans=problem.get("vlans", []))
+            elif code == "ALLOWED_VLAN_NOT_IN_DATABASE":
                 finding(code, "standard_configuration", "informational", problem.get("evidence", ()),
                         vlans=problem.get("vlans", []))
             else:

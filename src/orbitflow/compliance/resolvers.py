@@ -175,7 +175,12 @@ class AuditResolver:
         self.validate_aggregates()
 
     def validate_aggregates(self):
-        """Keep vendor forwarding conflicts; relationship discovery is shared."""
+        """Validate forwarding independently of shared relationship identity.
+
+        ME switchport controls compare explicit source fields, not EVC-derived
+        memberships; missing comparable fields retain review. Edge exclusions
+        never suppress independently configured member/parent differences.
+        """
         edge = self.context.platform == "ubiquiti_edgeswitch"
         bindings = dict(self.aggregation.bindings)
         for key, node in self.config.items():
@@ -197,10 +202,42 @@ class AuditResolver:
             aggregate = self.rows[owner]
             explicit = any(n.kind in {"mode", "allowed_add", "allowed_remove", "allowed_except", "unsupported_allowed", "allowed", "include", "exclude", "pvid", "tagged", "access", "native"}
                            for n in node.children)
-            if explicit and any(row[field] != aggregate[field]
-                                for field in ("interface_type", "valid_interface_vlans", "native", "pvid", "tagged")):
+            conflict = explicit and any(row[field] != aggregate[field]
+                                        for field in ("interface_type", "valid_interface_vlans", "native", "pvid", "tagged"))
+            differences = {field: dict(member=row[field], aggregate=aggregate[field])
+                           for field in ("interface_type", "valid_interface_vlans", "native", "pvid", "tagged")
+                           if row[field] != aggregate[field]}
+            if edge and explicit:
+                from orbitflow.compliance.methodology_standards import edge_fields
+                member_fields, owner_fields = edge_fields(node.children), edge_fields(self.config[owner].children)
+                configured_differences = {field: dict(member=value, aggregate=owner_fields[field])
+                                          for field, value in member_fields.items()
+                                          if field in owner_fields and value != owner_fields[field]}
+                differences.update(configured_differences)
+                conflict |= bool(configured_differences)
+            if self.context.device_family == "ME3600X":
+                # EVC-resolved BDs are parent services, not switchport controls.
+                # Compare preserved explicit controls, never post-resolution VLANs.
+                from orbitflow.compliance.methodology_standards import switch_fields
+                member_fields = switch_fields(node.children)
+                owner_fields = switch_fields(self.config[owner].children)
+                differences = {field: dict(member=value, aggregate=owner_fields[field])
+                               for field, value in member_fields.items()
+                               if field in owner_fields and value != owner_fields[field]}
+                conflict = bool(differences)
+                if explicit:
+                    unresolved = sorted(member_fields.keys() ^ owner_fields.keys())
+                    if unresolved:
+                        self.problem("AGGREGATE_FORWARDING_EVIDENCE_INCOMPLETE", key,
+                                     (node, self.config[owner]), fields=unresolved,
+                                     aggregate=aggregate["config_interface_name"])
+                        row["review"] = True
+                if children(node.children, "mode") and not children(self.config[owner].children, "mode"):
+                    # An EVC-only parent does not establish compatible switchport intent.
+                    conflict |= last(node.children, "mode") == "access" and bool(children(self.config[owner].children, "service_instance"))
+            if conflict:
                 self.problem("AGGREGATE_CONFIG_CONFLICT" if edge else "PORT_CHANNEL_CONFIG_CONFLICT",
-                             key, (node, self.config[owner]), aggregate=aggregate["config_interface_name"])
+                             key, (node, self.config[owner]), aggregate=aggregate["config_interface_name"], differences=differences)
             if self.planning and self.context.device_family in {"C3750X", "C3850"} and not edge:
                 symbolic_conflict = (any(n.kind.startswith("allowed") for n in node.children)
                                      and row.get("planning_allowed") != aggregate.get("planning_allowed"))
@@ -532,13 +569,15 @@ class EdgeSwitchAuditResolver(AuditResolver):
         for node in children(self.roots, "vlan_database"):
             self.prove([n for n in children(node.children, "vlan") if self.numeric(n.value)])
         for key, node in self.config.items():
-            members, tagged = set(), set()
+            members, tagged, excluded = set(), set(), set()
             row = self.rows[key]
             for fact in node.children:
                 if fact.kind == "include":
                     members.update(self.numeric(fact.value))
+                    excluded.difference_update(self.numeric(fact.value))
                 elif fact.kind == "exclude":
                     members.difference_update(self.numeric(fact.value))
+                    excluded.update(self.numeric(fact.value))
                 elif fact.kind == "tagged":
                     tagged.update(self.numeric(fact.value))
                 elif fact.kind == "untagged_vlans":
@@ -546,10 +585,13 @@ class EdgeSwitchAuditResolver(AuditResolver):
             pvid = self.numeric(last(node.children, "pvid", ()))
             valid = members & self.database
             for code, invalid in (("INTERFACE_VLAN_NOT_IN_DATABASE", members - self.database),
-                                  ("TAGGED_VLAN_NOT_IN_MEMBERSHIP", tagged - valid),
+                                  ("TAGGED_VLAN_NOT_IN_MEMBERSHIP", tagged - valid - excluded),
                                   ("PVID_NOT_IN_MEMBERSHIP", pvid - valid)):
                 if invalid:
                     self.problem(code, key, (node,), vlans=sorted(invalid))
+            inactive = tagged & excluded
+            if inactive:
+                self.problem("EXCLUDED_VLAN_TAGGING_INACTIVE", key, (node,), vlans=sorted(inactive))
             valid_tags = tagged & valid
             untagged = (pvid & valid) - tagged
             row.update(configured_membership_vlans=sorted(members), configured_tagged_vlans=sorted(tagged),

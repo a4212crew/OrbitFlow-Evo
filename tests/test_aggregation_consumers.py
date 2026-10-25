@@ -255,3 +255,167 @@ def test_partial_capture_cannot_authorize_forwarding_via_confirmed_parent():
     row = plan([request], {IP: observed}, now=PLAN_NOW).to_dict()['results'][0]
     assert 'PORT_CHANNEL_OWNER_UNRESOLVED' in row['blockers']
     assert not row['deployment_ready']
+
+@pytest.mark.parametrize('child_controls,conflict', [
+    ('switchport mode trunk\n switchport trunk allowed vlan none', False),
+    ('switchport mode trunk\n switchport trunk allowed vlan 445', True),
+    ('switchport mode access\n switchport access vlan 445', True),
+])
+def test_me_comparable_source_controls_with_parent_services(child_controls, conflict, tmp_path):
+    text = '''vlan 445,545,2449
+!
+interface Port-channel1
+ switchport mode trunk
+ switchport trunk allowed vlan none
+ service instance 7 ethernet
+  encapsulation dot1q 100
+  bridge-domain 445
+ service instance 8 ethernet
+  encapsulation dot1q 200
+  bridge-domain 545
+ service instance 9 ethernet
+  encapsulation dot1q 300
+  bridge-domain 2449
+!
+interface Gi0/1
+ channel-group 1 mode active
+ CONTROLS
+!
+end
+'''.replace('CONTROLS', child_controls)
+    ctx, state = saved(FAMILIES[2], text)
+    findings = evaluate_vlan_compliance(ctx, [], state, POLICY)
+    child = next(f for f in findings if f['interface'] == 'Gi0/1')
+    parent = next(f for f in findings if f['interface'] == 'Port-channel1')
+    assert child['status'] == 'not_applicable'
+    assert parent['status'] == 'non_compliant'
+    assert parent['observed']['valid_interface_vlans'] == [445, 545, 2449]
+    problems = child['observed']['configuration_findings']
+    assert ('PORT_CHANNEL_CONFIG_CONFLICT' in {p['code'] for p in problems}) == conflict
+    assert not any(p['code'] == 'ALLOWED_VLAN_NOT_IN_DATABASE' for p in problems)
+    assert child['configuration_health'] == ('wrong_configuration' if conflict else 'healthy')
+    records = resolve_methodologies(ctx, [], state)
+    member = next(r for r in records if r['config_interface_name'] == 'Gi0/1')
+    assert bool(member['mapping']['lag_relationship']['differences']) == conflict
+    if conflict:
+        assert 'Independent configuration findings' in child['explanation']
+        assert 'parent-owned EVC services on the parent' in child['recommendation']
+        assert any(p.get('differences') and p['evidence'] for p in problems)
+    spool = ResultSpool.create(tmp_path / 'runs', 'vlan_compliance', 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload=dict(findings=findings, errors=[]))
+    output = tmp_path / 'me.xlsx'
+    export_compliance_spool(spool.path, output, cleanup=False)
+    wb = load_workbook(output)
+    rows = [dict(zip(INTERFACE_COLUMNS, r)) for r in wb['Interface Results'].iter_rows(min_row=2, values_only=True)]
+    exported = next(r for r in rows if r['Config Interface'] == 'Gi0/1')
+    assert exported['Explanation'] == child['explanation']
+    assert exported['Recommendation'] == (child['recommendation'] or None)
+    wb.close()
+
+
+@pytest.mark.parametrize('participation,invalid', [('exclude 545', False), ('include 545', True)])
+def test_edge_excluded_tagging_vs_active_missing_database(participation, invalid):
+    text = f'''vlan database
+ vlan 445
+exit
+interface lag 1
+ vlan participation include 445
+ vlan participation exclude 545
+ vlan participation {participation}
+ vlan tagging 545
+ vlan pvid 445
+exit
+interface 0/12
+ addport 3/1
+exit
+end
+'''
+    ctx, state = saved(FAMILIES[-1], text)
+    findings = evaluate_vlan_compliance(ctx, [], state, POLICY)
+    parent = next(f for f in findings if f['interface'] == 'lag 1')
+    codes = {p['code'] for p in parent['observed']['configuration_findings']}
+    assert ('TAGGED_VLAN_NOT_IN_MEMBERSHIP' in codes) == invalid
+    assert ('EXCLUDED_VLAN_TAGGING_INACTIVE' in codes) != invalid
+    assert parent['configuration_health'] == ('wrong_configuration' if invalid else 'healthy')
+    assert parent['status'] != 'compliant'
+    records = resolve_methodologies(ctx, [], state)
+    record = next(r for r in records if r['config_interface_name'] == 'lag 1')
+    assert ('EXCLUDED_VLAN_TAGGING_INACTIVE' in {p['code'] for p in record['standard_findings']}) != invalid
+
+
+def test_me_partial_controls_need_evidence_without_changing_child_skip():
+    text = '''interface Port-channel1
+ switchport mode trunk
+ switchport trunk allowed vlan none
+ service instance 7 ethernet
+  encapsulation dot1q 100
+  bridge-domain 445
+!
+interface Gi0/1
+ switchport mode trunk
+ channel-group 1 mode active
+!
+end
+'''
+    ctx, state = saved(FAMILIES[2], text)
+    findings = evaluate_vlan_compliance(ctx, [], state, POLICY)
+    child = next(f for f in findings if f['interface'] == 'Gi0/1')
+    assert child['status'] == 'not_applicable'
+    assert child['configuration_health'] == 'wrong_configuration'
+    assert 'further evidence needed for participation' in child['explanation']
+    assert 'collect further evidence' in child['recommendation'].lower()
+
+
+def test_edge_inactive_tags_do_not_hide_explicit_member_conflict():
+    text = '''vlan database
+ vlan 445,545
+exit
+interface lag 1
+ vlan participation include 445
+ vlan participation exclude 545
+ vlan tagging 545
+ vlan pvid 445
+exit
+interface 0/12
+ vlan participation include 445
+ vlan participation exclude 545
+ vlan tagging 445
+ vlan pvid 445
+ addport 3/1
+exit
+end
+'''
+    ctx, state = saved(FAMILIES[-1], text)
+    findings = evaluate_vlan_compliance(ctx, [], state, POLICY)
+    child = next(f for f in findings if f['interface'] == '0/12')
+    assert child['status'] == 'not_applicable'
+    assert child['configuration_health'] == 'wrong_configuration'
+    assert 'AGGREGATE CONFIG CONFLICT' in child['explanation']
+    assert 'tagging' in child['explanation']
+    record = next(r for r in resolve_methodologies(ctx, [], state) if r['config_interface_name'] == '0/12')
+    assert record['configuration_classification'] == 'wrong_configuration'
+
+
+
+
+def test_parent_database_error_is_not_duplicated_on_unconfigured_child():
+    text = """vlan 445
+!
+interface Port-channel1
+ switchport mode trunk
+ switchport trunk allowed vlan 445,545
+!
+interface Gi0/1
+ channel-group 1 mode active
+!
+end
+"""
+    ctx, state = saved(FAMILIES[1], text)
+    findings = evaluate_vlan_compliance(ctx, [], state, POLICY)
+    parent = next(f for f in findings if f['interface'] == 'Port-channel1')
+    child = next(f for f in findings if f['interface'] == 'Gi0/1')
+    assert 'ALLOWED_VLAN_NOT_IN_DATABASE' in {p['code'] for p in parent['observed']['configuration_findings']}
+    assert 'ALLOWED_VLAN_NOT_IN_DATABASE' not in {p['code'] for p in child['observed']['configuration_findings']}
+    assert child['status'] == 'not_applicable'
+    assert any('545' in e['excerpt'] for e in child['evidence']['sources'])
