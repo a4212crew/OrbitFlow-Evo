@@ -533,9 +533,8 @@ protected backup completes before writes. This initial observation supplies the 
 stage's precheck. Later stages take one fresh full observation. Issue #139 removes
 trusted-baseline equality and fresh planner/command/no-op/projected-state comparisons.
 Fresh interface records and declarations must uniquely identify both source and
-approved resolved target. Catalyst access cannot target a physical bundle member;
-trunks must retain the approved, evidenced Port-channel owner without ownership
-conflicts. Known routed/access/trunk conversion and unresolved methodology hazards
+approved resolved target. Catalyst access and trunk requests cannot target physical bundle members;
+logical parents must be selected explicitly, with evidenced ownership and no conflicts. Known routed/access/trunk conversion and unresolved methodology hazards
 still block port changes. Description stays on its approved physical interface.
 EdgeSwitch port ownership and requested database prerequisites remain checked per row.
 Ordinary planning warnings create no additional execution gate. Original v1/v2
@@ -829,3 +828,20 @@ output, phase-specific counters, saved paths, partial/interrupted/export-failure
 semantics and the coverage table (including specialist/lifecycle exemptions).
 Device/workflow semantics and existing arguments are unchanged. Deterministic
 terminal fixtures are separate from pending owner-operated Linux/Windows validation.
+
+
+### Issue #149 / PR #150 owner revision (2026-10-25)
+
+The earlier child-to-parent trunk redirect and broad compatible-stanza merge
+language is superseded. Confirmed physical child forwarding requests block with
+`NOT_ALLOW_ON_CHILD_PORT_CHANNEL`; select the logical parent explicitly instead.
+Descriptions remain exact-target. EdgeSwitch addport-only stanzas preceding a
+settings stanza contribute relationship evidence only; the subsequent settings
+stanza supplies consistency input. Repeated actual settings remain ambiguous,
+missing settings remain unknown, and actual observed duplicates still block.
+Original ordered facts/source lines and all addport commands are retained.
+Preparation independently rejects historical approved redirects; fresh execution
+rechecks ownership. Historical codes/artifacts remain readable without bypassing
+current safety. Approval, digest, backup, transport and verification gates persist.
+See [owner validation matrix](aggregation-validation.md).
+Deterministic regression evidence does not establish live-device acceptance.

@@ -119,14 +119,16 @@ def test_access_exact_noop_requires_explicit_vlan(family):
 
 
 @pytest.mark.parametrize('family', FAMILIES)
-def test_lag_access_block_trunk_redirect_description_exact(family):
+def test_lag_access_trunk_block_description_exact(family):
     config = f'interface {NAME}\n channel-group 1 mode active\n description Physical\n!\ninterface Port-channel1\n switchport mode trunk\n switchport trunk encapsulation dot1q\n switchport trunk allowed vlan 130-135\n description Aggregate\n!\n'
     row, r, obs = result(family, 'Access Port', config, dict(interface=NAME, vlan_id=445))
-    assert 'PHYSICAL_PORT_CHANNEL_MEMBER' in row['blockers'] and f'interface {NAME}' in row['commands']
+    assert 'NOT_ALLOW_ON_CHILD_PORT_CHANNEL' in row['blockers'] and f'interface {NAME}' in row['commands']
     assert 'interface Port-channel1' in '\n'.join(e['excerpt'] for e in scoped_evidence(r, obs))
     row, _, _ = result(family, 'Trunk Port', config, dict(interface=NAME, action='Add', vlans=[130, 445]))
-    assert row['resolved_target'] == 'Port-channel1'
-    assert 'interface Port-channel1' in row['commands'] and 'switchport trunk allowed vlan add 130,445' in row['commands']
+    assert row['resolved_target'] == NAME
+    assert 'NOT_ALLOW_ON_CHILD_PORT_CHANNEL' in row['blockers']
+    assert f'interface {NAME}' in row['commands']
+    assert 'TARGET_RESOLVED_TO_PORT_CHANNEL' not in row['findings']
     row, _, _ = result(family, 'Interface Description', config, dict(interface=NAME, description='After'))
     assert row['commands'] == ['configure terminal', f'interface {NAME}', 'description After', 'end']
     assert not row['blockers']
@@ -136,7 +138,8 @@ def test_lag_access_block_trunk_redirect_description_exact(family):
     a = request(t.id, dict(management_ip=IP, interface=NAME, action='Replace', vlans=[445]))
     b = request(t.id, dict(management_ip=IP, interface='Port-channel1', action='Replace', vlans=[545]), row=4)
     rows = plan([a,b], {IP: obs}, now=NOW).to_dict()['results']
-    assert all('ORDERED_RESOURCE_OVERLAP' in row['findings'] and row['conflicting_rows'] for row in rows)
+    assert 'NOT_ALLOW_ON_CHILD_PORT_CHANNEL' in rows[0]['blockers']
+    assert 'NOT_ALLOW_ON_CHILD_PORT_CHANNEL' not in rows[1]['blockers']
 
 
 @pytest.mark.parametrize('family', FAMILIES)
@@ -370,7 +373,7 @@ def test_overlap_safety_blockers(family, case, tmp_path):
 def test_sequential_port_channel_and_all(family, baseline, tmp_path):
     t = template(family, 'Trunk Port')
     obs = observation(family, f'interface {NAME}\n channel-group 1 mode active\n!\ninterface Port-channel1\n switchport mode trunk\n{baseline}!\n')
-    a = request(t.id, dict(management_ip=IP, interface=NAME, action='Replace', vlans=[200,201]), row=3)
+    a = request(t.id, dict(management_ip=IP, interface='Port-channel1', action='Replace', vlans=[200,201]), row=3)
     b = request(t.id, dict(management_ip=IP, interface='Port-channel1', action='Remove', vlans=[201]), row=4)
     original = plan([a,b], {IP:obs}, now=NOW)
     rows = original.to_dict()['results']
@@ -387,7 +390,7 @@ def test_sequential_port_channel_and_all(family, baseline, tmp_path):
     # An absent logical owner remains a blocker on both requests.
     bad=observation(family,f'interface {NAME}\n channel-group 1 mode active\n!\n')
     failed=plan([a,b],{IP:bad},now=NOW).to_dict()['results']
-    assert 'PORT_CHANNEL_OWNER_UNRESOLVED' in failed[0]['blockers']
+    assert 'INTERFACE_ABSENT_OR_AMBIGUOUS' in failed[0]['blockers']
     assert all(r['blockers'] for r in failed)
 
 

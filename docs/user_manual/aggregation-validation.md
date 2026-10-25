@@ -114,7 +114,7 @@ to create or change a LAG. Where a case is unavailable, record Not tested.
 | Family | Relationship and evidence checks | Forwarding/compliance checks |
 |---|---|---|
 | C3750X | Gi/GigabitEthernet and Po/Port-channel aliases, down child, empty parent | Parent trunk/database policy unchanged; wrong child VLAN retained as conflict; child skipped |
-| C3850 | Same alias/down/empty checks, exact owner evidence | Existing mode/ALL policy; access child blocker and trunk redirect to parent in v2 |
+| C3850 | Same alias/down/empty checks, exact owner evidence | Existing mode/ALL policy; access/trunk child blocker; logical parent must be expressly selected in v2 |
 | ME3600X | channel-group under actual physical stanza, absent/contradictory parent | Parent SI/inline/global BD mappings retained; child conflict independent of skip; pseudowire rows absent only in compliance |
 | ASR920 | Multiple parents/down members, no operational count inference | EVC/QinQ/SI-to-BD validation and mapping evidence unchanged |
 | NCS540 | BE/Bundle-Ether aliases, bundle id, down children, bundle subinterfaces | Actual l2transport-to-BD attachment/encapsulation validation; no VLAN inference from suffix/name |
@@ -133,7 +133,7 @@ created from only a service/BD/VSI reference. Down state cannot remove a child.
 | Inventory/interfaces | Refresh an approved target and compare real identity/state | inventory and interface capability tests |
 | Interface/VLAN reporting | Compare all forwarding fields, schemas, evidence and errors; verify no duplicate full-config capture for complete collection | aggregation, VLAN capability, reporting tests |
 | Compliance/methodology | Verify child skip + independent health, exact source lines, unchanged non-LAG/database results | aggregation consumers, VLAN audit/compliance, methodology tests |
-| Planning v1/v2 | Offline v1 validation; v2 read-only plans for access child block, trunk owner redirect, description exact target, conflicts and uncertain owners | configuration plans, bulk v2, approved templates/services tests |
+| Planning v1/v2 | Offline v1 validation; v2 read-only plans for access/trunk child block, explicitly selected parent, description exact target, conflicts and uncertain owners | configuration plans, bulk v2, approved templates/services tests |
 | Execution | Review prepared targets/confirmation gates offline only; no confirm/apply command | configuration execution, stages, performance and observation timing tests |
 | Backup | Use approved read-only backup workflow; compare protected capture behavior without publishing raw output | configuration backup tests |
 | Console | Existing report/compliance/methodology/planning entries, per-run concurrency, error recovery | operations menu tests |
@@ -278,68 +278,56 @@ mismatches, partial relationships, inactive tagging and offline spool recovery.
 They are deterministic tests, not live validation.
 
 
-## Planning/execution child-target safety — owner decision, not yet implemented
+## Planning/execution owner revision ? 2026-10-25
 
-The owner has approved this future safety invariant: **never change access or
-trunk forwarding configuration on a physical Port-channel/LAG member**. A
-child-targeted Access Port, Trunk Port or equivalent VLAN Port change must be
-blocked even if the shared aggregation snapshot confirms a parent; it must not
-silently redirect to the logical parent. If the operator wants to configure the
-logical parent, the request must explicitly select that parent. Unresolved or
-partial ownership evidence must fail closed for forwarding changes. This is
-**not yet the verified behavior of every planning/execution template**.
+Planning and fresh execution reject confirmed physical child Access Port, Trunk
+Port and EdgeSwitch VLAN Port requests with `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`.
+The requested child is never redirected. Separately selected logical parents
+follow normal family prerequisites. Unknown, conflicting or partial ownership
+blocks forwarding changes. Blocked plans may retain reviewable proposed CLI;
+that CLI is not executable authorization. Pending remains deployment_ready=false.
 
-At PR #150's reviewed head, Catalyst planning rejects an Access Port request
-on a known child but can resolve a Trunk Port request from the child to the
-parent; fresh Catalyst execution may accept the approved resolved parent after
-ownership checks. EdgeSwitch VLAN Port already has a separate child-ownership
-blocker. These legacy safety decisions must not be described as retired until
-Codex changes implementation and deterministic regressions prove the new rule.
+EdgeSwitch membership-only stanzas contain only addport declarations through exit.
+They contribute all commands to aggregation, including contradictory assignments,
+but are excluded from settings consistency when followed by a settings stanza for
+the same canonical interface, with the membership stanza exit preserved. That subsequent settings stanza supplies description
+and forwarding settings. Raw ordered facts, source lines and relationship evidence
+are unchanged. This supersedes the earlier broad compatible-stanza merge proposal:
+repeated actual settings stanzas stay ambiguous and require review. A membership-only
+interface without subsequent settings has unknown configuration; its observed
+physical identity is retained. Real duplicate observed interfaces still block.
 
-Operator acceptance matrix for a subsequent authorized code revision (read-only
-plans and offline preparation only; **never run confirm/apply**):
+Owner reproduction: rerun the read-only plan commands above with a new output path,
+using the existing Interface Description input row 4 for physical 0/17. Keep its
+review decision Pending. Expect resolved_target=0/17, consistency=consistent when
+other prerequisites pass, actual parent lag 2, and deployment_ready=false.
+Independent existing VLAN/aggregate defects may be warnings for description-only
+changes. Do not confirm/apply. Compare fresh execution safety through synthetic
+tests only. Owner live validation of this revision is pending.
 
-| Requested target | Requested operation | Expected future decision |
-|---|---|---|
-| Confirmed physical child | Access Port | Block; no commands/deployment readiness |
-| Confirmed physical child | Trunk Port | Block; no redirect or commands/deployment readiness |
-| Confirmed EdgeSwitch physical LAG child | VLAN Port access/tagging/PVID change | Block; no redirect or commands/deployment readiness |
-| Independently selected logical Port-channel/LAG | Supported forwarding operation | Evaluate normally with full evidence and approval guards; no automatic authorization |
-| Physical interface with missing/contradictory/partial LAG ownership | Access/trunk forwarding change | Fail closed, request evidence |
-| Confirmed physical child | Interface Description | Preserve existing exact-target description contract; not a forwarding change |
-| Standalone physical interface | Supported access/trunk change | Evaluate existing family-specific requirements |
+| Case | Planning / fresh execution expectation |
+|---|---|
+| Edge 0/17 addport-only then settings | One observed interface; exact description succeeds |
+| Multiple addport commands / conflicting parents | All evidence retained; conflict detected; forwarding blocked |
+| Repeated settings with conflicting description/PVID | Review/block; no last-heading selection |
+| Membership only / incomplete capture | No invented configuration or standalone certainty |
+| Two actual observed identities for same canonical target | Ambiguous, blocked |
+| C3750X/C3850 child Access or Trunk | Exact new child blocker, no redirect |
+| Explicit logical parent | Normal policy, approval and execution gates |
+| Historical approved child-to-parent artifact | Preparation and fresh checks reject; rebuild and review plan |
+| ME3600X/ASR920/NCS540/VRP and compatibility workflows | Repeat family/compatibility matrix above; no policy expansion |
 
-Both Windows PowerShell and Linux Bash may validate the *existing* current
-planning implementation without apply using the read-only `python -m
-orbitflow.configuration.v2.cli plan` examples earlier in this manual. After any
-Codex policy revision, validate each matrix row with sanitized planned inputs,
-inspect blockers, `resolved_target`, rendered commands and deployment readiness,
-then review fresh execution-target safety in deterministic tests only. Never use
-an owner production device to manufacture a Port-channel membership conflict.
+Historical artifacts remain readable; old blocker labels and serialized resolved
+targets are historical evidence, not permission to bypass the current policy.
+Approval digests, confirmation, backups, transport and verification remain required.
 
+Revision targeted tests, identical commands on Linux Bash and Windows PowerShell
+(after setting PYTHONPATH as above):
 
-### Approved blocker naming and EdgeSwitch description-stanza regression (2026-10-25)
+```bash
+python -m pytest tests/test_aggregation_owner_revision.py tests/test_approved_catalyst_templates.py tests/test_configuration_execution_stages.py -q
+python -m pytest -q
+```
 
-For future child-targeted access, trunk and VLAN-forwarding operations, report
-`NOT_ALLOW_ON_CHILD_PORT_CHANNEL` consistently in planning and fresh execution,
-without retargeting the operation to the logical aggregate. This is owner-approved
-future behavior, **not yet implemented** in the current PR source.
-
-Owner plan row: `EdgeSwitch Description` worksheet row 4 (`0/17`, intended
-`OrbitflowTest`) currently returns `INTERFACE_ABSENT_OR_AMBIGUOUS`,
-`unresolved`, even though InterfaceService observes exactly one `0/17` and
-`AggregationSnapshot` confirms parent `lag 2`. Saved config contains two
-complementary `interface 0/17` stanzas, one for `addport 3/2` and one for
-interface properties; duplicate source headings are **not** duplicate physical
-interfaces. V2 planning counts raw fact stanzas, and execution's fresh check also
-rejects more than one declaration. Correct both checks through canonical identity
-and merged compatible evidence, retaining fail-closed handling of actually
-contradictory declarations or ambiguous/missing observed interfaces.
-
-Expected future read-only validation: description-only `0/17` resolves to
-itself, consistency `consistent` with no duplicate-stanza blocker, existing
-aggregate/VLAN configuration conflict remains a non-blocking warning for the
-description request, and an unapproved Pending decision remains
-`deployment_ready=false`. No CLI execution should be used to validate this
-change until deterministic planning and fresh-execution tests pass. Independently
-selected logical aggregates remain distinct from physical members.
+These are deterministic automated checks, not live-device acceptance. Linux commands
+are owner-executable; automated execution for this revision used Windows PowerShell.

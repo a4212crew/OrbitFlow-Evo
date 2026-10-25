@@ -16,10 +16,10 @@ def target_blocker(function, source, target, observed, platform):
         return '' if key(source) == key(target) else 'TARGET_DRIFT'
     aggregation = for_observation(observed, platform)
     owner = aggregation.owner(source)
+    if owner:
+        return 'NOT_ALLOW_ON_CHILD_PORT_CHANNEL'
     if relationship_uncertain(aggregation, source, node['children']) or (observed.get('aggregation') is not None and aggregation.capture_incomplete):
         return 'PORT_CHANNEL_OWNER_UNRESOLVED'
-    if owner and function == 'Access Port':
-        return 'PHYSICAL_PORT_CHANNEL_MEMBER'
     expected = owner or source
     audit = [a for a in observed['audit'] if key(a['config_interface_name']) == key(source)]
     if len(audit) != 1 or key(audit[0].get('configuration_owner', '')) != key(expected):

@@ -4,6 +4,7 @@ This layer compares typed observations only. CLI grammar and rendering belong
 to vendor modules; projected state follows the existing per-device row order.
 """
 from copy import deepcopy
+from orbitflow.vendors.configuration_facts import interface_settings
 from orbitflow.vendors.aggregation import for_observation, relationship_uncertain
 from .catalogue import BY_ID
 
@@ -69,9 +70,11 @@ def evaluate(t, p, obs, out, prior):
         out['projected_state'] = dict(vlan_name=p['name'])
     else:
         target = p['interface']
-        nodes = [n for n in obs.get('facts', []) if n['kind'] in {'interface', 'l2_interface'} and key(n['value']) == key(target)]
-        if len(nodes) != 1:
+        nodes = interface_settings(obs.get('facts', []), obs.get('identity', {}).get('platform', ''), target)
+        if t.family == 'EdgeSwitch' and sum(key(i['port_name']) == key(target) for i in obs.get('interfaces', [])) != 1:
             block('INTERFACE_ABSENT_OR_AMBIGUOUS')
+        if len(nodes) != 1:
+            block('INTERFACE_CONFIGURATION_ABSENT_OR_AMBIGUOUS' if t.family == 'EdgeSwitch' else 'INTERFACE_ABSENT_OR_AMBIGUOUS')
         node = deepcopy(nodes[0]) if len(nodes) == 1 else dict(children=[])
         def vals(kind):
             return [n['value'] for n in node['children'] if n['kind'] == kind]
@@ -104,7 +107,9 @@ def evaluate(t, p, obs, out, prior):
             out['projected_state'] = {**(projected or {}), 'description': p['description']}
         else:
             aggregation = for_observation(obs, obs.get('identity', {}).get('platform', ''))
-            if aggregation.owner(target) or relationship_uncertain(aggregation, target, node['children']) or (obs.get('aggregation') is not None and aggregation.capture_incomplete) or any(key(a.get('configuration_owner', '')) != key(target) for a in obs.get('audit', []) if key(a['config_interface_name']) == key(target)):
+            if aggregation.owner(target):
+                block('NOT_ALLOW_ON_CHILD_PORT_CHANNEL')
+            elif relationship_uncertain(aggregation, target, node['children']) or (obs.get('aggregation') is not None and aggregation.capture_incomplete) or any(key(a.get('configuration_owner', '')) != key(target) for a in obs.get('audit', []) if key(a['config_interface_name']) == key(target)):
                 block('OWNERSHIP_REQUIRES_REVIEW')
             if t.function == 'VLAN Port':
                 included, excluded, tagged, pvid = set(), set(), set(), None

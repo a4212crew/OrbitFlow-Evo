@@ -380,3 +380,33 @@ def observe_configuration(output, platform, *, source_filename="running-config",
                           sanitize_text(source_filename), number, excerpt,
                           tuple(freeze(child) for child in children))
     return tuple(freeze(node) for node in roots)
+
+
+def interface_settings(facts, platform, target):
+    """Select exact interface settings without treating Edge membership as settings.
+
+    Original ordered facts remain untouched for relationship/evidence consumers.
+    Only addport-only stanzas preceding an actual settings stanza are excluded.
+    Repeated actual settings stay ambiguous, even if their headings match.
+    """
+    from orbitflow.vendors.interface_names import canonical_interface_name
+    key = lambda name: canonical_interface_name(platform, name, normalize_aggregation=True)
+    nodes = [n for n in facts if n['kind'] in {'interface', 'l2_interface'}
+             and key(n['value']) == key(target)]
+    if platform != 'ubiquiti_edgeswitch':
+        return nodes
+    if any(c['kind'] in {'interface', 'l2_interface'} for n in nodes for c in n['children']):
+        return []  # Nested heading: missing section closure, not valid settings.
+    def membership_only(node):
+        commands = [c for c in node['children']
+                    if not (c['kind'] == 'methodology_evidence' and c['value'] == 'stanza_end')]
+        return bool(commands) and all(c['kind'] == 'aggregate' for c in commands)
+    first_settings = next((i for i, n in enumerate(nodes) if not membership_only(n)), len(nodes))
+    # No settings stanza means unknown configuration, not an absent physical port.
+    if first_settings == len(nodes):
+        return []
+    # A missing exit cannot establish a complete membership-only stanza role.
+    if any(not any(c['kind'] == 'methodology_evidence' and c['value'] == 'stanza_end'
+                   for c in n['children']) for n in nodes[:first_settings]):
+        return nodes
+    return nodes[first_settings:]

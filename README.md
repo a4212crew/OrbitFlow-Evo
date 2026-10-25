@@ -795,3 +795,8 @@ PR #150's relationship follow-up corrects comparable ME3600X forwarding findings
 and explicitly excluded EdgeSwitch tagging context while retaining child skips
 and independent errors. See the [sanitized expected rows and repeat validation
 matrix](docs/user_manual/aggregation-validation.md#pr-150-operator-column-correction-2026-10-25).
+
+Issue #149 owner revision distinguishes EdgeSwitch membership-only/settings
+stanzas and blocks child-targeted forwarding without redirect. See the
+[validation matrix](docs/user_manual/aggregation-validation.md); owner live
+validation remains pending.

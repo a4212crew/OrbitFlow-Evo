@@ -1021,3 +1021,13 @@ keys overflow references by input position, finding and original column name;
 Run Errors use a distinct error key. Sheet/column/spool contracts are unchanged.
 See the compliance manual and aggregation validation checks. Owner live validation
 of this presentation/export revision remains pending; automated checks use fixtures.
+
+
+Issue #149 / PR #150 owner revision (2026-10-25): planning, preparation and fresh
+execution block confirmed physical-child forwarding requests with
+NOT_ALLOW_ON_CHILD_PORT_CHANNEL, without redirect. EdgeSwitch addport-only
+stanzas preceding actual settings no longer create false description ambiguity;
+repeated settings/observed identities remain fail-closed. Pending stays non-ready.
+Synthetic targeted regressions pass; full automated results are recorded in the
+monthly devlog. Owner read-only live validation remains pending. See the
+[validation matrix](user_manual/aggregation-validation.md).

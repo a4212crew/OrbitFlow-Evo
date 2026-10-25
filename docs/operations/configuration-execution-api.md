@@ -431,3 +431,20 @@ including aggregation collection_time, and rebases them from fresh reads; change
 bindings, evidence or completeness invalidate reuse. New incomplete captures block
 forwarding ownership decisions; exact-target descriptions retain their existing
 constraints. See the [model/API compatibility and read-only validation matrix](../user_manual/aggregation-validation.md).
+
+
+### Issue #149 / PR #150 owner revision (2026-10-25)
+
+The earlier child-to-parent trunk redirect and broad compatible-stanza merge
+language is superseded. Confirmed physical child forwarding requests block with
+`NOT_ALLOW_ON_CHILD_PORT_CHANNEL`; select the logical parent explicitly instead.
+Descriptions remain exact-target. EdgeSwitch addport-only stanzas preceding a
+settings stanza contribute relationship evidence only; the subsequent settings
+stanza supplies consistency input. Repeated actual settings remain ambiguous,
+missing settings remain unknown, and actual observed duplicates still block.
+Original ordered facts/source lines and all addport commands are retained.
+Preparation independently rejects historical approved redirects; fresh execution
+rechecks ownership. Historical codes/artifacts remain readable without bypassing
+current safety. Approval, digest, backup, transport and verification gates persist.
+See [owner validation matrix](../user_manual/aggregation-validation.md).
+Deterministic regression evidence does not establish live-device acceptance.

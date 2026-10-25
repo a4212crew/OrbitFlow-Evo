@@ -102,3 +102,20 @@ Digest linkage, Pending/Approve/Reject and no-overwrite outputs under
 `outputs/runs/configuration/` remain unchanged. None of this grants apply authority.
 Owner must repeat read-only planning on C3750X and C3850X and explicitly validate
 revised worksheets before milestone completion. Templates 9-22 remain pending.
+
+
+### Issue #149 / PR #150 owner revision (2026-10-25)
+
+The earlier child-to-parent trunk redirect and broad compatible-stanza merge
+language is superseded. Confirmed physical child forwarding requests block with
+`NOT_ALLOW_ON_CHILD_PORT_CHANNEL`; select the logical parent explicitly instead.
+Descriptions remain exact-target. EdgeSwitch addport-only stanzas preceding a
+settings stanza contribute relationship evidence only; the subsequent settings
+stanza supplies consistency input. Repeated actual settings remain ambiguous,
+missing settings remain unknown, and actual observed duplicates still block.
+Original ordered facts/source lines and all addport commands are retained.
+Preparation independently rejects historical approved redirects; fresh execution
+rechecks ownership. Historical codes/artifacts remain readable without bypassing
+current safety. Approval, digest, backup, transport and verification gates persist.
+See [owner validation matrix](../../user_manual/aggregation-validation.md).
+Deterministic regression evidence does not establish live-device acceptance.

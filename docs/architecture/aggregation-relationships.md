@@ -177,8 +177,8 @@ planning and execution ownership gates. EdgeSwitch aliases select an actual
 display preference for that family only. AuditResolver validates forwarding and
 conflicts after consuming those identities; it does not rediscover a group from
 the last typed aggregate command. Methodology retains per-field inheritance and
-unknown-value safeguards. Planning retains exact-target descriptions, access child
-blocking, trunk owner resolution and immutable approval/execution safety.
+unknown-value safeguards. Planning retains exact-target descriptions, access/trunk child
+blocking, explicitly selected logical parents and immutable approval/execution safety.
 
 VLAN adapters capture sanitized aggregation from their existing full configuration
 read; VlanState carries the optional snapshot. Reporting reuses verified complete
@@ -258,3 +258,20 @@ The owner specifies the exact new blocking finding **`NOT_ALLOW_ON_CHILD_PORT_CH
 The owner-provided v2 plan (`plan(20261025-052137).json`) shows EdgeSwitch Interface Description for `0/17` incorrectly blocked as `INTERFACE_ABSENT_OR_AMBIGUOUS` and consistency `unresolved`. Its single observed interface `0/17` has **two saved `interface 0/17` stanzas**: one contains `addport 3/2` and the other contains the interface settings/description. Both refer to one canonical interface and the confirmed owner is `lag 2`; counting configuration stanzas as distinct physical interfaces is incorrect. In `configuration/v2/services.py`, `len(nodes) != 1` triggers the blocker; `configuration/execution.py::_check_target` independently requires exactly one fact declaration and can reject the same safe description operation at execution. Reconcile complementary same-identity source stanzas without suppressing contradictory evidence, uncertain identities or actual duplicate observed physical interfaces.
 
 **Expected after a future code revision:** a description-only request for confirmed `0/17` remains exact-target, may have an independent informational existing-VLAN/aggregate-conflict warning, and has `consistent` planning consistency if no other blocker exists. It is not exempt from regular existence, fresh observation, immutable approval and execution safety checks. Any physical-child *forwarding* change remains blocked as `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`, never redirected to its parent. No network configuration was changed in the review.
+
+
+### Issue #149 / PR #150 owner revision (2026-10-25)
+
+The earlier child-to-parent trunk redirect and broad compatible-stanza merge
+language is superseded. Confirmed physical child forwarding requests block with
+`NOT_ALLOW_ON_CHILD_PORT_CHANNEL`; select the logical parent explicitly instead.
+Descriptions remain exact-target. EdgeSwitch addport-only stanzas preceding a
+settings stanza contribute relationship evidence only; the subsequent settings
+stanza supplies consistency input. Repeated actual settings remain ambiguous,
+missing settings remain unknown, and actual observed duplicates still block.
+Original ordered facts/source lines and all addport commands are retained.
+Preparation independently rejects historical approved redirects; fresh execution
+rechecks ownership. Historical codes/artifacts remain readable without bypassing
+current safety. Approval, digest, backup, transport and verification gates persist.
+See [owner validation matrix](../user_manual/aggregation-validation.md).
+Deterministic regression evidence does not establish live-device acceptance.

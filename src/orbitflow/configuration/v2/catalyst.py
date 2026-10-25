@@ -51,18 +51,12 @@ def evaluate(t, p, obs, out, prior):
             obs.get('aggregation') is not None and aggregation.capture_incomplete)
         if t.function != 'Interface Description' and uncertain:
             block('PORT_CHANNEL_OWNER_UNRESOLVED')
-        if member and t.function == 'Access Port':
-            block('PHYSICAL_PORT_CHANNEL_MEMBER')
-        if member and t.function == 'Trunk Port':
-            owners = [n for n in obs.get('facts', []) if n['kind'] == 'interface' and key(n['value']) == key(member)]
-            audit = [a for a in obs.get('audit', []) if key(a['config_interface_name']) == key(target)]
-            if len(owners) != 1 or len(audit) != 1 or key(audit[0].get('configuration_owner', '')) != key(owners[0]['value']):
-                block('PORT_CHANNEL_OWNER_UNRESOLVED')
-            else:
-                if any(d['code'] == 'PORT_CHANNEL_CONFIG_CONFLICT' for d in audit[0]['configuration_findings']):
-                    block('PORT_CHANNEL_CONFIG_CONFLICT')
-                target, node = owners[0]['value'], owners[0]
-                warn('TARGET_RESOLVED_TO_PORT_CHANNEL')
+        if member and t.function != 'Interface Description':
+            block('NOT_ALLOW_ON_CHILD_PORT_CHANNEL')
+            if any(d['code'] == 'PORT_CHANNEL_CONFIG_CONFLICT'
+                   for a in obs.get('audit', []) if key(a['config_interface_name']) == key(target)
+                   for d in a.get('configuration_findings', [])):
+                block('PORT_CHANNEL_CONFIG_CONFLICT')
         out['resolved_target'] = target
         desc = last('description', '')
         mode = 'routed' if last('routed') else last('mode', 'unconfigured')
