@@ -804,3 +804,10 @@ validation remains pending.
 Issue #149 mixed EdgeSwitch member stanzas (`auto-negotiate` plus `addport`)
 now use the subsequent completed settings stanza for planning/execution checks.
 Physical-child forwarding remains blocked. See the [read-only validation matrix](docs/user_manual/aggregation-validation.md).
+
+
+Bulk configuration planning correction (Issue #152): disjoint ME3600X/ASR920
+EVCs can be reviewed independently, including safe empty-parent initialization.
+Predefined non-Ubiquiti templates do not depend on VLAN Database approval.
+EdgeSwitch's genuine prerequisites and all separate execution safety gates remain.
+See the [planning guide](docs/user_manual/bulk-configuration-planning.md).

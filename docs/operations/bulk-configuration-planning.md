@@ -2,6 +2,17 @@
 
 # Bulk configuration planning v2
 
+## Issue #152 policy correction
+
+Disjoint ME3600X/ASR920 EVCs independently derive safe parent setup from observed
+state, including empty parents; compatible setup/descriptions require no sibling
+approval. Contradictory descriptions, duplicate SIs, ingress overlap, uncertain
+state and aggregation ownership still block. Predefined non-Ubiquiti templates
+have no VLAN Database approval/synchronization dependencies and never implicitly
+create VLANs. Earlier contrary prerequisite statements below are superseded.
+EdgeSwitch genuine prerequisites and immutable approval/fresh execution gates remain.
+See [current behavior and validation commands](../user_manual/bulk-configuration-planning.md).
+
 Issue #117 adds a separate [confirmed executor](../user_manual/configuration-execution.md)
 and [public execution/capability API reference](configuration-execution-api.md).
 The no-apply boundary below continues to describe the planning CLI.

@@ -382,7 +382,7 @@ def test_incomplete_running_config_cannot_prove_absence(family):
         adapter(session, cli=CLI(), preserve_full_evidence=True).collect()
 
 
-def test_earlier_me_database_prerequisite_requires_approval():
+def test_earlier_me_database_does_not_require_approval():
     db = template('ME3600X', 'VLAN Database')
     evc = template('ME3600X')
     a = request(db.id, dict(management_ip=IP, vlan_id=445, name='Customer'), sheet_order=1)
@@ -390,10 +390,10 @@ def test_earlier_me_database_prerequisite_requires_approval():
     obs = observation('ME3600X', 'interface GigabitEthernet0/1\n!\nend\n')
     for decision in ('Pending', 'Approve', 'Reject'):
         rows = plan([b,a], {IP: obs}, now=NOW, decisions={a['row_id']: decision, b['row_id']: 'Approve'}).to_dict()['results']
-        assert rows[1]['dependencies'] == [a['row_id']]
-        assert rows[1]['deployment_ready'] == (decision == 'Approve')
+        assert rows[1]['dependencies'] == []
+        assert rows[1]['deployment_ready']
         assert rows[1]['consistency'] == 'consistent' and not rows[1]['blockers']
-        assert ('DEPENDENCY_NOT_APPROVED' in rows[1]['warnings']) == (decision != 'Approve')
+        assert 'DEPENDENCY_NOT_APPROVED' not in rows[1]['findings']
 
 
 def test_evc_detail_semantic_conflict_down_information_and_source_sanitation():
@@ -874,7 +874,7 @@ def test_removed_workbook_detail_remains_json_protected(tmp_path, field):
         load(path)
 
 
-def test_me_vlan_dependency_chain_preserves_downstream_gate():
+def test_me_vlan_and_parent_setup_do_not_create_dependency_chain():
     db = template('ME3600X', 'VLAN Database')
     evc = template('ME3600X')
     a = request(db.id, dict(management_ip=IP, vlan_id=445, name='Customer'), sheet_order=1)
@@ -882,11 +882,9 @@ def test_me_vlan_dependency_chain_preserves_downstream_gate():
     c = request(evc.id, {**evc_inputs(), 'service_instance_id':3001, 'outer_vlan':'446'}, sheet_order=2, row=4)
     obs = observation('ME3600X', 'interface GigabitEthernet0/1\n!\nend\n')
     rows = plan([a,b,c], {IP:obs}, now=NOW, decisions={b['row_id']:'Approve', c['row_id']:'Approve'}).to_dict()['results']
-    assert rows[1]['dependencies'] == [a['row_id']]
-    assert 'DEPENDENCY_NOT_APPROVED' in rows[1]['warnings'] and not rows[1]['blockers']
-    assert b['row_id'] in rows[2]['dependencies'] and a['row_id'] in rows[2]['dependencies']
-    assert 'DEPENDENCY_NOT_APPROVED' in rows[2]['blockers']
-    assert all(not r['deployment_ready'] and not r['execution_authorized'] for r in rows)
+    assert all(not r['dependencies'] and 'DEPENDENCY_NOT_APPROVED' not in r['findings'] for r in rows)
+    assert all(r['deployment_ready'] for r in rows[1:])
+    assert all(not r['execution_authorized'] for r in rows)
 
 
 def test_me_owner_independent_eleven_row_snapshot():
@@ -1027,7 +1025,7 @@ def test_me_representative_operator_replacements_and_distinct_domains():
 
 @pytest.mark.parametrize('initialize', [False, True])
 @pytest.mark.parametrize('description', [False, True])
-def test_me_parent_mutation_dependencies(initialize, description):
+def test_me_compatible_parent_mutations_are_independent(initialize, description):
     p = evc_inputs()
     if description:
         p['interface_description'] = 'New parent'
@@ -1038,8 +1036,8 @@ def test_me_parent_mutation_dependencies(initialize, description):
               if initialize else evc_config('ME3600X'))
     rows = plan(requests, {IP:observation('ME3600X', config)}, now=NOW,
                 decisions={requests[1]['row_id']:'Approve'}).to_dict()['results']
-    assert (requests[0]['row_id'] in rows[1]['dependencies']) == (initialize or description)
-    assert ('DEPENDENCY_NOT_APPROVED' in rows[1]['blockers']) == (initialize or description)
+    assert not rows[1]['dependencies']
+    assert 'DEPENDENCY_NOT_APPROVED' not in rows[1]['findings']
     approved = plan(requests, {IP:observation('ME3600X', config)}, now=NOW,
                     decisions={r['row_id']:'Approve' for r in requests}).to_dict()['results']
     assert all(r['deployment_ready'] for r in approved)
@@ -1178,21 +1176,19 @@ def test_actual_545_overlap_has_digest_bound_actionable_evidence(family, tmp_pat
 
 
 @pytest.mark.parametrize('family', ['ASR920', 'ME3600X'])
-def test_initial_parent_siblings_keep_family_specific_dependencies(family):
+def test_initial_parent_siblings_remain_independent(family):
     config = ('vlan 445\n!\n' if family == 'ME3600X' else '') + 'interface GigabitEthernet0/0/8\n no ip address\n shutdown\n!\n'
     requests = [request(template(family).id, {**evc_inputs(), 'interface': 'GigabitEthernet0/0/8',
         'service_instance_id': si, 'outer_vlan': str(vid)}, row=row) for row, si, vid in [(3, 10, 100), (4, 20, 200)]]
     rows = plan(requests, {IP: observation(family, config)}, now=NOW,
                 decisions={requests[1]['row_id']: 'Approve'}).to_dict()['results']
     assert all(not any('shutdown' in c for c in r['commands']) for r in rows)
-    if family == 'ASR920':
-        assert all(not r['dependencies'] and not r['blockers'] and not r.get('overlaps') for r in rows)
-        assert rows[1]['deployment_ready']
-    else:
-        assert rows[1]['dependencies'] == [requests[0]['row_id']]
-        assert 'DEPENDENCY_NOT_APPROVED' in rows[1]['blockers']
-        assert 'switchport mode trunk' in rows[0]['commands']
-        assert 'switchport trunk allowed vlan none' in rows[0]['commands']
+    assert all(not r['dependencies'] and not r['blockers'] and not r.get('overlaps') for r in rows)
+    assert rows[1]['deployment_ready']
+    if family == 'ME3600X':
+        for row in rows:
+            assert 'switchport mode trunk' in row['commands']
+            assert 'switchport trunk allowed vlan none' in row['commands']
 
 
 @pytest.mark.parametrize('family', ['ASR920', 'ME3600X'])
@@ -1282,3 +1278,48 @@ def test_input_workbook_compact_directory_roundtrip(tmp_path):
         assert book[t.sheet]['A1'].comment.text == template_help(t)
         assert template_help(t) not in '\n'.join(str(c.value or '') for cells in intro for c in cells)
     assert all(len(str(c.value or '')) < 160 for cells in intro for c in cells)
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+@pytest.mark.parametrize('initialized', [False, True])
+@pytest.mark.parametrize('reverse', [False, True])
+@pytest.mark.parametrize('decision', ['Pending', 'Approve', 'Reject'])
+@pytest.mark.parametrize('database_decision', [None, 'Pending', 'Approve', 'Reject'])
+def test_issue_152_operator_disjoint_services(family, initialized, reverse, decision, database_decision):
+    config = 'interface GigabitEthernet0/6\n'
+    if initialized and family == 'ME3600X':
+        config += ' switchport mode trunk\n switchport trunk allowed vlan none\n'
+    config += ' shutdown\n!\n'
+    pairs = [(1234, '1234'), (2341, '1235')]
+    if reverse:
+        pairs.reverse()
+    rows = [request(template(family).id, {**evc_inputs(), 'interface':'GigabitEthernet0/6',
+        'service_instance_id':si, 'outer_vlan':vid, 'bridge_domain':1234}, row=i+3, sheet_order=2)
+        for i, (si, vid) in enumerate(pairs)]
+    decisions = {rows[0]['row_id']:decision, rows[1]['row_id']:'Approve'}
+    if database_decision is not None and family == 'ME3600X':
+        db = request(template(family, 'VLAN Database').id,
+            dict(management_ip=IP, vlan_id=1234, name='Customer'), sheet_order=1)
+        decisions[db['row_id']] = database_decision
+        rows.insert(0, db)
+    planned = plan(rows, {IP:observation(family, config)}, now=NOW, decisions=decisions)
+    services = planned.to_dict()['results'][-2:]
+    assert services[1]['deployment_ready']
+    assert services[0]['deployment_ready'] == (decision == 'Approve')
+    for row, (si, _) in zip(services, pairs):
+        assert not row['dependencies'] and not row['blockers'] and not row.get('overlaps')
+        assert 'DEPENDENCY_NOT_APPROVED' not in row['findings']
+        assert not row['execution_authorized']
+        assert f'no service instance {si}' in row['commands']
+        assert not any('shutdown' in c or c.startswith('vlan ') for c in row['commands'])
+        assert ('switchport trunk allowed vlan none' in row['commands']) == (family == 'ME3600X' and not initialized)
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+def test_issue_152_contradictory_parent_descriptions_block_both(family):
+    rows = [request(template(family).id, {**evc_inputs(), 'service_instance_id':si,
+        'outer_vlan':str(si), 'interface_description':desc}, row=i+3)
+        for i, (si, desc) in enumerate([(1234, 'First'), (2341, 'Second')])]
+    results = plan(rows, {IP:observation(family, evc_config(family))}, now=NOW,
+        decisions={r['row_id']:'Approve' for r in rows}).to_dict()['results']
+    assert all('ORDERED_RESOURCE_OVERLAP' in r['blockers'] and not r['deployment_ready'] for r in results)

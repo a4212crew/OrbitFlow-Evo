@@ -692,7 +692,7 @@ def test_cisco_lookup_complete_name_with_status_word():
     assert result['operational_status'] == 'inactive'
 
 
-def test_failed_dependency_blocks_row_while_independent_row_continues(tmp_path, monkeypatch):
+def test_failed_catalyst_database_does_not_block_independent_access(tmp_path, monkeypatch):
     ctx, database, _ = make_plan()
     config = 'hostname fixture\ninterface GigabitEthernet1/0/1\n switchport mode access\n switchport access vlan 545\n!\nend\n'
     obs = observation(ctx, config)
@@ -702,16 +702,15 @@ def test_failed_dependency_blocks_row_while_independent_row_continues(tmp_path, 
     original = plan(requests, {IP:obs}, now=NOW)
     service = ex.ExecutionService(tmp_path / 'authority')
     prepared = service.prepare(original, {r['row_id']:'Approve' for r in requests}, expected_digest=original.digest)
-    assert prepared['summary']['selected'][-1]['result']['dependencies'] == [database['row_id']]
+    assert prepared['summary']['selected'][-1]['result']['dependencies'] == []
     saves = fake_runtime(monkeypatch, ctx, obs)
     monkeypatch.setattr(ex, '_verify_observed', lambda session,context,cli,entry,*a,**kw: dict(status='Failed' if entry['request']['row_id'] == database['row_id'] else 'Verified'))
     spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
                            credentials={IP:DeviceCredentials('user','hidden')}, run_root=tmp_path/'runs',
                            backups_dir=tmp_path/'backups', inventory_path=tmp_path/'inventory.json')
     rows = next(spool.records())['payload']['rows']
-    assert [r['status'] for r in rows] == ['Failed','Verified','Not executed']
-    assert rows[-1]['blocker'] == 'DEPENDENCY_FAILED'
-    assert not any(c.startswith('switchport') for c in WorkerCLI.instances[0].sent)
+    assert [r['status'] for r in rows] == ['Failed','Verified','Verified']
+    assert any(c.startswith('switchport') for c in WorkerCLI.instances[0].sent)
     assert len(saves) == 1
 
 
@@ -1593,3 +1592,23 @@ def test_execution_52_row_immediate_completion_and_recv_budget(monkeypatch, plat
     assert clock[0] == 0.0
     assert len(calls) == 520
     assert len(channel.sent) == 262  # two initial identification/setup sends
+
+
+@pytest.mark.parametrize('family', ['C3750X', 'C3850X'])
+@pytest.mark.parametrize('decision', ['Pending', 'Reject', 'Approve'])
+def test_issue_152_prepare_database_decision_does_not_gate_access(tmp_path, monkeypatch, family, decision):
+    ctx = context(family)
+    config = 'hostname fixture\ninterface GigabitEthernet1/0/1\n switchport mode access\n!\nend\n'
+    db = request(template(family, 'VLAN Database').id, dict(management_ip=IP, vlan_id=445, name='Customer'))
+    port = request(template(family, 'Access Port').id,
+        dict(management_ip=IP, interface='GigabitEthernet1/0/1', vlan_id=445), sheet_order=1)
+    original = plan([db, port], {IP:observation(ctx, config)}, now=NOW)
+    monkeypatch.setattr(socket, 'create_connection', lambda *a, **kw: pytest.fail('prepare must stay offline'))
+    service = ex.ExecutionService(tmp_path/'authority')
+    prepared = service.prepare(original, {db['row_id']:decision, port['row_id']:'Approve'}, expected_digest=original.digest)
+    selected = prepared['summary']['selected']
+    assert selected[-1]['request']['row_id'] == port['row_id']
+    assert selected[-1]['result']['dependencies'] == []
+    assert not selected[-1]['result']['execution_authorized']
+    with pytest.raises(PlanError, match='digest'):
+        service.prepare(original, {port['row_id']:'Approve'}, expected_digest='0'*64)

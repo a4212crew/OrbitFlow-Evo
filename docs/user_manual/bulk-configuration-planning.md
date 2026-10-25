@@ -1,5 +1,27 @@
 # Bulk configuration planning v2
 
+## Issue #152: independent EVC review and VLAN database policy
+
+Distinct ME3600X/ASR920 service instances with disjoint ingress are independently
+reviewable in either row order, including on a compatible empty parent. Each row
+renders any safe parent initialization from its own observed parent state; it does
+not borrow initialization or approval from a sibling. Repeating the same ME trunk /
+allowed-none setup is idempotent and leaves unrelated service instances intact.
+Compatible optional parent descriptions do not serialize siblings; contradictory
+parent descriptions, duplicate SIs, overlapping ingress, uncertain observations,
+incompatible parents and physical Port-channel ownership still block.
+
+For every predefined non-Ubiquiti family, VLAN Database rows (absent, Pending,
+Approve or Reject) do not create approval/synchronization dependencies for other
+templates. Missing database VLAN facts may remain nonblocking warnings; no VLAN
+is created implicitly. This supersedes earlier database-prerequisite and shared
+EVC parent-initialization dependency statements. EdgeSwitch retains actual ordered
+membership/PVID dependencies and its fresh execution VLAN prerequisite gate.
+Immutable digests, explicit per-row decisions, execution_authorized=False in plans,
+and separate preparation/confirmation, fresh identity/target/transport, backup and
+verification gates remain. ME3600X/ASR920 EVC execution remains unsupported.
+Synthetic tests do not establish hardware or Linux validation.
+
 The planner remains read-only. Issue #117 adds a separate
 [confirmed Catalyst/EdgeSwitch executor](configuration-execution.md) and
 [standalone/public execution APIs](../operations/configuration-execution-api.md).
@@ -679,3 +701,36 @@ review. Planning, preparation/fresh target checks and post-change verification u
 the same selector; no approval/digest or spool schema changes. The forwarding child
 blocker remains `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`. See the existing validation
 matrix for Linux/Windows read-only reproduction; live validation remains pending.
+
+
+### Issue #152 validation commands
+
+Windows PowerShell, from an activated repository environment:
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m pytest tests/test_approved_catalyst_templates.py tests/test_configuration_v2_approved_services.py tests/test_bulk_configuration_v2.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py -q
+python -m pytest -q
+python -m orbitflow.configuration.v2.cli plan bulk-input.xlsx --devices devices.xlsx --max-concurrent-devices 1 --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER
+```
+
+Linux shell:
+
+```bash
+export PYTHONPATH=src
+python -m pytest tests/test_approved_catalyst_templates.py tests/test_configuration_v2_approved_services.py tests/test_bulk_configuration_v2.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py -q
+python -m pytest -q
+python -m orbitflow.configuration.v2.cli plan bulk-input.xlsx --devices devices.xlsx --max-concurrent-devices 1 --proxy TELEPORT_PROXY --cluster TELEPORT_CLUSTER --bastion-host BASTION --bastion-user BASTION_USER
+```
+
+The final command is operator-controlled live read-only planning, requiring local
+credentials/routing. Do not execute generated CLI. Populate the ME3600X EVC sheet
+with GigabitEthernet0/6, SI 1234 / Dot1q 1234 and SI 2341 / Dot1q 1235, both Pop 1
+symmetric and BD 1234. Repeat in reverse order, with/without a database row, and
+independent Pending/Approve/Reject decisions through the documented decision API.
+Expect no sibling/database dependency; a row still requires its own approval.
+Check empty and initialized parents using existing authorized lab states, preserving
+unrelated children and shutdown. Repeat for ASR920, then verify overlap, duplicate
+SI, contradictory descriptions and physical aggregation ownership still block.
+Hardware and Linux validation of this correction remain pending. Existing console
+planning entry points use the same planner; this correction adds no new workflow.

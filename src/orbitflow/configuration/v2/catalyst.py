@@ -81,11 +81,6 @@ def evaluate(t, p, obs, out, prior):
             exists, _ = lookup(p['vlan_id'])
             if exists is False:
                 warn('GLOBAL_VLAN_REQUIRED')
-                for q, result in prior:
-                    if q['inputs'].get('vlan_id') == p['vlan_id'] and 'name' in q['inputs']:
-                        out['dependencies'].append(q['row_id'])
-                        if not result['deployment_ready']:
-                            warn('DEPENDENCY_NOT_APPROVED')
             if mode in {'trunk', 'routed'}:
                 block('ACCESS_CONVERSION_BLOCKED')
             if mode not in {'access', 'trunk', 'routed'}:
