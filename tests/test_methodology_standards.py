@@ -43,6 +43,8 @@ PATTERNS = [
 def test_full_compliance_results_equal_pre_issue81_baseline():
     # Preserve unrelated baselines. Issue149 revises index 0 for explicitly
     # excluded inactive tagging and index 5 for visible child skip/conflict detail.
+    # Issue149 presentation revision updates only index 5 for bounded comparisons;
+    # structured relationships, health, policy and methodology facts are unchanged.
     expected = json.loads((Path(__file__).parent / 'fixtures/methodology_standards_compliance.json').read_text())
     actual = []
     for family, config, *_ in PATTERNS:

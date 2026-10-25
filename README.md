@@ -285,6 +285,10 @@ unavailable configuration evidence, and ambiguous audited relationships produce
 `unable_to_assess`. Configuration problems are reported independently, even
 when the compliance trigger does not match.
 
+Child explanations use bounded VLAN summaries; full structured findings and
+source evidence remain recoverable. Oversized sanitized cells use keyed Details
+parts; see the [compliance export guide](docs/user_manual/device-vlan-compliance.md#concise-summaries-and-lossless-details-issue-149-review-revision).
+
 Saved configuration is authoritative. VlanService preserves an allowlisted
 configuration fact tree with nesting, source order, filename/source label,
 one-based lines and sanitized source excerpts. Online collection labels its

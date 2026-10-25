@@ -50,3 +50,32 @@ admin/oper state is preserved. Exactly one parent row is emitted. Missing headin
 are not invented. Physical child skips, independent configuration findings and
 evidence remain visible. The separate interface/VLAN report retains `3/N`.
 Offline export preserves recorded names, including those in older spools.
+
+## Concise summaries and lossless Details (Issue #149 review revision)
+
+Confirmed physical children name the configuration owner and required-VLAN skip
+once. Independent issues retain their finding codes and member/parent comparison;
+VLAN lists use counts and at most eight ranges. These summaries are presentation
+only: exact lists/comparisons remain in the persisted `observed.configuration_findings`
+and the Details `observed` JSON; original sanitized source excerpts remain in
+`evidence` JSON and Configuration Evidence / Evidence Source / Evidence Lines.
+Recommendations address explicit source conflicts or request missing evidence;
+the relationship alone does not authorize a device change. Inactive EdgeSwitch
+tagging remains informational, independent of genuine mismatches and health.
+
+The four sheets and all columns are unchanged. Complete sanitized cell values
+of at most 30,000 characters stay inline. Every larger value is replaced by
+`See Details: input N, finding M, Original Column Name`. Filter Details by Input
+Position = N, Finding = M, Field = the exact original column name; sort Part
+numerically and concatenate JSON Fragment **without separators**. This recovers
+the complete sanitized column value. Do not combine devices, finding indices or
+fields. Run Errors use `error M` as the Finding key to avoid collision with findings.
+Lowercase `observed` and `evidence` fields are structured JSON, separately keyed
+from display column fragments. Sanitation occurs before splitting; fragments and
+references fit Excel limits. No silent truncation or new worksheets are used.
+A bounded summary is recovered through its structured facts, not by expanding
+the summary text. Retained historical spools use the same offline exporter and
+retain their recorded finding text; policy is not re-evaluated during export.
+
+See [validation checks](aggregation-validation.md#summary-and-overflow-review-checks)
+for automated commands and owner read-only/offline review steps on both shells.

@@ -16,6 +16,25 @@ def safe_data(value, clean=sanitize_text):
     return clean(value) if isinstance(value, str) else value
 
 
+def _summary(value):
+    """Bound presentation only; exact comparison values remain in observed facts."""
+    if isinstance(value, (list, tuple, set)):
+        if all(isinstance(v, int) and not isinstance(v, bool) for v in value):
+            ranges = []
+            for v in sorted(set(value)):
+                if ranges and v == ranges[-1][1] + 1:
+                    ranges[-1][1] = v
+                else:
+                    ranges.append([v, v])
+            text = ",".join(str(a) if a == b else f"{a}-{b}" for a, b in ranges[:8])
+            return f"{len(value)} VLANs ({text}{', ...' if len(ranges) > 8 else ''})"
+        return f"{len(value)} values (see structured Details)"
+    if isinstance(value, dict):
+        return "structured values (see Details)"
+    text = str(value)
+    return text if len(text) <= 100 else text[:100] + "... (see Details)"
+
+
 def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_ip="",
                              clean=sanitize_text):
     """Evaluate both rule families from one snapshot; no collection or mutation.
@@ -25,6 +44,8 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
     and health but skip required-VLAN policy; ME3600X pseudowire rows are excluded
     from this projection only. EdgeSwitch logical LAG display uses the actual
     saved heading while observed identity/state remain independently available.
+    Child summaries bound VLAN ranges/counts and comparison values; exact details
+    and source excerpts remain in observed findings/evidence for spool export.
     Missing evidence never becomes a fabricated fact.
     """
     device = dict(device_id=context.device_id if context else "",
@@ -132,11 +153,13 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
             for problem in actionable:
                 detail = problem["code"]
                 if problem.get("differences"):
-                    detail += ": " + str(problem["differences"])
+                    detail += ": " + "; ".join(
+                        f"{field}: member {_summary(values.get('member'))}, parent {_summary(values.get('aggregate'))}"
+                        for field, values in sorted(problem["differences"].items()))
                 if problem.get("fields"):
                     detail += ": further evidence needed for " + ", ".join(problem["fields"])
                 if problem.get("vlans"):
-                    detail += " VLANs " + ",".join(map(str, problem["vlans"]))
+                    detail += ": " + _summary(problem["vlans"])
                 details.append(detail)
             reason += ". Independent configuration findings: " + "; ".join(details)
             recommendations = []
@@ -161,6 +184,11 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
         emit(policy.interface_rule, interface_expected, row, status, reason,
              interface=display, missing=missing,
              source=row.pop("evidence"), recommendation=recommendation)
+        if row.get("aggregation_child"):
+            findings[-1]["explanation"] = ("Required-VLAN evaluation owned by " + row["configuration_owner"]
+                + "; physical member skipped." + (" Independent configuration findings: " + "; ".join(details) if actionable else ""))
+            if any(p["code"] == "EXCLUDED_VLAN_TAGGING_INACTIVE" for p in row["configuration_findings"]):
+                findings[-1]["explanation"] += " Explicitly excluded VLAN tagging is inactive and does not establish forwarding membership."
     if not rows:
         emit(policy.interface_rule, interface_expected, {"interface_count": 0}, "not_applicable", "no_configured_or_observed_interfaces")
     return safe_data(findings, clean)

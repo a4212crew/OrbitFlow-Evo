@@ -7,6 +7,8 @@
 
 - [CLI progress and durable results](user_manual/cli-progress.md): shared terminal presentation and workflow coverage.
 
+- [Compliance summaries and lossless export](user_manual/device-vlan-compliance.md#concise-summaries-and-lossless-details-issue-149-review-revision): bounded child summaries, existing Details fragments and offline recovery.
+
 ## Start here
 
 | Need | Source | Status |

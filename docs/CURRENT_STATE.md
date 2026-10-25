@@ -1013,3 +1013,11 @@ Final operator-column correction Windows validation: full suite 3,265 passed;
 broader suite 1,276 passed including the last parent-only database regression
 added after full-suite collection. Exact commands and timing are in
 [October devlog](devlog/2026-10.md). Owner repeat/Linux validation is pending.
+
+Issue #149 review revision bounds physical-child explanation comparisons and VLAN
+ranges/counts while preserving exact structured findings/evidence. Compliance
+export sanitizes complete values before the existing 30,000-character split and
+keys overflow references by input position, finding and original column name;
+Run Errors use a distinct error key. Sheet/column/spool contracts are unchanged.
+See the compliance manual and aggregation validation checks. Owner live validation
+of this presentation/export revision remains pending; automated checks use fixtures.

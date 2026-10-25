@@ -1,4 +1,5 @@
 """Issue149 synthetic relationship authority and compatibility regressions."""
+from contextlib import closing
 from dataclasses import asdict, replace
 from unittest.mock import Mock
 
@@ -391,7 +392,7 @@ end
     child = next(f for f in findings if f['interface'] == '0/12')
     assert child['status'] == 'not_applicable'
     assert child['configuration_health'] == 'wrong_configuration'
-    assert 'AGGREGATE CONFIG CONFLICT' in child['explanation']
+    assert 'AGGREGATE_CONFIG_CONFLICT' in child['explanation']
     assert 'tagging' in child['explanation']
     record = next(r for r in resolve_methodologies(ctx, [], state) if r['config_interface_name'] == '0/12')
     assert record['configuration_classification'] == 'wrong_configuration'
@@ -419,3 +420,41 @@ end
     assert 'ALLOWED_VLAN_NOT_IN_DATABASE' not in {p['code'] for p in child['observed']['configuration_findings']}
     assert child['status'] == 'not_applicable'
     assert any('545' in e['excerpt'] for e in child['evidence']['sources'])
+
+def test_large_child_vlan_summary_preserves_exact_independent_findings(tmp_path):
+    text = '''vlan 445
+!
+interface Port-channel1
+ switchport mode trunk
+ switchport trunk allowed vlan 445
+!
+interface Gi0/1
+ channel-group 1 mode active
+ switchport mode trunk
+ switchport trunk allowed vlan 2-4001
+!
+end
+'''
+    ctx, state = saved(FAMILIES[1], text)
+    findings = evaluate_vlan_compliance(ctx, [], state, POLICY)
+    child = next(f for f in findings if f['interface'] == 'Gi0/1')
+    assert child['status'] == 'not_applicable'
+    assert child['configuration_health'] == 'wrong_configuration'
+    assert len(child['explanation']) < 1200
+    assert 'ALLOWED_VLAN_NOT_IN_DATABASE' in child['explanation']
+    assert 'global VLAN database' in child['recommendation']
+    invalid = next(p for p in child['observed']['configuration_findings'] if p['code'] == 'ALLOWED_VLAN_NOT_IN_DATABASE')
+    assert invalid['vlans'] == [v for v in range(2, 4002) if v != 445]
+    assert any('2-4001' in e['excerpt'] for e in child['evidence']['sources'])
+    spool = ResultSpool.create(tmp_path / 'runs', 'vlan_compliance', 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload={'findings': findings, 'errors': []})
+    path = export_compliance_spool(spool.path, tmp_path / 'child.xlsx', cleanup=False)
+    import json
+    with closing(load_workbook(path, read_only=True)) as workbook:
+        index = str(findings.index(child) + 1)
+        rows = list(workbook['Details'].values)[1:]
+        observed = json.loads(''.join(r[4] for r in rows if r[1:3] == (index, 'observed')))
+        assert observed == child['observed']
+        evidence = json.loads(''.join(r[4] for r in rows if r[1:3] == (index, 'evidence')))
+        assert evidence == child['evidence']

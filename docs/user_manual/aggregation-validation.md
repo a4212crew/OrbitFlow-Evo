@@ -218,3 +218,61 @@ findings and do not recompute old spool semantics.
 The existing console entries and API signatures remain unchanged. This correction
 adds no operator workflow or menu. Automated fixtures are synthetic; repeat owner
 validation and Linux execution remain pending.
+
+## Summary and overflow review checks
+
+This is export/presentation validation; live owner validation remains pending.
+The family/workflow matrix and exact read-only collection commands above still
+apply (C3750X, C3850, ME3600X, ASR920, NCS540, Huawei VRP, EdgeSwitch). No device
+writes are needed. Existing console commands and planning/execution interfaces
+are unchanged.
+
+Linux Bash automated and offline checks (repository root):
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -m pytest tests/test_vlan_compliance.py tests/test_aggregation_consumers.py tests/test_vlan_configuration_audit.py -q
+python -m pytest -q
+python scripts/device_vlan_compliance.py export outputs/runs/vlan_compliance/RUN_ID outputs/reports/vlan_compliance/summary-review.xlsx --keep-spool
+```
+
+Windows PowerShell equivalents:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m pytest tests/test_vlan_compliance.py tests/test_aggregation_consumers.py tests/test_vlan_configuration_audit.py -q
+python -m pytest -q
+python scripts/device_vlan_compliance.py export .\outputs\runs\vlan_compliance\RUN_ID .\outputs\reports\vlan_compliance\summary-review.xlsx --keep-spool
+```
+
+Replace RUN_ID with the retained run directory. Use the collection commands above
+only with owner-approved target workbooks and local Teleport authentication;
+then disconnect before offline export. Add `--allow-partial` only to inspect a
+known partial run and inspect Run Errors. Do not distribute credentials or raw
+unsanitized device output.
+
+1. For each family, check one parent and confirmed child: owner/skip appears once,
+   child remains not_applicable and independent conflicts retain wrong_configuration.
+   Check long invalid VLAN lists give bounded counts/ranges and actionable source
+   review, with exact VLAN lists/comparisons in Details `observed` JSON. Compare
+   parent-owned findings separately; partial evidence must still request review.
+2. Check EdgeSwitch inactive excluded tagging remains informational; a genuine
+   tagging mismatch remains independently wrong_configuration. Verify ME3600X
+   source service evidence remains preserved and pseudowires stay excluded only
+   from compliance rows. Compare methodology findings using its separate export.
+3. Short Explanation/Recommendation/evidence values stay inline. For an overflow
+   reference use its Input Position, Finding and exact column-name Field. Sort
+   Part as numbers and concatenate JSON Fragment without adding newlines. Compare
+   with the sanitized persisted value. Use distinct inputs/findings, even when
+   their device IPs repeat. Lowercase `observed`/`evidence` fragments parse as JSON
+   and preserve exact lists and source lines. No cell exceeds 30,000 characters.
+4. Re-export the retained spool again while disconnected and compare all sheet
+   values. Confirm sheet/column order, normal non-LAG/database results, errors,
+   evidence and historical spool recovery remain unchanged. Export does not
+   recollect devices, apply policy anew or alter planning/execution approval.
+
+Automated fixtures cover multi-device/multi-finding Explanation, Recommendation
+and Configuration Evidence overflow with exact fragment reassembly; short cells,
+pre-split sanitation, nearly 4,000 invalid child VLANs, skipped children with genuine
+mismatches, partial relationships, inactive tagging and offline spool recovery.
+They are deterministic tests, not live validation.
