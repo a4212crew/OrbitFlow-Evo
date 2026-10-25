@@ -428,8 +428,8 @@ def test_owner_pending_vlan_access_description_and_trunk(tmp_path, decision):
     original = plan(prerequisites + ports + [conversion, description], {IP:obs}, now=NOW)
     rows = original.to_dict()['results']
     for prerequisite, row in zip(prerequisites, rows[3:6]):
-        assert row['dependencies'] == [prerequisite['row_id']]
-        assert 'DEPENDENCY_NOT_APPROVED' in row['warnings']
+        assert row['dependencies'] == []
+        assert 'DEPENDENCY_NOT_APPROVED' not in row['findings']
         assert not row['blockers'] and row['consistency'] == 'consistent'
         assert not row['deployment_ready']
     assert 'ORDERED_RESOURCE_OVERLAP_WARNING' in rows[3]['warnings']
@@ -445,7 +445,7 @@ def test_owner_pending_vlan_access_description_and_trunk(tmp_path, decision):
     reviewed = consume_decisions(original, tmp_path/'plan.xlsx', expected_digest=original.digest, now=NOW)
     assert reviewed.digest == original.digest
     evaluated = reviewed.to_dict()['results']
-    assert all(r['deployment_ready'] == (decision == 'Approve') for r in evaluated[3:6])
+    assert all(r['deployment_ready'] for r in evaluated[3:6])
     assert all(not r['execution_authorized'] for r in evaluated)
 
 

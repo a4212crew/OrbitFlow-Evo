@@ -366,7 +366,7 @@ def test_missing_or_ambiguous_owner_evidence_blocks_port(family, function, damag
         ex._check_target(dict(request=requests[0], result=original['results'][0]), before, ctx)
 
 
-def test_failed_dependency_blocks_port_but_independent_description_continues(tmp_path, monkeypatch):
+def test_failed_catalyst_database_allows_port_and_description(tmp_path, monkeypatch):
     ctx, _, before, after = fixture('C3750X', 'Access Port', 1)
     db = request(template('C3750X','VLAN Database').id, dict(management_ip=IP, vlan_id=701, name='Customer'))
     port = request(template('C3750X','Access Port').id,
@@ -381,10 +381,9 @@ def test_failed_dependency_blocks_port_but_independent_description_continues(tmp
         return dict(status='Verified')
     rows, events, _, saves, prepared = execute(tmp_path, monkeypatch, ctx, [db,port,desc], before, after,
         verifier=verify, cli_type=RejectCLI)
-    assert prepared['summary']['selected'][1]['result']['dependencies'] == [db['row_id']]
-    assert [r['status'] for r in rows] == ['Failed', 'Not executed', 'Verified']
-    assert rows[1]['blocker'] == 'DEPENDENCY_FAILED'
-    assert not any(e['stage'] == 'command_intent' and e['row_id'] == port['row_id'] for e in events)
+    assert prepared['summary']['selected'][1]['result']['dependencies'] == []
+    assert [r['status'] for r in rows] == ['Failed', 'Verified', 'Verified']
+    assert any(e['stage'] == 'command_intent' and e['row_id'] == port['row_id'] for e in events)
     assert len(saves) == 1
 
 
@@ -424,7 +423,7 @@ def test_stage_timing_extraction_keeps_only_safe_stage_ids(tmp_path):
     assert 'secret' not in json.dumps(result)
 
 
-def test_verified_dependency_ready_before_later_stage(tmp_path, monkeypatch):
+def test_verified_database_preserves_later_stage_order(tmp_path, monkeypatch):
     ctx, requests, before, _ = fixture('C3750X','Access Port',1)
     db=request(template('C3750X','VLAN Database').id, dict(management_ip=IP,vlan_id=701,name='Customer'))
     port=request(template('C3750X','Access Port').id, dict(management_ip=IP,interface='GigabitEthernet1/0/1',vlan_id=701),sheet_order=1)
@@ -436,7 +435,7 @@ def test_verified_dependency_ready_before_later_stage(tmp_path, monkeypatch):
         obs['vlan_lookups']['701'].update(status='present',name='Customer',operational_status='active')
     rows,events,_,saves,prepared=execute(tmp_path,monkeypatch,ctx,[db,port],before,after,
         observe=lambda n:[before,database,after][n-1],switch_facts=dict(access_vlan=701))
-    assert prepared['summary']['selected'][1]['result']['dependencies']==[db['row_id']]
+    assert prepared['summary']['selected'][1]['result']['dependencies']==[]
     assert [r['status'] for r in rows]==['Verified','Verified']
     assert len(saves)==1
     first_result=next(i for i,e in enumerate(events) if e['stage']=='row_result' and e['row_id']==db['row_id'])

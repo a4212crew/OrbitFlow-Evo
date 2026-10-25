@@ -99,16 +99,16 @@ def test_all_22_schema_and_representative_cli(t):
             request(t.id, bad)
 
 
-def test_dependency_order_rejection_and_digest():
+def test_database_independence_order_rejection_and_digest():
     db, access = template("C3750X", "VLAN Database"), template("C3750X", "Access Port")
     a = request(db.id, inputs(db), sheet_order=1)
     b = request(access.id, inputs(access), sheet_order=2)
     original = plan([b, a], {IP: observed(db)}, now=NOW)
-    assert original.to_dict()["results"][1]["dependencies"] == [a["row_id"]]
+    assert original.to_dict()["results"][1]["dependencies"] == []
     approved = review(original, {a["row_id"]: "Approve", b["row_id"]: "Approve"}, expected_digest=original.digest, now=NOW)
     assert all(r["deployment_ready"] for r in approved.to_dict()["results"])
     rejected = review(original, {a["row_id"]: "Reject", b["row_id"]: "Approve"}, expected_digest=original.digest, now=NOW)
-    assert not rejected.to_dict()["results"][1]["deployment_ready"]
+    assert rejected.to_dict()["results"][1]["deployment_ready"]
     assert original.digest == approved.digest == rejected.digest
     with pytest.raises(PlanError):
         review(original, {}, expected_digest="0" * 64)
@@ -1077,3 +1077,23 @@ def test_cli_report_pair_preserves_digest_and_override(tmp_path, monkeypatch, ex
             cli._main(args, logging.getLogger('test'), lambda _: None)
     assert before == (path.read_bytes(), path.with_suffix('.xlsx').read_bytes())
     assert not (tmp_path / 'outputs/runs/configuration').exists()
+
+
+@pytest.mark.parametrize('t', [t for t in CATALOGUE if t.family not in {'All', 'EdgeSwitch'}
+    and t.function != 'VLAN Database'], ids=lambda t:t.id)
+@pytest.mark.parametrize('decision', ['Pending', 'Approve', 'Reject'])
+def test_issue_152_non_ubiquiti_database_rows_do_not_create_dependencies(t, decision):
+    # Families without a database worksheet cannot acquire a database dependency.
+    databases = [q for q in CATALOGUE if q.family == t.family and q.function == 'VLAN Database']
+    target = request(t.id, inputs(t), sheet_order=1)
+    requests = [target]
+    decisions = {target['row_id']:'Approve'}
+    if databases:
+        db = request(databases[0].id, inputs(databases[0]))
+        requests.insert(0, db)
+        decisions[db['row_id']] = decision
+    row = plan(requests, {IP:observed(t)}, now=NOW, decisions=decisions).to_dict()['results'][-1]
+    assert not row['dependencies']
+    assert 'DEPENDENCY_NOT_APPROVED' not in row['findings']
+    assert not row['execution_authorized']
+    # Unrelated provisional-template/observation blockers are intentionally retained.

@@ -1,5 +1,16 @@
 # Configuration v2 — Approved Catalyst Template Requirements (Templates 1–8)
 
+## Issue #152 policy correction
+
+Disjoint ME3600X/ASR920 EVCs independently derive safe parent setup from observed
+state, including empty parents; compatible setup/descriptions require no sibling
+approval. Contradictory descriptions, duplicate SIs, ingress overlap, uncertain
+state and aggregation ownership still block. Predefined non-Ubiquiti templates
+have no VLAN Database approval/synchronization dependencies and never implicitly
+create VLANs. Earlier contrary prerequisite statements below are superseded.
+EdgeSwitch genuine prerequisites and immutable approval/fresh execution gates remain.
+See [current behavior and validation commands](../../user_manual/bulk-configuration-planning.md).
+
 **Decision status:** User signed off Templates **1–8 of 22** on 2026-10-12. This is a **requirements baseline, not an implementation/validation claim**. User explicitly elected to implement and test these eight templates first. Templates 9–22 remain in the high-level catalogue but require the same four-step review and final sign-off before implementation. Issue #91 / existing PR #92 is the implementation/revision vehicle; do not merge without explicit owner approval.
 
 **Precedence:** This page supplements [guided-bulk-planning.md](guided-bulk-planning.md). Where old generic target language differs for these eight templates or the owner-approved single-workbook decision workflow, this more recent approved detail takes precedence. Existing v1 Change Plan/approval protections remain intact.

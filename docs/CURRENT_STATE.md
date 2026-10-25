@@ -24,6 +24,14 @@ distinguishes this v1 contract from the separate predefined execution workflow.
 
 ## Bulk Configuration Planning v2
 
+Issue #152 corrects independent ME3600X/ASR920 disjoint EVC review, including safe
+empty-parent initialization, and removes predefined non-Ubiquiti VLAN Database
+approval dependencies. True conflicts and EdgeSwitch requirements remain. Synthetic
+validation passed on Windows (full suite 3,386; final targeted suite 868, including
+48 additions collected after the full run). Owner hardware and Linux validation
+remain pending.
+
+
 Issue #117 adds separate confirmed predefined execution for C3750X, C3850 and
 EdgeSwitch through `orbitflow.configuration.execution` and `execution_cli`.
 Prepare validates immutable plan/review decisions without connecting; transactional

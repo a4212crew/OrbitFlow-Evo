@@ -149,7 +149,7 @@ def _row(r, observation, prior, decision, now, max_age):
     for vid in sorted(needed - database.keys()):
         candidates = [(q, result) for q, result in prior if BY_ID[q["template_id"]].function == "VLAN Database"
                       and q["inputs"]["vlan_id"] == vid]
-        if candidates:
+        if candidates and t.family == "EdgeSwitch":
             q, result = candidates[-1]
             dependencies.append(q["row_id"])
             if result["decision"] != "Approve" or not result["deployment_ready"]:
@@ -157,6 +157,7 @@ def _row(r, observation, prior, decision, now, max_age):
                 warning_codes.add("DEPENDENCY_NOT_APPROVED")
         else:
             findings.append("GLOBAL_VLAN_REQUIRED")
+            warning_codes.add("GLOBAL_VLAN_REQUIRED")
     if t.function == "Subinterface VSI" and not any(o["object_type"] == "vsi" and o["object_id"] == p["vsi"] for o in obs.get("objects", [])):
         findings.append("EXISTING_VSI_REQUIRED")
     if t.function == "VLAN Database":
@@ -248,11 +249,10 @@ def _classify_overlap(group):
             from orbitflow.vendors.cisco.evc import ingress, overlaps
             independent_ingress = (not same_interface or
                 p['service_instance_id'] != v['service_instance_id'] and not overlaps(ingress(p), ingress(v)))
-            if independent_ingress and (not same_interface or (
-                    not p.get('interface_description') and not v.get('interface_description')
-                    and not result.get('projected_state', {}).get('initializes_parent')
-                    and not other.get('projected_state', {}).get('initializes_parent'))):
-                # Sharing an existing parent is not a shared resource mutation.
+            parent_descriptions_compatible = (not p.get('interface_description') or not v.get('interface_description')
+                or p['interface_description'] == v['interface_description'])
+            if independent_ingress and (not same_interface or parent_descriptions_compatible):
+                # Compatible initialization is derived independently from observed state.
                 continue
         if same_interface or same_vlan or same_domain or t.family == "All" or u.family == "All":
             compatible = (same_interface and t.family == u.family and t.family in {"C3750X", "C3850X"}
@@ -268,9 +268,9 @@ def _classify_overlap(group):
                                   t.function == u.function == 'Interface Description' and p['description'] == v['description'] or
                                   t.function == u.function == 'VLAN Port')
             if evc_pair:
-                # Parent conversion/description still requires ordered review;
-                # duplicate SI or overlapping ingress remains a real conflict.
-                compatible = independent_ingress
+                # Contradictory parent descriptions, duplicate SI and overlapping
+                # ingress remain real conflicts.
+                compatible = independent_ingress and (not same_interface or parent_descriptions_compatible)
             # A description and a separate interface operation compose in workbook
             # order on every family. Independent safety findings remain blockers.
             if (same_interface and t.family == u.family

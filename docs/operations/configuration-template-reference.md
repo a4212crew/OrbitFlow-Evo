@@ -1,5 +1,16 @@
 # Configuration v2 template operator reference
 
+## Issue #152 policy correction
+
+Disjoint ME3600X/ASR920 EVCs independently derive safe parent setup from observed
+state, including empty parents; compatible setup/descriptions require no sibling
+approval. Contradictory descriptions, duplicate SIs, ingress overlap, uncertain
+state and aggregation ownership still block. Predefined non-Ubiquiti templates
+have no VLAN Database approval/synchronization dependencies and never implicitly
+create VLANs. Earlier contrary prerequisite statements below are superseded.
+EdgeSwitch genuine prerequisites and immutable approval/fresh execution gates remain.
+See [current behavior and validation commands](../user_manual/bulk-configuration-planning.md).
+
 Use this reference with [bulk planning commands, output review and owner read-only smoke tests](../user_manual/bulk-configuration-planning.md). Templates 1–8 follow the [Catalyst signed-off contract](../architecture/configuration/approved-catalyst-templates.md); 9–16 follow the [ME3600X/ASR920/EdgeSwitch signed-off contract](../architecture/configuration/approved-me3600x-asr920-edgeswitch-templates.md). These contracts take precedence over generic catalogue notes. Templates 17–22 below are **catalogue/provisional, not owner-approved or live-validated**. Their descriptions report existing code, not a promise of device support.
 
 ## Rules for every worksheet

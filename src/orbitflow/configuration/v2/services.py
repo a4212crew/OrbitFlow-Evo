@@ -1,7 +1,8 @@
 """Approved Templates 9–16 over preserved shared vendor facts.
 
 This layer compares typed observations only. CLI grammar and rendering belong
-to vendor modules; projected state follows the existing per-device row order.
+to vendor modules; projected services follow per-device row order for conflicts,
+while independent EVC parent setup is derived from observed state per row.
 """
 from copy import deepcopy
 from orbitflow.vendors.configuration_facts import interface_settings
@@ -90,8 +91,9 @@ def evaluate(t, p, obs, out, prior):
                     (BY_ID[q['template_id']].function == 'Interface Description'))
                 independent_evc = (t.function == BY_ID[q['template_id']].function == 'EVC'
                     and p['service_instance_id'] != q['inputs']['service_instance_id']
-                    and not result['projected_state'].get('initializes_parent')
-                    and not q['inputs'].get('interface_description'))
+                    and not overlaps(ingress(p), ingress(q['inputs']))
+                    and (not p.get('interface_description') or not q['inputs'].get('interface_description')
+                         or p['interface_description'] == q['inputs']['interface_description']))
                 if not independent_description and not independent_evc:
                     out['dependencies'].append(q['row_id'])
                 if not independent_description and not independent_evc and not result['deployment_ready']:
@@ -160,17 +162,20 @@ def evaluate(t, p, obs, out, prior):
                 out['projected_state'] = dict(description=p.get('description', description), included=sorted(included), excluded=sorted(excluded), tagged=sorted(tagged), pvid=pvid)
             else:
                 services = [n for n in node['children'] if n['kind'] == 'service_instance']
+                # Project sibling services for collision detection, never to borrow
+                # their approval or suppress this row's observed parent setup.
+                observed_services = services
                 if projected and 'services' in projected:
                     services = projected['services']
                 mode = vals('mode')
-                empty = not services and not any(n['kind'] in {'routed', 'access', 'allowed', 'native', 'mode', 'methodology_unknown'} for n in node['children'])
+                empty = not observed_services and not any(n['kind'] in {'routed', 'access', 'allowed', 'native', 'mode', 'methodology_unknown'} for n in node['children'])
                 # Evidence-only unrelated parent settings are preserved. Layer-3
                 # addresses and policies require explicit conversion review.
                 parent_lines = [n.get('excerpt', '').strip() for n in node['children'] if n['kind'] != 'service_instance']
                 routed = any(s.startswith(('ip address ', 'ipv6 address ', 'ip unnumbered ', 'no switchport')) for s in parent_lines)
                 empty &= not routed
                 if t.family == 'ME3600X':
-                    compatible = mode == ['trunk'] and vals('allowed') == ['NONE'] or bool(projected and projected.get('evc_parent'))
+                    compatible = mode == ['trunk'] and vals('allowed') == ['NONE']
                     if (not compatible and not empty) or routed or vals('access') or vals('native') or vals('allowed_add') or vals('allowed_remove') or vals('allowed_except'):
                         block('INCOMPATIBLE_EVC_PARENT')
                 elif routed or mode or vals('access') or vals('allowed'):
@@ -260,27 +265,20 @@ def evaluate(t, p, obs, out, prior):
                 if t.family == 'ME3600X':
                     exists, _ = lookup(p['bridge_domain'])
                     if exists is False or p['bridge_domain'] not in observed_database:
-                        candidates = [(q, result) for q, result in prior if q['inputs'].get('vlan_id') == p['bridge_domain'] and result.get('projected_state', {}).get('vlan_name') is not None]
-                        if candidates:
-                            q, result = candidates[-1]
-                            out['dependencies'].append(q['row_id'])
-                            if not result['deployment_ready']:
-                                warn('DEPENDENCY_NOT_APPROVED')
-                        else:
-                            warn('GLOBAL_VLAN_REQUIRED')
+                        warn('GLOBAL_VLAN_REQUIRED')
                         out['missing_global_vlans'] = [p['bridge_domain']]
                 for a in obs.get('audit', []):
                     if key(a['config_interface_name']) == key(target) and any(m.get('global_bridge_domain') for m in a.get('numeric_mappings', [])) and t.family == 'ASR920':
                         block('ASR920_GLOBAL_BINDING_CONFLICT')
                 warn('SERVICE_IMPACT_REVIEW')
-                out['commands'] = renderer(t, p, dict(initialize=empty, description=description))
+                out['commands'] = renderer(t, p, dict(initialize=empty, description=vals('description')[-1] if vals('description') else ''))
                 # Store normalized desired children through the shared vendor helper.
                 from orbitflow.vendors.cisco.evc import desired_service
                 # Only ME3600X converts an empty parent into a shared trunk
                 # resource. ASR920's address-free parent needs no conversion;
                 # its defensive no-ip command must not serialize siblings.
                 out['projected_state'] = dict(description=p.get('interface_description', description),
-                    evc_parent=True, initializes_parent=t.family == 'ME3600X' and empty and not bool(projected and projected.get('evc_parent')), services=[s for s in services if s['value'] != str(p['service_instance_id'])] + [desired_service(p)])
+                    evc_parent=True, initializes_parent=t.family == 'ME3600X' and empty, services=[s for s in services if s['value'] != str(p['service_instance_id'])] + [desired_service(p)])
     out['findings'] = sorted(set(findings))
     out['warnings'] = sorted(warnings)
     out['blockers'] = sorted(set(findings) - warnings)
