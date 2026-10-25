@@ -43,3 +43,10 @@ See [shared ownership and validation](aggregation-validation.md) for child compl
 skipping, original parent headings, unchanged family forwarding checks, public
 model compatibility, exact Bash/PowerShell collection and offline export commands,
 and the pending owner family/workflow acceptance matrix.
+
+EdgeSwitch logical parents show the verified saved `lag N` heading in Interface,
+Config Interface and Configuration Owner, even when observed as `3/N`; observed
+admin/oper state is preserved. Exactly one parent row is emitted. Missing headings
+are not invented. Physical child skips, independent configuration findings and
+evidence remain visible. The separate interface/VLAN report retains `3/N`.
+Offline export preserves recorded names, including those in older spools.

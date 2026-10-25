@@ -25,6 +25,14 @@ actual `lag N` heading when both were captured. Bindings, completeness, problems
 configuration command, original headings and sanitized stanzas remain available.
 Logical aggregate subinterfaces are separate from physical children.
 
+EdgeSwitch compliance `Interface`, `Config Interface` and `Configuration Owner`
+show the actual saved `lag N` heading, including when InterfaceService observes
+the parent as `3/N`. Canonical joining retains one parent row and independently
+observed admin/oper state; the finding's `observed.interface_name` retains `3/N`.
+Without a captured `lag N` heading no such display name is fabricated. The
+interface/VLAN report continues to show its observed `3/N` name. Offline export
+uses recorded display values, so older retained spools keep their original names.
+
 `evaluate_vlan_compliance(context, interfaces, vlans, policy, ...)` and
 `resolve_methodologies(context, interfaces, vlans, ...)` keep their signatures.
 They consume shared aggregation and retain family forwarding validation. Older
@@ -111,7 +119,7 @@ to create or change a LAG. Where a case is unavailable, record Not tested.
 | ASR920 | Multiple parents/down members, no operational count inference | EVC/QinQ/SI-to-BD validation and mapping evidence unchanged |
 | NCS540 | BE/Bundle-Ether aliases, bundle id, down children, bundle subinterfaces | Actual l2transport-to-BD attachment/encapsulation validation; no VLAN inference from suffix/name |
 | Huawei VRP NE05/NE05E | GE aliases, Eth-Trunk/eth-trunk physical binding, no Local/Partner duplicates | Existing trunk/termination/VSI safeguards and child-service consolidation |
-| EdgeSwitch | addport 3/N or lag N, heading lag N vs observed 3/N, zero members | One logical compliance row; actual lag heading owner; participation/tagging/PVID and conflicts unchanged |
+| EdgeSwitch | addport 3/N or lag N, heading lag N vs observed 3/N, zero members | Exactly one compliance parent with Interface/Config Interface/Configuration Owner = actual lag N; admin/oper state matches observed 3/N; physical children retain skip reason, conflict health and evidence; interface/VLAN report still shows 3/N |
 
 For each family also inspect missing parent, contradictory and truncated captures
 using sanitized offline fixtures (never induce production capture failure), LAG
@@ -143,3 +151,11 @@ python -m pytest -q
 
 The development log records actual automated outcomes. Linux execution and owner
 live validation of Issue #149 remain pending; automated fixtures are synthetic.
+
+For PR #150's display correction, use the Bash or PowerShell collection and
+offline export commands above against the same approved EdgeSwitch target.
+Compare the original and recovered `Interface Results` parent and child rows
+against the EdgeSwitch matrix entry, then compare the separate report's
+`Interfaces` row named `3/N`. Review missing-heading cases with deterministic
+fixtures only; do not alter device configuration to produce them. This revision
+has no new live validation evidence.

@@ -595,9 +595,13 @@ retain independent read-only collection. Confirmed children remain visible as
 Child Port-Channel, not_applicable, with actual parent headings and independent
 configuration health. ME3600X pseudowire interfaces are excluded only from VLAN
 compliance rows. New partial evidence cannot prove standalone ownership.
+PR #150's display correction uses a verified EdgeSwitch `lag N` source heading
+for the compliance Interface column even with an observed `3/N` record, preserving
+its independent state. Interface/VLAN reporting retains the observed `3/N` display;
+older compliance spools retain their recorded names on export.
 See [API/compatibility and owner matrix](user_manual/aggregation-validation.md).
-Issue #149 Windows synthetic validation: `python -m pytest -q --tb=short`,
-3,250 passed. Live family and Linux validation remain pending. See the
+Issue #149 / PR #150 revision Windows synthetic validation: `python -m pytest -q`,
+3,258 passed. Live family and Linux validation remain pending. See the
 [canonical manual](user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
 for Linux/Windows menu/CLI commands, API, errors and acceptance checks.
 

@@ -9,7 +9,7 @@ from orbitflow.compliance import evaluate_vlan_compliance
 from orbitflow.compliance.resolvers import resolver_for
 from orbitflow.compliance.methodology import resolve_methodologies
 from orbitflow.compliance_report import export_compliance_spool, INTERFACE_COLUMNS
-from orbitflow.models import VlanState
+from orbitflow.models import InterfaceRecord, VlanState
 from orbitflow.vendors.aggregation import parse_aggregation, identity
 from orbitflow.vendors.configuration_facts import observe_configuration
 from orbitflow.capabilities.vlans import VlanService
@@ -119,14 +119,32 @@ end
 def test_edgeswitch_alias_join_and_offline_compliance_roundtrip(tmp_path):
     spec = FAMILIES[-1]
     _, text = fixture(*spec)
+    text = text.replace(' addport 3/1', ' vlan participation include 445\n vlan tagging 445\n addport 3/1')
     text = text.replace('end\n', 'interface 3/1\n description repeated alias\nexit\nend\n')
     ctx, state = saved(spec, text)
-    findings = evaluate_vlan_compliance(ctx, [], state, POLICY)
+    interfaces = [InterfaceRecord('synthetic', ctx.management_ip, ctx.platform,
+                                 name, 'observed', 'up', 'down', NOW)
+                  for name in ('3/1', '0/12')]
+    findings = evaluate_vlan_compliance(ctx, interfaces, state, POLICY)
     parents = [f for f in findings if f.get('observed', {}).get('config_interface_name') in {'lag 1', '3/1'}]
     assert len(parents) == 1
+    parent = parents[0]
+    assert parent['interface'] == 'lag 1'
+    assert parent['observed']['config_interface_name'] == 'lag 1'
+    assert parent['observed']['configuration_owner'] == 'lag 1'
+    assert parent['observed']['interface_name'] == '3/1'
+    assert parent['observed']['interface_match_status'] == 'matched'
+    assert parent['observed']['admin_status'] == 'up'
+    assert parent['observed']['oper_status'] == 'down'
     child = next(f for f in findings if f['interface'] == '0/12')
     # Shared contract deterministically selects an actual heading for aliases.
     assert child['observed']['configuration_owner'] == 'lag 1'
+    assert child['configuration_health'] == 'wrong_configuration'
+    assert 'AGGREGATE_CONFIG_CONFLICT' in {p['code'] for p in child['observed']['configuration_findings']}
+    # The independent interface/VLAN report keeps its operational display.
+    from orbitflow.reporting import build_rows, INTERFACE_COLUMNS as REPORT_COLUMNS
+    report_rows, _ = build_rows(ctx, interfaces, state, state.aggregation)
+    assert [dict(zip(REPORT_COLUMNS, r))['Interface'] for r in report_rows] == ['0/12', '3/1']
     spool = ResultSpool.create(tmp_path / 'runs', 'vlan_compliance', 1)
     with spool.collection():
         spool.append(DeviceOutcome(1), payload=dict(findings=findings, errors=[]))
@@ -136,10 +154,53 @@ def test_edgeswitch_alias_join_and_offline_compliance_roundtrip(tmp_path):
     sheet = wb['Interface Results']
     assert tuple(c.value for c in sheet[1]) == INTERFACE_COLUMNS
     rows = [dict(zip(INTERFACE_COLUMNS, r)) for r in sheet.iter_rows(min_row=2, values_only=True)]
+    logical = [r for r in rows if r['Interface'] in {'lag 1', '3/1'}]
+    assert len(logical) == 1
+    assert logical[0]['Interface'] == logical[0]['Config Interface'] == logical[0]['Configuration Owner'] == 'lag 1'
+    assert (logical[0]['Admin Status'], logical[0]['Oper Status']) == ('up', 'down')
     member = next(r for r in rows if r['Config Interface'] == '0/12')
     assert member['Type'] == 'Child Port-Channel' and member['Status'] == 'not_applicable'
     assert member['Configuration Owner'] == child['observed']['configuration_owner']
+    assert 'owned by lag 1' in member['Explanation']
+    assert member['Configuration Evidence'] and member['Evidence Lines']
+    assert member['Configuration Health'] == 'wrong_configuration'
+    assert 'AGGREGATE_CONFIG_CONFLICT' in member['Configuration Findings']
     wb.close()
+
+
+@pytest.mark.parametrize('heading', ['3/1', None])
+def test_edgeswitch_missing_lag_heading_never_fabricates_display(heading):
+    spec = FAMILIES[-1]
+    _, text = fixture(*spec)
+    text = text.replace('interface lag 1\n description parent\nexit\n',
+                        f'interface {heading}\nexit\n' if heading else '')
+    ctx, state = saved(spec, text)
+    interfaces = [InterfaceRecord('synthetic', ctx.management_ip, ctx.platform,
+                                 '3/1', '', 'up', 'down', NOW)]
+    findings = evaluate_vlan_compliance(ctx, interfaces, state, POLICY)
+    assert not any(f['interface'] == 'lag 1' for f in findings)
+    if heading:
+        parent = next(f for f in findings if f['interface'] == '3/1')
+        assert parent['observed']['config_interface_name'] == '3/1'
+        assert parent['observed']['oper_status'] == 'down'
+    else:
+        child = next(f for f in findings if f['interface'] == '0/12')
+        assert child['status'] == 'unable_to_assess'
+
+
+@pytest.mark.parametrize('spec', FAMILIES[:-1])
+def test_other_families_keep_observed_parent_display(spec):
+    _, text = fixture(*spec)
+    ctx, state = saved(spec, text)
+    name = identity(ctx.platform, spec[2])
+    interfaces = [InterfaceRecord('synthetic', ctx.management_ip, ctx.platform,
+                                 name, '', 'up', 'down', NOW)]
+    findings = evaluate_vlan_compliance(ctx, interfaces, state, POLICY)
+    parent = next(f for f in findings if f['interface'] == name)
+    assert parent['observed']['config_interface_name'] == spec[2]
+    assert parent['observed']['configuration_owner'] == spec[2]
+    assert parent['observed']['admin_status'] == 'up'
+    assert parent['observed']['oper_status'] == 'down'
 
 
 @pytest.mark.parametrize('complete', [True, False])

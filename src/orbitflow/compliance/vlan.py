@@ -23,7 +23,9 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
     Configuration problems are independent structured findings within each
     database/interface result. Confirmed physical aggregate children retain rows
     and health but skip required-VLAN policy; ME3600X pseudowire rows are excluded
-    from this projection only. Missing evidence never becomes a fabricated fact.
+    from this projection only. EdgeSwitch logical LAG display uses the actual
+    saved heading while observed identity/state remain independently available.
+    Missing evidence never becomes a fabricated fact.
     """
     device = dict(device_id=context.device_id if context else "",
                   management_ip=context.management_ip if context else management_ip,
@@ -118,8 +120,12 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
                               if row.get("all_vlan") else "Review missing VLAN membership on " + row["configuration_owner"] + ".")
         elif row["configuration_findings"]:
             recommendation = "Review the reported configuration relationships and identity evidence."
+        display = record.port_name if record else row["config_interface_name"]
+        if (context.platform == "ubiquiti_edgeswitch"
+                and re.fullmatch(r"(?i)lag\s+\d+", row["config_interface_name"])):
+            display = row["config_interface_name"]
         emit(policy.interface_rule, interface_expected, row, status, reason,
-             interface=record.port_name if record else row["config_interface_name"], missing=missing,
+             interface=display, missing=missing,
              source=row.pop("evidence"), recommendation=recommendation)
     if not rows:
         emit(policy.interface_rule, interface_expected, {"interface_count": 0}, "not_applicable", "no_configured_or_observed_interfaces")
