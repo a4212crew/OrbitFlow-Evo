@@ -4,6 +4,19 @@ Canonical CLI and operational semantics: [execution manual](../user_manual/confi
 These synchronous Python APIs do not require an HTTP server. XLSX is an optional
 adapter; applications can submit normalized per-row decisions directly.
 
+Issue #154 extends the same prepare/confirm/verify/save interfaces to ME3600X
+Templates 9–11 (`cisco_ios`, `me3600x_evc`) and ASR920 Templates 12–13
+(`cisco_xe`, `asr920_evc`). No parameters change. Workbook approval is separate
+from `confirm(..., apply=True)`. EVC summaries disclose remove/recreate and
+forwarding interruption. Fresh gates reject target-child drift, unsafe parents,
+ownership/ingress conflicts and missing ME3600X BD VLANs without rerendering CLI.
+`verify_row` collects fresh configuration and EVC detail; evidence includes
+`checks`, scoped `configuration`, `service_detail` and `warnings`. Reliable config
+may supply `SERVICE_DETAIL_FALLBACK`; contradictions fail. Standalone save accepts
+these two exact profiles; `SwitchportService` support is unchanged. See the
+[operator guide](../user_manual/configuration-execution.md#me3600x-and-asr920-issue-154)
+for commands, outputs, limitations and pending owner lab validation.
+
 ```python
 from orbitflow.configuration.v2.planning import load
 from orbitflow.configuration.execution import ExecutionService, ApplySettings, export_results

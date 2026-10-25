@@ -19,7 +19,8 @@ def save_configuration(session, context, *, cli, exec_prompt, timeout, correlati
     if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
         raise ValueError('save timeout must be finite and positive')
     from orbitflow.capabilities.switchport import supported_context
-    if not supported_context(context):
+    from orbitflow.vendors.cisco.evc_execution import supported_context as supported_evc
+    if not (supported_context(context) or supported_evc(context)):
         raise ValueError('unsupported save family')
     cli.require_session(session)
     started = monotonic()

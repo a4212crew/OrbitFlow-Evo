@@ -24,6 +24,16 @@ distinguishes this v1 contract from the separate predefined execution workflow.
 
 ## Bulk Configuration Planning v2
 
+Issue #154 extends confirmed execution to ME3600X Templates 9–11 and ASR920
+Templates 12–13. Exact approved CLI, independent confirmation, shared execution,
+backups/journal/report recovery and partial-save semantics are reused. Fresh EVC
+parent/ownership/overlap/child-drift checks and ME3600X BD VLAN prerequisites precede
+writes; independent configured-intent/detail verification preserves unrelated
+settings. Matching EVCs still remove/recreate with forwarding-impact warning.
+The existing console execution action supports both families. Windows synthetic
+validation: full run 3,488 passed; final-source affected suite 949 passed, including
+53 EVC execution cases. Linux and owner-operated lab validation remain pending.
+
 Issue #152 corrects independent ME3600X/ASR920 disjoint EVC review, including safe
 empty-parent initialization, and removes predefined non-Ubiquiti VLAN Database
 approval dependencies. True conflicts and EdgeSwitch requirements remain. Synthetic
@@ -60,7 +70,7 @@ Earlier quiet-guard proposals are superseded. Inner sandbox failures remain dist
 from the separate controller gate, whose run report is unavailable to this worker.
 Owner Linux C3750X, C3850 and EdgeSwitch live validation of #134 remains pending.
 Owner C3750X/EdgeSwitch lab validation following PR #118 is reported; C3850
-live validation remains outstanding. Other families,
+live validation remains outstanding. Other device families beyond Issue #154,
 Manual CLI apply, HTTP, automatic rollback and write replay/resume remain unsupported.
 See [execution manual](user_manual/configuration-execution.md) and
 [public APIs](operations/configuration-execution-api.md). Planning paragraphs below

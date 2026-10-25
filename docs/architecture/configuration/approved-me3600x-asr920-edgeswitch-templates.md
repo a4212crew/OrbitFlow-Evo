@@ -2,6 +2,12 @@
 
 ## Issue #152 policy correction
 
+Issue #154 extends the separate explicitly confirmed executor to Templates 9–13;
+the planning-only scope statements below continue to govern planning, not that
+authorized executor. Workbook approval alone never applies changes. See the
+[execution manual](../../user_manual/configuration-execution.md#me3600x-and-asr920-issue-154)
+for fresh execution gates, recreation impact, outputs and pending lab validation.
+
 Disjoint ME3600X/ASR920 EVCs independently derive safe parent setup from observed
 state, including empty parents; compatible setup/descriptions require no sibling
 approval. Contradictory descriptions, duplicate SIs, ingress overlap, uncertain

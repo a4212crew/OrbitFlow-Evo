@@ -2,6 +2,12 @@
 
 This file contains future ideas and is not a permanent instruction set.
 
+Issue #154 implements lab-first ME3600X/ASR920 confirmed execution for Templates
+9–13, including complete EVC recreation, fresh safety checks and independent
+verification. Existing CLI/API/console and recoverable reporting are reused.
+Owner lab and Linux validation remain pending; other families, Manual CLI apply
+and automatic rollback/resume remain future work. See the [execution manual](user_manual/configuration-execution.md#me3600x-and-asr920-issue-154).
+
 Items here are not automatically approved implementation tasks. Move an item into an explicit task before Codex implements it.
 
 ## Potential Enhancements

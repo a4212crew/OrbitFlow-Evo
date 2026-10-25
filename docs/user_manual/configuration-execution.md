@@ -1,9 +1,10 @@
-# Catalyst and EdgeSwitch configuration execution
+# Approved configuration execution
 
 Issue #117 implements the [approved execution contract](../architecture/configuration/approved-device-execution.md).
 This is a configuration-changing workflow for predefined C3750X, C3850 (worksheet
 label C3850X) and EdgeSwitch VLAN Database, supported port and Description templates.
-Other families and Manual CLI execution remain unsupported. v1 and v2 planning
+Issue #154 adds ME3600X Templates 9–11 and ASR920 Templates 12–13 (owner lab
+validation pending). Other families and Manual CLI execution remain unsupported. v1 and v2 planning
 commands retain their existing behavior. Owner C3750X/EdgeSwitch validation of PR #118
 was reported. Following merged PR #126 (2026-10-18), the owner validated ordered template-stage execution on C3750X and EdgeSwitch: 36/36 selected rows verified, both device saves reported Saved, 10 planned rows skipped, and 131.5 seconds end-to-end including report export. The preceding owner lab run took approximately 277.9 seconds; this single-run comparison is indicative, not a controlled benchmark. C3850, Linux, exhaustive error-path live validation and independently complete rotated timing logs remain outstanding.
 
@@ -15,6 +16,64 @@ from a separate protected `devices.xlsx` (`management_ip`, `username`, `password
 optional `secret`); never put credentials in the plan or review workbook.
 
 ## Inputs and confirmation
+
+### ME3600X and ASR920 (Issue #154)
+
+ME3600X uses IOS/`me3600x_evc`; ASR920 uses IOS-XE/`asr920_evc`.
+Supported functions: ME3600X VLAN Database (9), EVC (10), Description (11),
+ASR920 EVC (12), Description (13). Existing v2 planner/workbook schemas and
+CLI options apply. The console **Execute Approved Plan** action uses the same
+service, concurrency selection and single independent execution confirmation.
+
+EVC rows replace the complete child using exact approved remove/recreate commands,
+even for matching instances. Forwarding may be interrupted; old optional child
+settings omitted from the specification are removed. Review omitted-settings evidence.
+Fresh checks reject incompatible parents, unresolved ownership, ingress overlap,
+unknown/duplicate children, operational contradictions and target-child changes
+(`SERVICE_INSTANCE_DRIFT`). ME3600X requires trunk/allowed-none or explicitly
+approved empty-parent initialization, plus a freshly present BD VLAN
+(`VLAN_PREREQUISITE_UNAVAILABLE` otherwise). This is an execution prerequisite,
+not a VLAN Database approval dependency or implicit creation. ASR920 uses inline
+BDs and rejects conflicting global binding evidence.
+
+The child drift comparison is conservative: retained child command settings and
+ordering must match the reviewed observation; reordered settings require review
+and a fresh plan rather than silent acceptance.
+
+Fresh post-stage checks verify lists/ranges/QinQ, rewrite/pushed tags, BD, group 0
+versus absence, child/supplied parent descriptions and preservation of unrelated
+children, parent admin state, MTU and policies. Separate fresh service detail is
+reconciled with configuration. Unknown detail may use complete reliable configuration
+with `SERVICE_DETAIL_FALLBACK`; contradictions fail. Operational Down is a warning.
+Partial-save, unknown-after-send, no retries/rollback/resume and offline recovery
+follow the existing lifecycle below. Outputs remain the execution XLSX, durable
+per-row pre/post/command evidence and journal in the run, separate protected backups
+and sanitized configuration logs; no full backup is copied into XLSX/logs.
+
+Owner lab procedure: use the Linux/Windows `execute` commands below with lab-only
+artifacts and credentials. Cover all five templates, create and matching/different
+child recreation, untagged/dot1q/QinQ, push/pop, group 0, preserved shutdown/MTU/
+policies/siblings, and supplied descriptions. Inspect skipped decisions, responses,
+verification and save independently. Test drift/missing-VLAN and controlled rejection/
+disconnect only in the lab: expect Failed versus Unknown, safe independent-row
+continuation, one partial save when EXEC remains usable and no retry. Disconnect,
+then run the offline `report` command below and compare retained outcomes. Keep
+the full run and backups. Owner validation remains pending on both families.
+
+Deterministic checks (no device access), from the repository Python environment:
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_configuration_v2_approved_services.py tests/test_bulk_configuration_v2.py tests/test_operations_console.py -q
+```
+
+```powershell
+$env:PYTHONPATH = "$PWD/src"
+python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_configuration_v2_approved_services.py tests/test_bulk_configuration_v2.py tests/test_operations_console.py -q
+```
+
+Linux commands are supplied for owner/CI use; automated evidence for this delivery
+is Windows synthetic testing. No production or unattended changes are authorized.
 
 Generate the immutable `plan.json` and adjacent review workbook using the
 [planning manual](bulk-configuration-planning.md). Change only Engineer Decision

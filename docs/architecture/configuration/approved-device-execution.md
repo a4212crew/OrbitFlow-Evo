@@ -1,6 +1,14 @@
 # Approved device configuration execution — Catalyst and EdgeSwitch
 
 Status: **Owner-approved design, 2026-10-17 (Australia/Sydney); initially implemented by Issue #117 and revised by merged Issue #125 / PR #126 (2026-10-18). Owner live validation covers C3750X and EdgeSwitch ordered template-stage execution; C3850 and Linux validation remain pending.**
+Issue #154 authorizes extending this lifecycle to ME3600X Templates 9–11 and
+ASR920 Templates 12–13. Their family planning semantics remain separate; EVC
+execution adds fresh parent/ownership/overlap/child-drift checks, ME3600X BD VLAN
+prerequisites, complete approved recreation and independent configuration/detail
+verification. Earlier exclusions of these families are superseded for this scope
+only. No second EVC confirmation, automatic rollback or Manual CLI apply is added.
+Synthetic implementation evidence does not establish owner lab validation.
+
 See the [execution manual](../../user_manual/configuration-execution.md) and
 [supported APIs](../../operations/configuration-execution-api.md) for actual names,
 defaults, behavior and limitations. Design-time suggestions below retain provenance.

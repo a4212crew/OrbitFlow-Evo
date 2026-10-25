@@ -1,5 +1,13 @@
 # Interactive Operations Console
 
+Issue #154: **Configuration Management → Execute Approved Plan** also accepts
+ME3600X Templates 9–11 and ASR920 Templates 12–13 via the existing executor.
+EVC summary warns about complete remove/recreate and forwarding interruption before
+the single confirmation. Concurrency, cancellation, profile paths, results and
+offline recovery are unchanged. See the [execution guide](configuration-execution.md#me3600x-and-asr920-issue-154).
+Synthetic menu coverage uses real workbook preparation and declining without
+network access; owner ME3600X/ASR920 lab validation remains pending.
+
 Implemented for Issue #123. The console is a terminal adapter over existing services; direct CLIs and public APIs remain supported. Deterministic Windows testing and limited owner-operated Windows lab validation are recorded in the devlog; Linux operator validation remains pending.
 
 ## Launch and cancellation
