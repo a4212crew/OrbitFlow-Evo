@@ -70,7 +70,7 @@ Issue #106 adds structured ingress conflict evidence and workbook explanations
 with service-instance IDs, canonical interfaces, selectors and projected row
 provenance. The overlap blocker and digest-bound review remain enforced.
 ASR920 disjoint first services on a compatible existing parent are independently
-reviewable; ME3600X initial parent conversion dependencies remain required.
+reviewable; Issue #152 superseded the earlier ME3600X shared-parent approval dependency. Compatible empty-parent initialization is now independently planned per EVC row.
 Shutdown state is preserved. The nine-row ASR920 Gi0/0/8 regression covers SI
 1012 and 2400–2407 with repeated BD 1237 and no false overlap warnings or
 approval dependencies. The input workbook has one compact 22-template directory
@@ -79,7 +79,7 @@ Deterministic regression coverage only; no live apply.
 
 ME3600X independent service instances with disjoint ingress no longer acquire
 conflicts or approval dependencies solely from sharing a parent or another row's
-safety blocker. Parent initialization and same-object approval gates remain.
+safety blocker. Safe ME3600X parent initialization is evaluated independently for each disjoint EVC row; same-instance, overlapping ingress, incompatible parent and ownership protections remain.
 Explicit IOS VLAN-name facts distinguish unnamed range declarations from real
 name contradictions during configuration/operational reconciliation. Independent
 ME3600X/ASR920 EVCs on an established parent produce no shared-parent overlap
@@ -94,9 +94,7 @@ That planning revision did not implement apply; the separate Issue #117 executor
 
 Ordered planning permits a description alongside another interface operation on
 all device families in either workbook order, with explicit compatible-overlap
-warnings. Pending VLAN database prerequisites warn without making the plan
-unresolved; dependency links remain digest-bound and deployment readiness still
-requires prerequisite approval. Genuine conflicts, evidence/identity/ownership
+warnings. As of Issue #152, predefined non-Ubiquiti rows do not acquire approval dependencies on VLAN Database requests; missing VLANs may produce nonblocking warnings. Genuine EdgeSwitch prerequisites remain digest-bound and require prerequisite approval. Genuine conflicts, evidence/identity/ownership
 blockers and Catalyst trunk conversion/explicit Add baseline gates remain.
 JSON/XLSX and Pending/Approve/Reject regressions use deterministic fixtures only;
 no live apply or hardware validation was performed.
