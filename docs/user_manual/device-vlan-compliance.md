@@ -36,3 +36,10 @@ output, phase-specific counters, saved paths, partial/interrupted/export-failure
 semantics and the coverage table (including specialist/lifecycle exemptions).
 Device/workflow semantics and existing arguments are unchanged. Deterministic
 terminal fixtures are separate from pending owner-operated Linux/Windows validation.
+
+## Shared aggregation ownership (Issue #149)
+
+See [shared ownership and validation](aggregation-validation.md) for child compliance
+skipping, original parent headings, unchanged family forwarding checks, public
+model compatibility, exact Bash/PowerShell collection and offline export commands,
+and the pending owner family/workflow acceptance matrix.

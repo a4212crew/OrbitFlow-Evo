@@ -370,3 +370,10 @@ backup, inventory, execution, transport and existing consumers retain regression
 coverage in the full suite. Owner-operated cross-workflow compatibility testing
 remains separate; any retirement requires a future owner-authorized Issue and
 compatibility proof. Merge requires separate explicit owner approval.
+
+## Shared aggregation ownership (Issue #149)
+
+See [shared ownership and validation](aggregation-validation.md) for child compliance
+skipping, original parent headings, unchanged family forwarding checks, public
+model compatibility, exact Bash/PowerShell collection and offline export commands,
+and the pending owner family/workflow acceptance matrix.

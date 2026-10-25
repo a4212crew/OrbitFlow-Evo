@@ -315,3 +315,5 @@ Parallel workers must not share one mutable working directory.
 The approved design direction for future controlled device changes is documented in [docs/architecture/configuration/](configuration/README.md). Manual CLI, Excel/CSV, reviewed templates and validated compliance findings produce a common Change Plan. An explicit approval gate precedes shared, device-scoped prechecks, checkpoint/backup, platform-specific apply, verification, conditional persistence/recovery and audit. This section documents proposed architecture only; it does **not** establish an implemented or live-validated configuration engine.
 
 - [MAC address lookup](mac-address-lookup.md): independent observation capabilities, exact joins and two-action console workflow.
+
+Issue #149 makes [shared aggregation](aggregation-relationships.md#issue-149-owner-approved-relationship-only-migration) authoritative for member/parent identities in audit and planning; family resolvers retain forwarding validation.

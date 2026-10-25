@@ -65,3 +65,5 @@ python .\scripts\orchestration_v2\controller.py --help
 For the configuration-v2 module, ensure the package is installed or `src` is in `PYTHONPATH`, as described in the repository setup. A successful smoke check exits normally and prints argparse/CLI usage. Compare subcommands, required arguments and defaults against the individual manuals. Record any mismatch for a documentation-only correction on this PR; do not put credentials, sensitive configuration output or Teleport key material in review comments. Full operator scenarios on Linux/Windows and controlled read-only device checks require an owner-operated environment and remain **not executed by Atlas**.
 
 - [MAC Address Lookup](mac-address-lookup.md): two console actions, direct CLI, offline recovery and pending owner validation.
+
+- [Shared aggregation ownership and validation](aggregation-validation.md): Issue #149 behavior, public contracts, automated commands and owner family/workflow matrix.

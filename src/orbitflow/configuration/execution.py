@@ -233,7 +233,7 @@ def _check_target(entry, observed, context):
         return
     source = request['inputs']['interface']
     target = approved.get('resolved_target') or source
-    key = lambda name: canonical_interface_name(context.platform, name)
+    key = lambda name: canonical_interface_name(context.platform, name, normalize_aggregation=True)
     for name in {key(source), key(target)}:
         _gate(sum(key(i['port_name']) == name for i in observed['interfaces']) == 1,
               'INTERFACE_ABSENT_OR_AMBIGUOUS')
@@ -266,7 +266,7 @@ def _verify_observed(session, context, cli, entry, before, *, timeout=30.0, corr
     if after is None:
         after = _observe(session, context, cli, [entry], timeout)
     target = result.get('resolved_target', p['interface'])
-    key = lambda value: canonical_interface_name(context.platform, value)
+    key = lambda value: canonical_interface_name(context.platform, value, normalize_aggregation=True)
     actual = [i for i in after['interfaces'] if key(i['port_name']) == key(target)]
     previous = [i for i in before['interfaces'] if key(i['port_name']) == key(target)]
     if len(actual) != 1 or len(previous) != 1:
@@ -373,7 +373,7 @@ def _template_stages(entries):
             touched = {('vlan', p['vlan_id'])}
         else:
             # Both source and resolved owner protect physical/bundle overlaps.
-            touched = {('interface', canonical_interface_name(entry['identity']['platform'], name))
+            touched = {('interface', canonical_interface_name(entry['identity']['platform'], name, normalize_aggregation=True))
                        for name in (p['interface'], result.get('resolved_target') or p['interface'])}
         if pending and (r['template_id'] != pending[0]['request']['template_id']
                         or targets & touched or ids & set(result['dependencies'])):

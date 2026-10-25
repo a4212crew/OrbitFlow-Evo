@@ -64,6 +64,7 @@ def test_every_template_fresh_input_and_planning_equivalence(template, monkeypat
                     for item in value['interfaces']:
                         item['collection_time'] = NOW.isoformat()
                     value['observed_at'] = NOW.isoformat()
+                    value['aggregation']['collection_time'] = NOW.isoformat()
                 assert values[0] == values[1]
                 comparisons.append((values[1], plan([row], {IP: values[1]}, now=NOW, decisions={row['row_id']: 'Approve'}).to_dict()['results']))
                 assert comparisons[-1][1][0]['deployment_ready'], comparisons[-1][1][0]['findings']
@@ -366,7 +367,7 @@ def test_actual_execution_baseline_equivalence_all_templates(tmp_path, monkeypat
         else:
             inputs.update(action='Add/Change', tagged_vlans='445')
     row = request(template.id, inputs)
-    base = ('hostname fixture\nvlan database\n vlan 445\n vlan name 445 "Customer"\nexit\ninterface 0/1\n description old\n vlan pvid 445\n vlan participation include 445\nexit\n'
+    base = ('configure\nhostname fixture\nvlan database\n vlan 445\n vlan name 445 "Customer"\nexit\ninterface 0/1\n description old\n vlan pvid 445\n vlan participation include 445\nexit\nexit\n'
             if edge else 'hostname fixture\nvlan 445\n name Customer\n!\ninterface Gi1/0/1\n description original\n switchport mode access\n switchport access vlan 445\n!\nend\n')
     if function == 'Trunk Port':
         base = base.replace('switchport mode access\n switchport access vlan 445', 'switchport mode trunk\n switchport trunk allowed vlan 445,545')
@@ -487,3 +488,29 @@ def test_actual_execution_baseline_equivalence_all_templates(tmp_path, monkeypat
     assert channels[1].sent.count('show running-config') == channels[0].sent.count('show running-config')
     assert channels[1].sent.count('show running-config') == (2 if function == 'VLAN Database' else 3)
     assert channels[1].sent.count('terminal length 0') < channels[0].sent.count('terminal length 0')
+
+
+def test_aggregation_projection_rebases_time_but_invalidates_relationship_drift():
+    from dataclasses import asdict
+    from orbitflow.vendors.aggregation import parse_aggregation
+    session, ctx, cli, interfaces, vlans = manager_inputs()
+    aggregation = parse_aggregation('interface Po1\n!\ninterface Gi1/0/1\n channel-group 1\n!\nend\n', ctx)
+    vlans = replace(vlans, aggregation=aggregation)
+    calls = []
+    def factory(context, records, state):
+        calls.append(1)
+        return dict(configuration_reliable=True, observed_at=state.collection_time.isoformat(),
+                    interfaces=[dict(collection_time=i.collection_time.isoformat()) for i in records],
+                    aggregation=asdict(state.aggregation))
+    manager = observation_cache.ObservationManager(session, cli)
+    manager.project(session, ctx, cli, interfaces, vlans, factory)
+    later = (NOW + timedelta(seconds=5)).isoformat()
+    fresh = replace(vlans, aggregation=replace(aggregation, collection_time=later))
+    value = manager.project(session, ctx, cli, interfaces, fresh, factory)
+    assert value['aggregation']['collection_time'] == later and len(calls) == 1
+    changed = replace(fresh, aggregation=replace(fresh.aggregation, bindings=()))
+    manager.project(session, ctx, cli, interfaces, changed, factory)
+    assert len(calls) == 2
+    manager.project(session, ctx, cli, interfaces, replace(changed,
+        aggregation=replace(changed.aggregation, complete=False)), factory)
+    assert len(calls) == 3

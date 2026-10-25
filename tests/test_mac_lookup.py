@@ -444,7 +444,7 @@ def test_edgeswitch_exact_lag_destinations(number):
     assert state.interfaces[0].tagged_vlans == () and not state.interfaces[0].bridge_domains
     from orbitflow.compliance.resolvers import EdgeSwitchAuditResolver
     facts = EdgeSwitchAuditResolver(NS(platform='ubiquiti_edgeswitch', device_family='EdgeSwitch'), state).result()
-    assert facts['interfaces'][f'lag {number}']['valid_interface_vlans'] == []
+    assert facts['interfaces'][f'3/{number}']['valid_interface_vlans'] == []
     assert facts['interfaces']['0/8']['configuration_owner'] == f'lag {number}'
 
 

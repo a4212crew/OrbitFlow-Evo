@@ -30,7 +30,7 @@ def observation(family, config, lookups=None):
                         profile, (), 'EXAMPLE', '1', '', NOW, NOW)
     resolver = resolver_for(ctx)(ctx, VlanState('example', IP, platform, interfaces, objects, NOW, nodes), planning=True)
     resolver.resolve()
-    obs.update(audit=list(resolver.rows.values()), evidence=evidence(nodes), problems=resolver.problems,
+    obs.update(aggregation=asdict(resolver.aggregation), audit=list(resolver.rows.values()), evidence=evidence(nodes), problems=resolver.problems,
                methodologies=[])
     if lookups is not None:
         obs['vlan_lookups'] = lookups

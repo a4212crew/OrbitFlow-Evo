@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from orbitflow.vendors.aggregation import from_configuration
+
 import re
 from dataclasses import replace
 
@@ -446,7 +448,7 @@ class CiscoVlanAdapter:
                 raise ValueError('incomplete running configuration')
             interfaces, objects = parse_ios_running_config(output, evc=self._evc, vlan_database=self.vlan_database)
             return VlanCollection(extract_ios_hostname(cli.prompt), interfaces, objects,
-                                  observe_configuration(output, "cisco_ios", preserve_full_evidence=self._preserve_full_evidence))
+                                  observe_configuration(output, "cisco_ios", preserve_full_evidence=self._preserve_full_evidence), from_configuration(output, "cisco_ios"))
 
 
 class CiscoXEVlanAdapter(CiscoVlanAdapter):
@@ -474,4 +476,4 @@ class CiscoXRVlanAdapter:
                 )
             interfaces, objects = parse_ios_xr_running_config(output)
             return VlanCollection(extract_ios_xr_hostname(cli.prompt), interfaces, objects,
-                                  observe_configuration(output, "cisco_xr"))
+                                  observe_configuration(output, "cisco_xr"), from_configuration(output, "cisco_xr"))

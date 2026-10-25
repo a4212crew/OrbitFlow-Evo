@@ -413,3 +413,21 @@ still returns the report Path, preserves historical classifications and never re
 CLI/menu presentation now distinguishes report export failure from collection and prints
 the actual saved report/retained run paths. Quiet library calls retain output ownership.
 See [terminal behaviour and full workflow coverage](../user_manual/cli-progress.md).
+
+
+## Shared aggregation ownership (Issue #149)
+
+`configuration.v2.observation.snapshot(context, interfaces, vlans, *, clean=...)`
+now includes an optional persisted `aggregation` payload from the shared
+AggregationSnapshot on VlanState. Planning/load and fresh execution ownership
+checks consume that result. Older observation payloads without the field still
+project preserved typed facts through the shared aggregation parser; existing
+result spools export their recorded values without reconnection/reclassification.
+The public prepare/confirm/verify signatures and approval/digest boundaries are
+unchanged. No additional configuration command is sent by this migration.
+
+The bounded execution projection cache excludes only observation timestamps,
+including aggregation collection_time, and rebases them from fresh reads; changed
+bindings, evidence or completeness invalidate reuse. New incomplete captures block
+forwarding ownership decisions; exact-target descriptions retain their existing
+constraints. See the [model/API compatibility and read-only validation matrix](../user_manual/aggregation-validation.md).

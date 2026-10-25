@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from orbitflow.vendors.aggregation import AggregationSnapshot
 
 
 @dataclass(frozen=True)
@@ -80,7 +83,11 @@ class InterfaceVlanObservation:
 
 @dataclass(frozen=True)
 class VlanState:
-    """Vendor-neutral snapshot returned by :class:`VlanService`."""
+    """Vendor-neutral VLAN facts plus optional shared sanitized aggregation.
+
+    The trailing aggregation field preserves older positional construction. It
+    carries full-capture completeness independently of VLAN policy/health.
+    """
 
     device_name: str
     device_ip: str
@@ -89,6 +96,7 @@ class VlanState:
     objects: tuple[VlanObject, ...]
     collection_time: datetime
     configuration: tuple[ConfigFact, ...] | None = None
+    aggregation: AggregationSnapshot | None = None
 
 
 @dataclass(frozen=True)

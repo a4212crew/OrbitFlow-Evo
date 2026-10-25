@@ -34,7 +34,7 @@ class SyntheticChannel:
             self.pending = self.prompt.encode()
             return
         if command == 'show running-config':
-            output = ('hostname fixture\nvlan database\n vlan 445\n vlan name 445 "Customer"\nexit\ninterface 0/1\n description original\n vlan pvid 445\n vlan participation include 445\nexit\n'
+            output = ('configure\nhostname fixture\nvlan database\n vlan 445\n vlan name 445 "Customer"\nexit\ninterface 0/1\n description original\n vlan pvid 445\n vlan participation include 445\nexit\nexit\n'
                       if self.edge else 'hostname fixture\nvlan 445\n name Customer\n!\ninterface Gi1/0/1\n description original\n switchport mode access\n switchport access vlan 445\n!\nend\n')
             output = self.config_override or output
         elif command == 'show interfaces description':

@@ -1,5 +1,6 @@
 """Approved Catalyst execution modes and read-only verification commands."""
 import re
+from orbitflow.vendors.aggregation import for_observation, relationship_uncertain
 from orbitflow.vendors.interface_names import canonical_interface_name
 
 
@@ -9,18 +10,17 @@ def target_blocker(function, source, target, observed, platform):
     Never evaluate a plan, render CLI, or require equality with planning state.
     Interface existence/uniqueness is checked by the execution boundary first.
     """
-    key = lambda name: canonical_interface_name(platform, name)
+    key = lambda name: canonical_interface_name(platform, name, normalize_aggregation=True)
     node = next(n for n in observed['facts'] if n['kind'] == 'interface' and key(n['value']) == key(source))
     if function == 'Interface Description':
         return '' if key(source) == key(target) else 'TARGET_DRIFT'
-    members = [n['value'] for n in node['children'] if n['kind'] == 'aggregate']
-    if members and function == 'Access Port':
+    aggregation = for_observation(observed, platform)
+    owner = aggregation.owner(source)
+    if relationship_uncertain(aggregation, source, node['children']) or (observed.get('aggregation') is not None and aggregation.capture_incomplete):
+        return 'PORT_CHANNEL_OWNER_UNRESOLVED'
+    if owner and function == 'Access Port':
         return 'PHYSICAL_PORT_CHANNEL_MEMBER'
-    expected = source
-    if members:
-        if len(members) != 1:
-            return 'PORT_CHANNEL_OWNER_UNRESOLVED'
-        expected = 'Port-channel' + str(members[0])
+    expected = owner or source
     audit = [a for a in observed['audit'] if key(a['config_interface_name']) == key(source)]
     if len(audit) != 1 or key(audit[0].get('configuration_owner', '')) != key(expected):
         return 'PORT_CHANNEL_OWNER_UNRESOLVED'

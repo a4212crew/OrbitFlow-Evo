@@ -209,8 +209,12 @@ EdgeSwitch `lag N` joins observed `3/N` with opt-in canonicalization. Duplicate
 canonical observations produce isolated per-device `normalize` errors.
 Sanitized evidence comments, conditional lossless `Configuration_Evidence`,
 atomic export and retained-spool recovery use the existing console/direct CLI path.
-Legacy audit/planning/execution and default canonical API keys remain unchanged;
-no legacy functionality is retired. See the [reporting manual](docs/user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
+Issue #149 migrates audit/methodology/planning/execution relationship lookup to
+the shared AggregationSnapshot; family forwarding validation remains in place.
+Confirmed physical members visibly skip required-VLAN policy; parents retain it.
+ME3600X pseudowire interfaces are omitted only from compliance rows.
+See [ownership/API and validation](docs/user_manual/aggregation-validation.md).
+The default canonical-name utility API remains compatible. See the [reporting manual](docs/user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
 for Linux/Windows commands, column semantics, API and acceptance checks.
 
 Owner's private 2026-10-24 workbook confirms the 17-column schema, physical and

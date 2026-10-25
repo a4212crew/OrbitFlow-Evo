@@ -56,17 +56,11 @@ def switch_fields(lines):
 
 def lag_relationship(resolver, node, alternates):
     """Confirm membership from explicit references, never names/descriptions."""
-    groups = {n.value for n in children(node.children, "aggregate")}
-    if len(groups) != 1:
+    owner_key = resolver.aggregation.owner(node.value)
+    owner = resolver.config.get(owner_key)
+    if owner is None:
         return None
-    group = next(iter(groups))
     edge = resolver.context.device_family == "EdgeSwitch"
-    name = ("lag " + group[2:] if group.startswith("3/") else group) if edge else "Port-channel" + group
-    if edge and not name.startswith("lag "):
-        return None
-    owner = resolver.config.get(resolver.key(name))
-    if owner is None or resolver.key(owner.value) == resolver.key(node.value):
-        return None
     fields = edge_fields if edge else switch_fields
     member_fields, owner_fields = fields(node.children), fields(owner.children)
     extra_proof = ()

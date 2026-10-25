@@ -1,5 +1,7 @@
 """Common policy engine over family-validated saved-configuration audit facts."""
 
+import re
+
 from orbitflow.logging import sanitize_text
 from orbitflow.vendors.interface_names import canonical_interface_name
 from orbitflow.compliance.resolvers import resolver_for
@@ -19,7 +21,9 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
     """Evaluate both rule families from one snapshot; no collection or mutation.
 
     Configuration problems are independent structured findings within each
-    database/interface result. Missing evidence never becomes a fabricated fact.
+    database/interface result. Confirmed physical aggregate children retain rows
+    and health but skip required-VLAN policy; ME3600X pseudowire rows are excluded
+    from this projection only. Missing evidence never becomes a fabricated fact.
     """
     device = dict(device_id=context.device_id if context else "",
                   management_ip=context.management_ip if context else management_ip,
@@ -62,7 +66,7 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
          "missing_database_vlans" if missing else "required_database_vlans_present", missing=missing,
          source=source, recommendation="Provide the missing global VLANs or valid family-specific service mappings." if missing else "")
 
-    key = lambda name: canonical_interface_name(context.platform, name)
+    key = lambda name: canonical_interface_name(context.platform, name, normalize_aggregation=True)
     actual = {key(record.port_name): record for record in interfaces or ()}
 
     def interface_state(record):
@@ -70,6 +74,8 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
                     oper_status=record.oper_status if record else "not observed")
 
     for name, row in sorted(rows.items()):
+        if context.device_family == "ME3600X" and re.fullmatch(r"(?i)(?:pseudowire|pw-ether|pw-iw)\d+(?:\.\d+)?", row["config_interface_name"]):
+            continue
         if "consolidated_into" in row:
             # Retain identity matching for child details as well as parent rows.
             target = rows[row["consolidated_into"]]
@@ -92,7 +98,11 @@ def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_i
         row["trigger_applicable"] = trigger and (row["interface_type"] in {"trunk", "evc", "hybrid"}
                                                    or row.get("audit_valid_tagged_subset", False))
         missing = []
-        if row["review"]:
+        if row.get("aggregation_child"):
+            row["interface_type"] = "Child Port-Channel"
+            row["trigger_applicable"] = False
+            status, reason = "not_applicable", "physical_member_required_vlan_evaluation_owned_by_" + row["configuration_owner"]
+        elif row["review"]:
             status, reason = "unable_to_assess", "ambiguous_or_unavailable_interface_facts"
         elif row.get("no_vlan_service_configuration"):
             status, reason = "not_applicable", "no_vlan_service_configuration"

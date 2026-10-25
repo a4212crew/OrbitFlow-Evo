@@ -587,9 +587,17 @@ errors without overwrite. VLAN database/error schemas, compaction, CLI/API,
 shared bounded execution, sanitized evidence comments/conditional lossless
 Configuration_Evidence and atomic spool recovery remain supported.
 
-AuditResolver.aggregates and family audit/planning inheritance/conflict paths
-remain active; this relationship capability does not replace them. No legacy
-workflow or configuration execution is retired or reinterpreted. See the
+Issue #149 supersedes legacy AuditResolver.aggregates relationship discovery.
+Audit/methodology and planning/execution ownership consume shared aggregation;
+family forwarding/conflict validation remains independent. Complete saved VLAN
+configuration captures are reused by reporting; incomplete/unavailable captures
+retain independent read-only collection. Confirmed children remain visible as
+Child Port-Channel, not_applicable, with actual parent headings and independent
+configuration health. ME3600X pseudowire interfaces are excluded only from VLAN
+compliance rows. New partial evidence cannot prove standalone ownership.
+See [API/compatibility and owner matrix](user_manual/aggregation-validation.md).
+Issue #149 Windows synthetic validation: `python -m pytest -q --tb=short`,
+3,250 passed. Live family and Linux validation remain pending. See the
 [canonical manual](user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
 for Linux/Windows menu/CLI commands, API, errors and acceptance checks.
 

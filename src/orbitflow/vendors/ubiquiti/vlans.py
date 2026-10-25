@@ -1,4 +1,5 @@
 """Ubiquiti EdgeSwitch running-configuration VLAN observation."""
+from orbitflow.vendors.aggregation import from_configuration
 
 import re
 
@@ -167,7 +168,7 @@ class EdgeSwitchVlanAdapter:
             interfaces, objects = parse_edgeswitch_config(output)
             return VlanCollection(
                 extract_edgeswitch_hostname(cli.prompt), interfaces, objects,
-                observe_configuration(output, "ubiquiti_edgeswitch", preserve_full_evidence=self._preserve_full_evidence)
+                observe_configuration(output, "ubiquiti_edgeswitch", preserve_full_evidence=self._preserve_full_evidence), from_configuration(output, "ubiquiti_edgeswitch")
             )
 
     def lookup(self, vlan_id):

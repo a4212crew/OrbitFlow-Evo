@@ -1,5 +1,6 @@
 """One shared read-only session per predefined target; sanitized spool persistence."""
-from dataclasses import asdict
+from dataclasses import asdict, replace
+from orbitflow.vendors.aggregation import from_facts
 import re
 
 from orbitflow.capabilities.interfaces import InterfaceService
@@ -22,6 +23,8 @@ def snapshot(context, interfaces, vlans, *, clean=sanitize_text):
     """Project shared normalized observation and audit facts, never raw CLI."""
     require(vlans.configuration is not None, "configuration evidence unavailable")
     require(context.collection_status == "success", "identity evidence unavailable")
+    if getattr(vlans, "aggregation", None) is None:
+        vlans = replace(vlans, aggregation=from_facts(context, vlans.configuration))
     factory = resolver_for(context)
     require(factory is not None, "unsupported audit family")
     resolver = factory(context, vlans, planning=True)
@@ -32,6 +35,7 @@ def snapshot(context, interfaces, vlans, *, clean=sanitize_text):
                  interfaces=[asdict(i) for i in interfaces],
                  vlans=[asdict(i) for i in vlans.interfaces], objects=[asdict(o) for o in vlans.objects],
                  facts=[asdict(n) for n in vlans.configuration], evidence=evidence(vlans.configuration),
+                 aggregation=asdict(resolver.aggregation),
                  audit=list(resolver.rows.values()), problems=resolver.problems, methodologies=methods,
                  status="live_read_only", configuration_reliable=True)
     # Datetime conversion happens before shared recursive sanitation.

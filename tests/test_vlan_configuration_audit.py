@@ -121,7 +121,9 @@ interface Gi0/2
     assert member["observed"]["configuration_owner"] == "Port-channel1"
     assert member["observed"]["valid_interface_vlans"] == [445, 545, 2449]
     assert "PORT_CHANNEL_CONFIG_CONFLICT" in codes(row(result, "Gi0/2"))
-    assert "global VLANs" in member["recommendation"]
+    assert member["status"] == "not_applicable"
+    assert member["observed"]["interface_type"] == "Child Port-Channel"
+    assert "global VLANs" in row(result, "Port-channel1")["recommendation"]
 
 
 def evc_config():
@@ -359,8 +361,9 @@ exit
         member = row(results, name)
         assert member["observed"]["inherited_from"] == "lag 1"
         assert member["observed"]["valid_interface_vlans"] == lag["observed"]["valid_interface_vlans"]
-        assert member["status"] == lag["status"] == "non_compliant"
-        assert member["missing_vlans"] == lag["missing_vlans"]
+        assert member["status"] == "not_applicable"
+        assert member["missing_vlans"] == []
+        assert lag["status"] == "non_compliant"
         assert "AGGREGATE_NOT_FOUND" not in codes(member)
         assert any(e["excerpt"] == f"addport {reference}" for e in member["evidence"]["sources"])
     assert "AGGREGATE_CONFIG_CONFLICT" not in codes(row(results, "0/1"))

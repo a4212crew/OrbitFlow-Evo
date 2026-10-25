@@ -1,6 +1,7 @@
 """Reusable read-only VLAN observation capability."""
 
 from datetime import datetime, timezone
+from dataclasses import replace
 from typing import Callable, Protocol
 
 from orbitflow.models import DeviceContext, VlanState
@@ -75,6 +76,8 @@ class VlanService:
     ) -> VlanState:
         """Collect with resolved context (preferred) or legacy identity keywords.
 
+        Full-config adapters also return shared sanitized aggregation without an
+        additional device command. Its completeness does not alter VLAN facts.
         No discovery is performed and the caller retains session ownership.
         A supplied ``cli`` is borrowed without closing it. Without one, the
         selected adapter owns a temporary shell for this operation.
@@ -111,6 +114,10 @@ class VlanService:
             raise VlanCapabilityError(
                 f"VLAN collection failed for {device_name or device_ip} ({device_ip}, {platform}): {exc}"
             ) from exc
+        aggregation = getattr(result, "aggregation", None)
+        if aggregation is not None and context is not None:
+            aggregation = replace(aggregation, device_id=getattr(context, "device_id", ""), platform=context.platform,
+                                  device_family=context.device_family, collection_time=self._clock().isoformat())
         return VlanState(
             device_name or result.device_name,
             device_ip,
@@ -119,4 +126,5 @@ class VlanService:
             result.objects,
             self._clock(),
             result.configuration,
+            aggregation,
         )

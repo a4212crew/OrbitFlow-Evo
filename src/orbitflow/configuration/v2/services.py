@@ -4,6 +4,7 @@ This layer compares typed observations only. CLI grammar and rendering belong
 to vendor modules; projected state follows the existing per-device row order.
 """
 from copy import deepcopy
+from orbitflow.vendors.aggregation import for_observation, relationship_uncertain
 from .catalogue import BY_ID
 
 from orbitflow.vendors.interface_names import canonical_interface_name
@@ -22,7 +23,7 @@ def evaluate(t, p, obs, out, prior):
         warnings.add(code)
     def block(code):
         findings.append(code)
-    key = lambda n: canonical_interface_name(obs.get('identity', {}).get('platform', ''), n)
+    key = lambda n: canonical_interface_name(obs.get('identity', {}).get('platform', ''), n, normalize_aggregation=True)
     reliable = obs.get('configuration_reliable') is True and obs.get('status') == 'live_read_only'
     if not reliable:
         block('CONFIGURATION_EVIDENCE_UNAVAILABLE')
@@ -102,7 +103,8 @@ def evaluate(t, p, obs, out, prior):
             out['commands'] = [] if out['no_op'] else renderer(t, p)
             out['projected_state'] = {**(projected or {}), 'description': p['description']}
         else:
-            if vals('aggregate') or any(key(a.get('configuration_owner', '')) != key(target) for a in obs.get('audit', []) if key(a['config_interface_name']) == key(target)):
+            aggregation = for_observation(obs, obs.get('identity', {}).get('platform', ''))
+            if aggregation.owner(target) or relationship_uncertain(aggregation, target, node['children']) or (obs.get('aggregation') is not None and aggregation.capture_incomplete) or any(key(a.get('configuration_owner', '')) != key(target) for a in obs.get('audit', []) if key(a['config_interface_name']) == key(target)):
                 block('OWNERSHIP_REQUIRES_REVIEW')
             if t.function == 'VLAN Port':
                 included, excluded, tagged, pvid = set(), set(), set(), None

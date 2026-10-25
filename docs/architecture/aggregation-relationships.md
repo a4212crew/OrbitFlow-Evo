@@ -2,7 +2,9 @@
 
 **Status:** Owner-approved merged design authority. Issue #147 implements the read-only capability and reporting integration; owner-operated batch evidence is recorded in the canonical manual; broader per-family acceptance remains outstanding.
 **Scope:** Read-only LAG/aggregation membership observation, interface report presentation and sanitized configuration evidence.  
-**Non-goals:** LACP health/compliance, VLAN/service inference from membership, configuration apply, replacement of existing audit/planning resolvers.
+**Non-goals:** LACP health/compliance, VLAN/service inference from membership, configuration apply. **Historical non-goal:** replacement of existing audit/planning
+resolvers was excluded from Issue #147. Issue #149 explicitly supersedes that
+exclusion for relationship discovery only; forwarding/service/policy resolvers remain.
 
 ## 1. Authority and existing implementation boundaries
 
@@ -162,3 +164,40 @@ validation remain separate limitations. See the
 [current evidence and acceptance limits](../user_manual/device-interface-vlan-report.md#verified-evidence-and-remaining-owner-acceptance-2026-10-24).
 AuditResolver.aggregates remains an active audit/planning dependency, not a
 retirement candidate within this Issue. No merge is authorized by this document.
+
+
+## Issue #149: owner-approved relationship-only migration
+
+The earlier retirement exclusions/readiness notes above record Issue #147 scope
+and are superseded **only for relationship discovery** by Issue #149. Shared
+AggregationSnapshot now supplies member/parent identity, source headings,
+completeness and sanitized relationship evidence to reporting, audit, methodology,
+planning and execution ownership gates. EdgeSwitch aliases select an actual
+`lag N` heading when available, superseding the earlier alias-wide lexicographic
+display preference for that family only. AuditResolver validates forwarding and
+conflicts after consuming those identities; it does not rediscover a group from
+the last typed aggregate command. Methodology retains per-field inheritance and
+unknown-value safeguards. Planning retains exact-target descriptions, access child
+blocking, trunk owner resolution and immutable approval/execution safety.
+
+VLAN adapters capture sanitized aggregation from their existing full configuration
+read; VlanState carries the optional snapshot. Reporting reuses verified complete
+captures, preserving independent collection otherwise. Older typed-fact Python
+callers and planning spools project preserved headings/excerpts through the same
+shared parser, with unknown capture completeness. No empty/standalone proof is
+claimed from those legacy facts. Existing output spools export recorded values
+without reconnecting or retroactively changing historical compliance.
+
+Parent-only required-VLAN evaluation, visible Child Port-Channel skips with actual
+owner/reason, independent health/conflicts, EdgeSwitch lag display and ME3600X
+compliance-only pseudowire filtering are covered by synthetic tests. No production
+writes or new live family acceptance are claimed. The [operator/API matrix](../user_manual/aggregation-validation.md)
+contains exact Bash/PowerShell read-only collection, offline recovery, automated
+commands and outstanding owner checks. Existing console entries remain applicable.
+
+The protected `.agents/` skill files were read but not edited. Atlas should update
+`vlan-configuration-audit/SKILL.md` Port-channel/LAG sections to name
+AggregationSnapshot as relationship authority and document visible child skips,
+independent health and ME3600X compliance-only pseudowire filtering. Its forwarding
+rules remain authoritative and unchanged. The historical Issue #147 notes above
+are retained as provenance, not current relationship-discovery instructions.

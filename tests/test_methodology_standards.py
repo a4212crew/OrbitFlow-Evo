@@ -41,7 +41,8 @@ PATTERNS = [
 
 
 def test_full_compliance_results_equal_pre_issue81_baseline():
-    # Captured using HEAD's untouched parser/resolver in an isolated source copy.
+    # Non-LAG pre-Issue81 baselines remain exact; Issue149 updates only index 5
+    # for confirmed physical children skipped in required-VLAN compliance.
     expected = json.loads((Path(__file__).parent / 'fixtures/methodology_standards_compliance.json').read_text())
     actual = []
     for family, config, *_ in PATTERNS:

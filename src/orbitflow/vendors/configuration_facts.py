@@ -42,6 +42,7 @@ _IOS = (
     ("routed", r"(no switchport)", "text"),
 )
 _XR = (
+    ("aggregate", r"bundle id (\d+)(?: mode \w+)?", "text"),
     ("l2vpn", r"(l2vpn)", "text"),
     ("bridge_group", rf"bridge group ({_NAME})", "text"),
     ("bridge_domain", rf"bridge-domain ({_NAME})", "text"),
@@ -51,6 +52,7 @@ _XR = (
     ("untagged", r"encapsulation (untagged)", "text"),
 )
 _VRP = (
+    ("aggregate", r"eth-trunk (\d+)", "text"),
     ("vlan", rf"vlan(?: batch)? ({_LIST})", "list"),
     ("vsi", rf"vsi ({_NAME})(?: static)?", "text"),
     ("vsi_binding", rf"l2 binding vsi ({_NAME})", "text"),

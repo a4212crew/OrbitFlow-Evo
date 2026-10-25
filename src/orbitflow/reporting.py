@@ -153,7 +153,8 @@ def run_report(targets, transport_config, *, inventory_path="data/inventory/inve
     """Collect interface/VLAN/LAG facts sequentially per device on shared execution.
 
     Isolate capability failures, preserve sanitized evidence in the shared spool,
-    and default spools to reports_dir/runs. Legacy VLAN/audit logic is unchanged.
+    and default spools to reports_dir/runs. Reuse complete saved-config aggregation
+    from VLAN observation; otherwise retain independent read-only collection.
     """
     output = output if output is not None else sys.stdout
     clock = clock or (lambda: datetime.now(timezone.utc))
@@ -224,7 +225,11 @@ def run_report(targets, transport_config, *, inventory_path="data/inventory/inve
                         stage = "aggregation"
                         status(f"{label}: {stage}")
                         try:
-                            aggregation = AggregationService().collect(session, context, cli=cli, interfaces=interfaces)
+                            aggregation = getattr(vlans, "aggregation", None)
+                            if aggregation is None or not aggregation.complete:
+                                aggregation = AggregationService().collect(session, context, cli=cli, interfaces=interfaces)
+                            if aggregation is not None:
+                                aggregation = aggregation.with_observed(i.port_name for i in interfaces)
                             if aggregation and aggregation.problems:
                                 error_type = (AggregationParserUnsupported if "unsupported configuration shape" in aggregation.problems
                                               else AggregationConfigurationIncomplete)
