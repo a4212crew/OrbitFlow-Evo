@@ -276,3 +276,43 @@ and Configuration Evidence overflow with exact fragment reassembly; short cells,
 pre-split sanitation, nearly 4,000 invalid child VLANs, skipped children with genuine
 mismatches, partial relationships, inactive tagging and offline spool recovery.
 They are deterministic tests, not live validation.
+
+
+## Planning/execution child-target safety — owner decision, not yet implemented
+
+The owner has approved this future safety invariant: **never change access or
+trunk forwarding configuration on a physical Port-channel/LAG member**. A
+child-targeted Access Port, Trunk Port or equivalent VLAN Port change must be
+blocked even if the shared aggregation snapshot confirms a parent; it must not
+silently redirect to the logical parent. If the operator wants to configure the
+logical parent, the request must explicitly select that parent. Unresolved or
+partial ownership evidence must fail closed for forwarding changes. This is
+**not yet the verified behavior of every planning/execution template**.
+
+At PR #150's reviewed head, Catalyst planning rejects an Access Port request
+on a known child but can resolve a Trunk Port request from the child to the
+parent; fresh Catalyst execution may accept the approved resolved parent after
+ownership checks. EdgeSwitch VLAN Port already has a separate child-ownership
+blocker. These legacy safety decisions must not be described as retired until
+Codex changes implementation and deterministic regressions prove the new rule.
+
+Operator acceptance matrix for a subsequent authorized code revision (read-only
+plans and offline preparation only; **never run confirm/apply**):
+
+| Requested target | Requested operation | Expected future decision |
+|---|---|---|
+| Confirmed physical child | Access Port | Block; no commands/deployment readiness |
+| Confirmed physical child | Trunk Port | Block; no redirect or commands/deployment readiness |
+| Confirmed EdgeSwitch physical LAG child | VLAN Port access/tagging/PVID change | Block; no redirect or commands/deployment readiness |
+| Independently selected logical Port-channel/LAG | Supported forwarding operation | Evaluate normally with full evidence and approval guards; no automatic authorization |
+| Physical interface with missing/contradictory/partial LAG ownership | Access/trunk forwarding change | Fail closed, request evidence |
+| Confirmed physical child | Interface Description | Preserve existing exact-target description contract; not a forwarding change |
+| Standalone physical interface | Supported access/trunk change | Evaluate existing family-specific requirements |
+
+Both Windows PowerShell and Linux Bash may validate the *existing* current
+planning implementation without apply using the read-only `python -m
+orbitflow.configuration.v2.cli plan` examples earlier in this manual. After any
+Codex policy revision, validate each matrix row with sanitized planned inputs,
+inspect blockers, `resolved_target`, rendered commands and deployment readiness,
+then review fresh execution-target safety in deterministic tests only. Never use
+an owner production device to manufacture a Port-channel membership conflict.
