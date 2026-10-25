@@ -1,6 +1,12 @@
 """Internal result type and VLAN-list parsing shared by vendor adapters."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from orbitflow.vendors.aggregation import AggregationSnapshot
 import re
 
 from orbitflow.models import ConfigFact, InterfaceVlanObservation, VlanObject
@@ -12,6 +18,7 @@ class VlanCollection:
     interfaces: tuple[InterfaceVlanObservation, ...]
     objects: tuple[VlanObject, ...]
     configuration: tuple[ConfigFact, ...] | None = None
+    aggregation: AggregationSnapshot | None = None
 
 
 def parse_vlan_list(value: str, *, range_word: str = "-") -> tuple[int, ...]:

@@ -286,8 +286,7 @@ def test_fresh_target_identity_and_bundle_ownership(tmp_path, monkeypatch, famil
 
 
 @pytest.mark.parametrize('family', ['C3750X', 'C3850X'])
-@pytest.mark.parametrize('damage', ['', 'owner_changed', 'owner_missing', 'conflict'])
-def test_approved_bundle_owner_still_required(tmp_path, monkeypatch, family, damage):
+def test_child_forwarding_historical_redirect_rejected(tmp_path, monkeypatch, family):
     ctx, requests, before, after = fixture(family, 'Trunk Port')
     common = 'vlan 445\n name Customer\n!\nvlan 545\n name Other\n!\n'
     member = 'interface GigabitEthernet1/0/1\n channel-group 1 mode active\n!\n'
@@ -298,22 +297,32 @@ def test_approved_bundle_owner_still_required(tmp_path, monkeypatch, family, dam
     after = observation(ctx, common+member+(owner+other).replace('allowed vlan 445', 'allowed vlan 445,545')+'end\n')
     for obs in (before, after):
         obs['vlan_lookups'] = deepcopy(lookups)
-    fresh = deepcopy(before)
-    audit = next(a for a in fresh['audit'] if a['config_interface_name'] == 'GigabitEthernet1/0/1')
-    if damage == 'owner_changed':
-        audit['configuration_owner'] = 'Port-channel9'
-    elif damage == 'owner_missing':
-        fresh['facts'] = [n for n in fresh['facts'] if n['value'] != 'Port-channel1']
-    elif damage == 'conflict':
-        audit['configuration_findings'].append(dict(code='PORT_CHANNEL_CONFIG_CONFLICT'))
-    rows, events, _, saves, prepared = execute(tmp_path, monkeypatch, ctx, requests, before, after,
-        observe=lambda n: fresh if n == 1 else after)
-    assert prepared['summary']['selected'][0]['result']['resolved_target'] == 'Port-channel1'
-    assert [r['status'] for r in rows] == ['Not executed' if damage else 'Verified', 'Verified']
-    commands = [e['command'] for e in events if e['stage'] == 'command_intent']
-    assert ('interface Port-channel1' in commands) == (not damage)
-    assert 'interface GigabitEthernet1/0/1' not in commands
-    assert len(saves) == 1
+    from orbitflow.configuration.execution import ExecutionService
+    original = plan(requests, {IP: before}, now=NOW)
+    prepared = ExecutionService(tmp_path / 'authority').prepare(original,
+        {r['row_id']: 'Approve' for r in requests}, expected_digest=original.digest)
+    assert prepared['summary']['skipped'][0]['reason'] in {'BLOCKED', 'NOT_ALLOW_ON_CHILD_PORT_CHANNEL'}
+    # Simulate the historical decision evaluator accepting a saved redirect.
+    historical = original.to_dict()
+    historical['results'][0].update(deployment_ready=True, blockers=[],
+        resolved_target='Port-channel1', decision='Approve')
+    monkeypatch.setattr(ex, 'evaluate_decisions', lambda *a, **kw:
+        SimpleNamespace(to_dict=lambda: historical))
+    prepared = ExecutionService(tmp_path / 'old-authority').prepare(original,
+        {r['row_id']: 'Approve' for r in requests}, expected_digest=original.digest)
+    assert prepared['summary']['skipped'][0]['reason'] == 'NOT_ALLOW_ON_CHILD_PORT_CHANNEL'
+
+    # Historical approved redirect artifacts must also fail at the fresh gate.
+    entry = dict(request=requests[0], result=dict(resolved_target='Port-channel1'))
+    with pytest.raises(ex.ExecutionBlocked) as error:
+        ex._check_target(entry, before, ctx)
+    assert error.value.code == 'NOT_ALLOW_ON_CHILD_PORT_CHANNEL'
+    # Expressly selecting the logical parent still passes normal fresh gates.
+    parent_request = deepcopy(requests[0])
+    parent_request['inputs']['interface'] = 'Port-channel1'
+    ex._check_target(dict(request=parent_request, result=dict(resolved_target='Port-channel1')), before, ctx)
+
+
 
 
 @pytest.mark.parametrize('family', ['C3750X', 'C3850X'])

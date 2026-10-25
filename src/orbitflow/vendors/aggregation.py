@@ -1,5 +1,5 @@
 """Pure, read-only vendor aggregation relationships; independent of VLAN policy."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 from orbitflow.vendors.interface_names import canonical_interface_name
 from orbitflow.vendors.configuration_facts import _safe_source
@@ -40,6 +40,23 @@ class AggregationSnapshot:
     def display_name(self, key):
         """Return an actual source heading, or an explicitly qualified fallback."""
         return dict(self.configuration_names).get(key, f'{key} [canonical fallback: configuration heading unavailable]')
+
+    def with_observed(self, names):
+        """Retain independently observed empty parents without inventing interfaces."""
+        parents = set(self.parents)
+        parents.update(key for name in names if is_parent(self.platform, key := identity(self.platform, name)))
+        return replace(self, parents=tuple(sorted(parents)))
+
+    @property
+    def capture_incomplete(self):
+        """True for a failed/partial capture; legacy typed facts lack boundaries."""
+        return not self.complete and self.configuration_command != "typed saved-configuration facts"
+
+    def owner(self, name):
+        """Confirmed physical owner only; missing/contradictory parents stay unknown."""
+        key = identity(self.platform, name)
+        owners = {parent for child, parent in self.bindings if child == key}
+        return next(iter(owners)) if len(owners) == 1 and owners <= set(self.parents) else None
 
     def fields(self, name):
         key = identity(self.platform, name)
@@ -188,7 +205,7 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
     parents.update(n for n in stanzas if is_parent(platform, n))
     bindings = []
     pattern = {'cisco_xr': r'bundle id (\d+)(?:\s+.*)?', 'huawei_vrp': r'eth-trunk (\d+)',
-               'ubiquiti_edgeswitch': r'addport 3/(\d+)'}.get(platform, r'channel-group (\d+)(?:\s+.*)?')
+               'ubiquiti_edgeswitch': r'addport (?:3/|lag )(\d+)'}.get(platform, r'channel-group (\d+)(?:\s+.*)?')
     for name, body in stanzas.items():
         if '.' in name or is_parent(platform, name):
             continue
@@ -213,7 +230,76 @@ def parse_aggregation(output, context, observed=(), *, collection_time='', compl
     if not complete:
         problems.append('incomplete member configuration')
     evidence = tuple((n, '\n'.join(_safe_source(re.sub(r'(?i)((?:uisp|api)[-_ ]?key)(?:\s*[:=]\s*|\s+).*', r'\1 [REDACTED]', line), platform) for line in body)) for n, body in sorted(stanzas.items()))
-    return AggregationSnapshot(context.device_id, platform, collection_time, bool(complete), tuple(sorted(parents)),
-                               tuple(sorted(bindings)), subs, evidence, tuple(sorted(set(problems))), context.device_family,
+    return AggregationSnapshot(getattr(context, "device_id", ""), platform, collection_time, bool(complete), tuple(sorted(parents)),
+                               tuple(sorted(bindings)), subs, evidence, tuple(sorted(set(problems))), getattr(context, "device_family", ""),
                                "display current-configuration" if platform == "huawei_vrp" else "show running-config",
-                               tuple((key, min(names)) for key, names in sorted(source_names.items())))
+                               tuple((key, min((n for n in names if edge and n.lower().startswith("lag ")), default=min(names)))
+                                     for key, names in sorted(source_names.items())))
+
+
+def from_configuration(output, platform):
+    """Capture sanitized relationships while an adapter already holds full config.
+
+    Collection defects remain isolated from successful VLAN observation. No raw
+    configuration is retained in the shared model.
+    """
+    from types import SimpleNamespace
+    context = SimpleNamespace(platform=platform, device_id="", device_family="")
+    try:
+        return parse_aggregation(output, context)
+    except ValueError:
+        return AggregationSnapshot("", platform, "", False, (), (), (), (),
+                                   ("aggregation configuration unavailable",))
+
+
+def from_facts(context, facts):
+    """Compatibility projection for public callers supplying typed saved facts.
+
+    Exact interface headings and preserved statement excerpts go through the same
+    parser. Legacy fact snapshots do not carry capture terminators: affirmative
+    relationships are usable, but absence/empty membership cannot be proven.
+    """
+    lines = []
+    for node in facts or ():
+        if node.kind not in {"interface", "l2_interface"}:
+            continue
+        lines.append("interface " + node.value)
+        def append(nodes):
+            for item in nodes:
+                lines.append(" " + item.excerpt.strip())
+                append(item.children)
+        append(node.children)
+        lines.append("exit" if context.platform == "ubiquiti_edgeswitch" else "!")
+    if not lines:
+        return AggregationSnapshot(getattr(context, "device_id", ""), context.platform, "", False,
+                                   (), (), (), (), ("aggregation evidence unavailable",))
+    return replace(parse_aggregation("\n".join(lines), context, complete=False),
+                   configuration_command="typed saved-configuration facts")
+
+
+def for_observation(observed, platform):
+    """Read shared persisted relationships; old observation spools use typed facts."""
+    if observed.get("aggregation") is not None:
+        return AggregationSnapshot(**observed["aggregation"])
+    from types import SimpleNamespace
+    from orbitflow.models import ConfigFact
+    def decode(node):
+        return ConfigFact(node["kind"], node["value"], node.get("source_filename", "running-config"),
+                          node.get("line", 0), node.get("excerpt", ""),
+                          tuple(decode(c) for c in node.get("children", ())))
+    return from_facts(SimpleNamespace(platform=platform, device_id="", device_family=""),
+                      tuple(decode(n) for n in observed.get("facts", ())))
+
+
+def relationship_uncertain(snapshot, name, facts=()):
+    """Unresolved bindings cannot prove standalone, even with selected settings.
+
+    Contradictory/malformed captures may omit untrustworthy bindings entirely.
+    Their device-scoped problems remain authoritative for legacy typed snapshots.
+    """
+    key = identity(snapshot.platform, name)
+    return (not snapshot.owner(key) and (
+        any(child == key for child, _ in snapshot.bindings)
+        or any(problem in snapshot.problems for problem in
+               ('contradictory member binding', 'malformed member binding'))
+        or any(n.get("kind") == "aggregate" for n in facts)))

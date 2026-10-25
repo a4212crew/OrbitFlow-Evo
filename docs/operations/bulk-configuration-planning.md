@@ -362,8 +362,9 @@ Choose existing full interface names and VLANs for the actual test.
 
 Add separate runs for Add with/without an explicit baseline, Replace, sequential
 range/add/remove statements, native VLAN changes, dynamic/residual/routed modes,
-and physical Port-channel members. Access members must block without redirect;
-trunks must use the evidenced Port-channel and report aggregate conflicts;
+and physical Port-channel members. Access and Trunk members block without redirect;
+logical-parent trunks require an explicitly selected, evidenced Port-channel;
+retain aggregate conflicts;
 descriptions must remain on the entered physical or logical target. C3850X must
 never propose an encapsulation selector. C3750X new/conversion trunks include it.
 Use an additional invalid row (e.g. VLAN 1002 or abbreviated interface) to verify
@@ -523,3 +524,32 @@ dependency for distinct SIs with disjoint ingress. Parent descriptions and actua
 parent conversions retain ordered review; same-interface ingress overlaps and
 duplicate SI intent remain blocked. ME3600X initial trunk conversion still
 requires its parent-initialization dependency. Planning preserves shutdown state.
+
+
+### Issue #149 / PR #150 owner revision (2026-10-25)
+
+The earlier child-to-parent trunk redirect and broad compatible-stanza merge
+language is superseded. Confirmed physical child forwarding requests block with
+`NOT_ALLOW_ON_CHILD_PORT_CHANNEL`; select the logical parent explicitly instead.
+Descriptions remain exact-target. EdgeSwitch completed member stanzas (addport
+alone or with the explicitly recognized auto-negotiate attribute) preceding a
+completed settings stanza contribute relationship evidence only; the subsequent
+settings stanza supplies consistency input. Repeated actual settings remain ambiguous,
+missing settings remain unknown, and actual observed duplicates still block.
+Original ordered facts/source lines and all addport commands are retained.
+Preparation independently rejects historical approved redirects; fresh execution
+rechecks ownership. Historical codes/artifacts remain readable without bypassing
+current safety. Approval, digest, backup, transport and verification gates persist.
+See [owner validation matrix](../user_manual/aggregation-validation.md).
+Deterministic regression evidence does not establish live-device acceptance.
+
+The 06:01 UTC owner reproduction is covered by the narrow shared selector:
+`auto-negotiate` plus `addport 3/1`, then `exit`, precedes separate completed
+`0/49` settings. Only those later settings supply description/VLAN consistency;
+all original evidence remains ordered. Unknown or security-relevant commands are
+not member metadata. Multiple actual settings or missing closure fail closed.
+Typed legacy snapshots with contradictory/malformed bindings also require ownership
+review. Planning, preparation/fresh target checks and post-change verification use
+the same selector; no approval/digest or spool schema changes. The forwarding child
+blocker remains `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`. See the existing validation
+matrix for Linux/Windows read-only reproduction; live validation remains pending.

@@ -1,7 +1,8 @@
 """Operator standards over review facts only; never compliance or live health.
 
-All comparisons use preserved typed facts. The report merely displays this
-projection; audit findings remain intact even when standards assign less severity.
+Comparisons use preserved typed facts; policy-free field projections are also
+reused by aggregate audit validation. The report displays this projection; audit
+findings remain intact even when standards assign less severity.
 """
 
 from dataclasses import replace
@@ -56,17 +57,11 @@ def switch_fields(lines):
 
 def lag_relationship(resolver, node, alternates):
     """Confirm membership from explicit references, never names/descriptions."""
-    groups = {n.value for n in children(node.children, "aggregate")}
-    if len(groups) != 1:
+    owner_key = resolver.aggregation.owner(node.value)
+    owner = resolver.config.get(owner_key)
+    if owner is None:
         return None
-    group = next(iter(groups))
     edge = resolver.context.device_family == "EdgeSwitch"
-    name = ("lag " + group[2:] if group.startswith("3/") else group) if edge else "Port-channel" + group
-    if edge and not name.startswith("lag "):
-        return None
-    owner = resolver.config.get(resolver.key(name))
-    if owner is None or resolver.key(owner.value) == resolver.key(node.value):
-        return None
     fields = edge_fields if edge else switch_fields
     member_fields, owner_fields = fields(node.children), fields(owner.children)
     extra_proof = ()
@@ -252,7 +247,10 @@ def classify_records(resolver, records):
             code = problem["code"]
             if code in ignored:
                 continue
-            if code == "ALLOWED_VLAN_NOT_IN_DATABASE":
+            if code == "EXCLUDED_VLAN_TAGGING_INACTIVE":
+                finding(code, "standard_configuration", "informational", problem.get("evidence", ()),
+                        vlans=problem.get("vlans", []))
+            elif code == "ALLOWED_VLAN_NOT_IN_DATABASE":
                 finding(code, "standard_configuration", "informational", problem.get("evidence", ()),
                         vlans=problem.get("vlans", []))
             else:

@@ -7,6 +7,8 @@
 
 - [CLI progress and durable results](user_manual/cli-progress.md): shared terminal presentation and workflow coverage.
 
+- [Compliance summaries and lossless export](user_manual/device-vlan-compliance.md#concise-summaries-and-lossless-details-issue-149-review-revision): bounded child summaries, existing Details fragments and offline recovery.
+
 ## Start here
 
 | Need | Source | Status |
@@ -18,7 +20,7 @@
 | Project usage and setup | [README.md](../README.md) | Operator entry point; some introductory wording outdated |
 | Architecture overview | [architecture overview](architecture/README.md) | Architecture; iteration governance needs reconciliation |
 | Numbered decisions | [architecture decisions](architecture/DECISIONS.md) | Decision history; later decisions override earlier rules |
-| Proposed LAG capability | [Cross-vendor aggregation relationships](architecture/aggregation-relationships.md) | Owner-accepted template design; architecture draft, not implemented |
+| Shared LAG capability | [Cross-vendor aggregation relationships](architecture/aggregation-relationships.md) | Implemented read-only observation and relationship consumers; owner family acceptance pending |
 | Future planning | [ROADMAP.md](ROADMAP.md) | Future plans; configuration v2 planning status reconciled |
 | Development history index | [devlog/README.md](devlog/README.md) | Monthly index including September and October |
 | September devlog | [2026-09.md](devlog/2026-09.md) | Historical |
@@ -101,3 +103,5 @@ Issue #117 [revision handoff history](operations/issue-117-revision-handoff.md):
 - [Architecture contract](architecture/mac-address-lookup.md)
 - [Skill reconciliation record](operations/mac-lookup-atlas-skill-handoff.md) (applied on this PR branch)
 - Backend guidance: [MAC observation](../.agents/skills/mac-observation/SKILL.md) and [bridge-domain observation](../.agents/skills/bridge-domain-observation/SKILL.md)
+
+- [Shared aggregation ownership and validation](user_manual/aggregation-validation.md): Issue #149 behavior, mixed EdgeSwitch member-stanza reproduction, public contracts, automated commands and owner family/workflow matrix.

@@ -2,7 +2,9 @@
 
 **Status:** Owner-approved merged design authority. Issue #147 implements the read-only capability and reporting integration; owner-operated batch evidence is recorded in the canonical manual; broader per-family acceptance remains outstanding.
 **Scope:** Read-only LAG/aggregation membership observation, interface report presentation and sanitized configuration evidence.  
-**Non-goals:** LACP health/compliance, VLAN/service inference from membership, configuration apply, replacement of existing audit/planning resolvers.
+**Non-goals:** LACP health/compliance, VLAN/service inference from membership, configuration apply. **Historical non-goal:** replacement of existing audit/planning
+resolvers was excluded from Issue #147. Issue #149 explicitly supersedes that
+exclusion for relationship discovery only; forwarding/service/policy resolvers remain.
 
 ## 1. Authority and existing implementation boundaries
 
@@ -162,3 +164,126 @@ validation remain separate limitations. See the
 [current evidence and acceptance limits](../user_manual/device-interface-vlan-report.md#verified-evidence-and-remaining-owner-acceptance-2026-10-24).
 AuditResolver.aggregates remains an active audit/planning dependency, not a
 retirement candidate within this Issue. No merge is authorized by this document.
+
+
+## Issue #149: owner-approved relationship-only migration
+
+The earlier retirement exclusions/readiness notes above record Issue #147 scope
+and are superseded **only for relationship discovery** by Issue #149. Shared
+AggregationSnapshot now supplies member/parent identity, source headings,
+completeness and sanitized relationship evidence to reporting, audit, methodology,
+planning and execution ownership gates. EdgeSwitch aliases select an actual
+`lag N` heading when available, superseding the earlier alias-wide lexicographic
+display preference for that family only. AuditResolver validates forwarding and
+conflicts after consuming those identities; it does not rediscover a group from
+the last typed aggregate command. Methodology retains per-field inheritance and
+unknown-value safeguards. Planning retains exact-target descriptions, access/trunk child
+blocking, explicitly selected logical parents and immutable approval/execution safety.
+
+VLAN adapters capture sanitized aggregation from their existing full configuration
+read; VlanState carries the optional snapshot. Reporting reuses verified complete
+captures, preserving independent collection otherwise. Older typed-fact Python
+callers and planning spools project preserved headings/excerpts through the same
+shared parser, with unknown capture completeness. No empty/standalone proof is
+claimed from those legacy facts. Existing output spools export recorded values
+without reconnecting or retroactively changing historical compliance.
+
+Parent-only required-VLAN evaluation, visible Child Port-Channel skips with actual
+owner/reason, independent health/conflicts, EdgeSwitch lag display and ME3600X
+compliance-only pseudowire filtering are covered by synthetic tests. No production
+writes or new live family acceptance are claimed. The [operator/API matrix](../user_manual/aggregation-validation.md)
+contains exact Bash/PowerShell read-only collection, offline recovery, automated
+commands and outstanding owner checks. Existing console entries remain applicable.
+
+The VLAN audit skill now names `AggregationSnapshot` as the authoritative
+member/parent relationship source and retains vendor-specific forwarding, EVC,
+health and evidence validation. This reconciles the historical Issue #147
+relationship-discovery instructions without changing their recorded provenance.
+
+### PR #150 comparable forwarding evidence correction
+
+Relationship authority is unchanged. ME3600X member conflicts compare preserved
+explicit switchport controls rather than parent EVC-derived BD membership.
+Partial controls retain an incomplete-evidence finding. EdgeSwitch effective
+explicit exclusions retain informational inactive-tag evidence; active invalid
+tagging and member/parent conflicts remain independent errors. Child explanation
+and recommendation include actionable field differences or further-evidence
+requirements. See the validation manual for sanitized before/after rows and the
+repeatable owner matrix. No new live validation is claimed.
+
+Atlas protected-skill handoff: in vlan-configuration-audit/SKILL.md, replace
+legacy discovery instructions in Catalyst Port-channel and EdgeSwitch LAG
+sections with AggregationSnapshot relationship authority; preserve forwarding
+validation ownership. Document visible Child Port-Channel skips, independent
+health, ME compliance-only pseudowire exclusion, explicit comparable ME controls
+and informational explicitly excluded Edge tags. Update the Edge membership
+bullet to exclude only effectively excluded tags from invalid tagging, retaining
+active errors and configured evidence. The .agents files are read-only here and
+were not edited or bypassed.
+
+
+### Owner decision, 2026-10-25 — deny child-targeted access/trunk changes (implementation pending)
+
+The owner requires configuration **planning and execution** to reject Access Port,
+Trunk Port or equivalent access/trunk forwarding changes whenever the request
+explicitly targets a *confirmed physical member* of a Port-channel/LAG.
+A logical parent must be selected explicitly by the operator for any parent
+forwarding modification. Never silently redirect a child-targeted change to its
+parent, even if the shared `AggregationSnapshot` can identify the parent. Unknown,
+contradictory or incomplete ownership evidence must fail closed for forwarding
+changes. Descriptions and other non-forwarding actions retain their distinct
+current contracts; no implicit policy broadening is authorized here.
+
+**Verified implementation gap at this PR head:** Catalyst v2 planning
+(`configuration/v2/catalyst.py`) presently rejects child-targeted Access Port
+but can redirect child-targeted Trunk Port to the logical parent. The fresh
+Catalyst execution target blocker (`vendors/cisco/configuration_execution.py`)
+accepts that previously resolved parent target when ownership matches. EdgeSwitch
+VLAN Port and other families have distinct safety gates. The shared aggregation
+snapshot is already consumed in these paths, so an identity-parser retirement
+must not be confused with the still-pending **child-target policy** change.
+
+Retirement recommendation: retire only redundant **relationship-discovery** logic
+once all callers are migrated and regression-covered. Retain the family-specific
+forwarding validation, plan-template constraints, approval digest, fresh execution
+gates, and historical observation/spool compatibility. Application code/tests to
+implement the new policy remain Codex-owned under the one active Issue workflow;
+this paragraph documents an approved requirement, not verified behavior.
+
+
+### Owner clarification and observed plan defect — 2026-10-25
+
+The owner specifies the exact new blocking finding **`NOT_ALLOW_ON_CHILD_PORT_CHANNEL`** for child-targeted access/trunk/VLAN-forwarding changes. Use the same semantic outcome across platforms and at both planning and fresh execution gates; preserve older finding names only where backward-compatible historical artifacts require them. This decision does not authorize changing existing executable code outside the Codex workflow.
+
+The owner-provided v2 plan (`plan(20261025-052137).json`) shows EdgeSwitch Interface Description for `0/17` incorrectly blocked as `INTERFACE_ABSENT_OR_AMBIGUOUS` and consistency `unresolved`. Its single observed interface `0/17` has **two saved `interface 0/17` stanzas**: one contains `addport 3/2` and the other contains the interface settings/description. Both refer to one canonical interface and the confirmed owner is `lag 2`; counting configuration stanzas as distinct physical interfaces is incorrect. In `configuration/v2/services.py`, `len(nodes) != 1` triggers the blocker; `configuration/execution.py::_check_target` independently requires exactly one fact declaration and can reject the same safe description operation at execution. Reconcile complementary same-identity source stanzas without suppressing contradictory evidence, uncertain identities or actual duplicate observed physical interfaces.
+
+**Expected after a future code revision:** a description-only request for confirmed `0/17` remains exact-target, may have an independent informational existing-VLAN/aggregate-conflict warning, and has `consistent` planning consistency if no other blocker exists. It is not exempt from regular existence, fresh observation, immutable approval and execution safety checks. Any physical-child *forwarding* change remains blocked as `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`, never redirected to its parent. No network configuration was changed in the review.
+
+
+### Issue #149 / PR #150 owner revision (2026-10-25)
+
+The earlier child-to-parent trunk redirect and broad compatible-stanza merge
+language is superseded. Confirmed physical child forwarding requests block with
+`NOT_ALLOW_ON_CHILD_PORT_CHANNEL`; select the logical parent explicitly instead.
+Descriptions remain exact-target. EdgeSwitch completed member stanzas (addport
+alone or with the explicitly recognized auto-negotiate attribute) preceding a
+completed settings stanza contribute relationship evidence only; the subsequent
+settings stanza supplies consistency input. Repeated actual settings remain ambiguous,
+missing settings remain unknown, and actual observed duplicates still block.
+Original ordered facts/source lines and all addport commands are retained.
+Preparation independently rejects historical approved redirects; fresh execution
+rechecks ownership. Historical codes/artifacts remain readable without bypassing
+current safety. Approval, digest, backup, transport and verification gates persist.
+See [owner validation matrix](../user_manual/aggregation-validation.md).
+Deterministic regression evidence does not establish live-device acceptance.
+
+The 06:01 UTC owner reproduction is covered by the narrow shared selector:
+`auto-negotiate` plus `addport 3/1`, then `exit`, precedes separate completed
+`0/49` settings. Only those later settings supply description/VLAN consistency;
+all original evidence remains ordered. Unknown or security-relevant commands are
+not member metadata. Multiple actual settings or missing closure fail closed.
+Typed legacy snapshots with contradictory/malformed bindings also require ownership
+review. Planning, preparation/fresh target checks and post-change verification use
+the same selector; no approval/digest or spool schema changes. The forwarding child
+blocker remains `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`. See the existing validation
+matrix for Linux/Windows read-only reproduction; live validation remains pending.

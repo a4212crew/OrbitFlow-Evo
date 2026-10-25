@@ -44,6 +44,8 @@ class ObservationManager:
             record.pop('collection_time')
         state = asdict(vlans)
         state.pop('collection_time')
+        if state.get('aggregation') is not None:
+            state['aggregation'].pop('collection_time')
         encoded = json.dumps([asdict(context), records, state], sort_keys=True,
                              default=lambda value: value.isoformat()).encode()
         key = hashlib.sha256(encoded).digest()
@@ -52,6 +54,8 @@ class ObservationManager:
             with stage('snapshot_reuse'):
                 result = deepcopy(self._value)
                 result['observed_at'] = vlans.collection_time.isoformat()
+                if result.get('aggregation') is not None and vlans.aggregation is not None:
+                    result['aggregation']['collection_time'] = vlans.aggregation.collection_time
                 for record, fresh in zip(result['interfaces'], interfaces):
                     record['collection_time'] = fresh.collection_time.isoformat()
                 return result

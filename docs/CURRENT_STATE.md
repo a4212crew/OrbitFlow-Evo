@@ -587,9 +587,21 @@ errors without overwrite. VLAN database/error schemas, compaction, CLI/API,
 shared bounded execution, sanitized evidence comments/conditional lossless
 Configuration_Evidence and atomic spool recovery remain supported.
 
-AuditResolver.aggregates and family audit/planning inheritance/conflict paths
-remain active; this relationship capability does not replace them. No legacy
-workflow or configuration execution is retired or reinterpreted. See the
+Issue #149 supersedes legacy AuditResolver.aggregates relationship discovery.
+Audit/methodology and planning/execution ownership consume shared aggregation;
+family forwarding/conflict validation remains independent. Complete saved VLAN
+configuration captures are reused by reporting; incomplete/unavailable captures
+retain independent read-only collection. Confirmed children remain visible as
+Child Port-Channel, not_applicable, with actual parent headings and independent
+configuration health. ME3600X pseudowire interfaces are excluded only from VLAN
+compliance rows. New partial evidence cannot prove standalone ownership.
+PR #150's display correction uses a verified EdgeSwitch `lag N` source heading
+for the compliance Interface column even with an observed `3/N` record, preserving
+its independent state. Interface/VLAN reporting retains the observed `3/N` display;
+older compliance spools retain their recorded names on export.
+See [API/compatibility and owner matrix](user_manual/aggregation-validation.md).
+Issue #149 / PR #150 revision Windows synthetic validation: `python -m pytest -q`,
+3,258 passed. Live family and Linux validation remain pending. See the
 [canonical manual](user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
 for Linux/Windows menu/CLI commands, API, errors and acceptance checks.
 
@@ -989,3 +1001,40 @@ Owner Linux worktree verification for Issue #139/PR #140 (head `481e712c` before
 CLI/menu batch workflows share serialized worker rows, a bounded last-ten activity view, compact terminal fallbacks and throttled redirected snapshots. Recorded collection, processing returns and report/export completion have separate accounting; actual output, retained spool, allocated backup and log paths are reported. Library output ownership and execution safety remain unchanged. See [coverage and exemptions](user_manual/cli-progress.md). Synthetic regressions cover concurrency, rollover, platform/terminal fallbacks and partial/export-failure accounting; owner-operated Windows/Linux terminal and device validation of this revision remains pending. This supersedes the compact-only progress descriptions above.
 
 Issue #144 review revision: console observation stage text no longer updates counters. Shared spool checkpoints count committed input positions, preserving duplicate target rows in row-based workflows. Deterministic menu/direct-boundary regressions cover mixed results, out-of-order completion and failed checkpoints; operator terminal validation remains pending.
+
+PR #150 operator-column correction: ME3600X compares explicit switchport controls
+instead of EVC-derived parent VLANs; partial controls require evidence. EdgeSwitch
+explicitly excluded tagging is informational; active invalid tags and aggregate
+conflicts remain errors. Child skip/owner/schema/spool contracts remain intact.
+Synthetic regression coverage is recorded in the October devlog; owner workbook
+repeat and Linux validation remain pending.
+
+Final operator-column correction Windows validation: full suite 3,265 passed;
+broader suite 1,276 passed including the last parent-only database regression
+added after full-suite collection. Exact commands and timing are in
+[October devlog](devlog/2026-10.md). Owner repeat/Linux validation is pending.
+
+Issue #149 review revision bounds physical-child explanation comparisons and VLAN
+ranges/counts while preserving exact structured findings/evidence. Compliance
+export sanitizes complete values before the existing 30,000-character split and
+keys overflow references by input position, finding and original column name;
+Run Errors use a distinct error key. Sheet/column/spool contracts are unchanged.
+See the compliance manual and aggregation validation checks. Owner live validation
+of this presentation/export revision remains pending; automated checks use fixtures.
+
+
+Issue #149 / PR #150 owner revision (2026-10-25): planning, preparation and fresh
+execution block confirmed physical-child forwarding requests with
+NOT_ALLOW_ON_CHILD_PORT_CHANNEL, without redirect. EdgeSwitch completed addport-only or addport plus auto-negotiate
+stanzas preceding completed actual settings no longer create false description ambiguity;
+repeated settings/observed identities remain fail-closed. Pending stays non-ready.
+Synthetic targeted regressions pass; full automated results are recorded in the
+monthly devlog. Owner read-only live validation remains pending. See the
+[validation matrix](user_manual/aggregation-validation.md).
+
+The Issue #149 06:01 UTC EdgeSwitch mixed-member correction accepts only the
+evidenced `auto-negotiate` member attribute, preserving exact child description
+targets and the forwarding prohibition. Unknown/security commands, absent settings,
+missing exit, conflicting bindings and observed identity ambiguity fail closed.
+Owner repeat read-only validation remains pending; automated results are in the
+October devlog. Existing console workflows consume the corrected shared selector.

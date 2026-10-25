@@ -209,8 +209,12 @@ EdgeSwitch `lag N` joins observed `3/N` with opt-in canonicalization. Duplicate
 canonical observations produce isolated per-device `normalize` errors.
 Sanitized evidence comments, conditional lossless `Configuration_Evidence`,
 atomic export and retained-spool recovery use the existing console/direct CLI path.
-Legacy audit/planning/execution and default canonical API keys remain unchanged;
-no legacy functionality is retired. See the [reporting manual](docs/user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
+Issue #149 migrates audit/methodology/planning/execution relationship lookup to
+the shared AggregationSnapshot; family forwarding validation remains in place.
+Confirmed physical members visibly skip required-VLAN policy; parents retain it.
+ME3600X pseudowire interfaces are omitted only from compliance rows.
+See [ownership/API and validation](docs/user_manual/aggregation-validation.md).
+The default canonical-name utility API remains compatible. See the [reporting manual](docs/user_manual/device-interface-vlan-report.md#lag-relationships-issue-147)
 for Linux/Windows commands, column semantics, API and acceptance checks.
 
 Owner's private 2026-10-24 workbook confirms the 17-column schema, physical and
@@ -280,6 +284,10 @@ are `non_compliant`; complete requirements are `compliant`. Unknown families,
 unavailable configuration evidence, and ambiguous audited relationships produce
 `unable_to_assess`. Configuration problems are reported independently, even
 when the compliance trigger does not match.
+
+Child explanations use bounded VLAN summaries; full structured findings and
+source evidence remain recoverable. Oversized sanitized cells use keyed Details
+parts; see the [compliance export guide](docs/user_manual/device-vlan-compliance.md#concise-summaries-and-lossless-details-issue-149-review-revision).
 
 Saved configuration is authoritative. VlanService preserves an allowlisted
 configuration fact tree with nesting, source order, filename/source label,
@@ -782,3 +790,17 @@ Automated regression evidence and owner validation status are recorded in the
 Owner/live validation of this revision is pending.
 
 CLI/menu dashboards now share recorded-outcome accounting by committed input position (including repeated target rows); observation stage text never advances counts. Collection and export summaries remain separate; see [CLI progress and durable results](docs/user_manual/cli-progress.md) for terminal fallbacks, actual saved paths, recovery and specialist exemptions. Operator validation of this revision remains pending.
+
+PR #150's relationship follow-up corrects comparable ME3600X forwarding findings
+and explicitly excluded EdgeSwitch tagging context while retaining child skips
+and independent errors. See the [sanitized expected rows and repeat validation
+matrix](docs/user_manual/aggregation-validation.md#pr-150-operator-column-correction-2026-10-25).
+
+Issue #149 owner revision distinguishes EdgeSwitch membership-only/settings
+stanzas and blocks child-targeted forwarding without redirect. See the
+[validation matrix](docs/user_manual/aggregation-validation.md); owner live
+validation remains pending.
+
+Issue #149 mixed EdgeSwitch member stanzas (`auto-negotiate` plus `addport`)
+now use the subsequent completed settings stanza for planning/execution checks.
+Physical-child forwarding remains blocked. See the [read-only validation matrix](docs/user_manual/aggregation-validation.md).

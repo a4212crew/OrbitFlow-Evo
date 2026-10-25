@@ -68,7 +68,7 @@ def _row(r, observation, prior, decision, now, max_age):
     obs = observation or {}
     ident = obs.get("identity", {})
     platform = FAMILIES[t.family][0]
-    key = lambda n: canonical_interface_name(platform, n)
+    key = lambda n: canonical_interface_name(platform, n, normalize_aggregation=True)
     valid = obs.get("status") == "live_read_only"
     if not valid:
         findings.append("EVIDENCE_UNAVAILABLE")
@@ -304,7 +304,7 @@ def _build(requests, observations, decisions, now, max_age):
     for obs in observations.values():
         require(type(obs) is dict, "invalid observation")
         if obs.get("status") == "live_read_only":
-            keys({k: v for k, v in obs.items() if k not in {"vlan_lookups", "service_details", "configuration_reliable"}}, "identity observed_at interfaces vlans objects facts evidence audit problems methodologies status")
+            keys({k: v for k, v in obs.items() if k not in {"vlan_lookups", "service_details", "configuration_reliable", "aggregation"}}, "identity observed_at interfaces vlans objects facts evidence audit problems methodologies status")
             require("configuration_reliable" not in obs or type(obs["configuration_reliable"]) is bool, "invalid configuration reliability")
             require(type(obs.get("vlan_lookups", {})) is dict, "invalid VLAN lookups")
             for vid, lookup in obs.get("vlan_lookups", {}).items():

@@ -31,6 +31,7 @@ CASES += [(family, EVC + binding) for family in ('ASR920', 'ME3600X') for bindin
 
 @pytest.mark.parametrize('family,config', CASES)
 def test_compliance_baseline_and_evidence(family, config):
+    # Issue149 changes only ME3600X pseudowire output (index 2).
     expected = json.loads((Path(__file__).parent / 'fixtures/methodology_relationships_compliance.json').read_text())
     ctx, state = snapshot(config, family)
     before = evaluate_vlan_compliance(ctx, [], state, POLICY)

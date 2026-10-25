@@ -38,7 +38,8 @@ from orbitflow.configuration import execution_observation as observations
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.transport import connect_device
 from orbitflow.vendors.common import DeviceCLI
-from orbitflow.vendors.configuration_facts import _safe_source
+from orbitflow.vendors.configuration_facts import _safe_source, interface_settings
+from orbitflow.vendors.aggregation import for_observation, relationship_uncertain
 from orbitflow.vendors.interface_names import canonical_interface_name
 from orbitflow.vendors.vlan_types import parse_vlan_list
 from orbitflow.vendors.cisco import configuration_execution as cisco_execution
@@ -118,6 +119,20 @@ class ExecutionService:
             reason = ('UNSUPPORTED_TEMPLATE' if t.family not in {'C3750X', 'C3850X', 'EdgeSwitch'} else
                       result['decision'] if result['decision'] != 'Approve' else
                       'BLOCKED' if not result['deployment_ready'] else '')
+            if not reason and t.function in {'Access Port', 'Trunk Port', 'VLAN Port'}:
+                observation = data['observations'].get(request['inputs']['management_ip'], {})
+                platform = observation.get('identity', {}).get('platform', '')
+                aggregation = for_observation(observation, platform)
+                source = request['inputs']['interface']
+                if aggregation.owner(source):
+                    reason = 'NOT_ALLOW_ON_CHILD_PORT_CHANNEL'
+                elif relationship_uncertain(aggregation, source,
+                        [c for n in observation.get('facts', [])
+                         if n['kind'] in {'interface', 'l2_interface'}
+                         and canonical_interface_name(platform, n['value'], normalize_aggregation=True)
+                         == canonical_interface_name(platform, source, normalize_aggregation=True)
+                         for c in n['children']]) or aggregation.capture_incomplete:
+                    reason = 'OWNERSHIP_REQUIRES_REVIEW'
             entry = dict(request=request, result=result,
                          identity=data['observations'].get(request['inputs']['management_ip'], {}).get('identity'),
                          verification_commands=verification_commands(request, result))
@@ -233,12 +248,12 @@ def _check_target(entry, observed, context):
         return
     source = request['inputs']['interface']
     target = approved.get('resolved_target') or source
-    key = lambda name: canonical_interface_name(context.platform, name)
+    key = lambda name: canonical_interface_name(context.platform, name, normalize_aggregation=True)
     for name in {key(source), key(target)}:
         _gate(sum(key(i['port_name']) == name for i in observed['interfaces']) == 1,
               'INTERFACE_ABSENT_OR_AMBIGUOUS')
-        _gate(sum(n['kind'] == 'interface' and key(n['value']) == name
-                  for n in observed['facts']) == 1, 'INTERFACE_DECLARATION_ABSENT_OR_AMBIGUOUS')
+        _gate(len(interface_settings(observed['facts'], context.platform, name)) == 1,
+              'INTERFACE_DECLARATION_ABSENT_OR_AMBIGUOUS')
     adapter = edge_execution if context.platform == 'ubiquiti_edgeswitch' else cisco_execution
     code = adapter.target_blocker(function, source, target, observed, context.platform)
     _gate(not code, code)
@@ -266,7 +281,7 @@ def _verify_observed(session, context, cli, entry, before, *, timeout=30.0, corr
     if after is None:
         after = _observe(session, context, cli, [entry], timeout)
     target = result.get('resolved_target', p['interface'])
-    key = lambda value: canonical_interface_name(context.platform, value)
+    key = lambda value: canonical_interface_name(context.platform, value, normalize_aggregation=True)
     actual = [i for i in after['interfaces'] if key(i['port_name']) == key(target)]
     previous = [i for i in before['interfaces'] if key(i['port_name']) == key(target)]
     if len(actual) != 1 or len(previous) != 1:
@@ -275,7 +290,7 @@ def _verify_observed(session, context, cli, entry, before, *, timeout=30.0, corr
     checks = [actual[0]['port_description'] == description]
     # Retain scoped config and prove admin setting preservation independently of link state.
     def settings(obs):
-        nodes = [n for n in obs['facts'] if n['kind'] == 'interface' and key(n['value']) == key(target)]
+        nodes = interface_settings(obs['facts'], context.platform, target)
         return nodes[0]['children'] if len(nodes) == 1 else None
     old, new = settings(before), settings(after)
     if old is None or new is None:
@@ -373,7 +388,7 @@ def _template_stages(entries):
             touched = {('vlan', p['vlan_id'])}
         else:
             # Both source and resolved owner protect physical/bundle overlaps.
-            touched = {('interface', canonical_interface_name(entry['identity']['platform'], name))
+            touched = {('interface', canonical_interface_name(entry['identity']['platform'], name, normalize_aggregation=True))
                        for name in (p['interface'], result.get('resolved_target') or p['interface'])}
         if pending and (r['template_id'] != pending[0]['request']['template_id']
                         or targets & touched or ids & set(result['dependencies'])):

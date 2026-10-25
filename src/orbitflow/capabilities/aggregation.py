@@ -8,7 +8,7 @@ from orbitflow.vendors.cisco.interfaces import CiscoXRCLI
 
 
 class AggregationService:
-    """Collect explicit configured bindings without changing legacy aggregation."""
+    """Collect the shared explicit configured relationship contract."""
     def __init__(self, *, timeout=30, clock=None):
         self.timeout = timeout
         self.clock = clock or (lambda: datetime.now(timezone.utc))

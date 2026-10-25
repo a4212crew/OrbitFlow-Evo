@@ -406,11 +406,11 @@ Dynamic/unspecified switchport modes are not assumed operational trunks.
 
 ### Port-channel
 
-Resolve physical `channel-group` members to the logical Port-channel.
+Use the shared `AggregationSnapshot` as the sole authority for physical `channel-group` member-to-Port-channel identity, original source heading, confirmed ownership and relationship-evidence completeness. `AuditResolver` must not reconstruct membership independently. The aggregate owns forwarding configuration; vendor-specific saved-config validation (allowed VLANs, mode, native VLAN, EVC/service/BD mappings) remains the resolver's responsibility. In ME3600X, compare **explicit comparable** member/parent switchport controls rather than comparing the member with EVC-derived parent VLAN membership. Preserve genuine mismatches and incomplete-evidence findings.
 
-The aggregate owns forwarding configuration. Member rows may show inheritance/evidence, but remediation belongs to the aggregate when the aggregate is authoritative.
+In VLAN compliance, retain confirmed physical members as visible `Child Port-Channel` rows with `not_applicable` required-VLAN policy, actual logical parent in `Configuration Owner`, and clear explanation. Independently configured member conflicts remain in `Configuration Findings` and configuration health. Evaluate required VLANs on the parent. Do not report parent-only database/EVC defects as member defects unless the child has its own explicit invalid commands. Exclude actual ME3600X pseudowire **interface rows from compliance only**; preserve service evidence and methodology observations.
 
-Report explicit member/aggregate conflicts.
+**Planning/execution owner decision (2026-10-25; not yet an implementation claim):** Access/trunk configuration changes targeting a confirmed *physical* Port-channel member must be blocked, not transparently redirected to the logical parent. Directly selected logical Port-channel targets may be separately assessed through normal safety gates; uncertain membership fails closed. Retain existing execution approval, fresh-observation checks, and compatibility until code/tests explicitly implement and validate the stricter policy.
 
 Findings include:
 
@@ -655,7 +655,7 @@ valid_membership_vlans =
 
 Then:
 
-- tagged VLAN outside valid membership -> `TAGGED_VLAN_NOT_IN_MEMBERSHIP`;
+- actively tagged VLAN outside valid membership **without effective explicit exclusion** -> `TAGGED_VLAN_NOT_IN_MEMBERSHIP`; effective explicit exclusion with residual tagging -> informational `EXCLUDED_VLAN_TAGGING_INACTIVE`;
 - PVID outside valid membership -> `PVID_NOT_IN_MEMBERSHIP`;
 - participating VLAN absent from DB -> `INTERFACE_VLAN_NOT_IN_DATABASE`.
 
@@ -676,9 +676,9 @@ Description text such as "Access_port" or "Trunk_port" does not override actual 
 
 ### LAG
 
-Preserve EdgeSwitch aggregate/member relationships (for example `addport` and `interface lag N`).
+Use `AggregationSnapshot` for EdgeSwitch member/parent identity and source evidence, including canonical `3/N` ↔ configured `lag N` aliases. Never independently guess a parent from name or description. The actual `lag N` configuration heading is displayed in VLAN compliance while interface/VLAN observation may retain operational `3/N`. Confirmed physical children remain visible, `Child Port-Channel` and `not_applicable` for required-VLAN policy; preserve real member/parent forwarding conflicts and independent configuration health.
 
-When a LAG is the authoritative forwarding interface, configuration ownership/remediation belongs to the aggregate. Report explicit aggregate/member conflicts.
+An effectively excluded VLAN with residual tagging is informational `EXCLUDED_VLAN_TAGGING_INACTIVE`, not an active `TAGGED_VLAN_NOT_IN_MEMBERSHIP` error solely for that exclusion. Source-ordered subsequent inclusion reactivates membership; missing active membership/database VLANs and genuine explicit member-vs-parent differences remain actionable. The shared aggregation contract determines ownership, while EdgeSwitch forwarding semantics remain vendor-specific.
 
 Findings include:
 

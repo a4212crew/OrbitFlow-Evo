@@ -7,7 +7,7 @@ def scoped_evidence(request, observation):
     t, p = BY_ID[request["template_id"]], request["inputs"]
     if t.family == "All":
         return []
-    key = lambda name: canonical_interface_name(FAMILIES[t.family][0], name)
+    key = lambda name: canonical_interface_name(FAMILIES[t.family][0], name, normalize_aggregation=True)
     target = p.get("interface", "")
     logical = target + (f".{p['subinterface']}" if "subinterface" in p else "")
     names = {key(target), key(logical)} - {""}

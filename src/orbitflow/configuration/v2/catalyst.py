@@ -2,6 +2,7 @@
 from orbitflow.vendors.interface_names import canonical_interface_name
 from orbitflow.vendors.cisco.bulk_plan import render
 from orbitflow.compliance.resolvers import reconstruct_allowed
+from orbitflow.vendors.aggregation import for_observation, relationship_uncertain
 
 
 def evaluate(t, p, obs, out, prior):
@@ -12,7 +13,7 @@ def evaluate(t, p, obs, out, prior):
         warnings.add(code)
     def block(code):
         findings.append(code)
-    key = lambda n: canonical_interface_name(obs.get('identity', {}).get('platform', ''), n)
+    key = lambda n: canonical_interface_name(obs.get('identity', {}).get('platform', ''), n, normalize_aggregation=True)
     database = {int(o['object_id']): o.get('name', '') for o in obs.get('objects', [])
                 if o['object_type'] == 'vlan' and str(o['object_id']).isdigit()}
     def lookup(vid):
@@ -44,19 +45,18 @@ def evaluate(t, p, obs, out, prior):
         def last(kind, default=None):
             items = [n['value'] for n in node['children'] if n['kind'] == kind]
             return items[-1] if items else default
-        member = last('aggregate')
-        if member and t.function == 'Access Port':
-            block('PHYSICAL_PORT_CHANNEL_MEMBER')
-        if member and t.function == 'Trunk Port':
-            owners = [n for n in obs.get('facts', []) if n['kind'] == 'interface' and key(n['value']) == key('Port-channel' + str(member))]
-            audit = [a for a in obs.get('audit', []) if key(a['config_interface_name']) == key(target)]
-            if len(owners) != 1 or len(audit) != 1 or key(audit[0].get('configuration_owner', '')) != key(owners[0]['value']):
-                block('PORT_CHANNEL_OWNER_UNRESOLVED')
-            else:
-                if any(d['code'] == 'PORT_CHANNEL_CONFIG_CONFLICT' for d in audit[0]['configuration_findings']):
-                    block('PORT_CHANNEL_CONFIG_CONFLICT')
-                target, node = 'Port-channel' + str(member), owners[0]
-                warn('TARGET_RESOLVED_TO_PORT_CHANNEL')
+        aggregation = for_observation(obs, obs.get('identity', {}).get('platform', ''))
+        member = aggregation.owner(target)
+        uncertain = relationship_uncertain(aggregation, target, node['children']) or (
+            obs.get('aggregation') is not None and aggregation.capture_incomplete)
+        if t.function != 'Interface Description' and uncertain:
+            block('PORT_CHANNEL_OWNER_UNRESOLVED')
+        if member and t.function != 'Interface Description':
+            block('NOT_ALLOW_ON_CHILD_PORT_CHANNEL')
+            if any(d['code'] == 'PORT_CHANNEL_CONFIG_CONFLICT'
+                   for a in obs.get('audit', []) if key(a['config_interface_name']) == key(target)
+                   for d in a.get('configuration_findings', [])):
+                block('PORT_CHANNEL_CONFIG_CONFLICT')
         out['resolved_target'] = target
         desc = last('description', '')
         mode = 'routed' if last('routed') else last('mode', 'unconfigured')

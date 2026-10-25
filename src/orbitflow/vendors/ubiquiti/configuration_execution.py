@@ -1,5 +1,6 @@
 """Approved EdgeSwitch execution modes and verification command selection."""
 import re
+from orbitflow.vendors.aggregation import for_observation, relationship_uncertain
 
 from orbitflow.vendors.vlan_types import parse_vlan_list
 from orbitflow.vendors.ubiquiti.prompts import extract_edgeswitch_hostname
@@ -8,13 +9,16 @@ from orbitflow.vendors.interface_names import canonical_interface_name
 
 def target_blocker(function, source, target, observed, platform):
     """Check exact normalized EdgeSwitch target/ownership, without replanning."""
-    key = lambda name: canonical_interface_name(platform, name)
+    key = lambda name: canonical_interface_name(platform, name, normalize_aggregation=True)
+    if function == 'Interface Description':
+        return '' if key(source) == key(target) else 'TARGET_DRIFT'
+    aggregation = for_observation(observed, platform)
+    if aggregation.owner(source):
+        return 'NOT_ALLOW_ON_CHILD_PORT_CHANNEL'
     if key(source) != key(target):
         return 'TARGET_DRIFT'
-    if function == 'Interface Description':
-        return ''
     node = next(n for n in observed['facts'] if n['kind'] == 'interface' and key(n['value']) == key(source))
-    if any(n['kind'] == 'aggregate' for n in node['children']):
+    if relationship_uncertain(aggregation, source, node['children']) or (observed.get('aggregation') is not None and aggregation.capture_incomplete):
         return 'OWNERSHIP_REQUIRES_REVIEW'
     audit = [a for a in observed['audit'] if key(a['config_interface_name']) == key(source)]
     if len(audit) != 1 or key(audit[0].get('configuration_owner', '')) != key(target):

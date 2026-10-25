@@ -413,3 +413,50 @@ still returns the report Path, preserves historical classifications and never re
 CLI/menu presentation now distinguishes report export failure from collection and prints
 the actual saved report/retained run paths. Quiet library calls retain output ownership.
 See [terminal behaviour and full workflow coverage](../user_manual/cli-progress.md).
+
+
+## Shared aggregation ownership (Issue #149)
+
+`configuration.v2.observation.snapshot(context, interfaces, vlans, *, clean=...)`
+now includes an optional persisted `aggregation` payload from the shared
+AggregationSnapshot on VlanState. Planning/load and fresh execution ownership
+checks consume that result. Older observation payloads without the field still
+project preserved typed facts through the shared aggregation parser; existing
+result spools export their recorded values without reconnection/reclassification.
+The public prepare/confirm/verify signatures and approval/digest boundaries are
+unchanged. No additional configuration command is sent by this migration.
+
+The bounded execution projection cache excludes only observation timestamps,
+including aggregation collection_time, and rebases them from fresh reads; changed
+bindings, evidence or completeness invalidate reuse. New incomplete captures block
+forwarding ownership decisions; exact-target descriptions retain their existing
+constraints. See the [model/API compatibility and read-only validation matrix](../user_manual/aggregation-validation.md).
+
+
+### Issue #149 / PR #150 owner revision (2026-10-25)
+
+The earlier child-to-parent trunk redirect and broad compatible-stanza merge
+language is superseded. Confirmed physical child forwarding requests block with
+`NOT_ALLOW_ON_CHILD_PORT_CHANNEL`; select the logical parent explicitly instead.
+Descriptions remain exact-target. EdgeSwitch completed member stanzas (addport
+alone or with the explicitly recognized auto-negotiate attribute) preceding a
+completed settings stanza contribute relationship evidence only; the subsequent
+settings stanza supplies consistency input. Repeated actual settings remain ambiguous,
+missing settings remain unknown, and actual observed duplicates still block.
+Original ordered facts/source lines and all addport commands are retained.
+Preparation independently rejects historical approved redirects; fresh execution
+rechecks ownership. Historical codes/artifacts remain readable without bypassing
+current safety. Approval, digest, backup, transport and verification gates persist.
+See [owner validation matrix](../user_manual/aggregation-validation.md).
+Deterministic regression evidence does not establish live-device acceptance.
+
+The 06:01 UTC owner reproduction is covered by the narrow shared selector:
+`auto-negotiate` plus `addport 3/1`, then `exit`, precedes separate completed
+`0/49` settings. Only those later settings supply description/VLAN consistency;
+all original evidence remains ordered. Unknown or security-relevant commands are
+not member metadata. Multiple actual settings or missing closure fail closed.
+Typed legacy snapshots with contradictory/malformed bindings also require ownership
+review. Planning, preparation/fresh target checks and post-change verification use
+the same selector; no approval/digest or spool schema changes. The forwarding child
+blocker remains `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`. See the existing validation
+matrix for Linux/Windows read-only reproduction; live validation remains pending.

@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -459,7 +459,7 @@ def test_readable_evidence_layout_and_overflow_recovery(tmp_path):
         assert cells["Evidence Lines"] == "114,117,119-121"
         assert cells["Evidence Source"] == "saved.cfg"
         database = dict(zip(*list(workbook["Database Results"].values)))
-        assert database["Configuration Evidence"] == "See Details: finding 1, Configuration Evidence"
+        assert database["Configuration Evidence"] == "See Details: input 1, finding 1, Configuration Evidence"
         parts = [r[4] for r in list(workbook["Details"].values)[1:] if r[2] == "Configuration Evidence"]
         assert "".join(parts) == "x" * 31000
         structured = [r[4] for r in list(workbook["Details"].values)[1:] if r[1:3] == ("2", "evidence")]
@@ -503,3 +503,61 @@ def test_manifest_failure_partial_compliance_export_without_reconnect(tmp_path, 
         assert sum(1 for _ in workbook['Interface Results'].rows) == 2
     finally:
         workbook.close()
+
+def test_all_column_overflows_reassemble_without_cross_device_mapping(tmp_path):
+    spool = ResultSpool.create(tmp_path / 'runs', 'vlan_compliance', 2)
+    expected = {}
+    with spool.collection():
+        for position in (1, 2):
+            findings = evaluate()
+            for index, finding in enumerate(findings, 1):
+                for field, column in (('explanation', 'Explanation'), ('recommendation', 'Recommendation')):
+                    value = f'device {position} finding {index} {field}: ' + ('abc\n' * 16000)
+                    finding[field] = value
+                    expected[str(position), str(index), column] = value
+                excerpt = f'  device {position} finding {index} ' + 'x' * 65000
+                finding['evidence'] = {'sources': [dict(source_filename='saved.cfg', line=1, excerpt=excerpt)]}
+                expected[str(position), str(index), 'Configuration Evidence'] = excerpt
+            error_text = 'stage ' + 'z' * 61000
+            expected[str(position), 'error 1', 'Stage'] = error_text
+            spool.append(DeviceOutcome(position), payload={'findings': findings, 'errors': [
+                dict(management_ip='192.0.2.1', stage=error_text, error_category='synthetic')]})
+    path = report.export_compliance_spool(spool.path, tmp_path / 'overflow.xlsx', cleanup=False)
+    with closing(load_workbook(path, read_only=True)) as workbook:
+        parts = {}
+        for position, finding, field, part, fragment in list(workbook['Details'].values)[1:]:
+            assert len(fragment) <= 30000
+            parts.setdefault((position, finding, field), []).append((int(part), fragment))
+        for key, value in expected.items():
+            assert ''.join(fragment for _, fragment in sorted(parts[key])) == value
+        for sheet in ('Interface Results', 'Database Results'):
+            rows = list(workbook[sheet].values)
+            for row in rows[1:]:
+                cells = dict(zip(rows[0], row))
+                assert cells['Explanation'].startswith('See Details: input ' + cells['Input Position'])
+                assert cells['Evidence Source'] == 'saved.cfg'
+                assert cells['Evidence Lines'] == '1'
+    # Re-export is offline and deterministic, including historic spool payloads.
+    again = report.export_compliance_spool(spool.path, tmp_path / 'again.xlsx', cleanup=False)
+    with closing(load_workbook(again, read_only=True)) as workbook:
+        assert list(workbook['Details'].values)[1:]
+
+
+def test_sanitation_precedes_size_check_and_fragmentation(tmp_path):
+    findings = evaluate()
+    findings[0]['explanation'] = 'short normal cell'
+    findings[0]['recommendation'] = 'Review. password=' + 'x' * 70000
+    findings[0]['evidence'] = {'sources': [dict(source_filename='saved.cfg', line=1, excerpt=' password=hidden')]}
+    findings[1]['explanation'] = 'a' * 30000 + '\x01' * 100
+    spool = ResultSpool.create(tmp_path / 'runs', 'vlan_compliance', 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1), payload={'findings': findings, 'errors': []})
+    path = report.export_compliance_spool(spool.path, tmp_path / 'clean.xlsx')
+    with closing(load_workbook(path, read_only=True)) as workbook:
+        database = dict(zip(*list(workbook['Database Results'].values)))
+        assert database['Explanation'] == 'short normal cell'
+        assert database['Recommendation'] == 'Review. password=[REDACTED]'
+        parts = [r[4] for r in list(workbook['Details'].values)[1:] if r[1:3] == ('1', 'evidence')]
+        assert json.loads(''.join(parts))['sources'][0]['excerpt'] == ' password=[REDACTED]'
+        interface = dict(zip(*list(workbook['Interface Results'].values)))
+        assert interface['Explanation'] == 'a' * 30000

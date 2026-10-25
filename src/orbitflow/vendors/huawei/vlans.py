@@ -1,4 +1,5 @@
 """Huawei VRP current-configuration VLAN observation."""
+from orbitflow.vendors.aggregation import from_configuration
 
 import re
 
@@ -182,4 +183,4 @@ class HuaweiVlanAdapter:
                 )
             interfaces, objects = parse_huawei_config(output)
             return VlanCollection(extract_huawei_hostname(cli.prompt), interfaces, objects,
-                                  observe_configuration(output, "huawei_vrp"))
+                                  observe_configuration(output, "huawei_vrp"), from_configuration(output, "huawei_vrp"))
