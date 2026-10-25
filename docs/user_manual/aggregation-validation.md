@@ -287,7 +287,9 @@ follow normal family prerequisites. Unknown, conflicting or partial ownership
 blocks forwarding changes. Blocked plans may retain reviewable proposed CLI;
 that CLI is not executable authorization. Pending remains deployment_ready=false.
 
-EdgeSwitch membership-only stanzas contain only addport declarations through exit.
+EdgeSwitch member-only stanzas contain addport declarations and optionally the
+explicitly recognized auto-negotiate attribute through exit. No other member
+attribute is allowlisted without verified evidence.
 They contribute all commands to aggregation, including contradictory assignments,
 but are excluded from settings consistency when followed by a settings stanza for
 the same canonical interface, with the membership stanza exit preserved. That subsequent settings stanza supplies description
@@ -331,3 +333,48 @@ python -m pytest -q
 
 These are deterministic automated checks, not live-device acceptance. Linux commands
 are owner-executable; automated execution for this revision used Windows PowerShell.
+
+
+### 06:01 UTC mixed-member reproduction (same Issue #149 / PR #150)
+
+Use the exact read-only Bash/PowerShell planning commands above with the owner's
+locally protected input workbook and a new output filename. Keep decisions Pending.
+Inspect EdgeSwitch VLAN Port row 7 for physical `0/49`: the captured member stanza
+must contain `auto-negotiate` and `addport 3/1` and end in `exit`, followed by a
+separate completed settings stanza. Expect `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`,
+resolved target `0/49`, deployment_ready=false, and no spurious
+`INTERFACE_CONFIGURATION_ABSENT_OR_AMBIGUOUS`. Do not run confirm/apply.
+
+| Read-only case | Expected result |
+|---|---|
+| Exact mixed-member 0/49 VLAN Port | Required child blocker only when other evidence is valid |
+| Exact mixed-member 0/49 Description | Consistent, commands target 0/49 exactly; Pending |
+| Existing 0/17 Description | Same exact-target consistent result as before |
+| Direct lag 1 VLAN Port | Independently evaluated under existing parent prerequisites |
+| Unknown/security command mixed with addport | Competing stanza retained; ambiguity blocks |
+| Missing exit, missing actual settings, repeated forwarding settings | Fail closed; no latest-stanza override |
+| Conflicting addport, incomplete ownership, duplicate observed identity | Block/review; no standalone inference |
+
+Fresh execution rejection and post-change verification are exercised with synthetic
+observations only. There is no read-only execution-confirmation mode. Repeat the
+family and compatibility matrix above, including offline compliance/report exports,
+without writing devices. Owner validation remains pending on Linux and Windows.
+
+Automated commands (run on Windows PowerShell; Bash uses the same pytest commands):
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m pytest tests/test_aggregation_owner_revision.py tests/test_aggregation.py tests/test_aggregation_consumers.py tests/test_approved_catalyst_templates.py tests/test_configuration_execution_stages.py -q
+python -m pytest -q
+```
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -m pytest tests/test_aggregation_owner_revision.py tests/test_aggregation.py tests/test_aggregation_consumers.py tests/test_approved_catalyst_templates.py tests/test_configuration_execution_stages.py -q
+python -m pytest -q
+```
+
+Verified Windows automated results for this correction: targeted matrix **341
+passed in 38.58s**; full suite **3287 passed in 281.04s**. Supplemental mixed-member
+preparation assertions: **25 passed in 2.66s**. These synthetic results do not
+establish owner/live acceptance. Detailed run history is in the October devlog.

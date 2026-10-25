@@ -386,7 +386,9 @@ def interface_settings(facts, platform, target):
     """Select exact interface settings without treating Edge membership as settings.
 
     Original ordered facts remain untouched for relationship/evidence consumers.
-    Only addport-only stanzas preceding an actual settings stanza are excluded.
+    Only completed addport/member-operational stanzas preceding a completed
+    settings stanza are excluded. The EdgeSwitch allowlist deliberately accepts
+    only evidenced auto-negotiate syntax; unknown/security commands are settings.
     Repeated actual settings stay ambiguous, even if their headings match.
     """
     from orbitflow.vendors.interface_names import canonical_interface_name
@@ -400,13 +402,21 @@ def interface_settings(facts, platform, target):
     def membership_only(node):
         commands = [c for c in node['children']
                     if not (c['kind'] == 'methodology_evidence' and c['value'] == 'stanza_end')]
-        return bool(commands) and all(c['kind'] == 'aggregate' for c in commands)
+        return (any(c['kind'] == 'aggregate' for c in commands)
+                and all(c['kind'] == 'aggregate' or (
+                    c['kind'] == 'methodology_evidence' and c['value'] == 'interface_source'
+                    and c['excerpt'].strip() == 'auto-negotiate' and not c['children'])
+                    for c in commands))
     first_settings = next((i for i, n in enumerate(nodes) if not membership_only(n)), len(nodes))
     # No settings stanza means unknown configuration, not an absent physical port.
     if first_settings == len(nodes):
         return []
-    # A missing exit cannot establish a complete membership-only stanza role.
+    # Both member evidence and settings must have explicit section closure.
     if any(not any(c['kind'] == 'methodology_evidence' and c['value'] == 'stanza_end'
-                   for c in n['children']) for n in nodes[:first_settings]):
-        return nodes
+                   for c in n['children']) for n in nodes):
+        return []
+    if first_settings and not any(
+            c['kind'] != 'methodology_evidence' or c['value'] != 'stanza_end'
+            for c in nodes[first_settings]['children']):
+        return []  # An empty heading does not supply the missing settings.
     return nodes[first_settings:]

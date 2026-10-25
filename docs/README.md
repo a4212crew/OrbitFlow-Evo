@@ -104,4 +104,4 @@ Issue #117 [revision handoff history](operations/issue-117-revision-handoff.md):
 - [Skill reconciliation record](operations/mac-lookup-atlas-skill-handoff.md) (applied on this PR branch)
 - Backend guidance: [MAC observation](../.agents/skills/mac-observation/SKILL.md) and [bridge-domain observation](../.agents/skills/bridge-domain-observation/SKILL.md)
 
-- [Shared aggregation ownership and validation](user_manual/aggregation-validation.md): Issue #149 behavior, public contracts, automated commands and owner family/workflow matrix.
+- [Shared aggregation ownership and validation](user_manual/aggregation-validation.md): Issue #149 behavior, mixed EdgeSwitch member-stanza reproduction, public contracts, automated commands and owner family/workflow matrix.

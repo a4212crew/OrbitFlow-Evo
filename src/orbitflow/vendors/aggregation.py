@@ -292,8 +292,14 @@ def for_observation(observed, platform):
 
 
 def relationship_uncertain(snapshot, name, facts=()):
-    """Absence cannot prove standalone when capture failed or binding is unresolved."""
+    """Unresolved bindings cannot prove standalone, even with selected settings.
+
+    Contradictory/malformed captures may omit untrustworthy bindings entirely.
+    Their device-scoped problems remain authoritative for legacy typed snapshots.
+    """
     key = identity(snapshot.platform, name)
     return (not snapshot.owner(key) and (
         any(child == key for child, _ in snapshot.bindings)
+        or any(problem in snapshot.problems for problem in
+               ('contradictory member binding', 'malformed member binding'))
         or any(n.get("kind") == "aggregate" for n in facts)))

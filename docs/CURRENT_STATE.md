@@ -1025,9 +1025,16 @@ of this presentation/export revision remains pending; automated checks use fixtu
 
 Issue #149 / PR #150 owner revision (2026-10-25): planning, preparation and fresh
 execution block confirmed physical-child forwarding requests with
-NOT_ALLOW_ON_CHILD_PORT_CHANNEL, without redirect. EdgeSwitch addport-only
-stanzas preceding actual settings no longer create false description ambiguity;
+NOT_ALLOW_ON_CHILD_PORT_CHANNEL, without redirect. EdgeSwitch completed addport-only or addport plus auto-negotiate
+stanzas preceding completed actual settings no longer create false description ambiguity;
 repeated settings/observed identities remain fail-closed. Pending stays non-ready.
 Synthetic targeted regressions pass; full automated results are recorded in the
 monthly devlog. Owner read-only live validation remains pending. See the
 [validation matrix](user_manual/aggregation-validation.md).
+
+The Issue #149 06:01 UTC EdgeSwitch mixed-member correction accepts only the
+evidenced `auto-negotiate` member attribute, preserving exact child description
+targets and the forwarding prohibition. Unknown/security commands, absent settings,
+missing exit, conflicting bindings and observed identity ambiguity fail closed.
+Owner repeat read-only validation remains pending; automated results are in the
+October devlog. Existing console workflows consume the corrected shared selector.

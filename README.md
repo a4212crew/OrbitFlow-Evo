@@ -800,3 +800,7 @@ Issue #149 owner revision distinguishes EdgeSwitch membership-only/settings
 stanzas and blocks child-targeted forwarding without redirect. See the
 [validation matrix](docs/user_manual/aggregation-validation.md); owner live
 validation remains pending.
+
+Issue #149 mixed EdgeSwitch member stanzas (`auto-negotiate` plus `addport`)
+now use the subsequent completed settings stanza for planning/execution checks.
+Physical-child forwarding remains blocked. See the [read-only validation matrix](docs/user_manual/aggregation-validation.md).

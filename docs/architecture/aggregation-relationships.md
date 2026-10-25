@@ -265,9 +265,10 @@ The owner-provided v2 plan (`plan(20261025-052137).json`) shows EdgeSwitch Inter
 The earlier child-to-parent trunk redirect and broad compatible-stanza merge
 language is superseded. Confirmed physical child forwarding requests block with
 `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`; select the logical parent explicitly instead.
-Descriptions remain exact-target. EdgeSwitch addport-only stanzas preceding a
-settings stanza contribute relationship evidence only; the subsequent settings
-stanza supplies consistency input. Repeated actual settings remain ambiguous,
+Descriptions remain exact-target. EdgeSwitch completed member stanzas (addport
+alone or with the explicitly recognized auto-negotiate attribute) preceding a
+completed settings stanza contribute relationship evidence only; the subsequent
+settings stanza supplies consistency input. Repeated actual settings remain ambiguous,
 missing settings remain unknown, and actual observed duplicates still block.
 Original ordered facts/source lines and all addport commands are retained.
 Preparation independently rejects historical approved redirects; fresh execution
@@ -275,3 +276,14 @@ rechecks ownership. Historical codes/artifacts remain readable without bypassing
 current safety. Approval, digest, backup, transport and verification gates persist.
 See [owner validation matrix](../user_manual/aggregation-validation.md).
 Deterministic regression evidence does not establish live-device acceptance.
+
+The 06:01 UTC owner reproduction is covered by the narrow shared selector:
+`auto-negotiate` plus `addport 3/1`, then `exit`, precedes separate completed
+`0/49` settings. Only those later settings supply description/VLAN consistency;
+all original evidence remains ordered. Unknown or security-relevant commands are
+not member metadata. Multiple actual settings or missing closure fail closed.
+Typed legacy snapshots with contradictory/malformed bindings also require ownership
+review. Planning, preparation/fresh target checks and post-change verification use
+the same selector; no approval/digest or spool schema changes. The forwarding child
+blocker remains `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`. See the existing validation
+matrix for Linux/Windows read-only reproduction; live validation remains pending.

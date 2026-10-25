@@ -833,7 +833,8 @@ def test_real_edgeswitch_audit_warning_description_only():
                 fact("vlan", (445,), 2, "vlan 445"),)),
              fact("interface", interface.port_name, 3, "interface Gi1/0/1", (
                 fact("include", (445,), 4, "vlan participation include 445"),
-                fact("tagged", (445, 446), 5, "vlan tagging 445,446"))))
+                fact("tagged", (445, 446), 5, "vlan tagging 445,446"),
+                fact("methodology_evidence", "stanza_end", 6, "exit"))))
     state = VlanState("example", IP, context.platform, (), (), NOW, facts)
     obs = snapshot(context, (interface,), state)
     assert obs["audit"][0]["configuration_findings"][0]["code"] == "TAGGED_VLAN_NOT_IN_MEMBERSHIP"
