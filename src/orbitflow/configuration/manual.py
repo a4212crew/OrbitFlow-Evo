@@ -15,6 +15,7 @@ import ipaddress
 import math
 import os
 import re
+from tempfile import NamedTemporaryFile
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment
@@ -206,7 +207,7 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
     """Apply only after local password and summary-bound explicit confirmation.
 
     credentials maps IP to existing DeviceCredentials; no command-workbook secrets.
-    Returns a retained run path. Publishes a report per completed device via the
+    Returns a retained run path. Refreshes one consolidated report per device via the
     scheduler and optional on_output(Path); export failures retain offline recovery.
     """
     authorize(profile, password)  # Before allocation, connection, identity or backup.
@@ -272,7 +273,7 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
     groups = {}
     for row in rows:
         groups.setdefault(row['management_ip'], []).append(row)
-    spool = ResultSpool.create(run_root, 'manual_configuration', len(groups), clean=sanitize_text)
+    spool = ResultSpool.create(run_root, 'manual_configuration', len(groups), clean=sanitize_text, short_name=True)
     journal = ResultJournal(spool.path / 'events.jsonl', clean=sanitize_text)
     backup = BackupWriter(Path(backups_dir) / spool.path.name, datetime.now(timezone.utc), exact_directory=True)
     store = JsonInventoryStore(inventory_path)
@@ -282,6 +283,11 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
     journal.append(safe_record(dict(kind='input', rows=input_rows, summary=bound, settings=asdict(settings))))
     if on_started:
         on_started(spool.path)
+    report_directory = Path(reports_dir) / spool.path.name
+    report_directory.mkdir(parents=True, exist_ok=False)
+    report_output = report_directory / ('manual_output_' + spool.path.name + '.xlsx')
+    # Publish pending rows before any worker connects; later refreshes replace atomically.
+    regenerate_report(spool.path, report_output)
     cancelled = Event()
     def checkpoint():
         if cancelled.is_set():
@@ -310,9 +316,9 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                         # Allocate the IP fallback before identification so even
                         # login/setup failures retain a device transcript.
                         if transcript is None:
-                            directory = Path(reports_dir) / spool.path.name / filename_component(ip or 'invalid-input')
-                            directory.mkdir(parents=True, exist_ok=True)
-                            path = directory / 'capture.txt'
+                            directory = report_directory
+                            component = filename_component(ip or 'invalid-input')
+                            path = directory / f'{component}_{component}.txt'
                             transcript = path.open('x', encoding='utf-8', newline='\r\n')
                         row['transcript'] = str(path.resolve())
                         event(ip, 'capture', transcript=str(path.resolve()))
@@ -338,6 +344,26 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                             # exit is used for cleanup, even from unknown submodes.
                             with DeviceCLI(session, timeout=settings.setup_timeout) as cli:
                                 context = DeviceInventoryResolver(store, sanitize_fact=clean).resolve(session, management_ip=ip, cli=cli)
+                                desired = report_directory / (filename_component(clean(context.hostname or ip)) + '_' + filename_component(ip or 'invalid-input') + '.txt')
+                                if desired != path:
+                                    # Exclusive destination claim; preserve the original capture on failure.
+                                    try:
+                                        with desired.open('xb'):
+                                            pass
+                                        transcript.close()
+                                        try:
+                                            path.replace(desired)
+                                        except BaseException:
+                                            desired.unlink(missing_ok=True)
+                                            raise
+                                        path = desired
+                                    except OSError:
+                                        pass
+                                    finally:
+                                        transcript.close()
+                                        transcript = path.open('a', encoding='utf-8', newline='\r\n')
+                                    row['transcript'] = str(path.resolve())
+                                    event(ip, 'capture', transcript=str(path.resolve()))
                                 vendor.adapter(context)  # Before any user configuration writes.
                                 phase = 'backup'
                                 content = ConfigurationService(timeout=settings.setup_timeout).collect(session, context, cli=cli)
@@ -458,8 +484,7 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                 raise
             ip = list(groups)[outcome.position - 1]
             try:
-                directory = Path(reports_dir) / spool.path.name / filename_component(ip or 'invalid-input')
-                output = regenerate_report(spool.path, reports_dir=directory, management_ip=ip)
+                output = regenerate_report(spool.path, report_output, replace=True)
                 event(ip, 'report_exported', output=str(output.resolve()))
                 if on_output:
                     on_output(output)
@@ -470,9 +495,10 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
     return spool.path
 
 
-def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/manual_configuration', management_ip=None):
+def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/manual_configuration', management_ip=None, replace=False):
     """Offline recovery from durable input/intents/results; never connects/replays.
 
+    replace=True atomically refreshes an existing workbook; failure retains it.
     Unterminated journal lines are ignored. A save intent without confirmed result
     remains Unknown. Missing rows remain Incomplete, even if collection returned.
     """
@@ -514,7 +540,12 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
     output.parent.mkdir(parents=True, exist_ok=True)
     # Claim output before constructing streaming XML writers; allocation failure
     # cannot leave unclosed openpyxl generators.
-    stream = stream or output.open('xb')
+    if replace:
+        stream = NamedTemporaryFile(mode='w+b', prefix='.manual-', suffix='.xlsx', dir=output.parent, delete=False)
+        temporary = Path(stream.name)
+    else:
+        stream = stream or output.open('xb')
+        temporary = output
     book = None
     try:
         with stream:
@@ -531,7 +562,7 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
                             reason='Interrupted/recording incomplete' if number in attempts or number in saves else 'Not attempted: run incomplete',
                             attempted=attempts.get(number, 0), total=source['total'], last_command=attempts.get(number),
                             save='Unknown' if number in saves else 'Not initiated', verification_scope=SCOPE, transcript='')
-                reference = result.get('transcript') or captures.get(source['management_ip'], '')
+                reference = captures.get(source['management_ip'], '') or result.get('transcript')
                 capture = Path(reference) if reference else None
                 if capture is not None and not capture.is_absolute():
                     capture = run_path / capture
@@ -552,7 +583,45 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
                     cells.append(cell)
                 sheet.append(cells)
             sheet.close()
+            devices = book.create_sheet('Devices')
+            devices.append(['management_ip', 'status', 'completed_rows', 'total_rows', 'capture'])
+            grouped = {}
+            for source in inputs:
+                grouped.setdefault(source['management_ip'], []).append(source)
+            for ip, selected in grouped.items():
+                completed = sum(results.get(r['source_row'], {}).get('status') == 'Completed' for r in selected)
+                status = 'Completed' if completed == len(selected) else 'Incomplete / pending'
+                cells = [WriteOnlyCell(devices, value) for value in [ip, status, str(completed), str(len(selected))]]
+                for cell in cells:
+                    cell.data_type = 's'
+                reference = captures.get(ip, '')
+                capture = Path(reference) if reference else None
+                if capture is not None and not capture.is_absolute():
+                    capture = run_path / capture
+                link = WriteOnlyCell(devices, capture.name if capture and capture.is_file() else 'Not captured')
+                link.data_type = 's'
+                if capture and capture.is_file():
+                    from urllib.parse import quote
+                    try:
+                        link.hyperlink = quote(Path(os.path.relpath(capture.resolve(), output.parent.resolve())).as_posix(), safe='/:')
+                    except ValueError:
+                        link.hyperlink = capture.resolve().as_uri()
+                    link.style = 'Hyperlink'
+                devices.append(cells + [link])
+            devices.close()
+            notes = book.create_sheet('Run Notes')
+            for text in [SCOPE,
+                         'Not saving does not undo running changes.',
+                         'Whole-config save may persist unrelated changes.',
+                         'Never replay completed or Unknown changes. No automatic retry or rollback.',
+                         'Inactivity is not proof of command completion; delayed output may cross command boundaries.']:
+                notes.append([text])
+            notes.close()
             book.save(stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if replace:
+            os.replace(temporary, output)
     except BaseException:
         if book is not None:
             for sheet in book.worksheets:
@@ -563,6 +632,6 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
                         sheet._writer.cleanup()
                 except Exception:
                     pass  # Preserve the primary export failure and retained run.
-        output.unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
         raise
     return output

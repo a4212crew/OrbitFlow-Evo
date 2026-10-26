@@ -106,5 +106,5 @@ Issue #117 [revision handoff history](operations/issue-117-revision-handoff.md):
 
 - [Shared aggregation ownership and validation](user_manual/aggregation-validation.md): Issue #149 behavior, mixed EdgeSwitch member-stanza reproduction, public contracts, automated commands and owner family/workflow matrix.
 
-- [Manual Configuration](user_manual/manual-configuration.md): multiline Excel rows with blank separators, numbered input selection, per-device reports and receive-only linked captures, password setup, per-row save and offline recovery.
+- [Manual Configuration](user_manual/manual-configuration.md): multiline Excel rows with blank separators, numbered input selection, one consolidated report and named receive-only linked captures, password setup, per-row save and offline recovery.
 - [Manual Configuration API](operations/manual-configuration-api.md): reusable service and recovery contracts.

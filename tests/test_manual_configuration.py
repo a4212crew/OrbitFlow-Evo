@@ -428,11 +428,22 @@ def test_console_decline_and_bad_password_before_session(fake, auth, monkeypatch
     import getpass
     for password, expected in [('wrong', ValueError), ('test authorization password', Cancelled)]:
         answers = iter(['1', 'manual_commands.xlsx', 'devices.xlsx', '', 'n'])
-        console = Console(read=lambda _: next(answers), write=lambda _: None,
+        shown, prompts = [], []
+        def read(prompt):
+            prompts.append(prompt)
+            return next(answers)
+        console = Console(read=read, write=shown.append,
                           session_check=lambda _: pytest.fail('gate connected'))
-        monkeypatch.setattr(getpass, 'getpass', lambda _: password)
+        def hidden(prompt):
+            assert any('Manual configuration: rows=1' in line for line in shown)
+            assert not any(word in '\n'.join(shown) for word in ['Fresh shell', 'Transcript only', 'Not saving', 'Whole-config', 'Never replay'])
+            return password
+        monkeypatch.setattr(getpass, 'getpass', hidden)
         with pytest.raises(expected):
             console.manual_execute()
+        if password != 'wrong':
+            assert 'Confirm manual execution? [y/N]: ' in prompts
+        assert not fake[0]
 
 
 def test_manual_save_allows_identified_platform_and_checks_errors_before_redaction():
@@ -737,13 +748,18 @@ def test_fast_device_publishes_before_slow_failure(fake, auth, monkeypatch):
         capture = path.parent / unquote(sheet['J2'].hyperlink.target)
         assert capture.is_file() and 'reports' in capture.parts
         if ip == '192.0.2.1':
-            assert sheet.max_row == 3
-            assert sheet['J3'].hyperlink.target == sheet['J2'].hyperlink.target
+            assert sheet.max_row == 4
+            assert sheet['J4'].hyperlink.target == sheet['J2'].hyperlink.target
+            assert [sheet.cell(i, 1).value for i in range(2, 5)] == ['2', '3', '4']
+            assert capture.name == 'host_192.0.2.1.txt'
+            if not outputs:
+                assert sheet['C3'].value == 'Incomplete'
+                assert book['Devices']['B3'].value != 'Completed'
             text = capture.read_text()
             assert 'echo\nfragmented [REDACTED]\n' in text
             assert not any(label in text for label in ['SEND', 'RECEIVE', 'ROW', 'row=', 'description Customer'])
             relocated = Path('relocated') / path.parent.name
-            shutil.copytree(path.parent, relocated)
+            shutil.copytree(path.parent, relocated, dirs_exist_ok=True)
             assert (relocated / unquote(load_workbook(relocated / path.name).active['J2'].hyperlink.target)).is_file()
             published.set()
         outputs.append(path)
@@ -754,13 +770,18 @@ def test_fast_device_publishes_before_slow_failure(fake, auth, monkeypatch):
         credentials={r['management_ip']: DeviceCredentials('operator', 'device-private') for r in rows},
         transport_config=None, execution_config=config, on_output=output)
     assert published.is_set() and len(outputs) == 2
+    assert outputs[0] == outputs[1]
+    assert len(list(outputs[0].parent.glob('*.xlsx'))) == 1
     assert next(r for r in records(path) if r['source_row'] == 3)['status'] == 'Incomplete'
 
 
 def test_per_device_export_failure_retains_other_output(fake, auth, monkeypatch):
     original = m.regenerate_report
+    refreshes = []
     def export(path, *args, **kwargs):
-        if kwargs.get('management_ip') == '192.0.2.1':
+        if kwargs.get('replace'):
+            refreshes.append(path)
+        if len(refreshes) == 1:
             raise OSError('synthetic export failure')
         return original(path, *args, **kwargs)
     monkeypatch.setattr(m, 'regenerate_report', export)
@@ -832,3 +853,93 @@ def test_manual_chooser_newest_first(tmp_path):
         os.utime(path, ns=(stamp, stamp))
     console = Console(read=lambda _: '1', write=lambda _: None)
     assert console.choose_workbook(tmp_path, prefix='manual_').name == 'manual_z.xlsx'
+
+
+def test_atomic_refresh_preserves_existing_workbook(fake, auth, monkeypatch):
+    path = run([row(2)], auth)
+    report = next(Path('outputs/reports/manual_configuration').rglob('*.xlsx'))
+    previous = report.read_bytes()
+    def held(*args):
+        raise PermissionError('Excel holds destination')
+    monkeypatch.setattr(m.os, 'replace', held)
+    with pytest.raises(PermissionError):
+        m.regenerate_report(path, report, replace=True)
+    assert report.read_bytes() == previous
+    assert load_workbook(report).active['C2'].value == 'Completed'
+    assert not list(report.parent.glob('.manual-*'))
+
+
+@pytest.mark.parametrize('hostname', ['new/name:unsafe', 'changed-host', ''])
+def test_named_capture_and_identity_fallback(fake, auth, monkeypatch, hostname):
+    def resolve(*args, **kwargs):
+        return SimpleNamespace(platform='cisco_ios', hostname=hostname)
+    monkeypatch.setattr(m.DeviceInventoryResolver, 'resolve', resolve)
+    path = run([row(2, '2001:db8::1')], auth)
+    report = next(Path('outputs/reports/manual_configuration').rglob('*.xlsx'))
+    from urllib.parse import unquote
+    link = load_workbook(report).active['J2'].hyperlink.target
+    capture = report.parent / unquote(link)
+    assert capture.name == m.filename_component(hostname or '2001:db8::1') + '_2001_db8__1.txt'
+    assert capture.is_file()
+    assert len(path.name) == 15
+    assert (Path('outputs/backups/configuration') / path.name).is_dir()
+
+
+def test_capture_rename_failure_retains_fallback(fake, auth, monkeypatch):
+    original = Path.replace
+    def fail(self, target):
+        if self.suffix == '.txt':
+            raise PermissionError('held capture')
+        return original(self, target)
+    monkeypatch.setattr(Path, 'replace', fail)
+    path = run([row(2)], auth)
+    report = next(Path('outputs/reports/manual_configuration').rglob('*.xlsx'))
+    capture = report.parent / load_workbook(report).active['J2'].hyperlink.target
+    assert capture.name == '192.0.2.1_192.0.2.1.txt'
+    assert capture.is_file() and records(path)[0]['status'] == 'Completed'
+
+
+def test_short_spool_allocation_is_exclusive(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    def allocate(_):
+        return m.ResultSpool.create(tmp_path, 'manual_configuration', 0, short_name=True).path
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        paths = list(pool.map(allocate, range(8)))
+    assert len(set(paths)) == 8
+    assert all(__import__('re').fullmatch(r'\d{8}_\d{6}(?:_\d{3})?', p.name) for p in paths)
+
+
+def test_hostname_changes_update_all_repeated_row_links(fake, auth, monkeypatch):
+    names = iter(['first-host', 'second-host'])
+    monkeypatch.setattr(m.DeviceInventoryResolver, 'resolve', lambda *a, **k:
+        SimpleNamespace(platform='cisco_ios', hostname=next(names)))
+    path = run([row(2), row(3)], auth)
+    report = next(Path('outputs/reports/manual_configuration').rglob('*.xlsx'))
+    sheet = load_workbook(report).active
+    assert sheet['J2'].hyperlink.target == sheet['J3'].hyperlink.target == 'second-host_192.0.2.1.txt'
+    assert len(list(report.parent.glob('*.txt'))) == 1
+    assert m.regenerate_report(path).exists()
+
+
+def test_identity_failure_links_ip_fallback(fake, auth):
+    fake[1]['stage'] = 'identify'
+    path = run([row(2)], auth)
+    report = next(Path('outputs/reports/manual_configuration').rglob('*.xlsx'))
+    sheet = load_workbook(report).active
+    assert sheet['J2'].hyperlink.target == '192.0.2.1_192.0.2.1.txt'
+    assert records(path)[0]['save'] == 'Not initiated'
+
+
+def test_capture_name_collision_preserves_existing_file(fake, auth, monkeypatch):
+    # Create collision just after the run's report directory is allocated.
+    original = m.regenerate_report
+    def export(path, *args, **kwargs):
+        output = original(path, *args, **kwargs)
+        if not kwargs.get('replace'):
+            (output.parent / 'host_192.0.2.1.txt').write_text('existing capture')
+        return output
+    monkeypatch.setattr(m, 'regenerate_report', export)
+    path = run([row(2)], auth)
+    report = next(Path('outputs/reports/manual_configuration').rglob('*.xlsx'))
+    assert (report.parent / 'host_192.0.2.1.txt').read_text() == 'existing capture'
+    assert load_workbook(report).active['J2'].hyperlink.target == '192.0.2.1_192.0.2.1.txt'

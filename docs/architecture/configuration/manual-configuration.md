@@ -58,10 +58,12 @@ of implemented or live-validated functionality. Protected .agents files are not 
 
 Issue #156 now accepts blank command-cell separator lines while retaining literal nonblank
 commands and original line numbers. Manual input selection lists only manual_*.xlsx
-newest first, with explicit-path fallback. Each device publishes its own short
-manual_output_YYYYMMDD_HHMMSS.xlsx report as soon as its task ends; collision suffixes
-and device directories disambiguate outputs. Its continuously flushed receive-only
-UTF-8 capture lives alongside the report under outputs/reports/manual_configuration/.
+newest first, with explicit-path fallback. One consolidated manual_output_YYYYMMDD_HHMMSS.xlsx workbook is allocated before
+network execution and atomically refreshed after each device task ends. Its Devices
+sheet summarizes devices and Manual Configuration sheet retains every input row in
+workbook order. Receive-only <safe-hostname>_<safe-ip>.txt captures live beside it
+in outputs/reports/manual_configuration/YYYYMMDD_HHMMSS/. Run and backup directories
+use the same short name, with numeric collision suffixes.
 Reports link to real captures using portable relative hyperlinks. Structured timing,
 row identity and send intents remain in the internal run journal. Legacy recovery
 retains real historical capture references; missing captures have no invented link.
@@ -73,8 +75,23 @@ Protected-skill handoff for this revision (Atlas): append to the Issue #156
 configuration-management and interactive-operations-console skill notes:
 “Manual input ignores blank separator lines and retains original cell-line identity.
 The shared numbered chooser filters manual_*.xlsx including explicit selections.
-Each completed device task publishes a short manual_output timestamp report and a
-relative link to its receive-only capture under outputs/reports/manual_configuration/.
+Each completed device task atomically refreshes ONE consolidated manual_output
+timestamp workbook, containing all rows and device summaries, with relative links
+to named receive-only captures. New manual run/report/backup folders use short UTC
+YYYYMMDD_HHMMSS names and numeric collision suffixes. Remove pre-password explanation
+lines while retaining hidden password verification and explicit confirmation.
 Run journals retain row/timing/send evidence; legacy captures recover at their real
 paths. No application labels or synthetic echoes belong in captures. Owner live
 validation remains pending.” Existing protected skills were not modified.
+
+## Owner correction — consolidated output (implemented on this branch; lab validation pending)
+
+This revision supersedes earlier per-device workbook examples. One consolidated
+workbook contains every input row in order and a device summary, refreshed atomically
+at the serialized device-completion boundary. Pending rows never imply success.
+New manual run/report/backup directories use YYYYMMDD_HHMMSS with short numeric
+collision suffixes. The workbook is manual_output_YYYYMMDD_HHMMSS.xlsx; receive-only
+captures beside it are <sanitized-hostname>_<sanitized-ip>.txt with IP fallback.
+Durable references follow safe identity renames; historical recovery remains supported.
+The console retains the batch count, hidden password and explicit confirmation,
+removing explanatory warnings before the password. Execution/save safety is unchanged.

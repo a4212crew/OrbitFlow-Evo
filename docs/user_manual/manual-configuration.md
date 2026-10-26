@@ -137,14 +137,18 @@ Artifacts use collision-safe run/template allocation:
   Historical captures under old run directories are still recoverable.
 - `outputs/backups/configuration/<run-id>/`: existing protected configuration
   backups; treat these as sensitive and never publish them.
-- `outputs/reports/manual_configuration/<run-id>/<safe-ip>/`: each device gets
-  `capture.txt` plus `manual_output_YYYYMMDD_HHMMSS.xlsx`, with a short numeric suffix
-  only for collisions. Reports publish immediately when that device finishes all
-  its rows, including failure/not-attempted rows, while independent devices continue.
-  Every row links to the real capture using relative Excel hyperlink metadata; move
-  the device directory together to preserve links. Missing historical captures say
-  `Not captured` without a link. Reports retain workbook order within each device;
-  offline whole-run exports retain full workbook order. Cells are literal strings.
+- `outputs/reports/manual_configuration/YYYYMMDD_HHMMSS/`: ONE consolidated
+  `manual_output_YYYYMMDD_HHMMSS.xlsx` with every input row in original order,
+  including repeated IPs, and a concise `Devices` summary. The same workbook is
+  atomically refreshed after EACH device finishes while peers continue; pending
+  rows are Incomplete/Not attempted, never Completed. Captures are named
+  `<sanitized-hostname>_<sanitized-ip>.txt`, with IP fallback before identification.
+  Safe rename failures retain the fallback and real journal references. Relative
+  hyperlinks resolve when the whole report directory is moved. Missing captures
+  say `Not captured` without a link. Excel-held files/export failures preserve the
+  previous valid workbook and journals for offline regeneration without replay.
+  New run and backup folders share the short timestamp, with numeric collision
+  suffixes only. Historical long run directories remain recoverable.
   The capture contains only sanitized received terminal text, including genuine
   echoes, prompts and finalization/save output when available. It has UTF-8/CRLF
   Notepad formatting, no application labels/timestamps or synthetic command echoes,
@@ -209,10 +213,12 @@ legacy slot for compatibility.
 
 Issue #156 now accepts blank command-cell separator lines while retaining literal nonblank
 commands and original line numbers. Manual input selection lists only manual_*.xlsx
-newest first, with explicit-path fallback. Each device publishes its own short
-manual_output_YYYYMMDD_HHMMSS.xlsx report as soon as its task ends; collision suffixes
-and device directories disambiguate outputs. Its continuously flushed receive-only
-UTF-8 capture lives alongside the report under outputs/reports/manual_configuration/.
+newest first, with explicit-path fallback. One consolidated manual_output_YYYYMMDD_HHMMSS.xlsx workbook is allocated before
+network execution and atomically refreshed after each device task ends. Its Devices
+sheet summarizes devices and Manual Configuration sheet retains every input row in
+workbook order. Receive-only <safe-hostname>_<safe-ip>.txt captures live beside it
+in outputs/reports/manual_configuration/YYYYMMDD_HHMMSS/. Run and backup directories
+use the same short name, with numeric collision suffixes.
 Reports link to real captures using portable relative hyperlinks. Structured timing,
 row identity and send intents remain in the internal run journal. Legacy recovery
 retains real historical capture references; missing captures have no invented link.
@@ -228,9 +234,9 @@ Use two lab IPs and noncontiguous repeated rows for the first IP. Include leadin
 interior and trailing Alt+Enter separator lines. First decline confirmation, then
 try a wrong admin password: observe no connection. On a separately authorized
 fresh run, verify each successful duplicate-IP row opens a new shell and saves
-individually. Keep the second device busy and verify the first device report and
+individually. Keep the second device busy and verify the same consolidated workbook with the first device completed, the second pending, and its
 clickable capture appear before the second finishes. Open the report in Excel on
-Windows; move its entire device directory and verify its hyperlink still opens.
+Windows; move its entire report directory and verify its hyperlink still opens.
 On another fresh scenario induce a supported device rejection: verify no row save,
 later same-IP rows not attempted, independent-device output available. Separately
 interrupt an owner-controlled save after transmission: preserve Unknown, never
@@ -258,3 +264,15 @@ OS-temp roots with protected `.git` directories; controller tests correctly refu
 those roots through the existing external-temp guard. Run the controller gate in its
 normal controller environment. Do not remove those markers or relax the guard.
 Linux synthetic tests do not establish native Windows/Excel or device validation.
+
+## Owner correction — consolidated output (implemented on this branch; lab validation pending)
+
+This revision supersedes earlier per-device workbook examples. One consolidated
+workbook contains every input row in order and a device summary, refreshed atomically
+at the serialized device-completion boundary. Pending rows never imply success.
+New manual run/report/backup directories use YYYYMMDD_HHMMSS with short numeric
+collision suffixes. The workbook is manual_output_YYYYMMDD_HHMMSS.xlsx; receive-only
+captures beside it are <sanitized-hostname>_<sanitized-ip>.txt with IP fallback.
+Durable references follow safe identity renames; historical recovery remains supported.
+The console retains the batch count, hidden password and explicit confirmation,
+removing explanatory warnings before the password. Execution/save safety is unchanged.

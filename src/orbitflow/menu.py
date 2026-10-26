@@ -209,8 +209,6 @@ class Console:
         execution = ExecutionConfig(self.concurrency(), **settings['execution'])
         bound = summary(rows, execution)
         self.write(f'Manual configuration: rows={bound["rows"]}; devices={bound["devices"]}; commands={bound["commands"]}; invalid={bound["invalid"]}; concurrency={bound["concurrency"]}')
-        self.write('Fresh shell and confirmed save per successful row. Failed rows block later rows on that device. Transcript only — configuration not independently verified.')
-        self.write('Not saving does not undo running changes. Whole-config save may persist unrelated changes. Never replay completed/Unknown changes.')
         password = getpass('Manual authorization password: ')
         authorize(settings, password)
         if self.ask('Confirm manual execution? [y/N]: ').lower() != 'y':

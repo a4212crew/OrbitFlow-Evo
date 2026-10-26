@@ -1096,7 +1096,7 @@ sanitized transcript evidence. Deterministic real DeviceCLI reader tests cover
 these paths; owner-operated live validation remains pending.
 
 Issue #156 usability revision on this branch: blank cell separators are accepted,
-manual workbooks use the shared numbered chooser, and each device immediately
-publishes a short report with a real relative capture hyperlink. Receive-only
-captures live beside device reports; run journals retain structured audit evidence
+manual workbooks use the shared numbered chooser, and one consolidated workbook is atomically refreshed after each device finishes,
+with every input row, device summaries and real relative capture hyperlinks. Named
+receive-only captures live beside the workbook in short timestamp directories; run journals retain structured audit evidence
 and legacy offline recovery. See the [manual](user_manual/manual-configuration.md). Owner lab validation is pending.
