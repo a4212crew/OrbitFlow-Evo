@@ -1,6 +1,6 @@
 # Manual Configuration — Issue #156
 
-Owner-approved design implemented on this branch. Deterministic synthetic tests cover safety and compatibility; owner-operated Windows/Linux live validation remains pending. See the [operator guide](../../user_manual/manual-configuration.md) and [API](../../operations/manual-configuration-api.md).
+Owner-approved design implemented on this branch. Deterministic synthetic tests cover safety and compatibility; owner-supplied run evidence is recorded below. Fresh EdgeSwitch and broader owner validation remain pending. See the [operator guide](../../user_manual/manual-configuration.md) and [API](../../operations/manual-configuration-api.md).
 
 This separate Excel-driven workflow supersedes legacy offline Manual CLI only for
 new input generation. Historical v1/v2 plans, immutable digests and workbook/report
@@ -11,7 +11,7 @@ Each management_ip/command row is a literal multiline block in a fresh shell.
 Repeated IPs retain workbook order on one device worker; other devices may proceed
 independently through shared bounded execution. Every successful row requires durable
 sanitized transcript evidence, explicit mode synchronization and confirmed vendor
-save. Any failed/unknown row suppresses further save and rows for that device.
+save. Any failed/unknown row suppresses further automatic save and rows for that device.
 Predefined execution retains its separate device-end partial-save policy.
 
 The existing local profile may gain an optional manual_configuration_auth table
@@ -95,3 +95,37 @@ captures beside it are <sanitized-hostname>_<sanitized-ip>.txt with IP fallback.
 Durable references follow safe identity renames; historical recovery remains supported.
 The console retains the batch count, hidden password and explicit confirmation,
 removing explanatory warnings before the password. Execution/save safety is unchanged.
+
+## Superseding owner decision — literal manual commands (2026-10-26)
+
+Approved correction for Issue #156 / PR #157: the manual sender accepts literal
+engineer-authored CLI, including configure/conf, vendor abbreviations, unknown roots,
+wrappers, credentials and explicit write/save/commit. Only structural input and
+transport bounds apply. Device diagnostics determine rejection; unsupported questions
+receive no automatic answer. Fresh-shell identity, enable, paging, backup and initial
+global configuration entry remain required. User capture remains prompt-free.
+
+Automatic save occurs only after successful capture and finalization. An explicit
+engineer persistence command may already have saved before a subsequent failure;
+“Not initiated” describes automatic save only, never proof that changes are unsaved.
+No retry or rollback. Command acceptance and secret disclosure are separate: redact
+SEND intent and buffered receive echoes/output before persistence; retain no source
+workbook in run artifacts. Predefined planning/schema restrictions remain unchanged.
+This supersedes older manual command restrictions above. This correction was reconciled as approved design before implementation; it is now
+implemented on this branch. Automated evidence is recorded in the monthly devlog;
+fresh owner EdgeSwitch validation remains pending.
+
+Owner-supplied evidence: run 20261026_120437 showed ME3600X 12/12 and ASR920 2/2
+with confirmed save, consolidated refreshes and named captures. EdgeSwitch input was
+rejected before connection. This establishes neither EdgeSwitch live execution nor
+independent configuration verification. Never replay those successful commands.
+
+Protected-skill handoff for Atlas (exact append to configuration-management and
+interactive-operations-console SKILL.md; existing protected files remain unchanged):
+“Owner correction 2026-10-26: Issue #156 Manual Configuration accepts literal CLI
+without semantic allowlists/denylists, abbreviations or credential-keyword bans.
+This exception is manual-sender-only. Preserve structural bounds and redact secrets
+independently before all persistence. Explicit user save/commit may persist changes
+before failure; automatic save remains successful-row-only. Preserve fresh-shell
+setup, prompt-free capture, unsupported-question failure, and predefined policies.
+See docs/architecture/configuration/manual-configuration.md for evidence and status.”

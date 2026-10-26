@@ -3,7 +3,8 @@
 `orbitflow.configuration.manual` is the reusable application service beneath the
 console. It executes engineer-authored blocks, not v1/v2 plans. See the
 [operator manual](../user_manual/manual-configuration.md) for platform gaps, exact
-paths, limits, persistence risks and owner lab checks. No live validation is claimed.
+paths, limits, persistence risks and owner lab checks. Owner-supplied run evidence
+is recorded below; fresh EdgeSwitch validation remains pending.
 
 Public functions:
 
@@ -22,11 +23,15 @@ setup_timeout=30.0, save_timeout=60.0)` requires each deadline to be finite and 
 Connection pacing uses existing execution config semantics. Input must originate
 from `load_rows` or obey exactly its validated schema. Source rows must be unique
 integers ≥2, with valid IPs for executable rows, bounded literal commands and fixed
-validation errors. Unknown command roots/abbreviations fail closed.
+validation errors. No semantic command restrictions apply to this manual sender. Credential-bearing
+CLI, wrappers, abbreviations and explicit persistence commands are accepted literally.
+Structural errors are fixed categories (IP, cell type, formula, size/count, empty block,
+or control character with original cell line); no invalid content is echoed.
 
 `credentials` maps IP to existing `DeviceCredentials`; use
 `orbitflow.targets.load_device_credentials(devices_workbook, ips, provider=None)`
-for shared workbook/provider precedence. Credentials never belong in manual XLSX.
+for shared workbook/provider precedence. Login/enable credentials are resolved separately. Authored CLI may contain secrets;
+protect the manual XLSX. It is never copied to run artifacts.
 `transport_config` is the existing `TransportConfig`, with no alternate SSH path.
 API callers own externally controlled Teleport validation and secure hidden password
 input. The API requires an explicit summary digest; callers must present the summary
@@ -147,3 +152,16 @@ previous workbook; temporary files are removed. `Manual Configuration` retains r
 order, `Devices` summarizes all targets and links captures, and `Run Notes` retains
 scope and limitations. The shared spool's opt-in `short_name=True` uses exclusive
 UTC timestamp/numeric directory allocation; unrelated callers keep existing names.
+
+## Literal manual CLI correction (2026-10-26)
+
+Implemented on this branch: the manual sender accepts literal commands without
+semantic command restrictions. Device diagnostics and unsupported interactions can
+still stop Incomplete; no automatic answer, retry or rollback occurs. Fresh-shell
+setup/backup, prompt-free capture and successful-row-only automatic save remain.
+Secrets are redacted independently of acceptance, including fragmented echoes and
+conservative masking of partial credential operands. This exception does not change
+predefined schemas or policies. The report `save` column describes automatic save
+only; explicit authored persistence may already have executed before failure.
+`Not initiated` never asserts unsaved state. See the [owner evidence and fresh lab
+checks](../user_manual/manual-configuration.md#superseding-owner-decision--literal-manual-commands-2026-10-26).

@@ -827,3 +827,13 @@ manual workbooks use the shared numbered chooser, and one consolidated workbook 
 with every input row, device summaries and real relative capture hyperlinks. Named
 receive-only captures live beside the workbook in short timestamp directories; run journals retain structured audit evidence
 and legacy offline recovery. See the [manual](docs/user_manual/manual-configuration.md). Owner lab validation is pending.
+
+Issue #156 owner correction (2026-10-26): Manual Configuration accepts literal CLI
+without semantic command restrictions, including configure/conf, credentials,
+wrappers and explicit persistence. Structural bounds remain, secrets are redacted
+independently, and automatic save remains successful-row-only. Explicit user save
+may already have persisted changes before a later error; report save status describes
+automatic save only. Owner run 20261026_120437 showed ME3600X 12/12 and ASR920 2/2
+with confirmed save and refreshed consolidated reports/named captures. EdgeSwitch
+was rejected before connection; fresh EdgeSwitch validation and independent
+configuration verification are not established. Never replay those successful rows.

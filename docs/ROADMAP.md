@@ -94,3 +94,9 @@ manual workbooks use the shared numbered chooser, and one consolidated workbook 
 with all input rows, device summaries and named receive-only capture hyperlinks.
 Run/report/backup folders use short timestamp names; captures live beside the workbook; run journals retain structured audit evidence
 and legacy offline recovery. See the [manual](user_manual/manual-configuration.md). Owner lab validation is pending.
+
+Issue #156 literal manual CLI correction is implemented on this branch; automatic
+row save remains success-only while explicit engineer persistence executes literally.
+Owner evidence confirms ME3600X/ASR920 saves in run 20261026_120437; EdgeSwitch was
+rejected before connection. Fresh EdgeSwitch lab validation remains pending; see
+the [manual correction checks](user_manual/manual-configuration.md#fresh-edgeswitch-correction-validation-owner-only).

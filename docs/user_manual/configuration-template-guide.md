@@ -935,3 +935,13 @@ retains real historical capture references; missing captures have no invented li
 This supersedes timestamped/labelled captures, run-directory capture defaults, blank-line
 rejection and batch-only export. Existing authorization and device safety rules remain.
 No live validation is implied.
+
+## Literal Manual Configuration correction (2026-10-26)
+
+The separate [Manual Configuration workflow](manual-configuration.md) accepts literal
+CLI including configure/conf, abbreviations, unknown roots, credentials, wrappers
+and explicit persistence. Only structural bounds apply; evidence is redacted
+independently. Automatic save remains successful-row-only; explicit authored save
+may already persist changes before failure. Protect credential-bearing source
+workbooks. Legacy offline Manual CLI and predefined schema restrictions above remain
+unchanged. See the manual for owner run evidence and fresh EdgeSwitch lab checks.

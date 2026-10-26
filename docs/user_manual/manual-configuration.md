@@ -2,8 +2,8 @@
 
 A separate console and Python API workflow executes literal multiline Excel rows.
 It does not execute or convert legacy Manual CLI plans. Predefined plan execution
-retains its device-end partial-save policy. No owner-operated live validation has
-been performed for this workflow; deterministic validation uses synthetic sessions.
+retains its device-end partial-save policy. Owner-supplied run evidence is recorded below; deterministic validation uses
+synthetic sessions. Fresh EdgeSwitch live validation remains pending.
 
 Start from the repository with its dependencies installed. Linux Bash:
 
@@ -37,7 +37,7 @@ Choose **Configuration Management → Manual Configuration**:
    `data/input/generated_template/manual_config_YYYYMMDD_NNN.xlsx` exclusively.
 2. Fill the active worksheet, with exactly `management_ip` and `command` columns
    in row 1; input starts at row 2. Use Alt+Enter between commands in one cell.
-   Credentials belong only in the separate existing device workbook, whose fields
+   Connection credentials belong in the separate existing device workbook, whose fields
    are `management_ip`, `username`, `password`, optional `secret` (enable).
 3. **Execute Manual Configuration** lists eligible `manual_*.xlsx` files in the profile
    templates directory (newest modification time first, filename order for ties).
@@ -66,18 +66,22 @@ needed by your block. Literal nonblank command whitespace and order are preserve
 trailing and whitespace-only separator lines are ignored, with LF/CRLF treated
 consistently. Original cell line numbers remain in internal command intents. An
 entirely empty block reports “Invalid input: command block contains no executable
-commands” before networking; only executable lines count. Non-ASCII/control
-characters in commands, tabs, formulas, credentials, save/commit/copy/write and
-their abbreviations, execution wrappers (`do`, `run`), aliases, scripts, banners,
-pagination and interactive exchanges are rejected or fail incomplete. Unknown or
-abbreviated command roots fail closed as potentially ambiguous aliases. Supported
-full roots are exposed as `orbitflow.configuration.manual.CONFIG_ROOTS`; these
-include interface/VLAN/description, switchport, routing, EVC and common configuration
-commands. `no`/`default` require a supported full second root. This is structural
-screening, not semantic safety validation. Existing credential-bearing input checks
-also apply (including the shared 256-character command-text limit). Each cell is
-limited to 32,767 characters and 1,000 nonempty commands; a workbook is limited to
-10,000 nonempty rows. No raw invalid command cells are retained in run artifacts.
+commands” before networking; only executable lines count. Commands are accepted
+without semantic allowlists, denylists, abbreviation or keyword bans: `configure`,
+`conf`, wrappers, unknown roots and explicit write/save/commit execute literally.
+The device determines validity. Unicode text is accepted; control characters
+(including tabs, ESC, bare CR, DEL/C1 and Unicode line separators), formula cells,
+nontext cells, invalid IPs and oversized blocks fail with fixed structural categories.
+Whitespace-only separator lines are ignored and never transmitted.
+Control-character errors identify the original one-based cell line without echoing
+input. Each cell is limited to 32,767 characters and 1,000 nonblank commands; a
+workbook is limited to 10,000 nonempty rows. Secrets in authored CLI are accepted
+and redacted from evidence independently of command acceptance. Protect the source
+workbook; it is never copied to run artifacts. Network login/enable credentials
+still come from the separate credential workbook. Unsupported interactive questions
+stop Incomplete without an automatic answer, including when explicitly authored
+save commands ask questions. Session-ending commands can disconnect and leave an
+Incomplete outcome. No raw invalid cells are retained in artifacts.
 
 | Platform | Login/identity and backup | Manual entry/save |
 |---|---|---|
@@ -122,7 +126,7 @@ synchronization and a confirmed save with no explicit save error. The report say
 **Transcript only — configuration not independently verified**. All failures are
 **Incomplete**, with stage/reason, attempted/total commands, source row, last
 attempted command index and separate save status. Any failed/unknown row suppresses
-new saves and later commands for that device; later rows are Not attempted.
+new automatic saves and later commands for that device; later rows are Not attempted.
 Independent devices may continue. Interrupted transmission of save is **Unknown**;
 a save already sent cannot be recalled or retried. Ctrl+C notifies active workers
 to stop before further commands/save, while in-flight exchanges finish or time out.
@@ -168,6 +172,13 @@ or an interrupted run. No CLI transcript establishes independent configuration
 verification.
 
 ## Automated and owner-operated validation
+
+Run these checks from the final controller-produced revision checkout, with its
+project dependencies installed. Worker test results do not establish a controller
+Git/PR gate or Windows/live validation. Full-suite controller tests require a
+writable OS temporary directory outside every Git checkout; this managed worker
+has read-only `.git` markers under `/tmp` and its supplied temp root, causing
+controller-temp rejection independently of the manual changes.
 
 Linux Bash deterministic checks:
 
@@ -281,3 +292,58 @@ captures beside it are <sanitized-hostname>_<sanitized-ip>.txt with IP fallback.
 Durable references follow safe identity renames; historical recovery remains supported.
 The console retains the batch count, hidden password and explicit confirmation,
 removing explanatory warnings before the password. Execution/save safety is unchanged.
+
+## Superseding owner decision — literal manual commands (2026-10-26)
+
+Approved correction for Issue #156 / PR #157: the manual sender accepts literal
+engineer-authored CLI, including configure/conf, vendor abbreviations, unknown roots,
+wrappers, credentials and explicit write/save/commit. Only structural input and
+transport bounds apply. Device diagnostics determine rejection; unsupported questions
+receive no automatic answer. Fresh-shell identity, enable, paging, backup and initial
+global configuration entry remain required. User capture remains prompt-free.
+
+Automatic save occurs only after successful capture and finalization. An explicit
+engineer persistence command may already have saved before a subsequent failure;
+“Not initiated” describes automatic save only, never proof that changes are unsaved.
+No retry or rollback. Command acceptance and secret disclosure are separate: redact
+SEND intent and buffered receive echoes/output before persistence; retain no source
+workbook in run artifacts. Predefined planning/schema restrictions remain unchanged.
+This supersedes older manual command restrictions above. This correction was reconciled as approved design before implementation; it is now
+implemented on this branch. Automated evidence is recorded in the monthly devlog;
+fresh owner EdgeSwitch validation remains pending.
+
+Owner-supplied evidence: run 20261026_120437 showed ME3600X 12/12 and ASR920 2/2
+with confirmed save, consolidated refreshes and named captures. EdgeSwitch input was
+rejected before connection. This establishes neither EdgeSwitch live execution nor
+independent configuration verification. Never replay those successful commands.
+
+### Fresh EdgeSwitch correction validation (owner only)
+
+Use the Bash/PowerShell menu and automated commands above against the final reviewed
+head. Create a **new disposable** `manual_edgeswitch_lab.xlsx`; do not replay the
+successful ME3600X/ASR920 rows from run 20261026_120437. Review unused lab VLANs and
+ports, then author this sequence with blank separator lines and lab-specific values:
+
+```text
+exit
+
+vlan database
+vlan 3100-3102
+exit
+configure
+interface 0/1
+ description Disposable lab
+```
+
+Repeat the lab IP in a later noncontiguous row with a separately reviewed disposable
+change, plus an independent lab device. First decline confirmation and try a wrong
+password: verify no connection. On an authorized fresh run confirm exact nonblank
+sends, fresh shell per row, per-row automatic save and immediate consolidated report
+refresh with working relative capture links. In a separate fresh failure scenario,
+induce a device diagnostic and confirm no new automatic save or later same-IP writes;
+the independent peer may finish. A reviewed explicit persistence command can already
+have saved before failure: the report's save column describes **automatic save only**.
+Do not infer unsaved state. Exercise unsupported questions/disconnect and interrupted
+automatic save (Unknown, no retry), then regenerate offline with networking disabled.
+Use fake credentials for confidentiality checks; inspect sanitized captures and notes.
+No independent configuration verification is implied by these transcript checks.

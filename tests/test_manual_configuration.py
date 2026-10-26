@@ -179,9 +179,8 @@ def test_gate_before_network_and_allocation(fake, auth):
 
 @pytest.mark.parametrize('text', ['wr', 'wri mem', 'cop run start', 'sa', 'comm', 'do wr', 'run save', 'alias exec persist write memory',
     'persist', 'interface Gi1;write memory', 'description password abc', 'username admin secret abc', 'banner motd ^', 'python', 'more'])
-def test_unsafe_commands_fail_closed(text):
-    with pytest.raises(ValueError):
-        m.commands(text)
+def test_literal_commands_have_no_semantic_policy(text):
+    assert m.commands(text) == [text]
 
 
 def test_xlsx_rows_validation_formula_secret_and_source_unchanged(tmp_path):
@@ -194,8 +193,9 @@ def test_xlsx_rows_validation_formula_secret_and_source_unchanged(tmp_path):
     before = path.read_bytes()
     rows = m.load_rows(path)
     assert len(rows) == 4 and rows[0]['commands'][1] == ' description Literal'
-    assert all(r['error'] for r in rows[1:])
-    assert 'private' not in json.dumps(rows)
+    assert rows[1]['error'] == m.FORMULA_ERROR
+    assert rows[2]['commands'] == ['password private'] and not rows[2]['error']
+    assert rows[3]['error'] == m.INPUT_ERROR
     assert before == path.read_bytes()
     assert m.create_template(tmp_path) != path
 
@@ -544,9 +544,8 @@ def test_report_write_failure_retains_offline_recovery(fake, auth, monkeypatch):
 
 @pytest.mark.parametrize('command', ['snmp-server host 192.0.2.1 version 2c hidden',
     'description encrypted hidden', 'description cipher hidden', 'description pre-shared hidden'])
-def test_vendor_credential_syntax_rejected(command):
-    with pytest.raises(ValueError):
-        m.commands(command)
+def test_vendor_credential_syntax_accepted(command):
+    assert m.commands(command) == [command]
 
 
 @pytest.mark.parametrize('username', ['source_row', 'input', 'row_result'])
@@ -943,3 +942,148 @@ def test_capture_name_collision_preserves_existing_file(fake, auth, monkeypatch)
     report = next(Path('outputs/reports/manual_configuration').rglob('*.xlsx'))
     assert (report.parent / 'host_192.0.2.1.txt').read_text() == 'existing capture'
     assert load_workbook(report).active['J2'].hyperlink.target == '192.0.2.1_192.0.2.1.txt'
+
+
+EDGE_BLOCK = "\nexit\n\nvlan database\nvlan 10-12\nexit\nconfigure\n interface 0/1\n description Literal\n"
+
+
+def test_edgeswitch_literal_workbook_and_api_fresh_rows(fake, auth, tmp_path):
+    calls, fault = fake
+    fault['platform'] = 'ubiquiti_edgeswitch'
+    source = m.create_template(tmp_path)
+    book = load_workbook(source)
+    for ip in ['192.0.2.1', '192.0.2.2', '192.0.2.1']:
+        book.active.append([ip, EDGE_BLOCK])
+    book.save(source)
+    before = source.read_bytes()
+    rows = m.load_rows(source)
+    assert all(not r['error'] for r in rows)
+    assert rows[0]['command_lines'] == [2, 4, 5, 6, 7, 8, 9]
+    path = run(rows, auth)
+    expected = m.commands(EDGE_BLOCK)
+    for serial in range(1, 4):
+        assert [c[2] for c in calls if c[:2] == ('command', serial)] == expected
+    assert sum(c[0] == 'close_shell' for c in calls) == 3
+    assert sum(c[0] == 'save' for c in calls) == 3
+    assert all(r['status'] == 'Completed' for r in records(path))
+    assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize('text', ['configure', 'configure terminal', 'conf', 'int 0/1',
+    'noncatalogued-root operand', 'do wr', 'run save', 'write memory', 'save', 'commit',
+    'reload', 'reboot', 'exec shell cli', 'description é' + 'x' * 300])
+def test_arbitrary_cli_reaches_sender(fake, auth, text):
+    calls, _ = fake
+    path = run([row(2, text=text)], auth)
+    assert [c[2] for c in calls if c[0] == 'command'] == [text]
+    assert records(path)[0]['status'] == 'Completed'
+
+
+@pytest.mark.parametrize('response', ['% Invalid input detected\n', 'Password:', 'Are you sure?', 'disconnect'])
+def test_explicit_save_then_error_suppresses_automatic_save(fake, auth, monkeypatch, response):
+    calls, _ = fake
+    original = m.DeviceCLI.capture_literal
+    def capture(self, command, **kwargs):
+        if command == 'write memory':
+            calls.append(('command', self.serial, command))
+            kwargs['receive']('write memory\n[OK]\n')
+        else:
+            calls.append(('command', self.serial, command))
+            if response == 'disconnect':
+                raise EOFError()
+            kwargs['receive'](response)
+    monkeypatch.setattr(m.DeviceCLI, 'capture_literal', capture)
+    path = run([row(2, text='write memory\nunknown'), row(3)], auth)
+    result = records(path)
+    assert result[0]['status'] == 'Incomplete' and result[0]['save'] == 'Not initiated'
+    assert result[1]['attempted'] == 0
+    assert not any(c[0] == 'save' for c in calls)
+    report = load_workbook(m.regenerate_report(path))
+    assert any('Explicit user' in str(r[0]) for r in report['Run Notes'].values)
+
+
+@pytest.mark.parametrize('command,secret', [
+    ('username engineer secret tiny-fixture', 'tiny-fixture'),
+    ('enable password q', 'q'),
+    ('en sec abbreviated-fixture', 'abbreviated-fixture'),
+    ('snmp comm abbreviated-community', 'abbreviated-community'),
+    ('password=equals-fixture', 'equals-fixture'),
+    ('password:colon-fixture', 'colon-fixture'),
+    ('enable password 1', '1'),
+    ('enable password a', 'a'),
+    ('snmp-server community Z9', 'Z9'),
+    ('radius-server key radius-fixture', 'radius-fixture'),
+    ('set authentication-key \"quoted-fixture\"', 'quoted-fixture'),
+    ('password device-private', 'device-private'),
+])
+def test_accepted_credentials_fragmented_echo_and_bare_output_never_persist(fake, auth, monkeypatch, command, secret):
+    calls, _ = fake
+    def capture(self, literal, **kwargs):
+        calls.append(('literal', literal))
+        output = literal + '\n' + secret + '\n'
+        for char in output:
+            kwargs['receive'](char)
+    monkeypatch.setattr(m.DeviceCLI, 'capture_literal', capture)
+    path = run([row(2, text=command)], auth)
+    assert ('literal', command) in calls
+    assert records(path)[0]['status'] == 'Completed'
+    assert records(path)[0]['management_ip'] == '192.0.2.1'
+    assert Path(records(path)[0]['transcript']).is_file()
+    from zipfile import ZipFile
+    for root in [Path('outputs'), Path('data')]:
+        if not root.exists():
+            continue
+        for artifact in root.rglob('*'):
+            if not artifact.is_file():
+                continue
+            if artifact.suffix == '.xlsx':
+                with ZipFile(artifact) as archive:
+                    content = b''.join(archive.read(n) for n in archive.namelist()).decode('utf-8')
+            else:
+                content = artifact.read_text()
+            # A single character can occur in fixed metadata. Check its emitted
+            # standalone/labelled forms; multi-character fake secrets nowhere.
+            if len(secret) > 1:
+                assert secret not in content, artifact
+            else:
+                assert '\n' + secret + '\n' not in content
+                assert 'password ' + secret not in content
+    assert not list(path.glob('*.xlsx'))
+
+
+@pytest.mark.parametrize('text,reason', [(42, m.CELL_ERROR), ('x' * 32768, m.SIZE_ERROR),
+    ('ok\n' * 1001, m.COUNT_ERROR), ('ok\n\nbad\tsecret-fixture', m.CONTROL_ERROR + '3'),
+    ('ok\n\x1bsecret-fixture', m.CONTROL_ERROR + '2')])
+def test_structural_diagnostics_are_fixed_and_source_located(text, reason):
+    with pytest.raises(ValueError) as error:
+        m.commands(text)
+    assert str(error.value) == reason
+    assert 'secret-fixture' not in str(error.value)
+
+
+
+def test_partial_unlabelled_secret_on_disconnect_is_redacted(fake, auth, monkeypatch):
+    def capture(self, command, **kwargs):
+        kwargs['receive']('password fragmented-fixture\n')
+        kwargs['receive']('fragmented-fixt')
+        raise EOFError()
+    monkeypatch.setattr(m.DeviceCLI, 'capture_literal', capture)
+    path = run([row(2, text='password fragmented-fixture'), row(3)], auth)
+    result = records(path)
+    capture_text = Path(result[0]['transcript']).read_text()
+    assert 'fragmented-fixt' not in capture_text
+    assert result[0]['status'] == 'Incomplete' and result[1]['attempted'] == 0
+    assert not any(c[0] == 'save' for c in fake[0])
+
+
+
+def test_api_invalid_ip_has_fixed_diagnostic_without_echo(fake, auth):
+    config = m.ExecutionConfig(1, 0, 0)
+    rows = [row(2)]
+    rows[0]['management_ip'] = 'password=invalid-ip-fixture'
+    with pytest.raises(ValueError) as error:
+        m.execute(rows, profile=auth, password='test authorization password',
+                  confirmation_digest=m.summary(rows, config)['digest'],
+                  credentials={}, transport_config=None, execution_config=config)
+    assert str(error.value) == m.INPUT_ERROR
+    assert fake[0] == []

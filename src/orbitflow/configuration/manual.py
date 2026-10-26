@@ -1,4 +1,6 @@
-"""Excel manual blocks: fresh shells, durable evidence and success-only row save.
+"""Literal Excel blocks: fresh shells, redacted evidence, success-only automatic save.
+
+Explicit engineer persistence commands may save before any later row failure.
 
 Public API: create_template, load_rows, summary, execute, regenerate_report.
 No legacy plan conversion, automatic replay, rollback or independent verification.
@@ -21,7 +23,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment
 from orbitflow.config import ExecutionConfig
 from orbitflow.configuration.manual_auth import authorize
-from orbitflow.configuration.plans import canonical, safe_text
+from orbitflow.configuration.plans import canonical
 from orbitflow.configuration_backup import BackupWriter, filename_component
 from orbitflow.execution import execute_devices
 from orbitflow.result_spool import ResultSpool, ResultJournal
@@ -36,16 +38,27 @@ from orbitflow.vendors.configuration_facts import _safe_source
 from orbitflow.vendors import manual_configuration as vendor
 
 EMPTY_ERROR = 'Invalid input: command block contains no executable commands'
-INPUT_ERROR = 'Invalid input: IP, command, credential or persistence restriction'
+INPUT_ERROR = 'Invalid input: management_ip must be an IP address'
+CELL_ERROR = 'Invalid input: command cell must be text'
+SIZE_ERROR = 'Invalid input: command cell exceeds 32767 characters'
+COUNT_ERROR = 'Invalid input: command block exceeds 1000 nonblank lines'
+FORMULA_ERROR = 'Invalid input: formula cells are unsupported'
+CONTROL_ERROR = 'Invalid input: control character at cell line '
 SCOPE = 'Transcript only — configuration not independently verified'
-# Fail closed on abbreviations, execution wrappers and programmable/interactive
-# constructs that could bypass per-row persistence or require automatic answers.
-FORBIDDEN = ('write', 'copy', 'save', 'commit', 'reload', 'reboot', 'erase',
-             'delete', 'format', 'execute', 'do', 'run', 'alias', 'macro', 'event',
-             'kron', 'tclsh', 'python', 'shell', 'bash', 'cli', 'banner', 'more',
-             'terminal', 'screen-length', 'enable', 'disable', 'quit', 'logout')
-CONFIG_ROOTS = frozenset(('interface description vlan switchport shutdown no default hostname ip ipv6 router network spanning-tree service encapsulation bridge-domain rewrite split-horizon mtu speed duplex negotiation exit end name address exit-address-family access-list route-map match set class-map policy-map bandwidth priority logging snmp-server ntp clock line transport location contact').split())
-INTERACTION = re.compile(r'(?i)(?:--\s*more\s*--|\[more\]|password\s*:|username\s*:|\(y/n\)|\[y/n\]|\[yes/no\]|\[confirm\]|press (?:any|enter|return)|continue\?|are you sure|destination filename|overwrite\?|\[(?:yes|no|y|n)(?:/[^\]]+)?\]|(?:enter|input|confirm|proceed)[^\r\n]{0,120}:|\?\s*$)')
+# Disclosure-only recognition, never used to accept/reject CLI. Shared evidence
+# policy covers full vendor labels; these common abbreviated labels also identify
+# operands whose bare echoes must be masked.
+DISCLOSURE_LABEL = re.compile(
+    r'(?i)(?<![\w./:-])(?:pass(?:w(?:or(?:d)?)?)?|sec(?:r(?:e(?:t)?)?)?|'
+    r'comm(?:u(?:n(?:i(?:t(?:y)?)?)?)?)?)(?![\w./-])')
+
+
+def input_error(value):
+    return value in {INPUT_ERROR, EMPTY_ERROR, CELL_ERROR, SIZE_ERROR, COUNT_ERROR, FORMULA_ERROR} or (
+        isinstance(value, str) and re.fullmatch(re.escape(CONTROL_ERROR) + r'[1-9][0-9]{0,4}', value) is not None)
+
+
+INTERACTION = re.compile(r'(?i)(?:--\s*more\s*--|\[more\]|password\s*:(?=\s*(?:\r?\n|$))|username\s*:(?=\s*(?:\r?\n|$))|\(y/n\)|\[y/n\]|\[yes/no\]|\[confirm\]|press (?:any|enter|return)|continue\?|are you sure|destination filename|overwrite\?|\[(?:yes|no|y|n)(?:/[^\]]+)?\]|(?:enter|input|confirm|proceed)[^\r\n]{0,120}:|\?\s*$)')
 
 
 @contextmanager
@@ -92,35 +105,24 @@ class CaptureSettings:
 
 
 def commands(text):
-    if text is None or isinstance(text, str) and not text.strip():
+    """Validate transport structure only; return literal nonblank authored lines."""
+    if text is None:
         raise ValueError(EMPTY_ERROR)
-    if not isinstance(text, str) or len(text) > 32767:
-        raise ValueError('Invalid multiline command cell')
-    lines = [line for line in text.replace('\r\n', '\n').split('\n') if line.strip()]
+    if not isinstance(text, str):
+        raise ValueError(CELL_ERROR)
+    if len(text) > 32767:
+        raise ValueError(SIZE_ERROR)
+    source = text.replace('\r\n', '\n').split('\n')
+    for number, line in enumerate(source, 1):
+        if not line.strip():
+            continue
+        if any(ord(c) < 32 or 127 <= ord(c) <= 159 or c in '\u2028\u2029' for c in line):
+            raise ValueError(CONTROL_ERROR + str(number))
+    lines = [line for line in source if line.strip()]
     if not lines:
         raise ValueError(EMPTY_ERROR)
     if len(lines) > 1000:
-        raise ValueError('Too many commands')
-    for line in lines:
-        # Validate without modifying literal whitespace or authored command text.
-        safe_text(line.strip())
-        if any(ord(c) < 32 or ord(c) == 127 for c in line):
-            raise ValueError('Control characters forbidden')
-        tokens = line.strip().lower().split()
-        head = tokens[0]
-        if (any(word.startswith(head) for word in FORBIDDEN)
-                or head in {'configure', 'conf'}
-                or any(c in line for c in ';|?\\')
-                or any(token in {'startup-config', 'nvram:', 'flash:', 'bootflash:'} for token in tokens)):
-            raise ValueError('Persistence, interaction or execution wrapper forbidden')
-        if head not in CONFIG_ROOTS:
-            raise ValueError('Ambiguous command or alias is not supported')
-        if head in {'no', 'default'} and (len(tokens) < 2 or tokens[1] not in CONFIG_ROOTS):
-            raise ValueError('Ambiguous negated/default command')
-        # Credential commands rejected through shared protections, including
-        # vendor labels beyond the v1 string policy.
-        if any(_safe_source(line, platform) != line for platform in vendor.PROFILES):
-            raise ValueError('Credential-bearing command forbidden')
+        raise ValueError(COUNT_ERROR)
     return lines
 
 
@@ -136,7 +138,7 @@ def create_template(directory='data/input/generated_template'):
     sheet.column_dimensions['B'].width = 90
     sheet['B2'].alignment = Alignment(wrap_text=True, vertical='top')
     from openpyxl.comments import Comment
-    sheet['B1'].comment = Comment('Literal newline-separated commands (Alt+Enter). Starts in global configuration mode. No credentials, save/commit, interactive commands or execution wrappers.', 'OrbitFlow')
+    sheet['B1'].comment = Comment('Literal newline-separated commands (Alt+Enter). Starts in global configuration mode. Engineer CLI is sent literally, including explicit save commands. Automatic save is success-only; unsupported questions stop the row. Protect credential-bearing source workbooks.', 'OrbitFlow')
     for sequence in range(1, 100000):
         path = root / f'manual_config_{datetime.now():%Y%m%d}_{sequence:03d}.xlsx'
         try:
@@ -171,11 +173,11 @@ def load_rows(path):
             try:
                 item['management_ip'] = str(ipaddress.ip_address(str(values[0]).strip()))
                 if any(cell.data_type == 'f' for cell in cells):
-                    raise ValueError()
+                    raise ValueError(FORMULA_ERROR)
                 item['commands'] = commands(values[1])
                 item['command_lines'] = [i for i, line in enumerate(values[1].replace('\r\n', '\n').split('\n'), 1) if line.strip()]
             except Exception as exc:
-                item['error'] = EMPTY_ERROR if str(exc) == EMPTY_ERROR else INPUT_ERROR
+                item['error'] = str(exc) if input_error(str(exc)) else INPUT_ERROR
                 item['commands'] = []
             rows.append(item)
             if len(rows) > 10000:
@@ -206,7 +208,8 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
             reports_dir='outputs/reports/manual_configuration', on_output=None):
     """Apply only after local password and summary-bound explicit confirmation.
 
-    credentials maps IP to existing DeviceCredentials; no command-workbook secrets.
+    credentials maps IP to existing DeviceCredentials. Authored CLI may contain secrets;
+    source workbooks must be protected. Save status describes automatic save only.
     Returns a retained run path. Refreshes one consolidated report per device via the
     scheduler and optional on_output(Path); export failures retain offline recovery.
     """
@@ -217,18 +220,20 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
     if not 1 <= len(rows) <= 10000:
         raise ValueError('Manual input requires 1–10000 rows')
     for row in rows:
-        if row.get('error') not in {'', INPUT_ERROR, EMPTY_ERROR}:
+        if row.get('error') != '' and not input_error(row.get('error')):
             raise ValueError('Invalid manual input diagnostic')
         if row.get('error') and row.get('commands') != []:
             raise ValueError('Invalid rows cannot retain command cells')
-        if row.get('management_ip'):
-            ipaddress.ip_address(row['management_ip'])
+        if row.get('management_ip') or not row.get('error'):
+            try:
+                ipaddress.ip_address(row['management_ip'])
+            except (TypeError, ValueError):
+                raise ValueError(INPUT_ERROR) from None
         if set(row) - {'command_lines'} != {'source_row', 'management_ip', 'commands', 'error'}:
             raise ValueError('Invalid manual row schema')
         if type(row['source_row']) is not int or row['source_row'] < 2:
             raise ValueError('Invalid source row')
         if not row['error']:
-            ipaddress.ip_address(row['management_ip'])
             if commands('\n'.join(row['commands'])) != row['commands']:
                 raise ValueError('Invalid commands')
     for row in rows:
@@ -242,12 +247,23 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
     bound = summary(rows, execution_config, settings)
     if confirmation_digest != bound['digest']:
         raise ValueError('Explicit manual summary confirmation required')
+    # Disclosure policy never rejects authored CLI. Learn sensitive operands so
+    # bare/fragmented device echoes are redacted as well as labelled output.
+    secrets = {password}
+    secrets.update(v for c in credentials.values() for v in (c.username, c.password, c.secret) if v)
     for row in rows:
         for command in row['commands']:
-            if any(value and value in command for credential in credentials.values()
-                   for value in (credential.password, credential.secret)):
-                raise ValueError('Credential-bearing command forbidden')
-    secret_values = sorted({v for c in credentials.values() for v in (c.username, c.password, c.secret) if v}, key=len, reverse=True)
+            label = DISCLOSURE_LABEL.search(command)
+            if label:
+                secrets.update(re.findall(r"[^\s:=\"']+", command[label.end():]))
+            for platform in vendor.PROFILES:
+                masked = _safe_source(command, platform)
+                if '[REDACTED]' in masked:
+                    prefix = masked.split('[REDACTED]', 1)[0].rstrip()
+                    operands = command[len(prefix):]
+                    secrets.add(operands.strip())
+                    secrets.update(re.findall(r"[^\s:=\"']+", operands))
+    secret_values = sorted(filter(None, secrets), key=len, reverse=True)
     def clean(text):
         text = normalize_output(str(text))
         for value in secret_values:
@@ -256,16 +272,25 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
         # unanticipated secrets. Terminal escape sequences are removed first.
         lines = []
         for line in sanitize_text(text).split('\n'):
+            # An interruption/finalization boundary can leave only a prefix or
+            # suffix of an unlabelled secret. Mask such operands conservatively;
+            # complete-line buffering already covers ordinary receive chunks.
+            line = re.sub(r"[^\s:=\"']+", lambda match: '[REDACTED]'
+                          if any(value.startswith(match[0]) or value.endswith(match[0])
+                                 for value in secret_values) else match[0], line)
             for platform in vendor.PROFILES:
                 line = _safe_source(line, platform)
             lines.append(line)
         return '\n'.join(lines)
     def safe_record(value):
         # Field names are fixed application schema, never device input. Redact
-        # values before the shared writer so short credentials cannot corrupt
-        # keys such as source_row/status and make offline evidence unreadable.
+        # device/command text before the shared writer. Trusted fixed categories,
+        # validated IPs and artifact references are metadata: replacing short
+        # secrets in them would break source identity and offline capture links.
         if isinstance(value, dict):
-            return {key: item if key in {'kind', 'status', 'save', 'error', 'verification_scope'}
+            return {key: item if key in {'kind', 'status', 'save', 'error', 'verification_scope',
+                                                    'management_ip', 'transcript', 'backup', 'log_reference',
+                                                    'output', 'reason', 'timestamp', 'digest'}
                     else safe_record(item) for key, item in value.items()}
         if isinstance(value, (list, tuple)):
             return [safe_record(item) for item in value]
@@ -390,14 +415,12 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                         event(ip, 'receive', source_row=source['source_row'], text=line)
                                     if len(pending) > 65536:
                                         raise ValueError('Capture line limit exceeded')
-                                    if vendor.rejected(normalize_output(recent)) or INTERACTION.search(normalize_output(recent)):
+                                    if vendor.rejected(normalize_output(recent)):
                                         if pending:
                                             record('RECEIVE', pending)
                                             pending = ''
                                     if vendor.rejected(normalize_output(recent)):
                                         raise ValueError('Vendor rejected command')
-                                    if INTERACTION.search(normalize_output(recent)):
-                                        raise ValueError('Unsupported interactive exchange')
                                     checkpoint()
                                 phase = 'command capture'
                                 for index, command in enumerate(source['commands'], 1):
@@ -407,6 +430,11 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                     record('CHECK', '')  # Check durable capture before transmission.
                                     cli.capture_literal(command, first_response=settings.first_response,
                                                         inactivity=settings.inactivity, maximum=settings.maximum, receive=receive)
+                                    # A chunk ending at `password:` may be only an echo
+                                    # fragment. Classify questions after bounded capture,
+                                    # before sending another command; never answer them.
+                                    if INTERACTION.search(normalize_output(recent)):
+                                        raise ValueError('Unsupported interactive exchange')
                                 if pending:
                                     record('RECEIVE', pending)
                                     pending = ''
@@ -477,7 +505,7 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
 
         def persist(outcome):
             try:
-                spool.append(outcome, payload=safe_record(outcome.value), target=clean(list(groups)[outcome.position - 1]),
+                spool.append(outcome, payload=safe_record(outcome.value), target=list(groups)[outcome.position - 1],
                              failed=bool(outcome.error_category or (outcome.value or {}).get('failed')))
             except BaseException:
                 cancelled.set()
@@ -613,6 +641,7 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
             for text in [SCOPE,
                          'Not saving does not undo running changes.',
                          'Whole-config save may persist unrelated changes.',
+                         'Save status describes automatic save only. Explicit user write/save/commit may already have persisted changes before failure.',
                          'Never replay completed or Unknown changes. No automatic retry or rollback.',
                          'Inactivity is not proof of command completion; delayed output may cross command boundaries.']:
                 notes.append([text])
