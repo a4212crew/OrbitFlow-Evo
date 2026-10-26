@@ -94,6 +94,19 @@ delayed data can cross command boundaries. The continuous device transcript is
 authoritative. Supported rejection strings and interaction requests fail the row.
 No automatic configuration retries, unknown-question answers or speculative rollback
 are performed. Setup and finalization use prompt-aware synchronization.
+Finalization accepts the exact `end` echo from the current structural prompt,
+including a changed hostname or interface/subinterface/service mode (or a plain
+command echo). It waits for receive quiescence before learning a fresh privileged
+EXEC anchor for the single save exchange. Missing echoes, trailing output,
+rejection, interaction or disconnect prevent save. This manual-only exchange does
+not change predefined or read-only synchronization.
+
+Rejection classification uses anchored vendor diagnostics rather than generic
+error words anywhere in the capture. Literal echoes such as `description FAILED
+LINK`, `description Customer Error Monitor`, and error-like hostnames do not alone
+fail a row. Fragmented diagnostics remain detectable across receive chunks. The
+complete sanitized receive transcript is retained; no prompt determines user-block
+completion.
 
 A row is **Completed** only after capture, durable sanitized evidence, mode
 synchronization and a confirmed save with no explicit save error. The report says
@@ -133,7 +146,7 @@ verification.
 Linux Bash deterministic checks:
 
 ```bash
-PYTHONPATH=src python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py -q
+PYTHONPATH=src python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_configuration_execution.py tests/test_shared_cli.py tests/test_cisco_ios_cli.py tests/test_cli_lifecycle.py tests/test_cisco_terminal_width.py tests/test_edgeswitch_angle_prompt.py tests/test_prompt_banners.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py -q
 PYTHONPATH=src python -m pytest -q
 ```
 
@@ -141,7 +154,7 @@ Windows PowerShell deterministic checks:
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
-python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py -q
+python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_configuration_execution.py tests/test_shared_cli.py tests/test_cisco_ios_cli.py tests/test_cli_lifecycle.py tests/test_cisco_terminal_width.py tests/test_edgeswitch_angle_prompt.py tests/test_prompt_banners.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py -q
 python -m pytest -q
 ```
 
@@ -152,7 +165,10 @@ changes with recovery access; never replay previously completed/Unknown changes:
    zero device connections in operator-controlled connection monitoring.
 2. Use two successful noncontiguous rows for one lab IP and one independent IP.
    Confirm fresh shell channels, workbook order, pre-row backups and one confirmed
-   save per successful row; inspect the continuous transcripts and report.
+   save per successful row; inspect the continuous transcripts and report. Include
+   interface/subinterface/service submodes, a hostname change, and descriptions
+   containing FAILED/Error in fresh disposable rows. Confirm finalization learns
+   the new EXEC anchor and each successful row saves exactly once.
 3. Use a syntactically rejected command in a fresh lab run, followed by another
    row for that IP and one safe peer. Confirm no save after the failed block and no
    later writes for that IP; confirm the independent peer completes when safe.

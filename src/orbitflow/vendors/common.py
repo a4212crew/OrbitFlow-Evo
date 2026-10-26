@@ -81,7 +81,7 @@ class PromptCLI:
 
     def _read_until_prompt(
         self, timeout: float, *, command: str | None = None, prompt: str = "",
-        exact_prompt: bool = False,
+        exact_prompt: bool = False, manual_echo: bool = False,
     ) -> tuple[str, str]:
         deadline = time.monotonic() + timeout
         received = bytearray()
@@ -113,10 +113,16 @@ class PromptCLI:
             text = received.decode("utf-8", errors="replace")
             found = self._detect_prompt(text)
             echo = command is None or any(
-                line.strip() in (command, f"{prompt}{command}")
+                (line.strip() in (command, f"{prompt}{command}") or
+                 manual_echo and line.strip().endswith(command) and
+                 self._execution_prompt_validator(line.strip()[:-len(command)]))
                 for line in normalize_output(text).split("\n")
             )
             if found is not None and echo and (not exact_prompt or found == prompt):
+                if manual_echo:
+                    if normalize_output(text).split("\n")[-1].strip() == found:
+                        candidate = (text, found)
+                    continue
                 if not exact_prompt:
                     if getattr(self, "_execution_reader", False):
                         # Only an unterminated final line, after the current echo,
@@ -239,6 +245,27 @@ class DeviceCLI(PromptCLI):
             raise ValueError("command must be one non-empty line")
         try:
             return super().run_command(command, timeout=timeout)
+        except BaseException:
+            self._synchronized = False
+            self._accepted_paging.clear()
+            raise
+
+    def synchronize_manual(self, command: str, *, timeout: float) -> str:
+        """Reanchor after prompt-free capture using a current structural echo.
+
+        Only manual finalization opts in. Wait for quiescence after the exact
+        command echo and final structural prompt, including fragmented frames.
+        Keep the entire response for delayed rejection/interaction classification.
+        """
+        self.require_session(self.session)
+        if command != 'end' or timeout <= 0 or not self._execution_reader:
+            raise ValueError('invalid manual synchronization')
+        self.last_response = ''
+        try:
+            self._channel.sendall((command + '\n').encode())
+            raw, self.prompt = self._read_until_prompt(
+                timeout, command=command, prompt='', manual_echo=True)
+            return raw
         except BaseException:
             self._synchronized = False
             self._accepted_paging.clear()

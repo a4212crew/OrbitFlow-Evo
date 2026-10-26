@@ -42,7 +42,20 @@ def global_mode(prompt, platform):
 def finalize(cli, context, timeout):
     """Synchronize explicitly from unknown user submode; never close via exit."""
     selected = adapter(context)
-    response = cli.run_command('end', timeout=timeout)
-    if command_rejected(response) or not selected.is_exec_prompt(cli.prompt):
+    response = cli.synchronize_manual('end', timeout=timeout)
+    if rejected(response) or not selected.is_exec_prompt(cli.prompt):
         raise ValueError('Save mode synchronization failed')
     return cli.prompt
+
+
+def rejected(text):
+    """Classify anchored diagnostics, never words inside literal echoes/prompts.
+
+    Capture remains prompt-free; accumulating normalized receive text preserves
+    diagnostics split across chunks. Raw transcript framing is not removed.
+    """
+    from orbitflow.vendors.ubiquiti.switchport import command_rejected as edge_rejected
+    return edge_rejected(text) or bool(re.search(
+        r"(?im)^\s*(?:%\s*(?:error|invalid|unknown|unrecognized|incomplete|ambiguous|authorization|access denied|failed|denied)"
+        r"|(?:command )?authorization failed|access denied|(?:error|failed|denied)(?:\s|:|$)|invalid input|unknown command|unrecognized command"
+        r"|couldn't configure pvid\.|Failed to set VLAN (?:participation|tagging)\.|\^)", text))

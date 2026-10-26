@@ -90,3 +90,12 @@ is implied. Interrupted/missing row results remain Incomplete; save intent witho
 confirmed result remains Unknown. Output failures retain evidence for another
 **report-only** attempt, never a network replay. API callers must protect retained
 records and especially pre-change configuration backups.
+
+Manual finalization synchronizes the exact `end` echo from the current structural
+prompt (including changed hostname/submode) or plain echo, then establishes a fresh
+privileged EXEC save anchor after receive quiescence. User-block capture remains
+prompt-free. Anchored vendor diagnostics classify rejection independently of the
+complete sanitized transcript; error words in descriptions/hostnames alone do not
+reject a row. Missing synchronization or actual rejection prevents save and later
+same-device rows. Predefined/read-only synchronization and partial-save policy are
+unchanged.

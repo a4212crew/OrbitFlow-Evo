@@ -1087,3 +1087,10 @@ October devlog. Existing console workflows consume the corrected shared selector
 ## Manual Configuration — Issue #156
 
 The separate `orbitflow.configuration.manual` application API and console submenu implement multiline command workbooks, repeated-IP ordering, fresh shell per row, shared device execution/spooling, pre-row protected backup, prompt-free bounded capture, durable sanitized transcripts, success-only per-row save and offline report recovery. Optional profile PBKDF2 password hash and summary-bound hidden-password gate precede networking. IOS/IOS-XE platform framing and EdgeSwitch reuse shared setup/save; XR/Huawei manual entry/save and Junos are unsupported and fail before user writes. Predefined partial-save policy and v1/v2 plan schemas remain unchanged. New input generation removes only the legacy Manual CLI worksheet/navigation; canonical v2 layouts retain its empty compatibility slot. Synthetic deterministic validation is separate from pending owner Windows/Linux live lab validation. Reports explicitly state transcript-only scope. See the [manual](user_manual/manual-configuration.md) and [API](operations/manual-configuration-api.md).
+
+Issue #156 revision: manual-only finalization accepts exact current-command echoes
+from supported structural submodes and changed hostnames, waits for quiescence and
+learns a fresh EXEC anchor. Anchored diagnostic detection avoids false rejection
+of error-like literal echoes/hostnames while retaining fragmented errors and full
+sanitized transcript evidence. Deterministic real DeviceCLI reader tests cover
+these paths; owner-operated live validation remains pending.

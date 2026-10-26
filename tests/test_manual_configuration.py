@@ -11,6 +11,7 @@ from orbitflow.configuration import manual as m
 from orbitflow.configuration.manual_auth import hash_password, authorize
 from orbitflow.transport import DeviceCredentials
 from orbitflow.vendors.common import DeviceCLI
+from orbitflow.vendors.manual_configuration import finalize as real_manual_finalize
 
 
 @pytest.fixture(scope='module')
@@ -547,3 +548,123 @@ def test_short_login_values_cannot_corrupt_persisted_schema(fake, auth, username
                      transport_config=None, execution_config=config)
     assert records(path)[0]['source_row'] == 2
     assert m.regenerate_report(path).exists()
+
+@pytest.mark.parametrize('echo', [
+    b'host(config-if)#end\r\nhost#',
+    b'host(config-subif)#end\r\nhost#',
+    b'host(config-if-srv)#end\r\nhost#',
+    b'newhost(config-if)#end\r\nnewhost#',
+    b'end\r\nnewhost#',
+    b'FAILED(config-if)#end\r\nFAILED#',
+])
+def test_real_reader_manual_finalize_and_save(echo):
+    from orbitflow.vendors import manual_configuration as vendor
+    cli = literal_cli([echo[:8], echo[8:-2], echo[-2:], socket.timeout()])
+    cli.prompt = 'host(config)#'
+    cli.execution_mode('host#', 'cisco_ios')
+    anchor = vendor.finalize(cli, SimpleNamespace(platform='cisco_ios'), 2)
+    assert anchor in {'host#', 'newhost#', 'FAILED#'}
+    cli._channel.chunks = iter([(anchor + 'write memory\r\n[OK]\r\n' + anchor).encode()])
+    result = cli.save_configuration(anchor, 'cisco_ios', timeout=2)
+    assert result['status'] == 'Saved'
+    assert cli._channel.sent == [b'end\n', b'write memory\n']
+
+
+@pytest.mark.parametrize('chunks', [
+    [b'host#', socket.timeout()],  # stale prompt without current echo
+    [b'host(config-if)#end\n% Invalid input\nhost#', socket.timeout()],
+    [b'host(config-if)#end\nhost#', b' trailing stale output', socket.timeout()],
+    [b'host(config-if)#end\nhost#', b'\n% Inva', b'lid input\nhost#', socket.timeout()],
+    [b'host(config-if)#end\n', b''],
+])
+def test_real_reader_finalize_failure_never_saves(chunks):
+    from orbitflow.vendors import manual_configuration as vendor
+    cli = literal_cli(chunks)
+    cli.prompt = 'host(config)#'
+    cli.execution_mode('host#', 'cisco_ios')
+    with pytest.raises(Exception):
+        vendor.finalize(cli, SimpleNamespace(platform='cisco_ios'), 2)
+    assert cli._channel.sent == [b'end\n']
+
+
+@pytest.mark.parametrize('text', ['description FAILED LINK', 'description Customer Error Monitor',
+                                'hostname failed', 'hostname error'])
+def test_real_capture_echo_words_are_not_rejections(text):
+    from orbitflow.vendors.manual_configuration import rejected
+    cli = literal_cli([(text + '\r\nerror(config)#').encode(), socket.timeout()])
+    raw = []
+    def receive(chunk):
+        raw.append(chunk)
+        assert not rejected(m.normalize_output(''.join(raw)))
+    cli.capture_literal(text, first_response=10, inactivity=1, maximum=30, receive=receive)
+    assert text in ''.join(raw)
+
+
+@pytest.mark.parametrize('diagnostic', ['% Invalid input detected', 'Error: command rejected',
+                                      'Failed to set VLAN tagging.', 'Command not found',
+                                      '% Unrecognized command', 'Command authorization failed.', 'Access denied'])
+def test_real_capture_fragmented_diagnostics_after_echo(diagnostic):
+    from orbitflow.vendors.manual_configuration import rejected
+    echo = b'description Customer Error Monitor\r\n'
+    cli = literal_cli([echo, diagnostic[:3].encode(), diagnostic[3:].encode(), socket.timeout()])
+    raw = []
+    def receive(chunk):
+        raw.append(chunk)
+        if rejected(m.normalize_output(''.join(raw))):
+            raise ValueError('Vendor rejected command')
+    with pytest.raises(ValueError, match='Vendor rejected'):
+        cli.capture_literal('description Customer Error Monitor', first_response=10, inactivity=1,
+                            maximum=30, receive=receive)
+    assert not cli._synchronized
+
+
+@pytest.mark.parametrize('failure', ['', 'rejection', 'interaction', 'disconnect', 'stale'])
+def test_application_real_reader_finalize_stops_later_rows(fake, auth, monkeypatch, failure):
+    """Run application row policy with real capture, synchronization and save readers."""
+    from orbitflow.vendors import manual_configuration as vendor
+    calls, _ = fake
+    shells = []
+    class RealCLI(DeviceCLI):
+        def __init__(self, session, **kwargs):
+            self.session = session
+            self._synchronized = True
+            self._accepted_paging = set()
+            self.prompt = 'host(config)#'
+            response = {
+                'rejection': b'newhost(config-if)#end\r\n% Invalid input\r\nnewhost#',
+                'interaction': b'newhost(config-if)#end\r\nPassword:\r\nnewhost#',
+                'stale': b'newhost#',
+            }.get(failure, b'newhost(config-if)#end\r\nnewhost#')
+            self._channel = Channel([
+                b'description FAILED LINK\r\nnewhost(config-if)#', socket.timeout(),
+                response[:12], b'' if failure == 'disconnect' else response[12:], socket.timeout(),
+                b'newhost#write memory\r\n[OK]\r\nnewhost#'])
+            self._channel.close = lambda: calls.append(('real_close',))
+            self.execution_mode('host#', 'cisco_ios')
+            self.sent = self._channel.sent
+            shells.append(self)
+    monkeypatch.setattr(m, 'DeviceCLI', RealCLI)
+    monkeypatch.setattr(vendor, 'finalize', real_manual_finalize)
+    def save(session, context, *, cli, exec_prompt, **kwargs):
+        return dict(cli.save_configuration(exec_prompt, context.platform, timeout=2), explicit_error=False)
+    monkeypatch.setattr(m, 'save_configuration', save)
+    path = run([row(2, text='description FAILED LINK'), row(3, text='description FAILED LINK')], auth)
+    results = records(path)
+    assert len(shells) == (1 if failure else 2)
+    assert [r['status'] for r in results] == (['Incomplete', 'Incomplete'] if failure else ['Completed', 'Completed'])
+    for cli in shells:
+        assert cli._channel is None
+        assert cli.sent.count(b'write memory\n') == (0 if failure else 1)
+    assert calls.count(('real_close',)) == len(shells)
+
+
+def test_real_reader_edgeswitch_manual_finalize_save_question():
+    from orbitflow.vendors import manual_configuration as vendor
+    cli = literal_cli([b'(newhost) (Interface 0/3)#en', b'd\r\n(newhost)#', socket.timeout(),
+                       b'(newhost)#write memory\r\nAre you sure you want to save? (y/n)',
+                       b'y\r\n(newhost)#'])
+    cli.prompt = '(host) (Config)#'
+    cli.execution_mode('(host)#', 'ubiquiti_edgeswitch')
+    anchor = vendor.finalize(cli, SimpleNamespace(platform='ubiquiti_edgeswitch'), 2)
+    assert cli.save_configuration(anchor, 'ubiquiti_edgeswitch', timeout=2)['status'] == 'Saved'
+    assert cli._channel.sent == [b'end\n', b'write memory\n', b'y\n']

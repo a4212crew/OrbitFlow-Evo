@@ -26,6 +26,13 @@ configuration not independently verified”. No automatic replay, retry or rollb
 Not saving does not undo running changes; whole-config save may persist unrelated
 changes. Save transmitted before interruption remains Unknown and is never retried.
 
+Manual finalization alone can synchronize `end` against the actual structural
+starting prompt after arbitrary supported submode/hostname changes, then learn a
+fresh privileged EXEC anchor after receive quiescence. Ordinary/predefined readers
+keep their existing exact-echo rules. Anchored vendor diagnostic classification
+avoids treating literal command echoes or hostname words as errors; complete
+sanitized receive evidence remains authoritative, including fragmented diagnostics.
+
 ## Required protected skill corrections for Atlas
 
 In `.agents/skills/configuration-management/SKILL.md`, qualify “For Manual CLI

@@ -29,7 +29,7 @@ from orbitflow.logging import sanitize_text, module_logger
 from orbitflow.transport import connect_device
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.capabilities.configuration import ConfigurationService
-from orbitflow.capabilities.save import command_rejected, save_configuration
+from orbitflow.capabilities.save import save_configuration
 from orbitflow.vendors.common import DeviceCLI, normalize_output
 from orbitflow.vendors.configuration_facts import _safe_source
 from orbitflow.vendors import manual_configuration as vendor
@@ -347,11 +347,11 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                         record('RECEIVE', line)
                                     if len(pending) > 65536:
                                         raise ValueError('Capture line limit exceeded')
-                                    if command_rejected(normalize_output(recent)) or INTERACTION.search(normalize_output(recent)):
+                                    if vendor.rejected(normalize_output(recent)) or INTERACTION.search(normalize_output(recent)):
                                         if pending:
                                             record('RECEIVE', pending)
                                             pending = ''
-                                    if command_rejected(normalize_output(recent)):
+                                    if vendor.rejected(normalize_output(recent)):
                                         raise ValueError('Vendor rejected command')
                                     if INTERACTION.search(normalize_output(recent)):
                                         raise ValueError('Unsupported interactive exchange')
@@ -372,7 +372,7 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                 anchor = vendor.finalize(cli, context, settings.setup_timeout)
                                 # Mode response may contain delayed block output.
                                 record('FINALIZATION RECEIVE', cli.last_response)
-                                if command_rejected(cli.last_response) or INTERACTION.search(cli.last_response):
+                                if vendor.rejected(normalize_output(cli.last_response)) or INTERACTION.search(cli.last_response):
                                     raise ValueError('Finalization rejected or interactive')
                                 record('BLOCK CAPTURED', 'No detected error; inactivity is not proof of completion')
                                 event(ip, 'save_intent', source_row=source['source_row'])

@@ -32,9 +32,11 @@ def save_configuration(session, context, *, cli, exec_prompt, timeout, correlati
         logger.info('Save start', extra=metadata)
         try:
             result = cli.save_configuration(exec_prompt, context.platform, timeout=timeout)
-            raw_error = command_rejected(result['response']) if manual else False
+            from orbitflow.vendors.manual_configuration import rejected as manual_rejected
+            reject = manual_rejected if manual else command_rejected
+            raw_error = reject(result['response']) if manual else False
             result['response'] = _safe_source(result['response'], context.platform)
-            result['explicit_error'] = raw_error or command_rejected(result['response'])
+            result['explicit_error'] = raw_error or reject(result['response'])
             logger.info('Save complete', extra=dict(metadata, outcome=result['status'],
                         error_category='CommandRejected' if result['explicit_error'] else '-',
                         elapsed_seconds=monotonic() - started))
