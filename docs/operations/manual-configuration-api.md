@@ -39,7 +39,9 @@ receives the retained run directory before network execution, so callers can rep
 recovery locations even when execution fails. A callback exception before execution
 causes no connection. `on_output(Path)` is called serially by the scheduler after each successful consolidated
 report refresh (including reports of failed devices), while other workers may still
-run. Export failures append a fixed `report_export_failed` journal event and preserve
+run. The console presents this path as `Updated consolidated report` and its
+parent directory as `Capture folder`; the callback does not supply an individual
+capture filename. Export failures append a fixed `report_export_failed` journal event and preserve
 results for offline recovery, without retrying network writes or blocking other
 device exports. Subscriber exceptions are recorded as publication failures.
 `reports_dir` controls capture/report ownership; default run directories are

@@ -221,7 +221,7 @@ class Console:
                            credentials=credentials, transport_config=TransportConfig(**settings['teleport']),
                            execution_config=execution, inventory_path=settings['paths']['inventory'],
                            progress=display.event, on_started=lambda path: self.write(f'Retained manual run: {path}'),
-                           on_output=lambda output: self.write(f'Finished device report: {output}\nCapture: {output.parent / "capture.txt"}'))
+                           on_output=lambda output: self.write(f'Updated consolidated report: {output}\nCapture folder: {output.parent}'))
 
     def manual_recover(self):
         from orbitflow.configuration.manual import regenerate_report

@@ -904,3 +904,43 @@ def test_console_report_runs_real_aggregation_export(settings, monkeypatch, edge
     assert book['Interfaces']['E2'].comment
     assert channel.close_calls == 1 and client.closed
     book.close()
+
+
+def test_manual_completion_publishes_existing_consolidated_report_and_capture_folder(settings, monkeypatch):
+    """Each completion publishes the shared workbook and real named-capture folder."""
+    from orbitflow.configuration import manual, manual_auth
+
+    source = manual.create_template()
+    book = load_workbook(source)
+    book.active.append(['192.0.2.1', 'interface Gi1/0/1\ndescription lab'])
+    book.save(source)
+    book.close()
+    monkeypatch.setattr('getpass.getpass', lambda _: 'fixture-authorization')
+    monkeypatch.setattr(manual_auth, 'authorize', lambda *args: None)
+    ui, output = console(['', 'y'], session_check=lambda _: None)
+    monkeypatch.setattr(ui, 'choose_workbook', lambda *args, **kwargs: source)
+    monkeypatch.setattr(ui, 'choose_file', lambda *args: Path('data/input/devices.xlsx'))
+
+    report = Path('outputs/reports/manual_configuration/20261026_120000/manual_output_20261026_120000.xlsx')
+    report.parent.mkdir(parents=True)
+    workbook = Workbook()
+    workbook.active.title = 'Devices'
+    workbook.save(report)
+    workbook.close()
+    capture = report.parent / 'lab-switch_192.0.2.1.txt'
+    capture.write_text('lab-switch#\n', encoding='utf-8')
+
+    def execute(*args, on_output, **kwargs):
+        for _ in range(2):
+            before = len(output)
+            on_output(report)
+            assert len(output) == before + 1  # Immediate publication per completion.
+            lines = output[-1].splitlines()
+            assert lines == [f'Updated consolidated report: {report}',
+                             f'Capture folder: {capture.parent}']
+            assert all(Path(line.split(': ', 1)[1]).exists() for line in lines)
+        return Path('outputs/runs/manual_configuration/20261026_120000')
+
+    monkeypatch.setattr(manual, 'execute', execute)
+    ui.manual_execute()
+    assert not any('capture.txt' in line or 'device report' in line.lower() for line in output)

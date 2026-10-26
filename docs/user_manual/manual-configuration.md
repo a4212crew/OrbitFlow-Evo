@@ -140,7 +140,9 @@ Artifacts use collision-safe run/template allocation:
 - `outputs/reports/manual_configuration/YYYYMMDD_HHMMSS/`: ONE consolidated
   `manual_output_YYYYMMDD_HHMMSS.xlsx` with every input row in original order,
   including repeated IPs, and a concise `Devices` summary. The same workbook is
-  atomically refreshed after EACH device finishes while peers continue; pending
+  atomically refreshed after EACH device finishes while peers continue. The console
+  immediately prints `Updated consolidated report: <workbook path>` and
+  `Capture folder: <report directory>`; use workbook links for actual named captures. Pending
   rows are Incomplete/Not attempted, never Completed. Captures are named
   `<sanitized-hostname>_<sanitized-ip>.txt`, with IP fallback before identification.
   Safe rename failures retain the fallback and real journal references. Relative
@@ -189,7 +191,10 @@ changes with recovery access; never replay previously completed/Unknown changes:
    zero device connections in operator-controlled connection monitoring.
 2. Use two successful noncontiguous rows for one lab IP and one independent IP.
    Confirm fresh shell channels, workbook order, pre-row backups and one confirmed
-   save per successful row; inspect the continuous transcripts and report. Include
+   save per successful row; inspect the continuous transcripts and report. After
+   each device completes, confirm the console immediately names the same existing
+   consolidated workbook and its existing capture folder, with no `capture.txt`
+   path or per-device workbook claim. Include
    interface/subinterface/service submodes, a hostname change, and descriptions
    containing FAILED/Error in fresh disposable rows. Confirm finalization learns
    the new EXEC anchor and each successful row saves exactly once.
