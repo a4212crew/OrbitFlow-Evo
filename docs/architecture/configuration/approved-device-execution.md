@@ -4,8 +4,11 @@ Status: **Owner-approved design, 2026-10-17 (Australia/Sydney); initially implem
 Issue #154 authorizes extending this lifecycle to ME3600X Templates 9–11 and
 ASR920 Templates 12–13. Their family planning semantics remain separate; EVC
 execution adds fresh parent/ownership/overlap/child-drift checks, ME3600X BD VLAN
-prerequisites, complete approved recreation and independent configuration/detail
-verification. Earlier exclusions of these families are superseded for this scope
+prerequisites and complete approved recreation. Owner revision 2026-10-26 supersedes
+only Templates 10/12 post-verification: fresh validated operational presence for the
+exact ID/interface (Up or Down), with no configuration-tree equality or fallback
+for success. Report Presence verified, not complete configured intent. Preserve
+pre-write safeguards and independent command/save outcomes. Earlier exclusions of these families are superseded for this scope
 only. No second EVC confirmation, automatic rollback or Manual CLI apply is added.
 Synthetic implementation evidence does not establish owner lab validation.
 

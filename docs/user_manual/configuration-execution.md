@@ -40,11 +40,18 @@ The child drift comparison is conservative: retained child command settings and
 ordering must match the reviewed observation; reordered settings require review
 and a fresh plan rather than silent acceptance.
 
-Fresh post-stage checks verify lists/ranges/QinQ, rewrite/pushed tags, BD, group 0
-versus absence, child/supplied parent descriptions and preservation of unrelated
-children, parent admin state, MTU and policies. Separate fresh service detail is
-reconciled with configuration. Unknown detail may use complete reliable configuration
-with `SERVICE_DETAIL_FALLBACK`; contradictions fail. Operational Down is a warning.
+Owner-approved revision (2026-10-26): Templates 10 and 12 use fresh operational
+service-instance **presence** verification through `VlanService.service_detail`.
+A validated `present` result must identify the exact requested ID and normalized
+associated interface. Up and Down both pass; Down is informational. The report
+says **Presence verified** and retains operational detail. This does not prove
+encapsulation, rewrite, BD, descriptions, preservation or forwarding health.
+Reliable absence or contradictory ID/interface fails; timeout, CLI error and
+missing/incomplete/ambiguous detail are Unknown. Apply-command rejection still
+fails independently. No configuration-tree fallback can establish EVC success.
+Fresh pre-apply configuration, ownership, prerequisite and drift gates remain;
+other templates retain their existing configured-intent verification. Scoped
+running-config pre/post evidence is still retained, including nested `!` output.
 Partial-save, unknown-after-send, no retries/rollback/resume and offline recovery
 follow the existing lifecycle below. Outputs remain the execution XLSX, durable
 per-row pre/post/command evidence and journal in the run, separate protected backups
@@ -58,22 +65,73 @@ verification and save independently. Test drift/missing-VLAN and controlled reje
 disconnect only in the lab: expect Failed versus Unknown, safe independent-row
 continuation, one partial save when EXEC remains usable and no retry. Disconnect,
 then run the offline `report` command below and compare retained outcomes. Keep
-the full run and backups. Owner validation remains pending on both families.
+the full run and backups. Owner-reported ME3600X lab finding (2026-10-26):
+14 selected rows, seven VLAN/description rows verified; seven EVC command sequences
+returned and save reported Saved, but `service=False` falsely failed those rows.
+Positive detail was reported for Gi0/7 SI 445 and 545. Those historical outcomes
+remain immutable. Do not replay completed changes. The revised verifier and ASR920
+owner lab validation remain pending.
 
 Deterministic checks (no device access), from the repository Python environment:
 
 ```bash
 export PYTHONPATH="$PWD/src"
-python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_configuration_v2_approved_services.py tests/test_bulk_configuration_v2.py tests/test_operations_console.py -q
+python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_configuration_v2_approved_services.py tests/test_bulk_configuration_v2.py tests/test_operations_console.py tests/test_vlan_capability.py -q
 ```
 
 ```powershell
 $env:PYTHONPATH = "$PWD/src"
-python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_configuration_v2_approved_services.py tests/test_bulk_configuration_v2.py tests/test_operations_console.py -q
+python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_configuration_v2_approved_services.py tests/test_bulk_configuration_v2.py tests/test_operations_console.py tests/test_vlan_capability.py -q
 ```
 
-Linux commands are supplied for owner/CI use; automated evidence for this delivery
-is Windows synthetic testing. No production or unattended changes are authorized.
+The revision has Linux synthetic test evidence; Windows commands are supplied for
+owner/CI use. Earlier Windows evidence remains historical. No production or unattended changes are authorized.
+
+Read-only owner validation after the revision (Linux and Windows): first preserve
+the original plan, run directory, backups and report. Offline report regeneration
+reads the journal without changing historical outcomes:
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -m orbitflow.configuration.execution_cli report outputs/runs/configuration_execution/ORIGINAL_RUN outputs/reports/configuration_execution/historical-copy.xlsx
+```
+
+```powershell
+$env:PYTHONPATH = "$PWD/src"
+python -m orbitflow.configuration.execution_cli report outputs/runs/configuration_execution/ORIGINAL_RUN outputs/reports/configuration_execution/historical-copy.xlsx
+```
+
+Replace ORIGINAL_RUN with the retained run directory. Expected: recovered XLSX
+with the original Failed/Verified/Unknown and Saved outcomes, without reconnection
+or reclassification. A missing/corrupt journal fails; do not execute again to
+recover a report.
+
+For a fresh presence check, use an owner-controlled lab session with the existing
+[transport/validation caller](live-validation.md#cisco-terminal-width-issue-114),
+resolved context and borrowed CLI. This is read-only and performs no apply/save:
+
+```python
+from orbitflow.capabilities import VlanService
+from orbitflow.vendors.interface_names import canonical_interface_name
+
+# Existing operator-owned session/context/cli; use targets from original approved plan.
+for interface, sid in [("GigabitEthernet0/7", 445), ("GigabitEthernet0/7", 545)]:
+    detail = VlanService().service_detail(session, context, interface, sid, cli=cli)
+    print(sid, detail.get("interface"), detail["status"], detail["operational_status"])
+    assert detail["status"] == "present"
+    assert detail.get("service_instance_id") == sid
+    assert detail.get("interface") == canonical_interface_name(context.platform, interface)
+```
+
+The examples are the owner-reported ME3600X targets. For ASR920 use its actual
+approved interface/ID pairs from retained plan inputs. The capability sends exactly
+`show ethernet service instance id 445 interface GigabitEthernet0/7 detail` (and
+545 for the second target). Owner CLI sessions on either operating system may run
+these same read-only commands directly. Expected: exact ID/Associated Interface,
+validated present with Up or Down, safe detail evidence. Missing/ambiguous detail
+is Unknown; an explicit wrong target/absence fails. Preserve new validation evidence
+separately from historical results. Complete revised live validation remains pending;
+any new apply requires separate owner authorization and fresh reviewed artifacts.
 
 Generate the immutable `plan.json` and adjacent review workbook using the
 [planning manual](bulk-configuration-planning.md). Change only Engineer Decision
@@ -858,7 +916,7 @@ C3850 and EdgeSwitch. The focused Issue #139 command (Bash with `PYTHONPATH=src`
 or PowerShell after `$env:PYTHONPATH = "$PWD/src"`) is:
 
 ```text
-python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_execution_observation_timing.py tests/test_shared_cli.py tests/test_configuration_backup.py tests/test_operations_console.py -q
+python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_execution_observation_timing.py tests/test_shared_cli.py tests/test_configuration_backup.py tests/test_operations_console.py tests/test_vlan_capability.py -q
 ```
 
 Use the Linux/Windows full-suite commands above with a writable OS temporary

@@ -10,9 +10,24 @@ Templates 9–11 (`cisco_ios`, `me3600x_evc`) and ASR920 Templates 12–13
 from `confirm(..., apply=True)`. EVC summaries disclose remove/recreate and
 forwarding interruption. Fresh gates reject target-child drift, unsafe parents,
 ownership/ingress conflicts and missing ME3600X BD VLANs without rerendering CLI.
-`verify_row` collects fresh configuration and EVC detail; evidence includes
-`checks`, scoped `configuration`, `service_detail` and `warnings`. Reliable config
-may supply `SERVICE_DETAIL_FALLBACK`; contradictions fail. Standalone save accepts
+`verify_row` retains fresh configuration evidence, but EVC Templates 10/12 use only
+trustworthy fresh operational presence for success (owner revision 2026-10-26).
+Evidence includes `verification_scope` (`Presence verified` on success), scoped
+`configuration`, normalized `service_detail` and `warnings`. There is no running-config
+success fallback. This is not proof of complete configured intent. Exact ID/interface
+presence accepts Up or Down; absence/contradictory identity fails, unavailable or
+ambiguous detail is Unknown. Command and save outcomes remain independent.
+
+`VlanService.service_detail(session, context, interface, service_instance_id, *, cli=None)`
+is read-only for ME3600X/ASR920. It returns `status`, sanitized `facts`/`evidence`,
+`operational_status`, and, for a single explicit ID/interface response, additive
+`service_instance_id: int`, canonical `interface: str`, and `identity_status`
+(`matched` or `contradictory`). Ambiguous/missing identity never establishes presence.
+Existing v2 artifacts without these optional fields remain loadable; new detail
+identity fields are validated and digest-bound in new observations. A service-detail
+command error/timeout returns error, not absence. Executor success requires exact
+normalized identity in a validated present response; arbitrary nonempty CLI cannot pass.
+Standalone save accepts
 these two exact profiles; `SwitchportService` support is unchanged. See the
 [operator guide](../user_manual/configuration-execution.md#me3600x-and-asr920-issue-154)
 for commands, outputs, limitations and pending owner lab validation.

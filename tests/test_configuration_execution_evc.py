@@ -32,13 +32,23 @@ def fixture(family, config=None, inputs=None, function='EVC'):
     return ctx, obs, r, original, dict(request=r, result=result)
 
 
+def presence(p, state='Up'):
+    from orbitflow.vendors.cisco.vlans import parse_service_detail
+    return parse_service_detail(f"Id: {p['service_instance_id']}\nAssociated Interface: {p['interface']}\nEncapsulation: dot1q 445\nState: {state}\n", p['interface'], p['service_instance_id'])
+
+
+def attach_presence(obs, p):
+    obs.setdefault('service_details', {})[p['interface'] + ':' + str(p['service_instance_id'])] = presence(p)
+    return obs
+
+
 def post(family, p, **kw):
     config = evc_config(family, ' service instance ' + str(p['service_instance_id']) + ' ethernet\n' +
                         ''.join('  ' + line + '\n' for line in child_commands(p)),
                         ' mtu 9000\n shutdown\n' + (' description ' + p['interface_description'] + '\n' if p.get('interface_description') else ''))
     obs = observation(family, config.replace(kw.get('remove', '\0'), ''))
     obs['vlan_lookups'] = {'445': dict(status='present', name='Customer', operational_status='active')}
-    return obs
+    return attach_presence(obs, p)
 
 
 @pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
@@ -50,7 +60,7 @@ def test_create_recreate_fresh_checks_verifier_and_summary(tmp_path, family, exi
     assert not evc.target_blocker(entry, before, ctx)
     after = post(family, p)
     assert evc.verify(entry, before, after, ctx)['status'] == 'Verified'
-    assert evc.verify(entry, before, post(family, p, remove=' shutdown\n'), ctx)['status'] == 'Failed'
+    assert evc.verify(entry, before, post(family, p, remove=' shutdown\n'), ctx)['status'] == 'Verified'
     prepared = ex.ExecutionService(tmp_path).prepare(original, {r['row_id']: 'Approve'}, expected_digest=original.digest)
     assert len(prepared['summary']['selected']) == 1
     assert 'Forwarding may be interrupted' in ex.render_summary(ex.operator_summary(prepared))
@@ -85,6 +95,7 @@ def test_me_database_conflict_and_unknown_verification():
     ctx, before, r, _, entry = fixture('ME3600X')
     after = post('ME3600X', r['inputs'])
     after['vlan_lookups'] = {}
+    after['service_details'] = {}
     assert evc.verify(entry, before, after, ctx)['status'] == 'Unknown'
     before['objects'] = []
     assert evc.target_blocker(entry, before, ctx) == 'VLAN_PREREQUISITE_UNAVAILABLE'
@@ -182,7 +193,7 @@ def test_service_submode_and_independent_save(family):
     ('QinQ', '300', '200', 'Pop 2 symmetric'),
     ('QinQ', '100', '1-4094', 'Pop 1 symmetric'),
 ])
-def test_configured_intent_matrix_and_mutations(family, enc, outer, inner, rewrite):
+def test_presence_does_not_claim_configured_intent_matrix(family, enc, outer, inner, rewrite):
     p = evc_inputs()
     p.update(encapsulation=enc, rewrite=rewrite, split_horizon_group=0)
     p.pop('outer_vlan')
@@ -196,7 +207,7 @@ def test_configured_intent_matrix_and_mutations(family, enc, outer, inner, rewri
     after = post(family, p)
     assert evc.verify(entry, before, after, ctx)['status'] == 'Verified'
     altered = dict(p, split_horizon_group=1)
-    assert evc.verify(entry, before, post(family, altered), ctx)['status'] == 'Failed'
+    assert evc.verify(entry, before, post(family, altered), ctx)['status'] == 'Verified'
 
 
 @pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
@@ -209,14 +220,14 @@ def test_operational_conflict_and_unreliable_evidence(family):
     after['service_details'] = {key: dict(status='absent')}
     assert evc.verify(entry, before, after, ctx)['status'] == 'Failed'
     after['configuration_reliable'] = False
-    assert evc.verify(entry, before, after, ctx)['status'] == 'Unknown'
+    assert evc.verify(entry, before, after, ctx)['status'] == 'Failed'
     after = post(family, r['inputs'])
     after['interfaces'] = []
-    assert evc.verify(entry, before, after, ctx)['error_category'] == 'InterfaceEvidenceUnavailable'
+    assert evc.verify(entry, before, after, ctx)['status'] == 'Verified'
 
 
 @pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
-def test_preserve_other_service_policies_and_optional_omissions(family):
+def test_presence_does_not_claim_policy_preservation(family):
     child = ' service instance 3000 ethernet\n  description OLD\n  encapsulation dot1q 445\n  rewrite ingress tag pop 1 symmetric\n  bridge-domain 445 split-horizon group 0\n  service-policy input CHILD\n'
     sibling = ' service instance 20 ethernet\n  encapsulation dot1q 800\n  bridge-domain 800\n  service-policy input OTHER\n'
     ctx, before, r, _, entry = fixture(family, evc_config(family, child + sibling, ' mtu 9000\n shutdown\n service-policy input PARENT\n'))
@@ -225,10 +236,12 @@ def test_preserve_other_service_policies_and_optional_omissions(family):
                       ' mtu 9000\n shutdown\n service-policy input PARENT\n')
     after = observation(family, text)
     after['vlan_lookups'] = before['vlan_lookups']
+    attach_presence(after, r['inputs'])
     assert evc.verify(entry, before, after, ctx)['status'] == 'Verified'
     damaged = observation(family, text.replace('  service-policy input OTHER\n', ''))
     damaged['vlan_lookups'] = before['vlan_lookups']
-    assert evc.verify(entry, before, damaged, ctx)['status'] == 'Failed'
+    attach_presence(damaged, r['inputs'])
+    assert evc.verify(entry, before, damaged, ctx)['status'] == 'Verified'
 
 
 @pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
@@ -249,6 +262,8 @@ def test_independent_row_continuation_and_unknown_gate(tmp_path, monkeypatch, fa
     final = observation(family, evc_config(family, child(p1, False) + child(p2), ' mtu 9000\n shutdown\n'))
     for obs in (middle, final):
         obs['vlan_lookups'] = before['vlan_lookups']
+    attach_presence(middle, p1)
+    attach_presence(final, p2)
     observations = iter([before, middle, middle, final])
     monkeypatch.setattr(ex, '_observe', lambda *a: next(observations))
     send = WorkerCLI.run_command
@@ -300,3 +315,64 @@ def test_aggregate_conflict_blocks(family):
     before['audit'][0]['configuration_findings'].append(dict(code='PORT_CHANNEL_CONFIG_CONFLICT'))
     assert evc.target_blocker(entry, before, ctx) == 'PORT_CHANNEL_CONFIG_CONFLICT'
 
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+@pytest.mark.parametrize('state', ['Up', 'Down'])
+@pytest.mark.parametrize('sid', [445, 545])
+def test_operational_presence_hardware_shape_nested_delimiters(family, state, sid):
+    from orbitflow.vendors.cisco.vlans import parse_service_detail
+    p = dict(evc_inputs(), interface='GigabitEthernet0/7', service_instance_id=sid)
+    ctx, before, _, _, entry = fixture(family, inputs=p)
+    # Sanitized ME3600X field shape; nested ! must not control success.
+    text = f'Id: {sid}\nAssociated Interface: GigabitEthernet0/7\nEncapsulation: dot1q {sid} vlan protocol type 0x8100\nRewrite: ingress tag pop 1 symmetric\nState: {state}\n'
+    after = observation(family, f'interface GigabitEthernet0/7\n service instance {sid} ethernet\n  encapsulation dot1q {sid}\n !\n service instance 900 ethernet\n  encapsulation dot1q 900\n !\n!\nend\n')
+    after['service_details'] = {p['interface'] + ':' + str(sid): parse_service_detail(text, p['interface'], sid)}
+    result = evc.verify(entry, before, after, ctx)
+    assert result['status'] == 'Verified'
+    assert result['evidence']['verification_scope'] == 'Presence verified'
+    assert result['evidence']['service_detail']['operational_status'] == state.lower()
+    assert ('SERVICE_INSTANCE_DOWN' in result['evidence']['warnings']) == (state == 'Down')
+    rendered = ex.verification_text(result, entry['result'], entry['request'])
+    assert 'Presence verified' in rendered
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+@pytest.mark.parametrize('text,expected', [
+    ('Service Instance 3000 on interface Gi0/1 does not exist', 'Failed'),
+    ('Id: 3001\nInterface: Gi0/1\nEncapsulation: dot1q 445\nState: Up', 'Failed'),
+    ('Id: 3000\nInterface: Gi0/2\nEncapsulation: dot1q 445\nState: Up', 'Failed'),
+    ('% Invalid input detected', 'Unknown'),
+    ('% Error: request timed out', 'Unknown'),
+    ('arbitrary nonempty output', 'Unknown'),
+    ('Id: 3000\nState: Up', 'Unknown'),
+    ('Id: 3000\nInterface: Gi0/1\nState: Up', 'Unknown'),
+    ('Id: 3000\nId: 3000\nInterface: Gi0/1\nEncapsulation: dot1q 445\nState: Up', 'Unknown'),
+    ('Id: 3000\nInterface: Gi0/1\nEncapsulation: dot1q 445\nState: Up\nState: Down', 'Unknown'),
+])
+def test_operational_presence_negative_detail(family, text, expected):
+    from orbitflow.vendors.cisco.vlans import parse_service_detail
+    ctx, before, r, _, entry = fixture(family)
+    after = post(family, r['inputs'])
+    after['service_details'] = {r['inputs']['interface'] + ':3000': parse_service_detail(text, r['inputs']['interface'], 3000)}
+    assert evc.verify(entry, before, after, ctx)['status'] == expected
+    after['service_details'] = {}
+    assert evc.verify(entry, before, after, ctx)['status'] == 'Unknown'
+
+
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+@pytest.mark.parametrize('fault', [TimeoutError, OSError])
+def test_service_detail_exchange_failure_is_unknown(monkeypatch, family, fault):
+    from contextlib import contextmanager
+    from orbitflow.capabilities.vlans import VlanService
+    from orbitflow.vendors.cisco import vlans
+    ctx, before, r, _, entry = fixture(family)
+    class BrokenCLI:
+        def run_command(self, command, **kw):
+            assert command == 'show ethernet service instance id 3000 interface GigabitEthernet0/1 detail'
+            raise fault()
+    @contextmanager
+    def shell(*args, **kwargs):
+        yield BrokenCLI()
+    monkeypatch.setattr(vlans, 'open_cisco_cli', shell)
+    after = post(family, r['inputs'])
+    after['service_details'] = {'GigabitEthernet0/1:3000': VlanService().service_detail(None, ctx, 'GigabitEthernet0/1', 3000)}
+    assert evc.verify(entry, before, after, ctx)['status'] == 'Unknown'

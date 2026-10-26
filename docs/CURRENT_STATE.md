@@ -28,11 +28,18 @@ Issue #154 extends confirmed execution to ME3600X Templates 9–11 and ASR920
 Templates 12–13. Exact approved CLI, independent confirmation, shared execution,
 backups/journal/report recovery and partial-save semantics are reused. Fresh EVC
 parent/ownership/overlap/child-drift checks and ME3600X BD VLAN prerequisites precede
-writes; independent configured-intent/detail verification preserves unrelated
-settings. Matching EVCs still remove/recreate with forwarding-impact warning.
+writes. Owner revision 2026-10-26 replaces only Templates 10/12 post-verification
+with fresh exact-ID/interface operational presence (Up or Down); report scope is
+Presence verified, not full configuration intent. Missing/ambiguous/error detail is
+Unknown; reliable absence/contradictory identity fails; no config-tree fallback. Matching EVCs still remove/recreate with forwarding-impact warning.
 The existing console execution action supports both families. Windows synthetic
 validation: full run 3,488 passed; final-source affected suite 949 passed, including
-53 EVC execution cases. Linux and owner-operated lab validation remain pending.
+53 EVC execution cases (historical). Owner-reported ME3600X lab run on 2026-10-26
+had 14 selected rows: seven VLAN/description verified, seven EVC sequences returned
+and save reported Saved, but tree-based service=False falsely failed all seven EVCs.
+Positive detail was reported for Gi0/7 SI 445/545. Historical results remain unchanged;
+no replay. Linux revision regression suite: 1,033 passed; final EVC suite including
+exchange failures: 85 passed. Revised-verifier and ASR920 owner validation remain pending.
 
 Issue #152 corrects independent ME3600X/ASR920 disjoint EVC review, including safe
 empty-parent initialization, and removes predefined non-Ubiquiti VLAN Database

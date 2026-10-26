@@ -1,6 +1,6 @@
-"""Fresh EVC execution safety and configured-intent checks; never render apply CLI."""
+"""Fresh EVC pre-write safety and operational-presence verification; never render apply CLI."""
 from orbitflow.vendors.configuration_facts import interface_settings
-from orbitflow.vendors.cisco.evc import ingress, overlaps, service_signature, service_settings, source_child_commands, desired_service
+from orbitflow.vendors.cisco.evc import ingress, overlaps, service_signature, service_settings, source_child_commands
 from orbitflow.vendors.aggregation import for_observation, relationship_uncertain
 from orbitflow.vendors.interface_names import canonical_interface_name
 
@@ -102,35 +102,29 @@ def target_blocker(entry, observed, context):
 
 
 def verify(entry, before, after, context):
+    """Verify fresh operational presence only, retaining scoped configuration evidence.
+
+    This does not establish complete configured intent or forwarding health.
+    Pre-write safety remains the responsibility of target_blocker.
+    """
+    from orbitflow.configuration.v2.evidence import scoped_evidence
     p = entry['request']['inputs']
     target = entry['result'].get('resolved_target') or p['interface']
+    detail = after.get('service_details', {}).get(target + ':' + str(p['service_instance_id']), {})
     key = lambda name: canonical_interface_name(context.platform, name, normalize_aggregation=True)
-    if any(sum(key(i['port_name']) == key(target) for i in obs['interfaces']) != 1 for obs in (before, after)):
-        return dict(status='Unknown', error_category='InterfaceEvidenceUnavailable')
-    old, new = (children(obs, context.platform, target) for obs in (before, after))
-    if old is None or new is None or after.get('configuration_reliable') is not True:
-        return dict(status='Unknown', error_category='ConfigurationEvidenceUnavailable')
-    sid = str(p['service_instance_id'])
-    actual = [n for n in new if n['kind'] == 'service_instance' and n['value'] == sid]
-    wanted = desired_service(p)
-    checks = dict(service=len(actual) == 1 and signature(actual[0]) == signature(wanted))
-    def preserved(nodes):
-        return [signature(n) for n in nodes if not (n['kind'] == 'service_instance' and n['value'] == sid)
-                and n['kind'] not in ({'description'} if p.get('interface_description') else set())
-                and not (context.device_family == 'ME3600X' and n['kind'] in {'mode', 'allowed'})]
-    checks['preservation'] = preserved(old) == preserved(new)
-    if p.get('interface_description'):
-        checks['parent_description'] = [n['value'] for n in new if n['kind'] == 'description'] == [p['interface_description']]
-    if context.device_family == 'ME3600X':
-        checks['parent_mode'] = [n['value'] for n in new if n['kind'] == 'mode'] == ['trunk']
-        checks['parent_allowed'] = [n['value'] for n in new if n['kind'] == 'allowed'] == ['NONE']
-        checks['vlan_prerequisite'] = vlan_prerequisite(after, p['bridge_domain'])
-    detail = after.get('service_details', {}).get(target + ':' + sid, {})
-    checks['operational_consistency'] = not detail_conflict(detail, actual)
-    warnings = ['SERVICE_DETAIL_FALLBACK'] if detail.get('status') not in {'present', 'absent'} else []
-    if detail.get('operational_status') == 'down':
-        warnings.append('SERVICE_INSTANCE_DOWN')
-    from orbitflow.configuration.v2.evidence import scoped_evidence
-    status = 'Failed' if False in checks.values() else 'Unknown' if None in checks.values() else 'Verified'
+    identified = (type(detail.get('service_instance_id')) is int and
+                  isinstance(detail.get('interface'), str) and bool(detail['interface']))
+    matches = identified and detail['service_instance_id'] == p['service_instance_id'] and key(detail['interface']) == key(target)
+    status = 'Unknown'
+    if detail.get('status') not in {'error', 'timeout'}:
+        if detail.get('identity_status') == 'contradictory' or identified and not matches:
+            status = 'Failed'
+        elif detail.get('status') == 'absent':
+            # The shared parser emits absent only for an explicit exact-target negative.
+            status = 'Failed'
+        elif detail.get('status') == 'present' and matches:
+            status = 'Verified'
+    warnings = ['SERVICE_INSTANCE_DOWN'] if detail.get('operational_status') == 'down' else []
     return dict(status=status, evidence=dict(
-        checks=checks, configuration=scoped_evidence(entry['request'], after), service_detail=detail, warnings=warnings))
+        verification_scope='Presence verified' if status == 'Verified' else 'Operational presence',
+        configuration=scoped_evidence(entry['request'], after), service_detail=detail, warnings=warnings))

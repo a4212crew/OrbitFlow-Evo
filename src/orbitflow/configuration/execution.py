@@ -871,9 +871,11 @@ def verification_text(verification, result, request):
     if not verification:
         return 'Not performed'
     evidence = verification.get('evidence', {})
-    lines = [verification.get('status', 'Unknown'), 'Expected: ' + compact(result.get('projected_state') or request.get('inputs', {}))]
+    lines = [verification.get('status', 'Unknown')]
+    if not isinstance(evidence, dict) or 'verification_scope' not in evidence:
+        lines.append('Expected: ' + compact(result.get('projected_state') or request.get('inputs', {})))
     if isinstance(evidence, dict):
-        for name in ('access_vlan_check', 'access_vlan_source', 'preservation', 'missing_fields', 'invalid_fields'):
+        for name in ('verification_scope', 'service_detail', 'access_vlan_check', 'access_vlan_source', 'preservation', 'missing_fields', 'invalid_fields'):
             if name in evidence:
                 lines.append(name + ': ' + compact(evidence[name]))
         facts = evidence.get('switchport', {}).get('facts', {})
