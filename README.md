@@ -819,3 +819,5 @@ EVCs can be reviewed independently, including safe empty-parent initialization.
 Predefined non-Ubiquiti templates do not depend on VLAN Database approval.
 EdgeSwitch's genuine prerequisites and all separate execution safety gates remain.
 See the [planning guide](docs/user_manual/bulk-configuration-planning.md).
+
+Manual Configuration (Issue #156): separate Excel multiline blocks with fresh shells, local password gate and success-only per-row save. See the [operator guide](docs/user_manual/manual-configuration.md) and [Python API](docs/operations/manual-configuration-api.md). XR/Huawei manual entry/save and owner live validation remain pending; legacy plans and predefined partial-save behavior are unchanged.

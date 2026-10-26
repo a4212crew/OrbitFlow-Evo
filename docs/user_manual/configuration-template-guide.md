@@ -917,3 +917,6 @@ For Templates 1–16, output sheets retain the common review fields; internal ro
 The template inputs and example outcomes in this guide are transcribed from the **current source/test-linked operator reference** and reconciled with v2 catalogue/CLI schema; they are **illustrative expected plans, not recorded live test output**. Some existing historical manual text may describe unmerged branches; this guide uses current `main` as the implementation boundary. Runtime/network changes, production validation and all proposed CLI execution remain outside this documentation-only change.
 
 Further reading: [Bulk planning v2 manual](bulk-configuration-planning.md) · [Complete technical template reference](../operations/configuration-template-reference.md) · [User manual index](README.md) · [Current implementation status](../CURRENT_STATE.md).
+
+
+Issue #156 approved design: [separate Manual Configuration](../architecture/configuration/manual-configuration.md) supersedes legacy offline Manual CLI for new input generation only. Legacy plans remain offline/non-executable; predefined partial-save behavior is unchanged. The new optional profile password-hash section and success-only per-row save are implemented on this branch with synthetic deterministic tests; owner-operated live validation remains pending. Historical evidence above is retained.

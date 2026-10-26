@@ -210,3 +210,7 @@ If the tenth review still requires changes, automated implementation stops and t
 **Reason:** OrbitFlow workflows repeatedly follow the same pattern—execute a task concurrently across many devices, then send normalized results to a destination. Separating execution persistence from output destinations gives the platform one reusable scale/recovery mechanism and prevents every feature from rebuilding its own large-run aggregation.
 
 **Current-state consequence:** This decision records the approved architecture only. `docs/CURRENT_STATE.md` must not claim result-spool capability until implementation and validation are complete.
+
+## 2026-10-26 — Issue #156 separate Manual Configuration
+
+Use a separate application/console workflow for literal Excel command blocks, not legacy plan execution. Serialize same-IP rows through one shared device worker with fresh shell channels. Persist only after a successful durably recorded row, preserving predefined device-end partial save. Gate networking with a local salted work-factor-protected password hash plus summary confirmation. Prompt-free user capture is bounded by inactivity and deadlines; prompt-aware setup/finalization and vendor persistence remain separate. Transcript-only evidence does not establish independent verification. XR/Huawei missing manual entry/save handling fails closed. See [design and protected skill corrections](configuration/manual-configuration.md).

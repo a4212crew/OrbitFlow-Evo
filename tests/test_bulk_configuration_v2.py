@@ -11,7 +11,11 @@ from openpyxl import load_workbook
 from orbitflow.configuration.plans import PlanError, canonical
 from orbitflow.configuration.v2.catalogue import CATALOGUE, FAMILIES
 from orbitflow.configuration.v2.planning import request, plan, evaluate_decisions as review, BulkPlan, save, load
-from orbitflow.configuration.v2.workbook import create_input, read_input, export_plan as export_review, consume_decisions, EXTRA, output_columns
+from orbitflow.configuration.v2.workbook import _base, read_input, export_plan as export_review, consume_decisions, EXTRA, output_columns
+def create_input(path):
+    """Historical v2 fixture retains the retired Manual CLI sheet."""
+    _base().save(path)
+
 def import_review(original, path, **kwargs):
     return consume_decisions(original, path, expected_digest=original.digest, **kwargs)
 from orbitflow.configuration.v2.observation import snapshot
@@ -395,7 +399,8 @@ def test_manual_cli_operator_commands_offline(tmp_path, monkeypatch):
     monkeypatch.setattr(socket, "socket", forbidden)
     monkeypatch.setattr("orbitflow.targets.load_device_credentials", forbidden)
     source = tmp_path / "source.xlsx"
-    main(["input", str(source)])
+    # Historical workbook remains readable through the current CLI.
+    create_input(source)
     book = load_workbook(source)
     t = template("All", "Manual CLI")
     for col, field in enumerate(t.columns, 1):

@@ -173,3 +173,6 @@ ME3600X EVC execution confirmation now displays the effective digest-bound CLI i
 row order through the existing Execute Approved Plan action. Planning workbook
 Proposed CLI is explicitly provisional; decision edits do not recalculate Excel.
 See [execution semantics](configuration-execution.md). No new menu or confirmation is added.
+
+
+Issue #156 approved design: [separate Manual Configuration](../architecture/configuration/manual-configuration.md) supersedes legacy offline Manual CLI for new input generation only. Legacy plans remain offline/non-executable; predefined partial-save behavior is unchanged. The new optional profile password-hash section and success-only per-row save are implemented on this branch with synthetic deterministic tests; owner-operated live validation remains pending. Historical evidence above is retained.

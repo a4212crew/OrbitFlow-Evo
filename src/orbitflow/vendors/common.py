@@ -244,6 +244,57 @@ class DeviceCLI(PromptCLI):
             self._accepted_paging.clear()
             raise
 
+    def capture_literal(self, command, *, first_response, inactivity, maximum, receive):
+        """Send exactly one literal line; capture without prompt/mode interpretation.
+
+        receive owns incremental sanitized persistence and rejection detection.
+        Inactivity only ends capture; it never establishes command completion.
+        """
+        import codecs
+        import math
+        if any(type(v) not in (int, float) or not math.isfinite(v) or not 0 < v <= 300
+               for v in (first_response, inactivity, maximum)) or max(first_response, inactivity) >= maximum:
+            raise ValueError('Invalid literal capture deadlines')
+        self.require_session(self.session)
+        if not command or any(ord(c) < 32 for c in command):
+            raise ValueError('Invalid literal command')
+        started = time.monotonic()
+        last = None
+        decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+        try:
+            self._channel.settimeout(min(first_response, maximum))
+            self._channel.sendall((command + '\n').encode('utf-8'))
+            while True:
+                now = time.monotonic()
+                overall = maximum - (now - started)
+                silence = (first_response - (now - started) if last is None
+                           else inactivity - (now - last))
+                if overall <= 0:
+                    raise InteractiveCLITimeout('Literal command overall deadline')
+                if silence <= 0:
+                    if last is None:
+                        raise InteractiveCLITimeout('Literal command first response deadline')
+                    receive(decoder.decode(b'', final=True))
+                    return
+                self._channel.settimeout(min(overall, silence))
+                try:
+                    chunk = self._channel.recv(65535)
+                except (socket.timeout, TimeoutError):
+                    if time.monotonic() - started >= maximum:
+                        raise InteractiveCLITimeout('Literal command overall deadline')
+                    if last is None:
+                        raise InteractiveCLITimeout('Literal command first response deadline')
+                    receive(decoder.decode(b'', final=True))
+                    return
+                if not chunk:
+                    raise InteractiveCLIError('Literal command disconnected')
+                last = time.monotonic()
+                receive(decoder.decode(chunk))
+        except BaseException:
+            self._synchronized = False
+            self._accepted_paging.clear()
+            raise
+
     @measured('configuration_read', cli_command=True, failure='Unknown')
     def read_configuration(self, command: str, timeout: float = 60.0) -> str:
         """Read sensitive text without logging, retaining whitespace/content.

@@ -1259,11 +1259,11 @@ def test_input_workbook_compact_directory_roundtrip(tmp_path):
     book.save(path)
     book = load_workbook(path)
     intro = book['Introduction']
-    assert intro.max_row == 7 + 22
+    assert intro.max_row == 7 + 21
     assert intro.max_column == 4
     assert [c.value for c in intro[7]] == ['Platform', 'Template / function', 'Purpose', 'Open template']
     assert len(CATALOGUE) == 22
-    for row, t in enumerate(CATALOGUE, 8):
+    for row, t in enumerate([t for t in CATALOGUE if t.function != 'Manual CLI'], 8):
         assert intro.cell(row, 1).value == t.family
         assert intro.cell(row, 2).value == t.function
         purpose = intro.cell(row, 3).value

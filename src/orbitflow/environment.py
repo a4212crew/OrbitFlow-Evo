@@ -1,4 +1,4 @@
-"""Strict non-secret console profile and operator-controlled Teleport validation."""
+"""Strict console profile with optional password hash and Teleport validation."""
 from datetime import datetime, timezone
 from pathlib import Path
 import json
@@ -22,9 +22,17 @@ PATHS = {
 
 
 def validate(settings):
-    """Reject unknown fields (including secrets and persisted concurrency)."""
-    if not isinstance(settings, dict) or set(settings) != {'teleport', 'execution', 'paths'}:
+    """Reject unknown fields, plaintext secrets and persisted concurrency.
+
+    The sole credential-derived field is an optional validated manual auth hash.
+    """
+    if not isinstance(settings, dict) or not {'teleport', 'execution', 'paths'} <= set(settings) or set(settings) - {'teleport', 'execution', 'paths', 'manual_configuration_auth'}:
         raise ValueError('Invalid profile sections')
+    if 'manual_configuration_auth' in settings:
+        from orbitflow.configuration.manual_auth import valid_hash
+        auth = settings['manual_configuration_auth']
+        if not isinstance(auth, dict) or set(auth) != {'password_hash'} or not valid_hash(auth['password_hash']):
+            raise ValueError('Invalid manual authorization section')
     routing, execution, paths = (settings[k] for k in ('teleport', 'execution', 'paths'))
     if not all(isinstance(section, dict) for section in (routing, execution, paths)):
         raise ValueError('Invalid profile tables')

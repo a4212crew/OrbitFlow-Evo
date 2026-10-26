@@ -1,0 +1,549 @@
+"""Offline manual configuration boundary and recovery tests; no live networking."""
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
+import json
+import socket
+
+import pytest
+from openpyxl import Workbook, load_workbook
+from orbitflow.configuration import manual as m
+from orbitflow.configuration.manual_auth import hash_password, authorize
+from orbitflow.transport import DeviceCredentials
+from orbitflow.vendors.common import DeviceCLI
+
+
+@pytest.fixture(scope='module')
+def auth():
+    return {'manual_configuration_auth': {'password_hash': hash_password('test authorization password')}}
+
+
+def row(number, ip='192.0.2.1', text='interface Gi1\n description Customer\n exit'):
+    return dict(source_row=number, management_ip=ip, commands=m.commands(text), error='')
+
+
+def records(path):
+    return [e for e in m.ResultJournal(path / 'events.jsonl').records() if e['kind'] == 'row_result']
+
+
+@pytest.fixture
+def fake(monkeypatch, tmp_path):
+    calls = []
+    fault = {}
+    def fail(stage):
+        if fault.get('stage') == stage:
+            raise fault.get('exception', ValueError)('synthetic failure')
+    class Session:
+        def close(self):
+            calls.append(('close_session',))
+    def connect(ip, *args):
+        fail('connect')
+        calls.append(('connect', ip))
+        return Session()
+    class CLI:
+        serial = 0
+        def __init__(self, session, **kwargs):
+            fail('shell')
+            self.serial = CLI.serial = CLI.serial + 1
+            self.session = session
+            self.last_response = 'end\nhost#'
+            calls.append(('shell', self.serial))
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            calls.append(('close_shell', self.serial))
+        def capture_literal(self, command, **kwargs):
+            calls.append(('command', self.serial, command))
+            fail('capture')
+            kwargs['receive'](fault.get('receive', command + '\nhost(config-if)#'))
+    def resolve(self, session, **kwargs):
+        fail('identify')
+        return SimpleNamespace(platform=fault.get('platform', 'cisco_ios'), hostname='host')
+    def collect(self, *args, **kwargs):
+        fail('backup')
+        return 'hostname host\n'
+    def setup(*args):
+        calls.append(('setup',))
+        fail('setup')
+    def finalize(*args):
+        calls.append(('finalize',))
+        fail('finalize')
+        return 'host#'
+    def save(*args, **kwargs):
+        calls.append(('save',))
+        fail('save')
+        return fault.get('save', dict(status='Saved', response='write memory\nhost#', explicit_error=False))
+    monkeypatch.setattr(m, 'connect_device', connect)
+    monkeypatch.setattr(m, 'DeviceCLI', CLI)
+    monkeypatch.setattr(m.DeviceInventoryResolver, 'resolve', resolve)
+    monkeypatch.setattr(m.ConfigurationService, 'collect', collect)
+    monkeypatch.setattr(m.vendor, 'setup', setup)
+    monkeypatch.setattr(m.vendor, 'finalize', finalize)
+    monkeypatch.setattr(m, 'save_configuration', save)
+    monkeypatch.chdir(tmp_path)
+    return calls, fault
+
+
+def run(rows, auth, **kwargs):
+    config = m.ExecutionConfig(1, 0, 0)
+    return m.execute(rows, profile=auth, password='test authorization password',
+                     confirmation_digest=m.summary(rows, config)['digest'],
+                     credentials={r['management_ip']: DeviceCredentials('operator', 'device-private') for r in rows},
+                     transport_config=None, execution_config=config, **kwargs)
+
+
+def test_duplicate_noncontiguous_ip_fresh_shell_per_row(fake, auth):
+    calls, _ = fake
+    rows = [row(2), row(3, '192.0.2.2'), row(4)]
+    path = run(rows, auth)
+    assert [r['source_row'] for r in records(path)] == [2, 4, 3]
+    assert all(r['status'] == 'Completed' and r['save'] == 'Saved' for r in records(path))
+    assert len([c for c in calls if c[0] == 'save']) == 3
+    assert len([c for c in calls if c[0] == 'connect']) == 2
+    assert len([c for c in calls if c[0] == 'close_shell']) == 3
+    assert [c[2] for c in calls if c[0] == 'command'] == rows[0]['commands'] * 3
+    assert len(list(path.glob('*.txt'))) == 2
+    report = m.regenerate_report(path)
+    book = load_workbook(report)
+    assert [r[0].value for r in list(book.active.rows)[1:]] == ['2', '3', '4']
+    with pytest.raises(FileExistsError):
+        m.regenerate_report(path, report)
+
+
+@pytest.mark.parametrize('stage', ['connect', 'shell', 'identify', 'backup', 'setup', 'capture', 'finalize'])
+@pytest.mark.parametrize('exception', [ValueError, TimeoutError, KeyboardInterrupt])
+def test_every_pre_save_boundary_blocks_device_rows(fake, auth, stage, exception):
+    calls, fault = fake
+    fault.update(stage=stage, exception=exception)
+    path = run([row(2), row(3)], auth)
+    assert not any(c[0] == 'save' for c in calls)
+    result = records(path)
+    assert result[0]['status'] == 'Incomplete'
+    assert result[1]['attempted'] == 0
+    assert 'earlier device row' in result[1]['reason']
+    assert all(r['save'] == 'Not initiated' for r in result)
+
+
+@pytest.mark.parametrize('response', ['% Invalid input\n', '--More--', 'Password:', 'Are you sure? (y/n)', 'Error: invalid parameter', 'Proceed with defaults?', 'Enter VLAN identifier:', '[yes]'])
+def test_rejection_interaction_no_save(fake, auth, response):
+    calls, fault = fake
+    fault['receive'] = response
+    path = run([row(2), row(4)], auth)
+    assert not any(c[0] == 'save' for c in calls)
+    assert records(path)[1]['attempted'] == 0
+
+
+@pytest.mark.parametrize('platform', ['cisco_xr', 'huawei_vrp', 'junos'])
+def test_unsupported_before_user_writes(fake, auth, platform):
+    calls, fault = fake
+    fault['platform'] = platform
+    path = run([row(2)], auth)
+    assert not any(c[0] in {'command', 'save', 'setup'} for c in calls)
+    assert records(path)[0]['status'] == 'Incomplete'
+
+
+@pytest.mark.parametrize('exception', [ValueError, KeyboardInterrupt])
+def test_save_transmission_failure_unknown_no_retry(fake, auth, exception):
+    calls, fault = fake
+    fault.update(stage='save', exception=exception)
+    path = run([row(2), row(3)], auth)
+    assert len([c for c in calls if c[0] == 'save']) == 1
+    assert records(path)[0]['save'] == 'Unknown'
+    assert records(path)[1]['attempted'] == 0
+
+
+@pytest.mark.parametrize('result, expected', [(dict(status='Unknown', response='', explicit_error=False), 'Unknown'),
+    (dict(status='Saved', response='% Error', explicit_error=True), 'Failed')])
+def test_save_result_error_stops(fake, auth, result, expected):
+    calls, fault = fake
+    fault['save'] = result
+    path = run([row(2), row(3)], auth)
+    assert records(path)[0]['save'] == expected
+    assert records(path)[0]['status'] == 'Incomplete'
+    assert records(path)[1]['attempted'] == 0
+
+
+def test_gate_before_network_and_allocation(fake, auth):
+    calls, _ = fake
+    with pytest.raises(ValueError):
+        m.execute([row(2)], profile=auth, password='wrong', confirmation_digest='x', credentials={}, transport_config=None)
+    with pytest.raises(ValueError):
+        m.execute([row(2)], profile={}, password='anything', confirmation_digest='x', credentials={}, transport_config=None)
+    with pytest.raises(ValueError):
+        m.execute([row(2)], profile=auth, password='test authorization password', confirmation_digest='wrong', credentials={}, transport_config=None)
+    assert calls == []
+    assert not Path('outputs/runs').exists()
+
+
+@pytest.mark.parametrize('text', ['wr', 'wri mem', 'cop run start', 'sa', 'comm', 'do wr', 'run save', 'alias exec persist write memory',
+    'persist', 'interface Gi1;write memory', 'description password abc', 'username admin secret abc', 'banner motd ^', 'python', 'more', 'interface Gi1\n\nshutdown'])
+def test_unsafe_commands_fail_closed(text):
+    with pytest.raises(ValueError):
+        m.commands(text)
+
+
+def test_xlsx_rows_validation_formula_secret_and_source_unchanged(tmp_path):
+    path = m.create_template(tmp_path)
+    book = load_workbook(path)
+    for values in [('192.0.2.1', 'interface Gi1\n description Literal\n exit'),
+                   ('192.0.2.2', '=HYPERLINK("bad")'), ('192.0.2.1', 'password private'), ('invalid', 'shutdown')]:
+        book.active.append(values)
+    book.save(path)
+    before = path.read_bytes()
+    rows = m.load_rows(path)
+    assert len(rows) == 4 and rows[0]['commands'][1] == ' description Literal'
+    assert all(r['error'] for r in rows[1:])
+    assert 'private' not in json.dumps(rows)
+    assert before == path.read_bytes()
+    assert m.create_template(tmp_path) != path
+
+
+@pytest.mark.parametrize('kwargs', [dict(first_response=float('nan')), dict(maximum=float('inf')), dict(inactivity=0), dict(maximum=5), dict(save_timeout=301)])
+def test_deadlines_finite_and_bounded(kwargs):
+    with pytest.raises(ValueError):
+        m.CaptureSettings(**kwargs)
+
+
+def test_recording_failure_before_save_retains_recoverable_input(fake, auth, monkeypatch):
+    calls, _ = fake
+    original = m.ResultJournal.append
+    def append(self, event):
+        if event.get('kind') == 'command_intent':
+            raise OSError('disk full')
+        return original(self, event)
+    monkeypatch.setattr(m.ResultJournal, 'append', append)
+    path = run([row(2), row(3)], auth)
+    assert not any(c[0] in {'command', 'save'} for c in calls)
+    report = m.regenerate_report(path)
+    assert report.exists()
+
+
+def test_save_intent_recovery_unknown_and_partial_line(fake, auth):
+    calls, _ = fake
+    path = run([row(2)], auth)
+    journal = path / 'events.jsonl'
+    lines = [line for line in journal.read_text().splitlines(True) if json.loads(line)['kind'] != 'row_result']
+    journal.write_text(''.join(lines) + '{"partial":', encoding='utf-8')
+    calls.clear()
+    report = m.regenerate_report(path)
+    values = list(load_workbook(report).active.values)
+    assert values[1][2] == 'Incomplete' and values[1][7] == 'Unknown'
+    assert calls == []
+
+
+def test_redaction_ansi_and_formula_literal(fake, auth):
+    _, fault = fake
+    fault['receive'] = '\x1b[31mdevice-private\x1b[0m\n=1+1\nsecret never-export\n'
+    path = run([row(2)], auth)
+    text = next(path.glob('*.txt')).read_text()
+    assert 'device-private' not in text and 'never-export' not in text and '\x1b' not in text
+    assert '=1+1' in text
+
+
+class Channel:
+    def __init__(self, chunks):
+        self.chunks = iter(chunks)
+        self.sent = []
+    def sendall(self, data):
+        self.sent.append(data)
+    def settimeout(self, timeout):
+        assert 0 < timeout <= 30
+    def recv(self, maximum):
+        chunk = next(self.chunks)
+        if isinstance(chunk, BaseException):
+            raise chunk
+        return chunk
+
+
+def literal_cli(chunks):
+    cli = DeviceCLI.__new__(DeviceCLI)
+    cli.session = object()
+    cli._channel = Channel(chunks)
+    cli._synchronized = True
+    cli._accepted_paging = set()
+    return cli
+
+
+def test_prompt_free_fragmented_utf8_capture():
+    cli = literal_cli([b'not a prompt\nweird#\n\xe2', b'\x82\xac', socket.timeout()])
+    received = []
+    cli.capture_literal(' description Literal', first_response=10, inactivity=1, maximum=30, receive=received.append)
+    assert ''.join(received) == 'not a prompt\nweird#\n€'
+    assert cli._channel.sent == [b' description Literal\n']
+
+
+@pytest.mark.parametrize('chunks', [[socket.timeout()], [b''], [OSError()]])
+def test_literal_failures_invalidate_without_retry(chunks):
+    cli = literal_cli(chunks)
+    with pytest.raises(Exception):
+        cli.capture_literal('shutdown', first_response=10, inactivity=1, maximum=30, receive=lambda _: None)
+    assert not cli._synchronized and len(cli._channel.sent) == 1
+
+
+def test_profile_legacy_hash_roundtrip_and_invalid_hash(tmp_path, auth):
+    from orbitflow.environment import validate, save_profile, load_profile, PATHS
+    profile = dict(teleport=dict(proxy='proxy', cluster='cluster', bastion_host='bastion', bastion_user='operator'),
+                   execution=dict(connection_start_interval=0, connection_retry_delay=0), paths=PATHS.copy())
+    validate(profile)
+    with pytest.raises(ValueError):
+        authorize(profile, 'anything')
+    profile.update(auth)
+    path = tmp_path / 'profile.toml'
+    save_profile(profile, path)
+    authorize(load_profile(path), 'test authorization password')
+    assert 'test authorization password' not in path.read_text()
+    for value in ['plaintext', 'pbkdf2-sha256$1$00$00', 'pbkdf2-sha256$999999999$00$00']:
+        profile['manual_configuration_auth'] = {'password_hash': value}
+        with pytest.raises(ValueError):
+            validate(profile)
+
+
+@pytest.mark.parametrize('platform, prompt, entry, global_prompt', [
+    ('cisco_ios', 'host#', 'configure terminal', 'host(config)#'),
+    ('cisco_xe', 'host#', 'configure terminal', 'host(config)#'),
+    ('ubiquiti_edgeswitch', '(host) #', 'configure', '(host) (Config)#')])
+def test_vendor_setup_reuses_profile_and_global_confirmation(platform, prompt, entry, global_prompt):
+    from orbitflow.vendors import manual_configuration as vendor
+    calls = []
+    class CLI:
+        def __init__(self):
+            self.prompt = prompt
+        def configure(self, **kwargs):
+            calls.append(kwargs)
+        def execution_mode(self, anchor, selected):
+            assert anchor == prompt and selected == platform
+        def run_command(self, command, **kwargs):
+            assert command == entry
+            self.prompt = global_prompt
+            return ''
+    assert vendor.setup(CLI(), SimpleNamespace(platform=platform), 30) == prompt
+    assert calls[0]['paging_command'] == 'terminal length 0'
+    if platform.startswith('cisco'):
+        assert calls[0]['setup_commands'] == ('terminal width 511',)
+
+
+def test_independent_device_continues_after_one_device_fails(fake, auth, monkeypatch):
+    calls, fault = fake
+    original = m.DeviceInventoryResolver.resolve
+    def resolve(self, session, **kwargs):
+        context = original(self, session, **kwargs)
+        if kwargs['management_ip'] == '192.0.2.1':
+            return SimpleNamespace(platform='cisco_xr', hostname='unsupported')
+        return context
+    monkeypatch.setattr(m.DeviceInventoryResolver, 'resolve', resolve)
+    rows = [row(2), row(3, '192.0.2.2'), row(4)]
+    path = run(rows, auth)
+    outcomes = {r['source_row']: r for r in records(path)}
+    assert outcomes[2]['status'] == 'Incomplete'
+    assert outcomes[4]['attempted'] == 0
+    assert outcomes[3]['status'] == 'Completed'
+    manifest = json.loads((path / 'manifest.json').read_text())
+    assert manifest['failed_count'] == 1
+
+
+def test_transcript_failure_no_save_or_later_commands(fake, auth, monkeypatch):
+    calls, _ = fake
+    original = m.os.fsync
+    original_open = Path.open
+    transcript_descriptors = set()
+    def tracked_open(path, *args, **kwargs):
+        stream = original_open(path, *args, **kwargs)
+        if path.suffix == '.txt' and 'runs' in path.parts:
+            transcript_descriptors.add(stream.fileno())
+        return stream
+    def fail(descriptor):
+        if descriptor in transcript_descriptors:
+            raise OSError('synthetic storage error')
+        return original(descriptor)
+    monkeypatch.setattr(Path, 'open', tracked_open)
+    monkeypatch.setattr(m.os, 'fsync', fail)
+    path = run([row(2), row(3)], auth)
+    assert not any(c[0] in {'command', 'save'} for c in calls)
+    assert all(r['status'] == 'Incomplete' for r in records(path))
+
+
+def test_delayed_response_crosses_commands_and_fragmented_rejection(fake, auth, monkeypatch):
+    calls, _ = fake
+    def capture(self, command, **kwargs):
+        calls.append(('command', self.serial, command))
+        if command.startswith('interface'):
+            kwargs['receive']('host(config-if)#\n% In')
+        else:
+            kwargs['receive']('valid input\n')
+    monkeypatch.setattr(m.DeviceCLI, 'capture_literal', capture)
+    path = run([row(2), row(3)], auth)
+    assert not any(c[0] == 'save' for c in calls)
+    assert records(path)[0]['attempted'] == 2
+    assert '% In' in next(path.glob('*.txt')).read_text()
+
+
+def test_receive_inactivity_and_overall_separate_deadlines(monkeypatch):
+    from orbitflow.vendors import common
+    ticks = iter([0, 0, 1, 30])
+    monkeypatch.setattr(common.time, 'monotonic', lambda: next(ticks))
+    cli = literal_cli([b'continuous output'])
+    with pytest.raises(common.InteractiveCLITimeout, match='overall deadline'):
+        cli.capture_literal('shutdown', first_response=10, inactivity=1, maximum=30, receive=lambda _: None)
+    assert len(cli._channel.sent) == 1
+
+
+def test_sigint_marks_workers_cancelled_before_cleanup():
+    import signal
+    from threading import Event
+    cancelled = Event()
+    original = signal.getsignal(signal.SIGINT)
+    with pytest.raises(KeyboardInterrupt):
+        with m.interrupt_guard(cancelled):
+            signal.getsignal(signal.SIGINT)(signal.SIGINT, None)
+    assert cancelled.is_set()
+    assert signal.getsignal(signal.SIGINT) is original
+
+
+def test_new_planning_input_omits_legacy_without_weakening_plan_schema(tmp_path):
+    from orbitflow.configuration.v2.workbook import create_input, read_input
+    from orbitflow.configuration.v2.planning import plan
+    from orbitflow.configuration.v2.catalogue import CATALOGUE
+    path = tmp_path / 'planning.xlsx'
+    create_input(path)
+    book = load_workbook(path)
+    assert 'Manual CLI' not in book.sheetnames
+    assert len(book.sheetnames) == 22 and len(CATALOGUE) == 22
+    assert 'Manual CLI' not in str(list(book['Introduction'].values)[7:])
+    requests = read_input(path)
+    assert requests.layout[-1] == 'Manual CLI'  # Canonical historical v2 shape.
+    artifact = plan(requests)
+    assert len(artifact.to_dict()['layout']) == 23
+
+
+def test_console_decline_and_bad_password_before_session(fake, auth, monkeypatch):
+    from orbitflow.menu import Console, Cancelled
+    from orbitflow.environment import PATHS
+    Path('commands.xlsx').touch()
+    Path('devices.xlsx').touch()
+    profile = dict(teleport={}, execution=dict(connection_start_interval=0, connection_retry_delay=0), paths=PATHS.copy(), **auth)
+    monkeypatch.setattr(Console, 'settings', lambda self: profile)
+    monkeypatch.setattr(m, 'load_rows', lambda path: [row(2)])
+    import getpass
+    for password, expected in [('wrong', ValueError), ('test authorization password', Cancelled)]:
+        answers = iter(['commands.xlsx', 'devices.xlsx', '', 'n'])
+        console = Console(read=lambda _: next(answers), write=lambda _: None,
+                          session_check=lambda _: pytest.fail('gate connected'))
+        monkeypatch.setattr(getpass, 'getpass', lambda _: password)
+        with pytest.raises(expected):
+            console.manual_execute()
+
+
+def test_manual_save_allows_identified_platform_and_checks_errors_before_redaction():
+    from orbitflow.capabilities.save import save_configuration
+    context = SimpleNamespace(platform='cisco_ios', device_family='Other IOS', capability_profile='',
+                              management_ip='192.0.2.1', hostname='host')
+    session = object()
+    class CLI:
+        def require_session(self, owner):
+            assert owner is session
+        def save_configuration(self, anchor, platform, timeout):
+            return dict(status='Saved', response='secret hidden\n% Error saving\nhost#')
+    with pytest.raises(ValueError, match='unsupported save family'):
+        save_configuration(session, context, cli=CLI(), exec_prompt='host#', timeout=30)
+    result = save_configuration(session, context, cli=CLI(), exec_prompt='host#', timeout=30, manual=True)
+    assert result['explicit_error']
+    assert 'hidden' not in result['response']
+
+
+def test_manual_concurrency_uses_shared_workers_with_fresh_shells(fake, auth):
+    calls, _ = fake
+    rows = [row(i + 2, f'192.0.2.{i % 5 + 1}') for i in range(20)]
+    config = m.ExecutionConfig(5, 0, 0)
+    path = m.execute(rows, profile=auth, password='test authorization password',
+                     confirmation_digest=m.summary(rows, config)['digest'],
+                     credentials={r['management_ip']: DeviceCredentials('operator', 'device-private') for r in rows},
+                     transport_config=None, execution_config=config)
+    result = records(path)
+    assert len(result) == 20 and all(r['status'] == 'Completed' for r in result)
+    for ip in {r['management_ip'] for r in rows}:
+        assert [r['source_row'] for r in result if r['management_ip'] == ip] == [r['source_row'] for r in rows if r['management_ip'] == ip]
+    assert len([c for c in calls if c[0] == 'shell']) == 20
+    assert len([c for c in calls if c[0] == 'close_shell']) == 20
+    assert len([c for c in calls if c[0] == 'save']) == 20
+
+
+def test_password_set_change_and_environment_preservation(fake, auth, monkeypatch):
+    from orbitflow.menu import Console, OperatorError
+    from orbitflow.environment import PATHS, save_profile, load_profile
+    import getpass
+    profile = dict(teleport=dict(proxy='proxy', cluster='cluster', bastion_host='bastion', bastion_user='operator'),
+                   execution=dict(connection_start_interval=0, connection_retry_delay=0), paths=PATHS.copy())
+    save_profile(profile)
+    responses = iter(['new test password value', 'new test password value'])
+    monkeypatch.setattr(getpass, 'getpass', lambda _: next(responses))
+    console = Console(write=lambda _: None)
+    console.manual_password()
+    authorize(load_profile(), 'new test password value')
+    responses = iter(['wrong current password'])
+    with pytest.raises(ValueError):
+        console.manual_password()
+    authorize(load_profile(), 'new test password value')
+    answers = iter([''] * 13)
+    console.read = lambda _: next(answers)
+    console.setup()
+    authorize(load_profile(), 'new test password value')
+
+
+def test_backup_persistence_failure_blocks_writes(fake, auth, monkeypatch):
+    calls, _ = fake
+    def fail(*args):
+        raise OSError('synthetic storage failure')
+    monkeypatch.setattr(m.BackupWriter, 'write', fail)
+    path = run([row(2), row(3)], auth)
+    assert not any(c[0] in {'command', 'save'} for c in calls)
+    assert records(path)[1]['attempted'] == 0
+
+
+def test_shell_cleanup_failure_after_save_blocks_later_rows(fake, auth, monkeypatch):
+    calls, _ = fake
+    def fail(self, *args):
+        calls.append(('close_shell', self.serial))
+        raise OSError('synthetic close failure')
+    monkeypatch.setattr(m.DeviceCLI, '__exit__', fail)
+    path = run([row(2), row(3)], auth)
+    assert len([c for c in calls if c[0] == 'save']) == 1
+    assert records(path)[0]['status'] == 'Incomplete'
+    assert records(path)[0]['save'] == 'Saved'
+    assert records(path)[1]['attempted'] == 0
+    assert len([c for c in calls if c[0] == 'close_session']) == 1
+
+
+def test_report_write_failure_retains_offline_recovery(fake, auth, monkeypatch):
+    calls, _ = fake
+    path = run([row(2)], auth)
+    original = m.Workbook.save
+    def fail(*args):
+        raise OSError('synthetic export failure')
+    monkeypatch.setattr(m.Workbook, 'save', fail)
+    with pytest.raises(OSError):
+        m.regenerate_report(path, 'failed-report.xlsx')
+    assert path.exists() and not Path('failed-report.xlsx').exists()
+    monkeypatch.setattr(m.Workbook, 'save', original)
+    calls.clear()
+    assert m.regenerate_report(path, 'recovered-report.xlsx').exists()
+    assert calls == []
+
+
+@pytest.mark.parametrize('command', ['snmp-server host 192.0.2.1 version 2c hidden',
+    'description encrypted hidden', 'description cipher hidden', 'description pre-shared hidden'])
+def test_vendor_credential_syntax_rejected(command):
+    with pytest.raises(ValueError):
+        m.commands(command)
+
+
+@pytest.mark.parametrize('username', ['source_row', 'input', 'row_result'])
+def test_short_login_values_cannot_corrupt_persisted_schema(fake, auth, username):
+    # A valid login string may happen to equal an internal field name.
+    config = m.ExecutionConfig(1, 0, 0)
+    rows = [row(2)]
+    path = m.execute(rows, profile=auth, password='test authorization password',
+                     confirmation_digest=m.summary(rows, config)['digest'],
+                     credentials={'192.0.2.1': DeviceCredentials(username, 'private-fixture')},
+                     transport_config=None, execution_config=config)
+    assert records(path)[0]['source_row'] == 2
+    assert m.regenerate_report(path).exists()

@@ -184,7 +184,7 @@ result = save_configuration(session, context, cli=cli,
 ```
 
 Save is a separate **configuration-persistence action**; callers need explicit operator
-intent. `save_configuration(session, context, *, cli, exec_prompt, timeout, correlation=None)` requires
+intent. `save_configuration(session, context, *, cli, exec_prompt, timeout, correlation=None, manual=False)` requires
 an already synchronized session-validated privileged EXEC prompt and an approved family/profile.
 It returns status Saved/Unknown, sanitized response, answered (EdgeSwitch question),
 error_category and explicit_error separately. It borrows resources; no retry, reconnect
@@ -510,3 +510,5 @@ review. Planning, preparation/fresh target checks and post-change verification u
 the same selector; no approval/digest or spool schema changes. The forwarding child
 blocker remains `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`. See the existing validation
 matrix for Linux/Windows read-only reproduction; live validation remains pending.
+
+Issue #156 adds the explicit `manual=True` opt-in for the separate [Manual Configuration application](manual-configuration-api.md): identified IOS/IOS-XE/EdgeSwitch platform framing beyond predefined family profiles, with rejection detection before response redaction. Default predefined family restrictions and partial-save behavior are unchanged. The application, not this persistence capability, owns password authorization, backup, row success and durable evidence gates. XR/Huawei manual persistence remains unsupported.

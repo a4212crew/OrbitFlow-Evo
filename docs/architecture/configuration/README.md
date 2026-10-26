@@ -33,3 +33,5 @@ records the agreed bulk workflow and a gap assessment against the existing
 `AuditResolver`. M01–M08 read-only methodology resolution is implemented separately from the offline Change Plan v1. Gap B engineer review import is deferred; the approved replacement Gap C design is documented above (Issue #88 / PR #89 superseded). The separate configuration v2 template catalogue and bulk planning workflow are implemented; consult the current operator guide and source for supported template details. Engineer review import and live configuration apply remain separately gated and are not implied by planning support.
 
 - [Configuration removal and service retirement](configuration-removal.md): proposed removal scopes, dependency checks, platform risk gates and test obligations. No destructive executor is implemented.
+
+- [Manual Configuration — Issue #156](manual-configuration.md): separate row execution, fresh shells and success-only persistence; preserves legacy planning and predefined execution.

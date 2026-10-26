@@ -53,7 +53,7 @@ def literal(cell, value):
     cell.alignment = Alignment(vertical="top", wrap_text=True)
 
 
-def _base():
+def _base(*, legacy_manual=True):
     book = Workbook()
     intro = book.active
     intro.title = "Introduction"
@@ -85,7 +85,12 @@ def _base():
         "Subinterface VSI": "Plan a VLAN subinterface attached to an existing VSI.",
         "Manual CLI": "Supply literal offline commands; impact is unknown.",
     }
+    if not legacy_manual:
+        intro['A3'] = 'Predefined templates collect live read-only evidence. Use the separate Manual Configuration workflow for literal commands.'
+        intro['A6'] = 'Reference: docs/operations/configuration-template-reference.md. Templates 17–21 are provisional; hardware validation remains pending.'
     for t in CATALOGUE:
+        if not legacy_manual and t.function == 'Manual CLI':
+            continue
         intro.append([t.family, t.function, purposes[t.function], t.sheet])
         link = intro.cell(intro.max_row, 4)
         link.hyperlink = f"#'{t.sheet}'!A1"
@@ -211,7 +216,7 @@ def template_help(t):
 def create_input(path):
     require(not Path(path).exists(), "output already exists")
     with Path(path).open("xb") as stream:
-        _base().save(stream)
+        _base(legacy_manual=False).save(stream)
 
 
 def read_input(path):
@@ -220,7 +225,12 @@ def read_input(path):
     with Path(path).open("rb") as stream:
         result.source_digest = hashlib.file_digest(stream, "sha256").hexdigest()
     try:
-        require(set(book.sheetnames) == {"Introduction", *BY_SHEET}, "unexpected workbook sheets")
+        require(set(book.sheetnames) in ({"Introduction", *BY_SHEET},
+                {"Introduction", *(t.sheet for t in CATALOGUE if t.function != "Manual CLI")}), "unexpected workbook sheets")
+        # Keep the canonical v2 layout/schema unchanged. New input omits only
+        # the empty retired sheet; source digest still binds the exact workbook.
+        if 'Manual CLI' not in result.layout:
+            result.layout.append('Manual CLI')
         for order, sheet in enumerate(book):
             if sheet.title == "Introduction":
                 continue
