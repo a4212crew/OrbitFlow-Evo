@@ -819,3 +819,21 @@ EVCs can be reviewed independently, including safe empty-parent initialization.
 Predefined non-Ubiquiti templates do not depend on VLAN Database approval.
 EdgeSwitch's genuine prerequisites and all separate execution safety gates remain.
 See the [planning guide](docs/user_manual/bulk-configuration-planning.md).
+
+Manual Configuration (Issue #156): separate Excel multiline blocks with fresh shells, local password gate and success-only per-row save. See the [operator guide](docs/user_manual/manual-configuration.md) and [Python API](docs/operations/manual-configuration-api.md). XR/Huawei manual entry/save and owner live validation remain pending; legacy plans and predefined partial-save behavior are unchanged.
+
+Issue #156 usability revision on this branch: blank cell separators are accepted,
+manual workbooks use the shared numbered chooser, and one consolidated workbook is atomically refreshed after each device finishes,
+with every input row, device summaries and real relative capture hyperlinks. Named
+receive-only captures live beside the workbook in short timestamp directories; run journals retain structured audit evidence
+and legacy offline recovery. See the [manual](docs/user_manual/manual-configuration.md). Owner lab validation is pending.
+
+Issue #156 owner correction (2026-10-26): Manual Configuration accepts literal CLI
+without semantic command restrictions, including configure/conf, credentials,
+wrappers and explicit persistence. Structural bounds remain, secrets are redacted
+independently, and automatic save remains successful-row-only. Explicit user save
+may already have persisted changes before a later error; report save status describes
+automatic save only. Owner run 20261026_120437 showed ME3600X 12/12 and ASR920 2/2
+with confirmed save and refreshed consolidated reports/named captures. EdgeSwitch
+was rejected before connection; fresh EdgeSwitch validation and independent
+configuration verification are not established. Never replay those successful rows.

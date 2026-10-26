@@ -917,3 +917,31 @@ For Templates 1–16, output sheets retain the common review fields; internal ro
 The template inputs and example outcomes in this guide are transcribed from the **current source/test-linked operator reference** and reconciled with v2 catalogue/CLI schema; they are **illustrative expected plans, not recorded live test output**. Some existing historical manual text may describe unmerged branches; this guide uses current `main` as the implementation boundary. Runtime/network changes, production validation and all proposed CLI execution remain outside this documentation-only change.
 
 Further reading: [Bulk planning v2 manual](bulk-configuration-planning.md) · [Complete technical template reference](../operations/configuration-template-reference.md) · [User manual index](README.md) · [Current implementation status](../CURRENT_STATE.md).
+
+
+Issue #156 approved design: [separate Manual Configuration](../architecture/configuration/manual-configuration.md) supersedes legacy offline Manual CLI for new input generation only. Legacy plans remain offline/non-executable; predefined partial-save behavior is unchanged. The new optional profile password-hash section and success-only per-row save are implemented on this branch with synthetic deterministic tests; owner-operated live validation remains pending. Historical evidence above is retained.
+
+## Owner-approved usability revision — implemented on this branch
+
+Issue #156 now accepts blank command-cell separator lines while retaining literal nonblank
+commands and original line numbers. Manual input selection lists only manual_*.xlsx
+newest first, with explicit-path fallback. Each device publishes its own short
+manual_output_YYYYMMDD_HHMMSS.xlsx report as soon as its task ends; collision suffixes
+and device directories disambiguate outputs. Its continuously flushed receive-only
+UTF-8 capture lives alongside the report under outputs/reports/manual_configuration/.
+Reports link to real captures using portable relative hyperlinks. Structured timing,
+row identity and send intents remain in the internal run journal. Legacy recovery
+retains real historical capture references; missing captures have no invented link.
+This supersedes timestamped/labelled captures, run-directory capture defaults, blank-line
+rejection and batch-only export. Existing authorization and device safety rules remain.
+No live validation is implied.
+
+## Literal Manual Configuration correction (2026-10-26)
+
+The separate [Manual Configuration workflow](manual-configuration.md) accepts literal
+CLI including configure/conf, abbreviations, unknown roots, credentials, wrappers
+and explicit persistence. Only structural bounds apply; evidence is redacted
+independently. Automatic save remains successful-row-only; explicit authored save
+may already persist changes before failure. Protect credential-bearing source
+workbooks. Legacy offline Manual CLI and predefined schema restrictions above remain
+unchanged. See the manual for owner run evidence and fresh EdgeSwitch lab checks.

@@ -36,7 +36,7 @@ def console(answers, **kwargs):
 
 
 def test_menu_navigation(settings):
-    ui, output = console(['bad', '1', '6', '4', '4', '2', '3', '3', '3', '5', '2', '8'])
+    ui, output = console(['bad', '1', '7', '4', '4', '2', '3', '3', '3', '5', '2', '8'])
     ui.run()
     assert any('Invalid selection' in line for line in output)
     assert any('Generate Input Template' in line for line in output)
@@ -113,7 +113,8 @@ def test_template_collision_and_sheets(settings):
     assert first != second and first.read_bytes() == original
     assert first.name.endswith('_001.xlsx') and second.name.endswith('_002.xlsx')
     book = load_workbook(second, read_only=True)
-    assert len(book.sheetnames) == 23
+    assert len(book.sheetnames) == 22
+    assert 'Manual CLI' not in book.sheetnames
     book.close()
 
 
@@ -449,7 +450,8 @@ def test_real_offline_planner_and_review_adapter(settings):
     from orbitflow.configuration.v2.workbook import create_input
     from orbitflow.configuration.v2.planning import load
     t = next(t for t in CATALOGUE if t.family == 'All' and t.function == 'Manual CLI')
-    create_input('manual.xlsx')
+    from orbitflow.configuration.v2.workbook import _base
+    _base().save('manual.xlsx')
     book = load_workbook('manual.xlsx')
     values = dict(management_ip='192.0.2.1', platform='cisco_ios', mode='interface', scope='Gi1/0/1', commands=' description Lab\n exit\n')
     for col, name in enumerate(t.columns, 1):
@@ -609,7 +611,7 @@ def test_large_target_output_bounded_and_cancel(settings, monkeypatch, selection
 
 
 def test_navigation_separates_each_menu(settings):
-    ui, output = console(['1', '6', '8'])
+    ui, output = console(['1', '7', '8'])
     ui.run()
     menus = [i for i, text in enumerate(output) if text.startswith(('1. Configuration', 'Configuration Management\n'))]
     assert len(menus) == 3
@@ -810,7 +812,7 @@ def test_planning_export_failure_never_claims_complete(settings, monkeypatch, fa
     from orbitflow.configuration.v2 import planning, workbook
     from orbitflow.configuration.v2.catalogue import CATALOGUE
     template = next(t for t in CATALOGUE if t.family == 'All')
-    workbook.create_input('manual.xlsx')
+    workbook._base().save('manual.xlsx')
     book = load_workbook('manual.xlsx')
     values = dict(management_ip='192.0.2.1', platform='cisco_ios', mode='interface', scope='Gi1/0/1', commands=' description Lab\n exit\n')
     for col, name in enumerate(template.columns, 1):
@@ -902,3 +904,43 @@ def test_console_report_runs_real_aggregation_export(settings, monkeypatch, edge
     assert book['Interfaces']['E2'].comment
     assert channel.close_calls == 1 and client.closed
     book.close()
+
+
+def test_manual_completion_publishes_existing_consolidated_report_and_capture_folder(settings, monkeypatch):
+    """Each completion publishes the shared workbook and real named-capture folder."""
+    from orbitflow.configuration import manual, manual_auth
+
+    source = manual.create_template()
+    book = load_workbook(source)
+    book.active.append(['192.0.2.1', 'interface Gi1/0/1\ndescription lab'])
+    book.save(source)
+    book.close()
+    monkeypatch.setattr('getpass.getpass', lambda _: 'fixture-authorization')
+    monkeypatch.setattr(manual_auth, 'authorize', lambda *args: None)
+    ui, output = console(['', 'y'], session_check=lambda _: None)
+    monkeypatch.setattr(ui, 'choose_workbook', lambda *args, **kwargs: source)
+    monkeypatch.setattr(ui, 'choose_file', lambda *args: Path('data/input/devices.xlsx'))
+
+    report = Path('outputs/reports/manual_configuration/20261026_120000/manual_output_20261026_120000.xlsx')
+    report.parent.mkdir(parents=True)
+    workbook = Workbook()
+    workbook.active.title = 'Devices'
+    workbook.save(report)
+    workbook.close()
+    capture = report.parent / 'lab-switch_192.0.2.1.txt'
+    capture.write_text('lab-switch#\n', encoding='utf-8')
+
+    def execute(*args, on_output, **kwargs):
+        for _ in range(2):
+            before = len(output)
+            on_output(report)
+            assert len(output) == before + 1  # Immediate publication per completion.
+            lines = output[-1].splitlines()
+            assert lines == [f'Updated consolidated report: {report}',
+                             f'Capture folder: {capture.parent}']
+            assert all(Path(line.split(': ', 1)[1]).exists() for line in lines)
+        return Path('outputs/runs/manual_configuration/20261026_120000')
+
+    monkeypatch.setattr(manual, 'execute', execute)
+    ui.manual_execute()
+    assert not any('capture.txt' in line or 'device report' in line.lower() for line in output)

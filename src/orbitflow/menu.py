@@ -170,8 +170,68 @@ class Console:
                 break
         paths = {key: self.ask(f'{key} [{old["paths"][key]}]: ', old['paths'][key]) for key in PATHS}
         with diagnostic('Invalid environment profile. Check routing fields and destination paths; nothing was saved.'):
-            save_profile({'teleport': routing, 'execution': execution, 'paths': paths}, self.profile)
+            save_profile(dict(teleport=routing, execution=execution, paths=paths,
+                              **({'manual_configuration_auth': old['manual_configuration_auth']}
+                                 if 'manual_configuration_auth' in old else {})), self.profile)
         self.write(f'Environment saved: {self.profile}')
+
+    def manual_password(self):
+        from getpass import getpass
+        from orbitflow.configuration.manual_auth import authorize, hash_password
+        settings = self.settings()
+        if 'manual_configuration_auth' in settings:
+            authorize(settings, getpass('Current manual authorization password: '))
+        password = getpass('New manual authorization password (12–1024 characters): ')
+        if password != getpass('Repeat new password: '):
+            raise OperatorError('Passwords differ; nothing saved')
+        settings['manual_configuration_auth'] = {'password_hash': hash_password(password)}
+        save_profile(settings, self.profile)
+        self.write('Manual authorization password updated.')
+
+    def environment_menu(self):
+        self.submenu('Environment Setting', [('Edit environment profile', self.setup),
+                     ('Set/change manual authorization password', self.manual_password)])
+
+    def manual_template(self):
+        from orbitflow.configuration.manual import create_template
+        self.write(str(create_template()))
+
+    def manual_execute(self):
+        from getpass import getpass
+        from orbitflow.configuration.manual import load_rows, summary, execute
+        from orbitflow.configuration.manual_auth import authorize
+        from orbitflow.targets import load_device_credentials
+        from orbitflow.transport import TransportConfig
+        settings = self.settings()
+        source = self.choose_workbook(settings['paths']['templates'], prefix='manual_')
+        rows = load_rows(source)
+        devices = self.choose_file('Device credentials workbook', settings['paths']['devices'])
+        execution = ExecutionConfig(self.concurrency(), **settings['execution'])
+        bound = summary(rows, execution)
+        self.write(f'Manual configuration: rows={bound["rows"]}; devices={bound["devices"]}; commands={bound["commands"]}; invalid={bound["invalid"]}; concurrency={bound["concurrency"]}')
+        password = getpass('Manual authorization password: ')
+        authorize(settings, password)
+        if self.ask('Confirm manual execution? [y/N]: ').lower() != 'y':
+            raise Cancelled()
+        self.session_check(settings)
+        validate_paths(settings)
+        credentials = load_device_credentials(devices, [r['management_ip'] for r in rows if r['management_ip']])
+        with self.activity('Manual configuration', total=bound['devices'], execution=True) as display:
+            path = execute(rows, profile=settings, password=password, confirmation_digest=bound['digest'],
+                           credentials=credentials, transport_config=TransportConfig(**settings['teleport']),
+                           execution_config=execution, inventory_path=settings['paths']['inventory'],
+                           progress=display.event, on_started=lambda path: self.write(f'Retained manual run: {path}'),
+                           on_output=lambda output: self.write(f'Updated consolidated report: {output}\nCapture folder: {output.parent}'))
+
+    def manual_recover(self):
+        from orbitflow.configuration.manual import regenerate_report
+        path = self.ask('Retained manual run directory: ')
+        self.write(str(regenerate_report(path)))
+
+    def manual_menu(self):
+        self.submenu('Manual Configuration', [('Generate Manual Input Template', self.manual_template),
+                     ('Execute Manual Configuration', self.manual_execute),
+                     ('Regenerate Manual Report (offline)', self.manual_recover)])
 
     def settings(self):
         if not self.profile.exists():
@@ -185,11 +245,11 @@ class Console:
             raise FileNotFoundError('Missing input file')
         return path
 
-    def choose_workbook(self, directory):
+    def choose_workbook(self, directory, *, prefix=''):
         """Choose a numbered .xlsx input, newest mtime first, or an explicit path."""
         root = Path(directory)
         files = sorted((p for p in root.iterdir() if p.is_file()
-                        and p.suffix.lower() == '.xlsx' and not p.name.startswith('~$')),
+                        and p.suffix.lower() == '.xlsx' and p.name.startswith(prefix) and not p.name.startswith('~$')),
                        key=lambda p: (-p.stat().st_mtime_ns, p.name)) if root.exists() else []
         for index, path in enumerate(files, 1):
             self.write(f'{index}. {path.name}')
@@ -199,8 +259,12 @@ class Console:
         while True:
             value = self.ask('Configuration workbook number (b cancels): ')
             if value == str(len(files) + 1):
-                path = self.choose_file('Configuration workbook', '')
-                if path.suffix.lower() == '.xlsx' and not path.name.startswith('~$'):
+                try:
+                    path = self.choose_file('Configuration workbook', '')
+                except FileNotFoundError:
+                    self.write('Missing input file; choose again.')
+                    continue
+                if path.suffix.lower() == '.xlsx' and path.name.startswith(prefix) and not path.name.startswith('~$'):
                     return path
                 self.write('Choose an .xlsx configuration workbook.')
             elif value.isdecimal() and 1 <= int(value) <= len(files):
@@ -560,7 +624,8 @@ class Console:
     def run(self):
         configuration = [('Generate Input Template', self.template), ('Generate Configuration Plan', self.planning),
                          ('Execute Approved Plan', self.execute), ('Review Executed Plan', self.review),
-                         ('Regenerate Execution Report', lambda: self.recover('execution'))]
+                         ('Regenerate Execution Report', lambda: self.recover('execution')),
+                         ('Manual Configuration', self.manual_menu)]
         compliance = [('Run VLAN Compliance', lambda: self.run_workflow('compliance')),
                       ('Run VLAN Compliance + Methodology Report', lambda: self.run_workflow('compliance', True)),
                       ('Regenerate Previous Report (offline)', lambda: self.recover('vlan_compliance'))]
@@ -572,7 +637,7 @@ class Console:
         actions = [('Configuration Management', lambda: self.submenu('Configuration Management', configuration)),
                    ('Device Inventory', lambda: workflow('inventory')), ('Interface & VLAN Reporting', lambda: workflow('report')),
                    ('VLAN Compliance', lambda: self.submenu('VLAN Compliance', compliance)),
-                   ('Configuration Backup', lambda: workflow('backup')), ('Environment Setting', self.setup),
+                   ('Configuration Backup', lambda: workflow('backup')), ('Environment Setting', self.environment_menu),
                    ('MAC Address Lookup', lambda: self.submenu('MAC Address Lookup', [
                        ('Search MAC Address', lambda: self.mac_lookup(True)),
                        ('List All MAC Addresses', self.mac_lookup)]))]

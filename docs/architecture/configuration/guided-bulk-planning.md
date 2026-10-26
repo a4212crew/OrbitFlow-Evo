@@ -102,3 +102,6 @@ Digest linkage, Pending/Approve/Reject and no-overwrite outputs under
 `outputs/runs/configuration/` remain unchanged. None of this grants apply authority.
 Owner must repeat read-only planning on C3750X and C3850X and explicitly validate
 revised worksheets before milestone completion. Templates 9-22 remain pending.
+
+
+Issue #156 approved design: [separate Manual Configuration](manual-configuration.md) supersedes legacy offline Manual CLI for new input generation only. Legacy plans remain offline/non-executable; predefined partial-save behavior is unchanged. The new optional profile password-hash section and success-only per-row save are implemented on this branch with synthetic deterministic tests; owner-operated live validation remains pending. Historical evidence above is retained.

@@ -1068,3 +1068,6 @@ setup stays only on row 5, never reassigned. An already initialized parent produ
 no setup on any row. Original JSON/digest must remain unchanged.
 Fresh device checks and partial-failure behavior require separate owner-controlled
 lab validation using the lab commands above; do not replay historical plans.
+
+
+Issue #156 approved design: [separate Manual Configuration](../architecture/configuration/manual-configuration.md) supersedes legacy offline Manual CLI for new input generation only. Legacy plans remain offline/non-executable; predefined partial-save behavior is unchanged. The new optional profile password-hash section and success-only per-row save are implemented on this branch with synthetic deterministic tests; owner-operated live validation remains pending. Historical evidence above is retained.

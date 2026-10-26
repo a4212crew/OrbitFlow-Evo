@@ -1083,3 +1083,36 @@ targets and the forwarding prohibition. Unknown/security commands, absent settin
 missing exit, conflicting bindings and observed identity ambiguity fail closed.
 Owner repeat read-only validation remains pending; automated results are in the
 October devlog. Existing console workflows consume the corrected shared selector.
+
+## Manual Configuration — Issue #156
+
+The separate `orbitflow.configuration.manual` application API and console submenu implement multiline command workbooks, repeated-IP ordering, fresh shell per row, shared device execution/spooling, pre-row protected backup, prompt-free bounded capture, durable sanitized transcripts, success-only per-row save and offline report recovery. Optional profile PBKDF2 password hash and summary-bound hidden-password gate precede networking. IOS/IOS-XE platform framing and EdgeSwitch reuse shared setup/save; XR/Huawei manual entry/save and Junos are unsupported and fail before user writes. Predefined partial-save policy and v1/v2 plan schemas remain unchanged. New input generation removes only the legacy Manual CLI worksheet/navigation; canonical v2 layouts retain its empty compatibility slot. Synthetic deterministic validation is separate from pending owner Windows/Linux live lab validation. Reports explicitly state transcript-only scope. See the [manual](user_manual/manual-configuration.md) and [API](operations/manual-configuration-api.md).
+
+Issue #156 revision: manual-only finalization accepts exact current-command echoes
+from supported structural submodes and changed hostnames, waits for quiescence and
+learns a fresh EXEC anchor. Anchored diagnostic detection avoids false rejection
+of error-like literal echoes/hostnames while retaining fragmented errors and full
+sanitized transcript evidence. Deterministic real DeviceCLI reader tests cover
+these paths; owner-operated live validation remains pending.
+
+Issue #156 usability revision on this branch: blank cell separators are accepted,
+manual workbooks use the shared numbered chooser, and one consolidated workbook is atomically refreshed after each device finishes,
+with every input row, device summaries and real relative capture hyperlinks. Named
+receive-only captures live beside the workbook in short timestamp directories; run journals retain structured audit evidence
+and legacy offline recovery. See the [manual](user_manual/manual-configuration.md). Owner lab validation is pending.
+
+Issue #156 owner correction (2026-10-26): Manual Configuration accepts literal CLI
+without semantic command restrictions, including configure/conf, credentials,
+wrappers and explicit persistence. Structural bounds remain, secrets are redacted
+independently, and automatic save remains successful-row-only. Explicit user save
+may already have persisted changes before a later error; report save status describes
+automatic save only. Owner run 20261026_120437 showed ME3600X 12/12 and ASR920 2/2
+with confirmed save and refreshed consolidated reports/named captures. EdgeSwitch
+was rejected before connection; fresh EdgeSwitch validation and independent
+configuration verification are not established. Never replay those successful rows.
+
+Final Issue #156 worker Linux checks: 978 focused tests passed; full suite 3,698
+passed with 25 orchestration-temp failures caused by this managed worker's read-only
+Git markers under its OS-temp roots. Controller checks in a normal external-temp
+environment and fresh owner EdgeSwitch validation remain outstanding; see the
+[devlog](devlog/2026-10.md) and manual for exact checks and limitations.

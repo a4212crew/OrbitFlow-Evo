@@ -744,3 +744,6 @@ unrelated children and shutdown. Repeat for ASR920, then verify overlap, duplica
 SI, contradictory descriptions and physical aggregation ownership still block.
 Hardware and Linux validation of this correction remain pending. Existing console
 planning entry points use the same planner; this correction adds no new workflow.
+
+
+Issue #156: newly generated planning input contains 21 predefined worksheets and omits legacy Manual CLI/navigation without changing catalogue identifiers or v1/v2 plan integrity. Historical Manual CLI workbook/plan/report reading remains supported and non-executable. Use the separate [Manual Configuration workflow](manual-configuration.md) for new literal command blocks. Existing examples of Manual CLI sheets describe legacy inputs. Canonical v2 plan layouts retain the empty retired slot for compatibility.

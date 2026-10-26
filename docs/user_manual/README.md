@@ -67,3 +67,6 @@ For the configuration-v2 module, ensure the package is installed or `src` is in 
 - [MAC Address Lookup](mac-address-lookup.md): two console actions, direct CLI, offline recovery and pending owner validation.
 
 - [Shared aggregation ownership and validation](aggregation-validation.md): Issue #149 behavior, public contracts, automated commands and owner family/workflow matrix.
+
+- [Manual Configuration](manual-configuration.md): separate multiline-row workflow, blank separators, numbered selection, one immediately refreshed batch report/named capture links, platform matrix, authorization and owner lab validation.
+- [Manual Configuration API](../operations/manual-configuration-api.md): public Python interface.

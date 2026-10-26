@@ -173,3 +173,35 @@ ME3600X EVC execution confirmation now displays the effective digest-bound CLI i
 row order through the existing Execute Approved Plan action. Planning workbook
 Proposed CLI is explicitly provisional; decision edits do not recalculate Excel.
 See [execution semantics](configuration-execution.md). No new menu or confirmation is added.
+
+
+Issue #156 approved design: [separate Manual Configuration](../architecture/configuration/manual-configuration.md) supersedes legacy offline Manual CLI for new input generation only. Legacy plans remain offline/non-executable; predefined partial-save behavior is unchanged. The new optional profile password-hash section and success-only per-row save are implemented on this branch with synthetic deterministic tests; owner-operated live validation remains pending. Historical evidence above is retained.
+
+## Owner-approved usability revision — implemented on this branch
+
+Issue #156 now accepts blank command-cell separator lines while retaining literal nonblank
+commands and original line numbers. Manual input selection lists only manual_*.xlsx
+newest first, with explicit-path fallback. One consolidated manual_output_YYYYMMDD_HHMMSS.xlsx workbook is allocated before
+network execution and atomically refreshed after each device task ends. Its Devices
+sheet summarizes devices and Manual Configuration sheet retains every input row in
+workbook order. Receive-only <safe-hostname>_<safe-ip>.txt captures live beside it
+in outputs/reports/manual_configuration/YYYYMMDD_HHMMSS/. Run and backup directories
+use the same short name, with numeric collision suffixes.
+Reports link to real captures using portable relative hyperlinks. Structured timing,
+row identity and send intents remain in the internal run journal. Legacy recovery
+retains real historical capture references; missing captures have no invented link.
+This supersedes timestamped/labelled captures, run-directory capture defaults, blank-line
+rejection and batch-only export. Existing authorization and device safety rules remain.
+No live validation is implied.
+
+## Owner correction — consolidated output (implemented on this branch; lab validation pending)
+
+This revision supersedes earlier per-device workbook examples. One consolidated
+workbook contains every input row in order and a device summary, refreshed atomically
+at the serialized device-completion boundary. Pending rows never imply success.
+New manual run/report/backup directories use YYYYMMDD_HHMMSS with short numeric
+collision suffixes. The workbook is manual_output_YYYYMMDD_HHMMSS.xlsx; receive-only
+captures beside it are <sanitized-hostname>_<sanitized-ip>.txt with IP fallback.
+Durable references follow safe identity renames; historical recovery remains supported.
+The console retains the batch count, hidden password and explicit confirmation,
+removing explanatory warnings before the password. Execution/save safety is unchanged.

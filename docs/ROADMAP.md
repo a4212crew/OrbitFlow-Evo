@@ -84,3 +84,19 @@ Owner live/lab validation and protected skill reconciliation remain pending.
 ## MAC lookup delivery (Issue #130)
 
 Read-only MAC snapshots, operational XR attachment lookup, exact mapping, two-action operator workflow and offline workbook recovery are implemented with deterministic sample tests. Owner-operated family/Linux validation remains pending; MAC/bridge-domain skill routing is included on this PR branch. See [manual](user_manual/mac-address-lookup.md) for exact limitations; no device writes or peer following are included.
+
+## Manual Configuration — Issue #156
+
+Separate Excel multiline-row execution is implemented on this branch with deterministic synthetic validation; owner-operated Windows/Linux lab validation is pending. New planning inputs omit legacy Manual CLI; historical immutable plans/reports retain compatibility. XR commit/candidate ownership and Huawei entry/save completion remain explicit unsupported gaps; Junos is unsupported. See the [manual](user_manual/manual-configuration.md).
+
+Issue #156 usability revision on this branch: blank cell separators are accepted,
+manual workbooks use the shared numbered chooser, and one consolidated workbook is atomically refreshed after each device finishes,
+with all input rows, device summaries and named receive-only capture hyperlinks.
+Run/report/backup folders use short timestamp names; captures live beside the workbook; run journals retain structured audit evidence
+and legacy offline recovery. See the [manual](user_manual/manual-configuration.md). Owner lab validation is pending.
+
+Issue #156 literal manual CLI correction is implemented on this branch; automatic
+row save remains success-only while explicit engineer persistence executes literally.
+Owner evidence confirms ME3600X/ASR920 saves in run 20261026_120437; EdgeSwitch was
+rejected before connection. Fresh EdgeSwitch lab validation remains pending; see
+the [manual correction checks](user_manual/manual-configuration.md#fresh-edgeswitch-correction-validation-owner-only).

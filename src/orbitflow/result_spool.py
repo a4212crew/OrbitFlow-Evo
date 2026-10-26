@@ -119,14 +119,28 @@ class ResultSpool:
         self._writer = None
 
     @classmethod
-    def create(cls, root, task, target_count, *, clean=sanitize_text):
+    def create(cls, root, task, target_count, *, clean=sanitize_text, short_name=False):
+        """Allocate exclusively; opt-in short UTC names leave shared defaults intact."""
         if type(target_count) is not int or target_count < 0:
             raise ValueError('Target count must be a nonnegative integer')
         root = Path(root).resolve()
         root.mkdir(parents=True, exist_ok=True)
-        run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%fZ_') + uuid4().hex
-        path = root / run_id
-        path.mkdir()
+        if short_name:
+            stem = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+            for sequence in range(100000):
+                run_id = stem + (f'_{sequence:03d}' if sequence else '')
+                path = root / run_id
+                try:
+                    path.mkdir()
+                    break
+                except FileExistsError:
+                    continue
+            else:
+                raise ValueError('Run allocation exhausted')
+        else:
+            run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%fZ_') + uuid4().hex
+            path = root / run_id
+            path.mkdir()
         manifest = dict(schema_version=1, run_id=run_id, task=task,
                         target_count=target_count, completed_count=0, failed_count=0,
                         status='created', collection_complete=False, created_at=_now(), updated_at=_now())
