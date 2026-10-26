@@ -198,12 +198,12 @@ class Console:
 
     def manual_execute(self):
         from getpass import getpass
-        from orbitflow.configuration.manual import load_rows, summary, execute, regenerate_report
+        from orbitflow.configuration.manual import load_rows, summary, execute
         from orbitflow.configuration.manual_auth import authorize
         from orbitflow.targets import load_device_credentials
         from orbitflow.transport import TransportConfig
         settings = self.settings()
-        source = self.choose_file('Manual command workbook', 'data/input/generated_template')
+        source = self.choose_workbook(settings['paths']['templates'], prefix='manual_')
         rows = load_rows(source)
         devices = self.choose_file('Device credentials workbook', settings['paths']['devices'])
         execution = ExecutionConfig(self.concurrency(), **settings['execution'])
@@ -222,8 +222,8 @@ class Console:
             path = execute(rows, profile=settings, password=password, confirmation_digest=bound['digest'],
                            credentials=credentials, transport_config=TransportConfig(**settings['teleport']),
                            execution_config=execution, inventory_path=settings['paths']['inventory'],
-                           progress=display.event, on_started=lambda path: self.write(f'Retained manual run: {path}'))
-        self.write(str(regenerate_report(path)))
+                           progress=display.event, on_started=lambda path: self.write(f'Retained manual run: {path}'),
+                           on_output=lambda output: self.write(f'Finished device report: {output}\nCapture: {output.parent / "capture.txt"}'))
 
     def manual_recover(self):
         from orbitflow.configuration.manual import regenerate_report
@@ -247,11 +247,11 @@ class Console:
             raise FileNotFoundError('Missing input file')
         return path
 
-    def choose_workbook(self, directory):
+    def choose_workbook(self, directory, *, prefix=''):
         """Choose a numbered .xlsx input, newest mtime first, or an explicit path."""
         root = Path(directory)
         files = sorted((p for p in root.iterdir() if p.is_file()
-                        and p.suffix.lower() == '.xlsx' and not p.name.startswith('~$')),
+                        and p.suffix.lower() == '.xlsx' and p.name.startswith(prefix) and not p.name.startswith('~$')),
                        key=lambda p: (-p.stat().st_mtime_ns, p.name)) if root.exists() else []
         for index, path in enumerate(files, 1):
             self.write(f'{index}. {path.name}')
@@ -261,8 +261,12 @@ class Console:
         while True:
             value = self.ask('Configuration workbook number (b cancels): ')
             if value == str(len(files) + 1):
-                path = self.choose_file('Configuration workbook', '')
-                if path.suffix.lower() == '.xlsx' and not path.name.startswith('~$'):
+                try:
+                    path = self.choose_file('Configuration workbook', '')
+                except FileNotFoundError:
+                    self.write('Missing input file; choose again.')
+                    continue
+                if path.suffix.lower() == '.xlsx' and path.name.startswith(prefix) and not path.name.startswith('~$'):
                     return path
                 self.write('Choose an .xlsx configuration workbook.')
             elif value.isdecimal() and 1 <= int(value) <= len(files):

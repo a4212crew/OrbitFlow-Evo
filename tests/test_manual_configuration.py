@@ -67,6 +67,7 @@ def fake(monkeypatch, tmp_path):
         calls.append(('setup',))
         fail('setup')
     def finalize(*args):
+        args[0].last_response = 'end\nhost#'
         calls.append(('finalize',))
         fail('finalize')
         return 'host#'
@@ -103,7 +104,7 @@ def test_duplicate_noncontiguous_ip_fresh_shell_per_row(fake, auth):
     assert len([c for c in calls if c[0] == 'connect']) == 2
     assert len([c for c in calls if c[0] == 'close_shell']) == 3
     assert [c[2] for c in calls if c[0] == 'command'] == rows[0]['commands'] * 3
-    assert len(list(path.glob('*.txt'))) == 2
+    assert len(list(Path('outputs/reports/manual_configuration').rglob('*.txt'))) == 2
     report = m.regenerate_report(path)
     book = load_workbook(report)
     assert [r[0].value for r in list(book.active.rows)[1:]] == ['2', '3', '4']
@@ -177,7 +178,7 @@ def test_gate_before_network_and_allocation(fake, auth):
 
 
 @pytest.mark.parametrize('text', ['wr', 'wri mem', 'cop run start', 'sa', 'comm', 'do wr', 'run save', 'alias exec persist write memory',
-    'persist', 'interface Gi1;write memory', 'description password abc', 'username admin secret abc', 'banner motd ^', 'python', 'more', 'interface Gi1\n\nshutdown'])
+    'persist', 'interface Gi1;write memory', 'description password abc', 'username admin secret abc', 'banner motd ^', 'python', 'more'])
 def test_unsafe_commands_fail_closed(text):
     with pytest.raises(ValueError):
         m.commands(text)
@@ -236,7 +237,7 @@ def test_redaction_ansi_and_formula_literal(fake, auth):
     _, fault = fake
     fault['receive'] = '\x1b[31mdevice-private\x1b[0m\n=1+1\nsecret never-export\n'
     path = run([row(2)], auth)
-    text = next(path.glob('*.txt')).read_text()
+    text = Path(records(path)[0]['transcript']).read_text()
     assert 'device-private' not in text and 'never-export' not in text and '\x1b' not in text
     assert '=1+1' in text
 
@@ -346,14 +347,14 @@ def test_transcript_failure_no_save_or_later_commands(fake, auth, monkeypatch):
     calls, _ = fake
     original = m.os.fsync
     original_open = Path.open
-    transcript_descriptors = set()
+    transcript_streams = []
     def tracked_open(path, *args, **kwargs):
         stream = original_open(path, *args, **kwargs)
-        if path.suffix == '.txt' and 'runs' in path.parts:
-            transcript_descriptors.add(stream.fileno())
+        if path.suffix == '.txt' and 'reports' in path.parts:
+            transcript_streams.append(stream)
         return stream
     def fail(descriptor):
-        if descriptor in transcript_descriptors:
+        if any(not stream.closed and stream.fileno() == descriptor for stream in transcript_streams):
             raise OSError('synthetic storage error')
         return original(descriptor)
     monkeypatch.setattr(Path, 'open', tracked_open)
@@ -375,7 +376,7 @@ def test_delayed_response_crosses_commands_and_fragmented_rejection(fake, auth, 
     path = run([row(2), row(3)], auth)
     assert not any(c[0] == 'save' for c in calls)
     assert records(path)[0]['attempted'] == 2
-    assert '% In' in next(path.glob('*.txt')).read_text()
+    assert '% In' in Path(records(path)[0]['transcript']).read_text()
 
 
 def test_receive_inactivity_and_overall_separate_deadlines(monkeypatch):
@@ -419,14 +420,14 @@ def test_new_planning_input_omits_legacy_without_weakening_plan_schema(tmp_path)
 def test_console_decline_and_bad_password_before_session(fake, auth, monkeypatch):
     from orbitflow.menu import Console, Cancelled
     from orbitflow.environment import PATHS
-    Path('commands.xlsx').touch()
+    Path('manual_commands.xlsx').touch()
     Path('devices.xlsx').touch()
     profile = dict(teleport={}, execution=dict(connection_start_interval=0, connection_retry_delay=0), paths=PATHS.copy(), **auth)
     monkeypatch.setattr(Console, 'settings', lambda self: profile)
     monkeypatch.setattr(m, 'load_rows', lambda path: [row(2)])
     import getpass
     for password, expected in [('wrong', ValueError), ('test authorization password', Cancelled)]:
-        answers = iter(['commands.xlsx', 'devices.xlsx', '', 'n'])
+        answers = iter(['1', 'manual_commands.xlsx', 'devices.xlsx', '', 'n'])
         console = Console(read=lambda _: next(answers), write=lambda _: None,
                           session_check=lambda _: pytest.fail('gate connected'))
         monkeypatch.setattr(getpass, 'getpass', lambda _: password)
@@ -668,3 +669,166 @@ def test_real_reader_edgeswitch_manual_finalize_save_question():
     anchor = vendor.finalize(cli, SimpleNamespace(platform='ubiquiti_edgeswitch'), 2)
     assert cli.save_configuration(anchor, 'ubiquiti_edgeswitch', timeout=2)['status'] == 'Saved'
     assert cli._channel.sent == [b'end\n', b'write memory\n', b'y\n']
+
+
+def test_blank_separators_and_source_lines(tmp_path):
+    text = '\r\n interface Gi1\r\n   \r\n description Customer\r\n\r\n'
+    assert m.commands(text) == [' interface Gi1', ' description Customer']
+    book = Workbook()
+    book.active.append(['management_ip', 'command'])
+    book.active.append(['192.0.2.1', text])
+    book.active.append(['192.0.2.2', ' \n\n'])
+    path = tmp_path / 'manual_input.xlsx'
+    book.save(path)
+    rows = m.load_rows(path)
+    assert rows[0]['command_lines'] == [2, 4]
+    assert rows[1]['error'] == m.EMPTY_ERROR
+    assert m.summary(rows)['commands'] == 2
+
+
+def test_manual_chooser_filter_ties_reprompt_and_cancel(tmp_path):
+    from orbitflow.menu import Console, Cancelled
+    import os
+    for name in ['manual_b.xlsx', 'manual_a.xlsx', 'config_template.xlsx', '~$manual_x.xlsx']:
+        path = tmp_path / name
+        path.touch()
+        os.utime(path, ns=(100, 100))
+    (tmp_path / 'manual_directory.xlsx').mkdir()
+    answers = iter(['99', '1'])
+    shown = []
+    console = Console(read=lambda _: next(answers), write=shown.append)
+    assert console.choose_workbook(tmp_path, prefix='manual_').name == 'manual_a.xlsx'
+    assert not any('config_template' in line or '~$' in line for line in shown)
+    answers = iter(['3', str(tmp_path / 'config_template.xlsx'), '3', str(tmp_path / 'manual_b.xlsx')])
+    assert console.choose_workbook(tmp_path, prefix='manual_').name == 'manual_b.xlsx'
+    empty = tmp_path / 'empty'
+    empty.mkdir()
+    answers = iter(['b'])
+    with pytest.raises(Cancelled):
+        console.choose_workbook(empty, prefix='manual_')
+
+
+def test_fast_device_publishes_before_slow_failure(fake, auth, monkeypatch):
+    from threading import Event
+    from urllib.parse import unquote
+    import shutil
+    calls, _ = fake
+    published = Event()
+    original_connect = m.connect_device
+    original_capture = m.DeviceCLI.capture_literal
+    def connect(ip, *args):
+        session = original_connect(ip, *args)
+        session.ip = ip
+        return session
+    def capture(self, command, **kwargs):
+        if self.session.ip == '192.0.2.2':
+            assert published.wait(5), 'fast report waited for slow device'
+            raise KeyboardInterrupt()
+        for chunk in ['echo\r', '\nfrag', 'mented device-private\r', '\n']:
+            kwargs['receive'](chunk)
+    monkeypatch.setattr(m, 'connect_device', connect)
+    monkeypatch.setattr(m.DeviceCLI, 'capture_literal', capture)
+    outputs = []
+    def output(path):
+        book = load_workbook(path)
+        sheet = book.active
+        ip = sheet['B2'].value
+        assert path.name.startswith('manual_output_') and len(path.stem) == 29
+        capture = path.parent / unquote(sheet['J2'].hyperlink.target)
+        assert capture.is_file() and 'reports' in capture.parts
+        if ip == '192.0.2.1':
+            assert sheet.max_row == 3
+            assert sheet['J3'].hyperlink.target == sheet['J2'].hyperlink.target
+            text = capture.read_text()
+            assert 'echo\nfragmented [REDACTED]\n' in text
+            assert not any(label in text for label in ['SEND', 'RECEIVE', 'ROW', 'row=', 'description Customer'])
+            relocated = Path('relocated') / path.parent.name
+            shutil.copytree(path.parent, relocated)
+            assert (relocated / unquote(load_workbook(relocated / path.name).active['J2'].hyperlink.target)).is_file()
+            published.set()
+        outputs.append(path)
+    rows = [row(2), row(3, '192.0.2.2'), row(4)]
+    config = m.ExecutionConfig(2, 0, 0)
+    path = m.execute(rows, profile=auth, password='test authorization password',
+        confirmation_digest=m.summary(rows, config)['digest'],
+        credentials={r['management_ip']: DeviceCredentials('operator', 'device-private') for r in rows},
+        transport_config=None, execution_config=config, on_output=output)
+    assert published.is_set() and len(outputs) == 2
+    assert next(r for r in records(path) if r['source_row'] == 3)['status'] == 'Incomplete'
+
+
+def test_per_device_export_failure_retains_other_output(fake, auth, monkeypatch):
+    original = m.regenerate_report
+    def export(path, *args, **kwargs):
+        if kwargs.get('management_ip') == '192.0.2.1':
+            raise OSError('synthetic export failure')
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(m, 'regenerate_report', export)
+    outputs = []
+    path = run([row(2), row(3, '192.0.2.2')], auth, on_output=outputs.append)
+    assert len(outputs) == 1 and outputs[0].exists()
+    events = list(m.ResultJournal(path / 'events.jsonl').records())
+    assert any(e['kind'] == 'report_export_failed' for e in events)
+    calls, _ = fake
+    calls.clear()
+    assert original(path).exists() and not calls
+
+
+def test_legacy_missing_and_real_capture_links(tmp_path):
+    path = tmp_path / 'legacy'
+    path.mkdir()
+    journal = m.ResultJournal(path / 'events.jsonl')
+    journal.append(dict(kind='input', rows=[dict(source_row=2, management_ip='192.0.2.1', total=1)]))
+    result = dict(kind='row_result', source_row=2, management_ip='192.0.2.1', transcript='legacy.txt')
+    journal.append(result)
+    report = m.regenerate_report(path, tmp_path / 'missing.xlsx')
+    assert load_workbook(report).active['J2'].hyperlink is None
+    (path / 'legacy.txt').write_text('device#')
+    report = m.regenerate_report(path, tmp_path / 'real.xlsx')
+    assert load_workbook(report).active['J2'].hyperlink.target == 'legacy/legacy.txt'
+
+
+def test_short_collision_names_and_windows_cross_drive_fallback(fake, auth, monkeypatch):
+    from datetime import datetime
+    from urllib.parse import unquote
+    class FixedDate(datetime):
+        @classmethod
+        def now(cls, *args):
+            return cls(2026, 10, 26, 12, 34, 56)
+    path = run([row(2)], auth)
+    monkeypatch.setattr(m, 'datetime', FixedDate)
+    first = m.regenerate_report(path)
+    second = m.regenerate_report(path)
+    assert first.name == 'manual_output_20261026_123456.xlsx'
+    assert second.name == 'manual_output_20261026_123456_001.xlsx'
+    def cross_drive(*args):
+        raise ValueError('different drives')
+    monkeypatch.setattr(m.os.path, 'relpath', cross_drive)
+    third = m.regenerate_report(path)
+    link = load_workbook(third).active['J2'].hyperlink.target
+    assert link.startswith('file:///')
+    assert Path(unquote(link[7:])).is_file()
+
+
+def test_all_empty_block_never_connects(fake, auth, tmp_path):
+    book = Workbook()
+    book.active.append(['management_ip', 'command'])
+    book.active.append(['192.0.2.1', ' \r\n\t\r\n'])
+    source = tmp_path / 'manual_empty.xlsx'
+    book.save(source)
+    rows = m.load_rows(source)
+    path = run(rows, auth)
+    assert records(path)[0]['reason'] == m.EMPTY_ERROR
+    calls, _ = fake
+    assert not calls
+
+
+def test_manual_chooser_newest_first(tmp_path):
+    import os
+    from orbitflow.menu import Console
+    for name, stamp in [('manual_a.xlsx', 100), ('manual_z.xlsx', 200)]:
+        path = tmp_path / name
+        path.touch()
+        os.utime(path, ns=(stamp, stamp))
+    console = Console(read=lambda _: '1', write=lambda _: None)
+    assert console.choose_workbook(tmp_path, prefix='manual_').name == 'manual_z.xlsx'

@@ -53,3 +53,28 @@ section stores only a salted work-factor-protected admin password hash; old prof
 remain compatible. Manual apply requires hidden password verification and separate
 summary confirmation before networking.” These are design corrections, not claims
 of implemented or live-validated functionality. Protected .agents files are not edited.
+
+## Owner-approved usability revision — implemented on this branch
+
+Issue #156 now accepts blank command-cell separator lines while retaining literal nonblank
+commands and original line numbers. Manual input selection lists only manual_*.xlsx
+newest first, with explicit-path fallback. Each device publishes its own short
+manual_output_YYYYMMDD_HHMMSS.xlsx report as soon as its task ends; collision suffixes
+and device directories disambiguate outputs. Its continuously flushed receive-only
+UTF-8 capture lives alongside the report under outputs/reports/manual_configuration/.
+Reports link to real captures using portable relative hyperlinks. Structured timing,
+row identity and send intents remain in the internal run journal. Legacy recovery
+retains real historical capture references; missing captures have no invented link.
+This supersedes timestamped/labelled captures, run-directory capture defaults, blank-line
+rejection and batch-only export. Existing authorization and device safety rules remain.
+No live validation is implied.
+
+Protected-skill handoff for this revision (Atlas): append to the Issue #156
+configuration-management and interactive-operations-console skill notes:
+“Manual input ignores blank separator lines and retains original cell-line identity.
+The shared numbered chooser filters manual_*.xlsx including explicit selections.
+Each completed device task publishes a short manual_output timestamp report and a
+relative link to its receive-only capture under outputs/reports/manual_configuration/.
+Run journals retain row/timing/send evidence; legacy captures recover at their real
+paths. No application labels or synthetic echoes belong in captures. Owner live
+validation remains pending.” Existing protected skills were not modified.

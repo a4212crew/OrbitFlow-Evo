@@ -34,6 +34,7 @@ from orbitflow.vendors.common import DeviceCLI, normalize_output
 from orbitflow.vendors.configuration_facts import _safe_source
 from orbitflow.vendors import manual_configuration as vendor
 
+EMPTY_ERROR = 'Invalid input: command block contains no executable commands'
 INPUT_ERROR = 'Invalid input: IP, command, credential or persistence restriction'
 SCOPE = 'Transcript only — configuration not independently verified'
 # Fail closed on abbreviations, execution wrappers and programmable/interactive
@@ -90,9 +91,13 @@ class CaptureSettings:
 
 
 def commands(text):
-    if not isinstance(text, str) or not text or len(text) > 32767:
+    if text is None or isinstance(text, str) and not text.strip():
+        raise ValueError(EMPTY_ERROR)
+    if not isinstance(text, str) or len(text) > 32767:
         raise ValueError('Invalid multiline command cell')
-    lines = text.split('\n')
+    lines = [line for line in text.replace('\r\n', '\n').split('\n') if line.strip()]
+    if not lines:
+        raise ValueError(EMPTY_ERROR)
     if len(lines) > 1000:
         raise ValueError('Too many commands')
     for line in lines:
@@ -167,8 +172,9 @@ def load_rows(path):
                 if any(cell.data_type == 'f' for cell in cells):
                     raise ValueError()
                 item['commands'] = commands(values[1])
-            except Exception:
-                item['error'] = INPUT_ERROR
+                item['command_lines'] = [i for i, line in enumerate(values[1].replace('\r\n', '\n').split('\n'), 1) if line.strip()]
+            except Exception as exc:
+                item['error'] = EMPTY_ERROR if str(exc) == EMPTY_ERROR else INPUT_ERROR
                 item['commands'] = []
             rows.append(item)
             if len(rows) > 10000:
@@ -195,11 +201,13 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
             execution_config=ExecutionConfig(1), settings=CaptureSettings(),
             inventory_path='data/inventory/inventory.json',
             run_root='outputs/runs/manual_configuration',
-            backups_dir='outputs/backups/configuration', progress=None, on_started=None):
+            backups_dir='outputs/backups/configuration', progress=None, on_started=None,
+            reports_dir='outputs/reports/manual_configuration', on_output=None):
     """Apply only after local password and summary-bound explicit confirmation.
 
     credentials maps IP to existing DeviceCredentials; no command-workbook secrets.
-    Returns a retained run path. Report regeneration is a separate offline operation.
+    Returns a retained run path. Publishes a report per completed device via the
+    scheduler and optional on_output(Path); export failures retain offline recovery.
     """
     authorize(profile, password)  # Before allocation, connection, identity or backup.
     rows = deepcopy(rows)
@@ -208,13 +216,13 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
     if not 1 <= len(rows) <= 10000:
         raise ValueError('Manual input requires 1–10000 rows')
     for row in rows:
-        if row.get('error') not in {'', INPUT_ERROR}:
+        if row.get('error') not in {'', INPUT_ERROR, EMPTY_ERROR}:
             raise ValueError('Invalid manual input diagnostic')
         if row.get('error') and row.get('commands') != []:
             raise ValueError('Invalid rows cannot retain command cells')
         if row.get('management_ip'):
             ipaddress.ip_address(row['management_ip'])
-        if set(row) != {'source_row', 'management_ip', 'commands', 'error'}:
+        if set(row) - {'command_lines'} != {'source_row', 'management_ip', 'commands', 'error'}:
             raise ValueError('Invalid manual row schema')
         if type(row['source_row']) is not int or row['source_row'] < 2:
             raise ValueError('Invalid source row')
@@ -222,6 +230,11 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
             ipaddress.ip_address(row['management_ip'])
             if commands('\n'.join(row['commands'])) != row['commands']:
                 raise ValueError('Invalid commands')
+    for row in rows:
+        mapping = row.get('command_lines', list(range(1, len(row['commands']) + 1)))
+        if (len(mapping) != len(row['commands']) or any(type(i) is not int or i < 1 for i in mapping)
+                or mapping != sorted(set(mapping))):
+            raise ValueError('Invalid command line mapping')
     if len({r['source_row'] for r in rows}) != len(rows):
         raise ValueError('Duplicate source row identity')
     rows = sorted(rows, key=lambda r: r['source_row'])
@@ -289,7 +302,7 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                     row = dict(source_row=source['source_row'], management_ip=ip,
                                status='Incomplete', reason='', attempted=0, total=len(source['commands']),
                                last_command=None, save='Not initiated', verification_scope=SCOPE,
-                               transcript=str(path.relative_to(spool.path)) if path else '')
+                               transcript=str(path.resolve()) if path else '')
                     phase = 'setup'
                     save_sent = False
                     pending = ''
@@ -297,14 +310,17 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                         # Allocate the IP fallback before identification so even
                         # login/setup failures retain a device transcript.
                         if transcript is None:
-                            path = spool.path / (filename_component(ip or 'invalid-input') + '.txt')
+                            directory = Path(reports_dir) / spool.path.name / filename_component(ip or 'invalid-input')
+                            directory.mkdir(parents=True, exist_ok=True)
+                            path = directory / 'capture.txt'
                             transcript = path.open('x', encoding='utf-8', newline='\r\n')
-                        row['transcript'] = path.name
+                        row['transcript'] = str(path.resolve())
+                        event(ip, 'capture', transcript=str(path.resolve()))
                         def record(label, text):
-                            transcript.write(f'{now()} row={source["source_row"]} {label}\n{clean(text)}\n')
+                            transcript.write(clean(text))
                             transcript.flush()
                             os.fsync(transcript.fileno())
-                        record('ROW', 'Fresh shell required; ' + SCOPE)
+                        record('CHECK', '')
                         checkpoint()
                         if stopped:
                             row['reason'] = 'Not attempted: earlier device row failed or unknown'
@@ -344,7 +360,8 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                     recent = (recent + text)[-65536:]
                                     while '\n' in pending:
                                         line, pending = pending.split('\n', 1)
-                                        record('RECEIVE', line)
+                                        record('RECEIVE', line.rstrip('\r') + '\n')
+                                        event(ip, 'receive', source_row=source['source_row'], text=line)
                                     if len(pending) > 65536:
                                         raise ValueError('Capture line limit exceeded')
                                     if vendor.rejected(normalize_output(recent)) or INTERACTION.search(normalize_output(recent)):
@@ -360,8 +377,8 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                 for index, command in enumerate(source['commands'], 1):
                                     checkpoint()
                                     row.update(attempted=index, last_command=index)
-                                    event(ip, 'command_intent', source_row=source['source_row'], command_index=index, command_total=row['total'])
-                                    record('SEND', command)  # Durable intent before transmission.
+                                    event(ip, 'command_intent', source_row=source['source_row'], command_index=index, command_total=row['total'], source_line=source.get('command_lines', list(range(1, row['total'] + 1)))[index - 1], command=command)
+                                    record('CHECK', '')  # Check durable capture before transmission.
                                     cli.capture_literal(command, first_response=settings.first_response,
                                                         inactivity=settings.inactivity, maximum=settings.maximum, receive=receive)
                                 if pending:
@@ -369,18 +386,26 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                     pending = ''
                                 checkpoint()
                                 phase = 'finalization'
-                                anchor = vendor.finalize(cli, context, settings.setup_timeout)
-                                # Mode response may contain delayed block output.
-                                record('FINALIZATION RECEIVE', cli.last_response)
+                                cli.last_response = ''
+                                try:
+                                    anchor = vendor.finalize(cli, context, settings.setup_timeout)
+                                finally:
+                                    # Includes partial receive data on synchronization failure.
+                                    record('FINALIZATION RECEIVE', cli.last_response)
                                 if vendor.rejected(normalize_output(cli.last_response)) or INTERACTION.search(cli.last_response):
                                     raise ValueError('Finalization rejected or interactive')
-                                record('BLOCK CAPTURED', 'No detected error; inactivity is not proof of completion')
+                                record('CHECK', '')
                                 event(ip, 'save_intent', source_row=source['source_row'])
                                 checkpoint()
                                 phase = 'save'
                                 row['save'] = 'Unknown'
                                 save_sent = True  # Conservatively Unknown even if sendall fails partially.
-                                result = save_configuration(session, context, cli=cli, exec_prompt=anchor, timeout=settings.save_timeout, manual=True)
+                                cli.last_response = ''
+                                try:
+                                    result = save_configuration(session, context, cli=cli, exec_prompt=anchor, timeout=settings.save_timeout, manual=True)
+                                except BaseException:
+                                    record('SAVE RECEIVE', cli.last_response)
+                                    raise
                                 record('SAVE RECEIVE', result['response'])
                                 checkpoint()
                                 row['save'] = 'Failed' if result.get('explicit_error') else result['status']
@@ -431,12 +456,21 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
             except BaseException:
                 cancelled.set()
                 raise
+            ip = list(groups)[outcome.position - 1]
+            try:
+                directory = Path(reports_dir) / spool.path.name / filename_component(ip or 'invalid-input')
+                output = regenerate_report(spool.path, reports_dir=directory, management_ip=ip)
+                event(ip, 'report_exported', output=str(output.resolve()))
+                if on_output:
+                    on_output(output)
+            except Exception:
+                event(ip, 'report_export_failed', error='Report export failed; durable results retained for offline recovery')
         with spool.collection():
             execute_devices(list(groups), worker, config=execution_config, on_outcome=persist)
     return spool.path
 
 
-def regenerate_report(run_path, output=None):
+def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/manual_configuration', management_ip=None):
     """Offline recovery from durable input/intents/results; never connects/replays.
 
     Unterminated journal lines are ignored. A save intent without confirmed result
@@ -446,10 +480,12 @@ def regenerate_report(run_path, output=None):
     journal = ResultJournal(run_path / 'events.jsonl')
     # Metadata aggregation is bounded by the 10000-row input limit;
     # command/response data stay in per-device transcripts on disk.
-    inputs, results, attempts, saves = [], {}, {}, set()
+    inputs, results, attempts, saves, captures = [], {}, {}, set(), {}
     for event in journal.records():
         if event['kind'] == 'input':
             inputs = event['rows']
+        elif event['kind'] == 'capture':
+            captures[event['management_ip']] = event['transcript']
         elif event['kind'] == 'row_result':
             results[event['source_row']] = event
         elif event['kind'] == 'command_intent':
@@ -459,14 +495,26 @@ def regenerate_report(run_path, output=None):
     if not inputs:
         raise ValueError('Manual run has no durable input snapshot')
     if output is None:
-        root = Path('outputs/reports/manual_configuration')
+        root = Path(reports_dir)
         root.mkdir(parents=True, exist_ok=True)
-        output = root / (run_path.name + '-' + datetime.now().strftime('%Y%m%dT%H%M%S%f') + '.xlsx')
+        stem = 'manual_output_' + datetime.now().strftime('%Y%m%d_%H%M%S')
+        for sequence in range(100000):
+            candidate = root / (stem + (f'_{sequence:03d}' if sequence else '') + '.xlsx')
+            try:
+                stream = candidate.open('xb')
+                output = candidate
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise ValueError('Report allocation exhausted')
+    else:
+        stream = None
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     # Claim output before constructing streaming XML writers; allocation failure
     # cannot leave unclosed openpyxl generators.
-    stream = output.open('xb')
+    stream = stream or output.open('xb')
     book = None
     try:
         with stream:
@@ -476,15 +524,31 @@ def regenerate_report(run_path, output=None):
             sheet.append(fields)
             from openpyxl.cell import WriteOnlyCell
             for source in inputs:
+                if management_ip is not None and source['management_ip'] != management_ip:
+                    continue
                 number = source['source_row']
                 result = results.get(number) or dict(source_row=number, management_ip=source['management_ip'], status='Incomplete',
                             reason='Interrupted/recording incomplete' if number in attempts or number in saves else 'Not attempted: run incomplete',
                             attempted=attempts.get(number, 0), total=source['total'], last_command=attempts.get(number),
                             save='Unknown' if number in saves else 'Not initiated', verification_scope=SCOPE, transcript='')
+                reference = result.get('transcript') or captures.get(source['management_ip'], '')
+                capture = Path(reference) if reference else None
+                if capture is not None and not capture.is_absolute():
+                    capture = run_path / capture
                 cells = []
                 for name in fields:
                     cell = WriteOnlyCell(sheet, str(result.get(name, '') if result.get(name) is not None else ''))
                     cell.data_type = 's'  # Formula injection protection for all persisted text.
+                    if name == 'transcript':
+                        cell.value = str(capture) if capture and capture.is_file() else 'Not captured'
+                        if capture and capture.is_file():
+                            from urllib.parse import quote
+                            try:
+                                target = Path(os.path.relpath(capture.resolve(), output.parent.resolve())).as_posix()
+                                cell.hyperlink = quote(target, safe='/:')
+                            except ValueError:  # Windows cross-drive capture: relative path unavailable.
+                                cell.hyperlink = capture.resolve().as_uri()
+                            cell.style = 'Hyperlink'
                     cells.append(cell)
                 sheet.append(cells)
             sheet.close()

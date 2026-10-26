@@ -39,7 +39,12 @@ Choose **Configuration Management → Manual Configuration**:
    in row 1; input starts at row 2. Use Alt+Enter between commands in one cell.
    Credentials belong only in the separate existing device workbook, whose fields
    are `management_ip`, `username`, `password`, optional `secret` (enable).
-3. **Execute Manual Configuration** selects the command and credential workbooks,
+3. **Execute Manual Configuration** lists eligible `manual_*.xlsx` files in the profile
+   templates directory (newest modification time first, filename order for ties).
+   Excel temporary files and directories are excluded. Select a number, the explicit
+   file-path option (also requiring `manual_`), or `b` to cancel; invalid selections
+   reprompt. An empty directory still offers explicit path and cancellation.
+   Select the separate credential workbook. The workflow
    prompts concurrency 1–5 (blank=1; never persisted), shows row/device/command and
    invalid-row counts, verifies the hidden authorization password and requires an
    explicit run-summary confirmation. Declining or a wrong password causes no
@@ -57,8 +62,12 @@ interface GigabitEthernet1/0/1
 ```
 
 Each row starts in confirmed global configuration mode. Include the hierarchy
-needed by your block. Literal command whitespace and order are preserved. Empty
-lines, non-ASCII/control characters, tabs, formulas, credentials, save/commit/copy/write and
+needed by your block. Literal nonblank command whitespace and order are preserved. Leading, interior,
+trailing and whitespace-only separator lines are ignored, with LF/CRLF treated
+consistently. Original cell line numbers remain in internal command intents. An
+entirely empty block reports “Invalid input: command block contains no executable
+commands” before networking; only executable lines count. Non-ASCII/control
+characters in commands, tabs, formulas, credentials, save/commit/copy/write and
 their abbreviations, execution wrappers (`do`, `run`), aliases, scripts, banners,
 pagination and interactive exchanges are rejected or fail incomplete. Unknown or
 abbreviated command roots fail closed as potentially ambiguous aliases. Supported
@@ -123,14 +132,25 @@ changes. **Never automatically replay/resume Completed or Unknown changes.**
 Artifacts use collision-safe run/template allocation:
 
 - `outputs/runs/manual_configuration/<run-id>/`: manifest, sanitized fsynced
-  `events.jsonl`, bounded shared results spool and one UTF-8 `.txt` transcript per
-  device, with CRLF line endings for Notepad and timestamped source-row SEND/RECEIVE
-  sections. Safe IP fallback filenames are allocated before identification, preserving evidence even for login/setup failures. Setup/enable secrets are excluded.
+  `events.jsonl` and bounded shared results spool. Row identity, timing, source-line
+  mapping, sanitized command intents and real capture references remain internal.
+  Historical captures under old run directories are still recoverable.
 - `outputs/backups/configuration/<run-id>/`: existing protected configuration
   backups; treat these as sensitive and never publish them.
-- `outputs/reports/manual_configuration/`: exclusively created XLSX reports with
-  every input row in workbook order; cells are literal strings to prevent formula
-  injection. The source workbook is unchanged.
+- `outputs/reports/manual_configuration/<run-id>/<safe-ip>/`: each device gets
+  `capture.txt` plus `manual_output_YYYYMMDD_HHMMSS.xlsx`, with a short numeric suffix
+  only for collisions. Reports publish immediately when that device finishes all
+  its rows, including failure/not-attempted rows, while independent devices continue.
+  Every row links to the real capture using relative Excel hyperlink metadata; move
+  the device directory together to preserve links. Missing historical captures say
+  `Not captured` without a link. Reports retain workbook order within each device;
+  offline whole-run exports retain full workbook order. Cells are literal strings.
+  The capture contains only sanitized received terminal text, including genuine
+  echoes, prompts and finalization/save output when available. It has UTF-8/CRLF
+  Notepad formatting, no application labels/timestamps or synthetic command echoes,
+  and no inserted newline per network chunk. Complete lines flush/fsync incrementally;
+  an unfinished line is bounded and flushed at block completion/error. Setup/enable
+  exchanges remain excluded. The source workbook is unchanged.
 - `outputs/logs/manual_configuration/YYYY-MM-DD/`: concise sanitized stage logs.
 
 A recording failure stops further device writes. Retain the run if report writing
@@ -146,7 +166,7 @@ verification.
 Linux Bash deterministic checks:
 
 ```bash
-PYTHONPATH=src python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_configuration_execution.py tests/test_shared_cli.py tests/test_cisco_ios_cli.py tests/test_cli_lifecycle.py tests/test_cisco_terminal_width.py tests/test_edgeswitch_angle_prompt.py tests/test_prompt_banners.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py -q
+PYTHONPATH=src python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_device_execution.py tests/test_result_spool.py tests/test_configuration_execution.py tests/test_shared_cli.py tests/test_cisco_ios_cli.py tests/test_cli_lifecycle.py tests/test_cisco_terminal_width.py tests/test_edgeswitch_angle_prompt.py tests/test_prompt_banners.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py -q
 PYTHONPATH=src python -m pytest -q
 ```
 
@@ -154,7 +174,7 @@ Windows PowerShell deterministic checks:
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
-python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_configuration_execution.py tests/test_shared_cli.py tests/test_cisco_ios_cli.py tests/test_cli_lifecycle.py tests/test_cisco_terminal_width.py tests/test_edgeswitch_angle_prompt.py tests/test_prompt_banners.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py -q
+python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_device_execution.py tests/test_result_spool.py tests/test_configuration_execution.py tests/test_shared_cli.py tests/test_cisco_ios_cli.py tests/test_cli_lifecycle.py tests/test_cisco_terminal_width.py tests/test_edgeswitch_angle_prompt.py tests/test_prompt_banners.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py -q
 python -m pytest -q
 ```
 
@@ -184,3 +204,57 @@ non-console use. Historical offline Manual CLI workbook/plan/report recovery rem
 supported, with unchanged v1/v2 integrity and template identifiers. New planning
 input omits its worksheet/navigation; canonical v2 plan layouts retain an empty
 legacy slot for compatibility.
+
+## Owner-approved usability revision — implemented on this branch
+
+Issue #156 now accepts blank command-cell separator lines while retaining literal nonblank
+commands and original line numbers. Manual input selection lists only manual_*.xlsx
+newest first, with explicit-path fallback. Each device publishes its own short
+manual_output_YYYYMMDD_HHMMSS.xlsx report as soon as its task ends; collision suffixes
+and device directories disambiguate outputs. Its continuously flushed receive-only
+UTF-8 capture lives alongside the report under outputs/reports/manual_configuration/.
+Reports link to real captures using portable relative hyperlinks. Structured timing,
+row identity and send intents remain in the internal run journal. Legacy recovery
+retains real historical capture references; missing captures have no invented link.
+This supersedes timestamped/labelled captures, run-directory capture defaults, blank-line
+rejection and batch-only export. Existing authorization and device safety rules remain.
+No live validation is implied.
+
+### Fresh usability lab validation (owner only; pending)
+
+Start a **new**, reviewed lab workbook named `manual_lab.xlsx` using the console
+commands above; never select previous Completed/Unknown operations for replay.
+Use two lab IPs and noncontiguous repeated rows for the first IP. Include leading,
+interior and trailing Alt+Enter separator lines. First decline confirmation, then
+try a wrong admin password: observe no connection. On a separately authorized
+fresh run, verify each successful duplicate-IP row opens a new shell and saves
+individually. Keep the second device busy and verify the first device report and
+clickable capture appear before the second finishes. Open the report in Excel on
+Windows; move its entire device directory and verify its hyperlink still opens.
+On another fresh scenario induce a supported device rejection: verify no row save,
+later same-IP rows not attempted, independent-device output available. Separately
+interrupt an owner-controlled save after transmission: preserve Unknown, never
+retry/replay. Use the offline recovery commands in the API guide to regenerate
+reports from retained journals, including a missing historical capture (no link).
+Confirm captures contain device receive text only, redacted, without chunk headers.
+
+Run the full deterministic gate separately from focused worker regressions. Linux Bash:
+
+```bash
+PYTHONPATH=src python -m pytest -q
+PYTHONPATH=src python -m pytest tests/test_orchestration_v2_codex_runner.py tests/test_orchestration_v2_controller.py tests/test_orchestration_v2_lifecycle.py -q
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python -m pytest -q
+python -m pytest tests/test_orchestration_v2_codex_runner.py tests/test_orchestration_v2_controller.py tests/test_orchestration_v2_lifecycle.py -q
+```
+
+Report worker and controller results separately. This Codex sandbox marks its writable
+OS-temp roots with protected `.git` directories; controller tests correctly refuse
+those roots through the existing external-temp guard. Run the controller gate in its
+normal controller environment. Do not remove those markers or relax the guard.
+Linux synthetic tests do not establish native Windows/Excel or device validation.

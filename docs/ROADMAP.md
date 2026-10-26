@@ -88,3 +88,9 @@ Read-only MAC snapshots, operational XR attachment lookup, exact mapping, two-ac
 ## Manual Configuration — Issue #156
 
 Separate Excel multiline-row execution is implemented on this branch with deterministic synthetic validation; owner-operated Windows/Linux lab validation is pending. New planning inputs omit legacy Manual CLI; historical immutable plans/reports retain compatibility. XR commit/candidate ownership and Huawei entry/save completion remain explicit unsupported gaps; Junos is unsupported. See the [manual](user_manual/manual-configuration.md).
+
+Issue #156 usability revision on this branch: blank cell separators are accepted,
+manual workbooks use the shared numbered chooser, and each device immediately
+publishes a short report with a real relative capture hyperlink. Receive-only
+captures live beside device reports; run journals retain structured audit evidence
+and legacy offline recovery. See the [manual](user_manual/manual-configuration.md). Owner lab validation is pending.

@@ -10,10 +10,10 @@ Public functions:
 | Function | Contract |
 |---|---|
 | `create_template(directory='data/input/generated_template')` | Offline; returns an exclusively allocated `Path` named `manual_config_YYYYMMDD_NNN.xlsx`. |
-| `load_rows(path)` | Offline; returns source-ordered row dictionaries: `source_row`, `management_ip`, `commands` (literal list), `error`. Invalid cells are discarded with a fixed diagnostic; malformed headers or >10000 rows fail the workbook. |
+| `load_rows(path)` | Offline; returns source-ordered row dictionaries: `source_row`, `management_ip`, `commands` (literal nonblank list), `error`, and optional `command_lines` (original one-based cell lines). Invalid cells are discarded with a fixed diagnostic; malformed headers or >10000 rows fail the workbook. |
 | `summary(rows, execution_config=ExecutionConfig(1), settings=CaptureSettings())` | Offline; returns digest, rows/devices/commands/invalid counts and concurrency. Digest binds exact ordered row content and settings. |
-| `execute(rows, *, profile, password, confirmation_digest, credentials, transport_config, execution_config=ExecutionConfig(1), settings=CaptureSettings(), inventory_path='data/inventory/inventory.json', run_root='outputs/runs/manual_configuration', backups_dir='outputs/backups/configuration', progress=None, on_started=None)` | Network/apply; verifies local password and exact summary confirmation before allocation or connection. Copies and validates rows; groups same-IP rows, using shared device scheduling and per-row fresh CLI channels. Returns retained run `Path`. Configuration exceptions produce Incomplete row records; persistence/interrupt failures can propagate with recovery retained. Never retry the run automatically. |
-| `regenerate_report(run_path, output=None)` | Offline; returns an exclusively allocated report `Path`. Defaults under `outputs/reports/manual_configuration/`; explicit existing paths fail. Reads durable input/intents/results, never network or replay. |
+| `execute(rows, *, profile, password, confirmation_digest, credentials, transport_config, execution_config=ExecutionConfig(1), settings=CaptureSettings(), inventory_path='data/inventory/inventory.json', run_root='outputs/runs/manual_configuration', backups_dir='outputs/backups/configuration', progress=None, on_started=None, reports_dir='outputs/reports/manual_configuration', on_output=None)` | Network/apply; verifies local password and exact summary confirmation before allocation or connection. Copies and validates rows; groups same-IP rows, using shared device scheduling and per-row fresh CLI channels. Returns retained run `Path`; exports each device through the scheduler completion callback before waiting for other devices. Configuration exceptions produce Incomplete row records; persistence/interrupt failures can propagate with recovery retained. Never retry the run automatically. |
+| `regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/manual_configuration', management_ip=None)` | Offline; returns an exclusively allocated report `Path`. Defaults under `outputs/reports/manual_configuration/`; explicit existing paths fail. Reads durable input/intents/results, never network or replay. |
 
 `CaptureSettings(first_response=10.0, inactivity=1.0, maximum=30.0,
 setup_timeout=30.0, save_timeout=60.0)` requires each deadline to be finite and in
@@ -37,7 +37,17 @@ gate, not tamper-proof authorization or a remote authentication boundary.
 never access channels and their failures disable display only. `on_started(path)`
 receives the retained run directory before network execution, so callers can report
 recovery locations even when execution fails. A callback exception before execution
-causes no connection. Artifact roots can be overridden; unrelated workflows keep
+causes no connection. `on_output(Path)` is called serially by the scheduler after each successful device
+report export (including reports of failed devices), while other workers may still
+run. Export failures append a fixed `report_export_failed` journal event and preserve
+results for offline recovery, without retrying network writes or blocking other
+device exports. Subscriber exceptions are recorded as publication failures.
+`reports_dir` controls capture/report ownership; default device directories are
+`reports_dir/run-id/safe-ip`. `regenerate_report` optionally filters one IP; its
+default whole-run export includes every input row. It preserves historical capture
+references and only links to files that exist. Cross-drive Windows links fall back
+to file URIs; otherwise links are relative and portable with their capture directory.
+Artifact roots can be overridden; unrelated workflows keep
 their existing defaults. Logs use shared `module_logger` ownership and context.
 
 An interactive Python adapter can use this pattern (never hardcode a password):
@@ -66,8 +76,8 @@ if input('Confirm manual execution? [y/N]: ').lower() == 'y':
                    confirmation_digest=bound['digest'], credentials=credentials,
                    transport_config=TransportConfig(**profile['teleport']),
                    execution_config=config, inventory_path=profile['paths']['inventory'],
-                   on_started=lambda path: print('Retained run:', path))
-    print(regenerate_report(path))
+                   on_started=lambda path: print('Retained run:', path),
+                   on_output=lambda path: print('Finished device report:', path))
 ```
 
 For offline recovery, Linux Bash:
@@ -99,3 +109,18 @@ complete sanitized transcript; error words in descriptions/hostnames alone do no
 reject a row. Missing synchronization or actual rejection prevents save and later
 same-device rows. Predefined/read-only synchronization and partial-save policy are
 unchanged.
+
+## Owner-approved usability revision — implemented on this branch
+
+Issue #156 now accepts blank command-cell separator lines while retaining literal nonblank
+commands and original line numbers. Manual input selection lists only manual_*.xlsx
+newest first, with explicit-path fallback. Each device publishes its own short
+manual_output_YYYYMMDD_HHMMSS.xlsx report as soon as its task ends; collision suffixes
+and device directories disambiguate outputs. Its continuously flushed receive-only
+UTF-8 capture lives alongside the report under outputs/reports/manual_configuration/.
+Reports link to real captures using portable relative hyperlinks. Structured timing,
+row identity and send intents remain in the internal run journal. Legacy recovery
+retains real historical capture references; missing captures have no invented link.
+This supersedes timestamped/labelled captures, run-directory capture defaults, blank-line
+rejection and batch-only export. Existing authorization and device safety rules remain.
+No live validation is implied.
