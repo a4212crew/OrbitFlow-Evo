@@ -129,3 +129,13 @@ independently before all persistence. Explicit user save/commit may persist chan
 before failure; automatic save remains successful-row-only. Preserve fresh-shell
 setup, prompt-free capture, unsupported-question failure, and predefined policies.
 See docs/architecture/configuration/manual-configuration.md for evidence and status.”
+
+
+## Atlas skill handoff completed
+
+Atlas applied the configuration-management and interactive-operations-console skill
+corrections on this PR before owner-authorized merge. Earlier protected-file handoff
+notes above describe the implementation history; the current skill sections now
+record the final literal-command, authorization, output and automatic-save contract.
+No executable changes were made by Atlas. Validation evidence/limitations above
+remain unchanged.
