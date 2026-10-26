@@ -2,7 +2,7 @@
 
 This layer compares typed observations only. CLI grammar and rendering belong
 to vendor modules; projected services follow per-device row order for conflicts,
-while independent EVC parent setup is derived from observed state per row.
+while ME3600X parent setup is assigned to the first executable approved row.
 """
 from copy import deepcopy
 from orbitflow.vendors.configuration_facts import interface_settings
@@ -162,8 +162,8 @@ def evaluate(t, p, obs, out, prior):
                 out['projected_state'] = dict(description=p.get('description', description), included=sorted(included), excluded=sorted(excluded), tagged=sorted(tagged), pvid=pvid)
             else:
                 services = [n for n in node['children'] if n['kind'] == 'service_instance']
-                # Project sibling services for collision detection, never to borrow
-                # their approval or suppress this row's observed parent setup.
+                # Project sibling services for collision detection. Parent readiness
+                # is projected separately, only from executable approved setup.
                 observed_services = services
                 if projected and 'services' in projected:
                     services = projected['services']
@@ -271,14 +271,19 @@ def evaluate(t, p, obs, out, prior):
                     if key(a['config_interface_name']) == key(target) and any(m.get('global_bridge_domain') for m in a.get('numeric_mappings', [])) and t.family == 'ASR920':
                         block('ASR920_GLOBAL_BINDING_CONFLICT')
                 warn('SERVICE_IMPACT_REVIEW')
-                out['commands'] = renderer(t, p, dict(initialize=empty, description=vals('description')[-1] if vals('description') else ''))
+                initializes_parent = t.family == 'ME3600X' and empty and not any(
+                    key(result.get('resolved_target', '')) == key(target)
+                    and result.get('deployment_ready')
+                    and result.get('projected_state', {}).get('initializes_parent')
+                    for _, result in prior)
+                out['commands'] = renderer(t, p, dict(initialize=initializes_parent if t.family == 'ME3600X' else empty, description=vals('description')[-1] if vals('description') else ''))
                 # Store normalized desired children through the shared vendor helper.
                 from orbitflow.vendors.cisco.evc import desired_service
                 # Only ME3600X converts an empty parent into a shared trunk
                 # resource. ASR920's address-free parent needs no conversion;
                 # its defensive no-ip command must not serialize siblings.
                 out['projected_state'] = dict(description=p.get('interface_description', description),
-                    evc_parent=True, initializes_parent=t.family == 'ME3600X' and empty, services=[s for s in services if s['value'] != str(p['service_instance_id'])] + [desired_service(p)])
+                    evc_parent=True, initializes_parent=initializes_parent, services=[s for s in services if s['value'] != str(p['service_instance_id'])] + [desired_service(p)])
     out['findings'] = sorted(set(findings))
     out['warnings'] = sorted(warnings)
     out['blockers'] = sorted(set(findings) - warnings)

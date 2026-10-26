@@ -1,5 +1,19 @@
 # Approved configuration execution
 
+Issue #154 / PR #155 parent initialization correction (2026-10-26):
+
+ME3600X Template 10 assigns empty-parent trunk/allowed-none initialization to
+only the earliest executable Approved row in workbook order. Later approved disjoint
+rows omit both commands; Pending, Reject and Blocked rows never provide readiness.
+An observed trunk/allowed-none parent requires no setup. ASR920 Template 12 is
+unchanged. Decisions/order changes require renewed digest-bound preparation and
+confirmation. Execution never rewrites approved CLI: fresh empty/partially initialized
+parents block rows without approved setup; an initialized parent blocks a row still
+carrying setup (`EVC_PARENT_DRIFT`). Failed/Unknown setup is never presumed successful;
+only fresh compatible state permits independent continuation, and lost synchronization
+stops device writes. Presence-only EVC post-verification, partial save and no retry remain.
+
+
 Issue #117 implements the [approved execution contract](../architecture/configuration/approved-device-execution.md).
 This is a configuration-changing workflow for predefined C3750X, C3850 (worksheet
 label C3850X) and EdgeSwitch VLAN Database, supported port and Description templates.
@@ -974,3 +988,42 @@ review. Planning, preparation/fresh target checks and post-change verification u
 the same selector; no approval/digest or spool schema changes. The forwarding child
 blocker remains `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`. See the existing validation
 matrix for Linux/Windows read-only reproduction; live validation remains pending.
+
+### Parent initialization revision validation (Issue #154 / PR #155)
+
+Offline deterministic checks from the repository root (Linux):
+
+```bash
+python -m pytest tests/test_configuration_plans.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py tests/test_configuration_execution.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_operations_console.py -q
+```
+
+Windows PowerShell, with the project environment activated:
+
+```powershell
+python -m pytest tests/test_configuration_plans.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py tests/test_configuration_execution.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_operations_console.py -q
+```
+
+Expected: deterministic tests pass; synthetic four-row 445/30/31/32 runs retain
+exact ordered CLI, one initialization on an initially empty ME parent and zero
+on an observed trunk-none parent, independent later approvals, per-row outcomes,
+one device save and offline XLSX recovery. Rejection/timeout fixtures check no
+unsafe later EVC write. Synthetic tests are not Windows execution or live evidence.
+
+Owner-operated checks on an already authorized lab session are read-only:
+
+```text
+show running-config interface GigabitEthernet0/6
+show vlan id 445
+show ethernet service instance id 445 interface GigabitEthernet0/6 detail
+show ethernet service instance id 30 interface GigabitEthernet0/6 detail
+show ethernet service instance id 31 interface GigabitEthernet0/6 detail
+show ethernet service instance id 32 interface GigabitEthernet0/6 detail
+```
+
+Confirm current parent trunk/allowed-none and each exact service identity; Up/Down
+is retained as operational evidence. Keep output private and sanitize any review
+extract. Do not replay previously applied rows. Any future lab apply requires a
+new plan from fresh state, workbook review, summary inspection and owner-controlled
+execution confirmation. This revision has no live validation evidence. Existing
+**Execute Approved Plan** console integration uses the same corrected service;
+no additional menu action or confirmation is required.

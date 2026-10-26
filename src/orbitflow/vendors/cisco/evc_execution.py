@@ -76,7 +76,10 @@ def target_blocker(entry, observed, context):
         if (not compatible and not empty) or any(vals(k) for k in ('access', 'native', 'allowed_add', 'allowed_remove', 'allowed_except')):
             return 'INCOMPATIBLE_EVC_PARENT'
         # An empty parent can only be initialized by commands actually approved.
-        if empty and not {'switchport mode trunk', 'switchport trunk allowed vlan none'} <= set(result['commands']):
+        setup = {'switchport mode trunk', 'switchport trunk allowed vlan none'} & set(result['commands'])
+        if compatible and setup:
+            return 'EVC_PARENT_DRIFT'
+        if empty and setup != {'switchport mode trunk', 'switchport trunk allowed vlan none'}:
             return 'EVC_PARENT_DRIFT'
         if vlan_prerequisite(observed, p['bridge_domain']) is not True:
             return 'VLAN_PREREQUISITE_UNAVAILABLE'

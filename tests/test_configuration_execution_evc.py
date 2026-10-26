@@ -376,3 +376,130 @@ def test_service_detail_exchange_failure_is_unknown(monkeypatch, family, fault):
     after = post(family, r['inputs'])
     after['service_details'] = {'GigabitEthernet0/1:3000': VlanService().service_detail(None, ctx, 'GigabitEthernet0/1', 3000)}
     assert evc.verify(entry, before, after, ctx)['status'] == 'Unknown'
+
+
+@pytest.mark.parametrize('family,initialized,first,failure', [
+    (family, initialized, first, '')
+    for family in ['ME3600X', 'ASR920']
+    for initialized in [False, True]
+    for first in ['Approve', 'Pending', 'Reject', 'Blocked', 'BlockedEmpty']
+] + [('ME3600X', False, 'Approve', failure) for failure in ['reject', 'timeout']])
+def test_ordered_parent_initialization_lifecycle(tmp_path, monkeypatch, family, initialized, first, failure):
+    """Four disjoint owner-shaped rows, real preparation/worker/report lifecycle."""
+    ctx, _, _, _, _ = fixture(family)
+    setup = ' switchport mode trunk\n switchport trunk allowed vlan none\n'
+    prefix = 'vlan 445\n name Customer\n!\n' if family == 'ME3600X' else ''
+    def observed(params, ready):
+        text = prefix + 'interface GigabitEthernet0/6\n shutdown\n'
+        if ready and family == 'ME3600X':
+            text += setup
+        for p in params:
+            text += f" service instance {p['service_instance_id']} ethernet\n"
+            text += ''.join('  ' + c + '\n' for c in child_commands(p))
+        obs = observation(family, text + '!\nend\n')
+        obs['identity'] = ex.identity(ctx)
+        obs['vlan_lookups'] = {'445': dict(status='present', name='Customer', operational_status='active')}
+        for p in params:
+            attach_presence(obs, p)
+        return obs
+    params = [dict(evc_inputs(), interface='GigabitEthernet0/6', service_instance_id=si,
+                   outer_vlan=str(si)) for si in [445, 30, 31, 32]]
+    if first == 'Blocked':
+        params[0]['outer_vlan'] = '900'
+    sibling = dict(evc_inputs(), interface='GigabitEthernet0/6', service_instance_id=900, outer_vlan='900')
+    # A blocked first row uses an existing initialized parent's ingress conflict.
+    initial_children = [sibling] if first == 'Blocked' else []
+    ready = initialized or first == 'Blocked'
+    before = observed(initial_children, ready)
+    if first == 'BlockedEmpty':
+        attach_presence(before, params[0])  # Operational/configuration contradiction blocks only this row.
+    requests = [request(template(family).id, p, row=i+3) for i, p in enumerate(params)]
+    decisions = {r['row_id']: ('Approve' if i or first in {'Blocked', 'BlockedEmpty'} else first) for i, r in enumerate(requests)}
+    original = plan(requests, {IP: before}, now=NOW)
+    service = ex.ExecutionService(tmp_path / 'authority')
+    prepared = service.prepare(original, decisions, expected_digest=original.digest)
+    evaluated = ex.evaluate_decisions(original, decisions, expected_digest=original.digest, now=NOW).to_dict()['results']
+    selected = [i for i, result in enumerate(evaluated) if result['deployment_ready']]
+    assert selected == ([0, 1, 2, 3] if first == 'Approve' else [1, 2, 3])
+    assert sum('switchport mode trunk' in evaluated[i]['commands'] for i in selected) == (family == 'ME3600X' and not ready)
+    verifier = ex._verify_observed
+    saves = fake_runtime(monkeypatch, ctx, before)
+    monkeypatch.setattr(ex, '_verify_observed', verifier)
+    captures = []
+    children_now = list(initial_children)
+    for index in selected:
+        captures.append(observed(children_now, ready))
+        children_now.append(params[index])
+        ready = True
+        captures.append(observed(children_now, ready))
+    if failure:
+        captures = [before] * 8
+    observations = iter(captures)
+    monkeypatch.setattr(ex, '_observe', lambda *a: next(observations))
+    send = WorkerCLI.run_command
+    mode_sent = [initialized or first == 'Blocked']
+    def command(self, cmd, **kw):
+        if cmd == 'switchport mode trunk':
+            if failure:
+                self.sent.append(cmd)
+                if failure == 'timeout':
+                    self.dead = True
+                    raise TimeoutError()
+                return '% Invalid input'
+            if mode_sent[0]:
+                self.sent.append(cmd)
+                return '% Command rejected: interface already in trunk mode'
+            mode_sent[0] = True
+        return send(self, cmd, **kw)
+    monkeypatch.setattr(WorkerCLI, 'run_command', command)
+    spool = service.confirm(prepared['reference'], summary_digest=prepared['summary_digest'], apply=True,
+        credentials={IP: DeviceCredentials('test-user', 'hidden')}, run_root=tmp_path / 'runs')
+    rows = next(spool.records())['payload']['rows']
+    if failure:
+        assert rows[0]['status'] == ('Unknown' if failure == 'timeout' else 'Failed')
+        assert all(row['status'] != 'Verified' for row in rows[1:])
+        assert not any(c.startswith('service instance ') for c in WorkerCLI.instances[0].sent)
+        assert len(saves) == (0 if failure == 'timeout' else 1)
+        return
+    assert all(row['status'] == 'Verified' for row in rows)
+    assert WorkerCLI.instances[0].sent == [c for i in selected for c in evaluated[i]['commands']]
+    assert len(saves) == 1
+    assert ex.export_results(spool.path, tmp_path / 'result.xlsx').exists()
+
+
+def test_parent_setup_requires_fresh_readiness_and_rejects_redundant_setup():
+    ctx, initialized, r, _, entry = fixture('ME3600X')
+    empty = observation('ME3600X', 'vlan 445\n name Customer\n!\ninterface GigabitEthernet0/1\n shutdown\n!\n')
+    empty['vlan_lookups'] = initialized['vlan_lookups']
+    assert evc.target_blocker(entry, empty, ctx) == 'EVC_PARENT_DRIFT'
+    entry['result']['commands'][2:2] = ['switchport mode trunk', 'switchport trunk allowed vlan none']
+    assert not evc.target_blocker(entry, empty, ctx)
+    assert evc.target_blocker(entry, initialized, ctx) == 'EVC_PARENT_DRIFT'
+    partial = observation('ME3600X', 'interface GigabitEthernet0/1\n switchport mode trunk\n!\n')
+    assert evc.target_blocker(entry, partial, ctx) == 'INCOMPATIBLE_EVC_PARENT'
+
+
+def test_parent_initialization_decisions_order_and_digest():
+    from orbitflow.configuration.v2.planning import BulkPlan
+    from orbitflow.configuration.plans import canonical
+    obs = observation('ME3600X', 'vlan 445\n name Customer\n!\ninterface Gi0/6\n!\n')
+    requests = [request(template('ME3600X').id, dict(evc_inputs(), interface='Gi0/6',
+                service_instance_id=si, outer_vlan=str(si)), row=i+3) for i, si in enumerate([445, 30, 31, 32])]
+    original = plan(requests, {IP: obs}, now=NOW)
+    approvals = {r['row_id']: 'Approve' for r in requests}
+    all_rows = ex.evaluate_decisions(original, approvals, expected_digest=original.digest, now=NOW).to_dict()['results']
+    later = ex.evaluate_decisions(original, {**approvals, requests[0]['row_id']: 'Reject'},
+                                  expected_digest=original.digest, now=NOW).to_dict()['results']
+    assert ['switchport mode trunk' in r['commands'] for r in all_rows] == [True, False, False, False]
+    assert 'switchport mode trunk' in later[1]['commands']
+    changed = original.to_dict()
+    changed['results'][0]['commands'].remove('switchport mode trunk')
+    with pytest.raises(PlanError, match='tampered planning result'):
+        BulkPlan(canonical(changed))
+    with pytest.raises(PlanError, match='digest mismatch'):
+        ex.evaluate_decisions(original, approvals, expected_digest='0' * 64, now=NOW)
+    reversed_requests = [request(template('ME3600X').id, r['inputs'], row=i+3) for i, r in enumerate(reversed(requests))]
+    reversed_plan = plan(reversed_requests, {IP: obs}, now=NOW,
+                         decisions={r['row_id']: 'Approve' for r in reversed_requests})
+    assert reversed_plan.digest != original.digest
+    assert ['switchport mode trunk' in r['commands'] for r in reversed_plan.to_dict()['results']] == [True, False, False, False]

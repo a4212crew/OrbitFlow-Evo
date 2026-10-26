@@ -1,5 +1,19 @@
 # Configuration execution and standalone observation API
 
+Issue #154 / PR #155 parent initialization correction (2026-10-26):
+
+ME3600X Template 10 assigns empty-parent trunk/allowed-none initialization to
+only the earliest executable Approved row in workbook order. Later approved disjoint
+rows omit both commands; Pending, Reject and Blocked rows never provide readiness.
+An observed trunk/allowed-none parent requires no setup. ASR920 Template 12 is
+unchanged. Decisions/order changes require renewed digest-bound preparation and
+confirmation. Execution never rewrites approved CLI: fresh empty/partially initialized
+parents block rows without approved setup; an initialized parent blocks a row still
+carrying setup (`EVC_PARENT_DRIFT`). Failed/Unknown setup is never presumed successful;
+only fresh compatible state permits independent continuation, and lost synchronization
+stops device writes. Presence-only EVC post-verification, partial save and no retry remain.
+
+
 Canonical CLI and operational semantics: [execution manual](../user_manual/configuration-execution.md).
 These synchronous Python APIs do not require an HTTP server. XLSX is an optional
 adapter; applications can submit normalized per-row decisions directly.

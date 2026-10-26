@@ -8,9 +8,18 @@ authorized executor. Workbook approval alone never applies changes. See the
 [execution manual](../../user_manual/configuration-execution.md#me3600x-and-asr920-issue-154)
 for fresh execution gates, recreation impact, outputs and pending lab validation.
 
-Disjoint ME3600X/ASR920 EVCs independently derive safe parent setup from observed
-state, including empty parents; compatible setup/descriptions require no sibling
-approval. Contradictory descriptions, duplicate SIs, ingress overlap, uncertain
+ME3600X Template 10 assigns empty-parent trunk/allowed-none initialization to
+only the earliest executable Approved row in workbook order. Later approved disjoint
+rows omit both commands; Pending, Reject and Blocked rows never provide readiness.
+An observed trunk/allowed-none parent requires no setup. ASR920 Template 12 is
+unchanged. Decisions/order changes require renewed digest-bound preparation and
+confirmation. Execution never rewrites approved CLI: fresh empty/partially initialized
+parents block rows without approved setup; an initialized parent blocks a row still
+carrying setup (`EVC_PARENT_DRIFT`). Failed/Unknown setup is never presumed successful;
+only fresh compatible state permits independent continuation, and lost synchronization
+stops device writes. Presence-only EVC post-verification, partial save and no retry remain.
+
+Disjoint EVCs remain independently reviewable where safe. Contradictory descriptions, duplicate SIs, ingress overlap, uncertain
 state and aggregation ownership still block. Predefined non-Ubiquiti templates
 have no VLAN Database approval/synchronization dependencies and never implicitly
 create VLANs. Earlier contrary prerequisite statements below are superseded.

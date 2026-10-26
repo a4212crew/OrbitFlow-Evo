@@ -24,6 +24,20 @@ distinguishes this v1 contract from the separate predefined execution workflow.
 
 ## Bulk Configuration Planning v2
 
+ME3600X Template 10 assigns empty-parent trunk/allowed-none initialization to
+only the earliest executable Approved row in workbook order. Later approved disjoint
+rows omit both commands; Pending, Reject and Blocked rows never provide readiness.
+An observed trunk/allowed-none parent requires no setup. ASR920 Template 12 is
+unchanged. Decisions/order changes require renewed digest-bound preparation and
+confirmation. Execution never rewrites approved CLI: fresh empty/partially initialized
+parents block rows without approved setup; an initialized parent blocks a row still
+carrying setup (`EVC_PARENT_DRIFT`). Failed/Unknown setup is never presumed successful;
+only fresh compatible state permits independent continuation, and lost synchronization
+stops device writes. Presence-only EVC post-verification, partial save and no retry remain.
+
+Synthetic regression coverage only; owner live validation of this correction remains pending.
+
+
 Issue #154 extends confirmed execution to ME3600X Templates 9–11 and ASR920
 Templates 12–13. Exact approved CLI, independent confirmation, shared execution,
 backups/journal/report recovery and partial-save semantics are reused. Fresh EVC

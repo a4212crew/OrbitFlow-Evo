@@ -1306,13 +1306,13 @@ def test_issue_152_operator_disjoint_services(family, initialized, reverse, deci
     services = planned.to_dict()['results'][-2:]
     assert services[1]['deployment_ready']
     assert services[0]['deployment_ready'] == (decision == 'Approve')
-    for row, (si, _) in zip(services, pairs):
+    for index, (row, (si, _)) in enumerate(zip(services, pairs)):
         assert not row['dependencies'] and not row['blockers'] and not row.get('overlaps')
         assert 'DEPENDENCY_NOT_APPROVED' not in row['findings']
         assert not row['execution_authorized']
         assert f'no service instance {si}' in row['commands']
         assert not any('shutdown' in c or c.startswith('vlan ') for c in row['commands'])
-        assert ('switchport trunk allowed vlan none' in row['commands']) == (family == 'ME3600X' and not initialized)
+        assert ('switchport trunk allowed vlan none' in row['commands']) == (family == 'ME3600X' and not initialized and (index == 0 or decision != 'Approve'))
 
 
 @pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])

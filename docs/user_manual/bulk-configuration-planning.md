@@ -2,11 +2,17 @@
 
 ## Issue #152: independent EVC review and VLAN database policy
 
-Distinct ME3600X/ASR920 service instances with disjoint ingress are independently
-reviewable in either row order, including on a compatible empty parent. Each row
-renders any safe parent initialization from its own observed parent state; it does
-not borrow initialization or approval from a sibling. Repeating the same ME trunk /
-allowed-none setup is idempotent and leaves unrelated service instances intact.
+ME3600X Template 10 assigns empty-parent trunk/allowed-none initialization to
+only the earliest executable Approved row in workbook order. Later approved disjoint
+rows omit both commands; Pending, Reject and Blocked rows never provide readiness.
+An observed trunk/allowed-none parent requires no setup. ASR920 Template 12 is
+unchanged. Decisions/order changes require renewed digest-bound preparation and
+confirmation. Execution never rewrites approved CLI: fresh empty/partially initialized
+parents block rows without approved setup; an initialized parent blocks a row still
+carrying setup (`EVC_PARENT_DRIFT`). Failed/Unknown setup is never presumed successful;
+only fresh compatible state permits independent continuation, and lost synchronization
+stops device writes. Presence-only EVC post-verification, partial save and no retry remain.
+
 Compatible optional parent descriptions do not serialize siblings; contradictory
 parent descriptions, duplicate SIs, overlapping ingress, uncertain observations,
 incompatible parents and physical Port-channel ownership still block.
@@ -19,7 +25,7 @@ EVC parent-initialization dependency statements. EdgeSwitch retains actual order
 membership/PVID dependencies and its fresh execution VLAN prerequisite gate.
 Immutable digests, explicit per-row decisions, execution_authorized=False in plans,
 and separate preparation/confirmation, fresh identity/target/transport, backup and
-verification gates remain. ME3600X/ASR920 EVC execution remains unsupported.
+verification gates remain. Issue #154 provides separately confirmed ME3600X/ASR920 execution; live validation of this revision is pending.
 Synthetic tests do not establish hardware or Linux validation.
 
 The planner remains read-only. Issue #117 adds a separate
