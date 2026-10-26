@@ -48,7 +48,7 @@ The existing v1 `orbitflow.configuration` behaviour and protections above remain
 
 For **predefined templates**: use shared DeviceContext, DeviceSession, device-execution, InterfaceService, VlanService, vendor configuration facts and family audit resolvers for **live, read-only** observation, exact sanitized CLI evidence, timestamps, current VLAN/service/ownership consistency and dependencies. Do not create another SSH, vendor parser, compliance policy or thread pool. Planning produces deterministic CLI with explicit differences, no-ops and reviewable conflicts. Current observation does not authorize later deployment; future apply requires fresh identity/target/prerequisite and session safety, backup, and explicit user intent.
 
-For **Manual CLI only**: no device connection, no live observation, no claim of semantic validation. Engineer supplies platform, management IP, scope/CLI mode and literal commands. Label impact unknown/not-live-validated. Both predefined and Manual CLI use the same simple offline Pending/Approve/Reject review, **without a special elevated role in this design**. Offline approval never implies future apply authorization.
+For **legacy offline Manual CLI plans only**: no device connection, no live observation, no claim of semantic validation. Engineer supplies platform, management IP, scope/CLI mode and literal commands. Label impact unknown/not-live-validated. Both predefined and Manual CLI use the same simple offline Pending/Approve/Reject review, **without a special elevated role in this design**. Offline approval never implies future apply authorization.
 
 Excel is a thin adapter: Introduction sheet navigation, one sheet per platform/function, per-row input + evidence + generated CLI + decisions, sheet-left-to-right then row-top-to-bottom same-device order; internal row IDs and a digest-bound immutable Change Plan. Template catalogue, service planner, reviewer and vendor renderer must be reusable through future REST/web interfaces independently of XLSX.
 
@@ -143,3 +143,38 @@ planning, reviewed workbook integrity or execution authorization.
 - PR #140 is under review and not merged as of this documentation change. Its
   synthetic test evidence is distinct from pending owner/live validation. Source
   and tests, not this skill, establish implemented behavior on a given branch.
+
+
+## Manual Configuration — Issue #156 (owner-approved superseding contract)
+
+This separate workflow supersedes older manual-command restrictions only for the
+manual sender; legacy offline Manual CLI plans remain non-executable and predefined
+planning/execution policies are unchanged. See
+[manual architecture](../../../docs/architecture/configuration/manual-configuration.md)
+and [operator guide](../../../docs/user_manual/manual-configuration.md).
+
+- Accept literal engineer CLI, including configure/conf, abbreviations, unknown
+  roots, wrappers, credential commands and explicit save/commit. No semantic
+  allowlist/denylist; retain structural bounds and redact secrets before persistence.
+- Open a fresh shell per row, reuse shared transport/identity/enable/paging/backup,
+  enter global configuration mode, then capture user-command output without prompt
+  detection. Supported setup/finalization/save remain vendor-owned. Unsupported
+  questions fail incomplete; never invent answers, retry writes or replay changes.
+- Automatic save is successful-row-only. Failed/unknown rows stop later same-device
+  rows. Explicit user save/commit may persist before later failure; automatic save
+  Not initiated never proves unsaved state. Predefined device-end partial save stays.
+- Ignore blank separators, preserve nonblank CLI and cell-line identity. Numbered
+  selection filters manual_*.xlsx, including explicit paths. Hidden admin password
+  verification and separate confirmation precede networking; omit pre-password prose.
+- Optional manual_configuration_auth.password_hash in the local profile stores
+  only a salted work-factor-protected hash, never a plaintext credential. Existing
+  profiles remain compatible; manual execution fails closed without authorization.
+- Atomically refresh ONE consolidated manual_output timestamp workbook after each
+  device finishes, with all source rows, device summary and relative capture links.
+  Receive-only hostname/IP captures sit beside it, without app timestamps/row labels
+  or synthetic echoes. Manual run/report/backup folders use YYYYMMDD_HHMMSS and
+  numeric collision suffixes. Journals retain structured evidence and legacy recovery.
+- Source implements IOS/IOS-XE and EdgeSwitch framing; XR/Huawei manual entry/save
+  remain unsupported. Owner run 20261026_120437 evidenced ME3600X 12/12 and ASR920
+  2/2 confirmed saves; it rejected EdgeSwitch before connection. Later owner acceptance
+  is not independent configuration verification. Preserve recorded validation limits.
