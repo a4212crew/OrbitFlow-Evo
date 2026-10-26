@@ -1,5 +1,15 @@
 # Bulk configuration planning v2
 
+Issue #154 / PR #155 Pending-preview correction: ME3600X EVC workbook CLI is
+explicitly provisional at the plan-generation decisions. All-Pending empty-parent
+rows each propose setup; none establishes readiness. Decision reevaluation selects
+setup only on the earliest eligible Approved row. CLI and console confirmation now
+show the exact effective digest-bound ME3600X EVC commands in row order. Immutable
+JSON is unchanged; execution never rerenders commands. Regenerate review workbooks
+for the revised protected display. See [precise preview/execution semantics](configuration-execution.md).
+Synthetic validation only; owner validation of this correction remains pending.
+
+
 ## Issue #152: independent EVC review and VLAN database policy
 
 ME3600X Template 10 assigns empty-parent trunk/allowed-none initialization to

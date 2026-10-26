@@ -168,3 +168,8 @@ executor and reports Templates 10/12 as Presence verified only for trustworthy
 fresh exact-ID/interface service detail (Up or Down). Pre-apply gates and single
 confirmation remain unchanged. No new menu action is required; see the
 [execution manual](configuration-execution.md#me3600x-and-asr920-issue-154).
+
+ME3600X EVC execution confirmation now displays the effective digest-bound CLI in
+row order through the existing Execute Approved Plan action. Planning workbook
+Proposed CLI is explicitly provisional; decision edits do not recalculate Excel.
+See [execution semantics](configuration-execution.md). No new menu or confirmation is added.

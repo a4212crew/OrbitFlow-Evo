@@ -1,5 +1,29 @@
 # Approved configuration execution
 
+ME3600X Pending preview versus effective execution CLI (Issue #154 / PR #155):
+`plan.json` result `commands` are proposals evaluated at the decisions stored in
+that immutable plan. A four-row all-Pending empty-parent plan therefore correctly
+contains four standalone setup proposals: no Pending row establishes readiness.
+The ME3600X EVC workbook Proposed CLI cells now explicitly label these proposals
+PROVISIONAL, including when decision cells are later edited (Excel does not
+recalculate planning). Do not concatenate these cells for execution.
+`consume_decisions` / `prepare_workbook` reevaluate decisions offline against the
+original observations. Only the earliest eligible Approved row carries parent
+setup; subsequent compatible approved siblings omit it, without a sibling approval
+dependency. Reject/Pending/Blocked rows never establish readiness. The original
+JSON/digest and workbook commands remain unchanged. Preparation binds effective
+selected commands and decisions in the summary digest. `operator_summary` exposes
+`effective_cli` entries (`ip`, `sheet`, `row`, `commands`) for ME3600X EVC rows;
+`render_summary` displays that exact ordered CLI before the existing independent
+confirmation in both direct CLI and console Execute Approved Plan. Decision/order
+changes require renewed preparation/confirmation. Execution sends those commands
+unchanged, with fresh state gates; failed or unknown initialization is never
+assumed successful. No runtime rerender, retry or historical replay is introduced.
+Regenerate review workbooks for the revised protected display. ASR920 behavior and
+ME3600X presence verification are unchanged. Owner read-only/live validation of
+this presentation revision remains pending.
+
+
 Issue #154 / PR #155 parent initialization correction (2026-10-26):
 
 ME3600X Template 10 assigns empty-parent trunk/allowed-none initialization to
@@ -1027,3 +1051,34 @@ new plan from fresh state, workbook review, summary inspection and owner-control
 execution confirmation. This revision has no live validation evidence. Existing
 **Execute Approved Plan** console integration uses the same corrected service;
 no additional menu action or confirmation is required.
+
+## Pending preview revision validation (Issue #154 / PR #155)
+
+Linux deterministic regressions (from repository root):
+
+```bash
+export PYTHONPATH=src
+python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py tests/test_configuration_plans.py tests/test_operations_console.py -q
+```
+
+Windows PowerShell uses the same pytest command after:
+
+```powershell
+$env:PYTHONPATH = "src"
+```
+
+Owner offline, read-only validation of existing artifacts (Linux and Windows after
+setting PYTHONPATH as above; replace paths and digest with the matching artifacts):
+
+```text
+python -c "from orbitflow.configuration.v2.planning import load; from orbitflow.configuration.execution import ExecutionService,operator_summary,render_summary; p=load('plan.json'); s=ExecutionService('outputs/validation/issue154-authority'); r=s.prepare_workbook(p,'plan.xlsx',expected_digest='TRUSTED_PLAN_SHA256'); print(render_summary(operator_summary(r)))"
+```
+
+This creates local confirmation authority only; it never calls confirm or connects
+to devices. Use a newly exported four-row Pending Gi0/6 plan with distinct SI
+445/30/31/32 and disjoint valid ingress selectors. Inspect the provisional labels,
+then edit decisions to Pending/Approve/Reject/Approve. Expect only rows 4 and 6 in
+the effective CLI, with one parent trunk/allowed-none setup in row 4. Repeat with
+all Approved: one setup in row 3. Original JSON/digest must remain unchanged.
+Fresh device checks and partial-failure behavior require separate owner-controlled
+lab validation; do not execute or replay historical plans for this read-only check.

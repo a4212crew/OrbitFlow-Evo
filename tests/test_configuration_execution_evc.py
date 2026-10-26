@@ -416,8 +416,32 @@ def test_ordered_parent_initialization_lifecycle(tmp_path, monkeypatch, family, 
     requests = [request(template(family).id, p, row=i+3) for i, p in enumerate(params)]
     decisions = {r['row_id']: ('Approve' if i or first in {'Blocked', 'BlockedEmpty'} else first) for i, r in enumerate(requests)}
     original = plan(requests, {IP: before}, now=NOW)
+    from orbitflow.configuration.v2.workbook import export_plan, output_columns
+    from openpyxl import load_workbook
+    snapshot, digest = original.content, original.digest
+    workbook = tmp_path / 'plan.xlsx'
+    export_plan(original, workbook)
+    book = load_workbook(workbook)
+    t = template(family)
+    sheet = book[t.sheet]
+    for r in requests:
+        cli = sheet.cell(r['row'], len(t.columns) + output_columns(t).index('Proposed CLI') + 1).value
+        if family == 'ME3600X':
+            assert cli.startswith('PROVISIONAL row proposal')
+            assert 'Pending/Reject/Blocked rows cannot establish parent readiness' in cli
+            if not ready:
+                assert 'switchport mode trunk' in cli
+        sheet.cell(r['row'], len(t.columns) + len(output_columns(t)), decisions[r['row_id']])
+    book.save(workbook)
+    book.close()
     service = ex.ExecutionService(tmp_path / 'authority')
-    prepared = service.prepare(original, decisions, expected_digest=original.digest)
+    prepared = service.prepare_workbook(original, workbook, expected_digest=original.digest)
+    assert original.content == snapshot and original.digest == digest
+    summary = ex.operator_summary(prepared)
+    effective = [e['result']['commands'] for e in prepared['summary']['selected']]
+    if family == 'ME3600X':
+        assert [e['commands'] for e in summary['effective_cli']] == effective
+        assert ex.render_summary(summary).count('switchport mode trunk') == (not ready)
     evaluated = ex.evaluate_decisions(original, decisions, expected_digest=original.digest, now=NOW).to_dict()['results']
     selected = [i for i, result in enumerate(evaluated) if result['deployment_ready']]
     assert selected == ([0, 1, 2, 3] if first == 'Approve' else [1, 2, 3])
@@ -503,3 +527,34 @@ def test_parent_initialization_decisions_order_and_digest():
                          decisions={r['row_id']: 'Approve' for r in reversed_requests})
     assert reversed_plan.digest != original.digest
     assert ['switchport mode trunk' in r['commands'] for r in reversed_plan.to_dict()['results']] == [True, False, False, False]
+
+
+def test_pending_preview_mixed_decisions_effective_cli(tmp_path):
+    from orbitflow.configuration.v2.workbook import export_plan, consume_decisions, output_columns
+    from openpyxl import load_workbook
+    obs = observation('ME3600X', 'vlan 445\n name Customer\n!\ninterface Gi0/6\n!\n')
+    requests = [request(template('ME3600X').id, dict(evc_inputs(), interface='Gi0/6', service_instance_id=si,
+                               outer_vlan=str(si)), row=i+3) for i, si in enumerate([445, 30, 31, 32])]
+    original = plan(requests, {IP: obs}, now=NOW)
+    assert all(r['decision'] == 'Pending' and 'switchport mode trunk' in r['commands']
+               for r in original.to_dict()['results'])
+    path = tmp_path / 'plan.xlsx'
+    export_plan(original, path)
+    book = load_workbook(path)
+    t = template('ME3600X')
+    for r, decision in zip(requests, ['Pending', 'Approve', 'Reject', 'Approve']):
+        book[t.sheet].cell(r['row'], len(t.columns) + len(output_columns(t)), decision)
+    book.save(path)
+    book.close()
+    reevaluated = consume_decisions(original, path, expected_digest=original.digest, now=NOW)
+    prepared = ex.ExecutionService(tmp_path / 'authority').prepare_workbook(original, path, expected_digest=original.digest)
+    selected = prepared['summary']['selected']
+    assert [e['request']['row'] for e in selected] == [4, 6]
+    assert all(not e['result']['dependencies'] for e in selected)
+    assert [e['result']['commands'] for e in selected] == [r['commands'] for r in reevaluated.to_dict()['results'] if r['deployment_ready']]
+    text = ex.render_summary(ex.operator_summary(prepared))
+    assert text.count('switchport mode trunk') == 1
+    assert text.count('switchport trunk allowed vlan none') == 1
+    changed = ex.ExecutionService(tmp_path / 'other').prepare(original,
+        {r['row_id']: 'Approve' for r in requests}, expected_digest=original.digest)
+    assert changed['summary_digest'] != prepared['summary_digest']

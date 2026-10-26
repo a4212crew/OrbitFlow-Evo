@@ -1,5 +1,29 @@
 # Configuration execution and standalone observation API
 
+ME3600X Pending preview versus effective execution CLI (Issue #154 / PR #155):
+`plan.json` result `commands` are proposals evaluated at the decisions stored in
+that immutable plan. A four-row all-Pending empty-parent plan therefore correctly
+contains four standalone setup proposals: no Pending row establishes readiness.
+The ME3600X EVC workbook Proposed CLI cells now explicitly label these proposals
+PROVISIONAL, including when decision cells are later edited (Excel does not
+recalculate planning). Do not concatenate these cells for execution.
+`consume_decisions` / `prepare_workbook` reevaluate decisions offline against the
+original observations. Only the earliest eligible Approved row carries parent
+setup; subsequent compatible approved siblings omit it, without a sibling approval
+dependency. Reject/Pending/Blocked rows never establish readiness. The original
+JSON/digest and workbook commands remain unchanged. Preparation binds effective
+selected commands and decisions in the summary digest. `operator_summary` exposes
+`effective_cli` entries (`ip`, `sheet`, `row`, `commands`) for ME3600X EVC rows;
+`render_summary` displays that exact ordered CLI before the existing independent
+confirmation in both direct CLI and console Execute Approved Plan. Decision/order
+changes require renewed preparation/confirmation. Execution sends those commands
+unchanged, with fresh state gates; failed or unknown initialization is never
+assumed successful. No runtime rerender, retry or historical replay is introduced.
+Regenerate review workbooks for the revised protected display. ASR920 behavior and
+ME3600X presence verification are unchanged. Owner read-only/live validation of
+this presentation revision remains pending.
+
+
 Issue #154 / PR #155 parent initialization correction (2026-10-26):
 
 ME3600X Template 10 assigns empty-parent trunk/allowed-none initialization to

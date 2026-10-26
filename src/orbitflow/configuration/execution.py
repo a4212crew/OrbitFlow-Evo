@@ -799,10 +799,14 @@ def short_findings(findings):
 
 
 def operator_summary(prepared):
-    """Pure presentation projection; full confirmation payload/digest remain unchanged."""
+    """Project bound preparation, including exact effective ME3600X EVC CLI.
+
+    Full confirmation payload/digest remain unchanged; this never renders CLI.
+    """
     source = prepared['summary']
     devices = {}
     changes = no_ops = 0
+    effective_cli = []
     reasons = []
     categories = {}
     def reason(source, findings):
@@ -821,6 +825,9 @@ def operator_summary(prepared):
         device['actions'][action] = device['actions'].get(action, 0) + 1
         no_ops += bool(result['no_op'])
         changes += not result['no_op']
+        if t.family == 'ME3600X' and t.function == 'EVC':
+            effective_cli.append(dict(ip=ip, sheet=t.sheet, row=r['row'],
+                                      commands=list(result['commands'])))
         reason(f"{t.sheet} row {r.get('row', '?')} / {ip}", result.get('findings', []))
     for entry in source['skipped']:
         r = entry.get('request', {})
@@ -832,6 +839,7 @@ def operator_summary(prepared):
     return dict(reference=prepared['reference'], source_digest=source['source_digest'], summary_digest=prepared['summary_digest'],
                 device_count=len(devices), changes=changes, no_ops=no_ops, skipped=len(source['skipped']),
                 concurrency=source['settings']['max_concurrent_devices'], devices=list(devices.values()), reasons=reasons,
+                effective_cli=effective_cli,
                 save_behavior=source['save_behavior'], fresh_checks='Offline selection only. Fresh identity, state, VLAN prerequisites and protected backup are checked after confirmation.')
 
 
@@ -845,6 +853,11 @@ def render_summary(summary):
     lines.append('Fresh checks + backup before writes; execute approved rows; save entire running config once when usable after attempted writes (including partial changes). EdgeSwitch may interrupt management; save answer: y.')
     if any('EVC: ' in action for device in summary['devices'] for action in device['actions']):
         lines.append('EVC rows remove/recreate the entire selected service instance, even when matching. Forwarding may be interrupted; omitted child settings are removed.')
+    if summary.get('effective_cli'):
+        lines.append('Effective approved ME3600X EVC CLI (summary-digest bound; exact row order; fresh gates still apply):')
+        for entry in summary['effective_cli']:
+            lines.append(f"{entry['ip']} | {entry['sheet']} row {entry['row']}")
+            lines.extend(entry['commands'])
     return '\n'.join(lines)
 
 
