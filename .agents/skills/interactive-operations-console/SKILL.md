@@ -12,7 +12,7 @@ Owner-approved design: [architecture](../../../docs/architecture/interactive-ope
 - Interactive console is a thin adapter over existing application/services and stable user-executable CLIs, **not** another transport, parser, scheduler, vendor implementation, or configuration executor.
 - Keep direct Linux/Windows CLI and public API contracts working. Existing orchestration controller and specialist validation tools are not automatically menu choices.
 - Do not silently change default paths of unrelated scripts. Keep recoverable spools, confirmation authority, logs, backup confidentiality and audit references intact.
-- Use `data/sys_config/configuration-profile.toml` for non-secret reusable parameters; never store passwords, OTPs, tokens, private keys, or raw secret-bearing evidence. Retire root `orbitflow.toml` only with safe loader/caller migration and tested compatibility.
+- Use `data/sys_config/configuration-profile.toml` for reusable parameters and the optional manual authorization password hash described below; never store plaintext passwords, OTPs, tokens, private keys, or raw secret-bearing evidence. Retire root `orbitflow.toml` only with safe loader/caller migration and tested compatibility.
 - On **every applicable** interactive multi-device operation prompt concurrency 1–5, blank=1; reject invalid selections. Do not persist the concurrency choice. Apply and read-only limits remain distinct; operations on one device remain serialized.
 - Validate required profile values and live Teleport session at the relevant operation boundary; expiration requires operator-controlled `tsh` authentication, not automatic OTP handling.
 
@@ -53,3 +53,38 @@ workflow or reintroduce execution-stage replanning/trusted-baseline equality as
 console-level gates. The executor still checks live identity, interface/bundle
 ownership, known prerequisites and SSH synchronization. PR #140 remains unmerged
 and owner/live validation of Issue #139 remains pending at the time of this note.
+
+
+## Manual Configuration — Issue #156 (owner-approved superseding contract)
+
+This separate workflow supersedes older manual-command restrictions only for the
+manual sender; legacy offline Manual CLI plans remain non-executable and predefined
+planning/execution policies are unchanged. See
+[manual architecture](../../../docs/architecture/configuration/manual-configuration.md)
+and [operator guide](../../../docs/user_manual/manual-configuration.md).
+
+- Accept literal engineer CLI, including configure/conf, abbreviations, unknown
+  roots, wrappers, credential commands and explicit save/commit. No semantic
+  allowlist/denylist; retain structural bounds and redact secrets before persistence.
+- Open a fresh shell per row, reuse shared transport/identity/enable/paging/backup,
+  enter global configuration mode, then capture user-command output without prompt
+  detection. Supported setup/finalization/save remain vendor-owned. Unsupported
+  questions fail incomplete; never invent answers, retry writes or replay changes.
+- Automatic save is successful-row-only. Failed/unknown rows stop later same-device
+  rows. Explicit user save/commit may persist before later failure; automatic save
+  Not initiated never proves unsaved state. Predefined device-end partial save stays.
+- Ignore blank separators, preserve nonblank CLI and cell-line identity. Numbered
+  selection filters manual_*.xlsx, including explicit paths. Hidden admin password
+  verification and separate confirmation precede networking; omit pre-password prose.
+- Optional manual_configuration_auth.password_hash in the local profile stores
+  only a salted work-factor-protected hash, never a plaintext credential. Existing
+  profiles remain compatible; manual execution fails closed without authorization.
+- Atomically refresh ONE consolidated manual_output timestamp workbook after each
+  device finishes, with all source rows, device summary and relative capture links.
+  Receive-only hostname/IP captures sit beside it, without app timestamps/row labels
+  or synthetic echoes. Manual run/report/backup folders use YYYYMMDD_HHMMSS and
+  numeric collision suffixes. Journals retain structured evidence and legacy recovery.
+- Source implements IOS/IOS-XE and EdgeSwitch framing; XR/Huawei manual entry/save
+  remain unsupported. Owner run 20261026_120437 evidenced ME3600X 12/12 and ASR920
+  2/2 confirmed saves; it rejected EdgeSwitch before connection. Later owner acceptance
+  is not independent configuration verification. Preserve recorded validation limits.
