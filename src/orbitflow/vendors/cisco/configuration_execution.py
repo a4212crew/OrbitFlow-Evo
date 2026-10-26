@@ -1,4 +1,4 @@
-"""Approved Catalyst execution modes and read-only verification commands."""
+"""Approved IOS/IOS-XE execution framing and read-only verification commands."""
 import re
 from orbitflow.vendors.aggregation import for_observation, relationship_uncertain
 from orbitflow.vendors.interface_names import canonical_interface_name
@@ -60,7 +60,9 @@ def verification_commands(function, inputs, target):
     if function == 'VLAN Database':
         return [f"show vlan id {inputs['vlan_id']}"]
     commands = ['show running-config', 'show interfaces description']
-    if function != 'Interface Description':
+    if function == 'EVC':
+        commands.append(f"show ethernet service instance id {inputs['service_instance_id']} interface {target} detail")
+    elif function != 'Interface Description':
         commands.append(f'show interfaces {target} switchport')
     if function == 'Access Port':
         commands.append(f"show vlan id {inputs['vlan_id']}")

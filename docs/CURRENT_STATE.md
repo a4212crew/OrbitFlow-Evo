@@ -24,6 +24,45 @@ distinguishes this v1 contract from the separate predefined execution workflow.
 
 ## Bulk Configuration Planning v2
 
+ME3600X Template 10 assigns trunk/allowed-none setup once, to the first applicable
+proposed EVC row per device/canonical parent in workbook order, including an
+all-Pending plan. Later compatible proposals omit both commands; an observed
+initialized parent needs neither. Proposed CLI is immutable and digest-bound:
+Pending/Approve/Reject changes never reassign setup. Later independent rows may be
+approved alone, but require the proposed parent setup to have actually succeeded
+or the parent to be initialized independently. Pending/Rejected proposals are not
+execution evidence. `PROPOSED_PARENT_SETUP_PREREQUISITE` makes this sequencing
+requirement visible without an approval dependency.
+
+The additional ME3600X parent-readiness/drift execution gate is removed. Execution
+never inserts, deletes or reallocates CLI. If setup was skipped or failed, later
+rows send only their own approved commands under the remaining safety checks;
+actual device rejection is recorded and stops that row. Unknown/lost synchronization
+stops device writes without blind retry. Identity, ownership, ingress/child drift,
+VLAN prerequisites, backup, explicit confirmation, partial save and presence-only
+EVC verification remain. ASR920 behavior is unchanged. Synthetic tests do not
+establish owner-controlled lab validation, which remains pending.
+
+Synthetic regression coverage only; owner live validation of this correction remains pending.
+
+
+Issue #154 extends confirmed execution to ME3600X Templates 9–11 and ASR920
+Templates 12–13. Exact approved CLI, independent confirmation, shared execution,
+backups/journal/report recovery and partial-save semantics are reused. Fresh EVC
+parent/ownership/overlap/child-drift checks and ME3600X BD VLAN prerequisites precede
+writes. Owner revision 2026-10-26 replaces only Templates 10/12 post-verification
+with fresh exact-ID/interface operational presence (Up or Down); report scope is
+Presence verified, not full configuration intent. Missing/ambiguous/error detail is
+Unknown; reliable absence/contradictory identity fails; no config-tree fallback. Matching EVCs still remove/recreate with forwarding-impact warning.
+The existing console execution action supports both families. Windows synthetic
+validation: full run 3,488 passed; final-source affected suite 949 passed, including
+53 EVC execution cases (historical). Owner-reported ME3600X lab run on 2026-10-26
+had 14 selected rows: seven VLAN/description verified, seven EVC sequences returned
+and save reported Saved, but tree-based service=False falsely failed all seven EVCs.
+Positive detail was reported for Gi0/7 SI 445/545. Historical results remain unchanged;
+no replay. Linux revision regression suite: 1,033 passed; final EVC suite including
+exchange failures: 85 passed. Revised-verifier and ASR920 owner validation remain pending.
+
 Issue #152 corrects independent ME3600X/ASR920 disjoint EVC review, including safe
 empty-parent initialization, and removes predefined non-Ubiquiti VLAN Database
 approval dependencies. True conflicts and EdgeSwitch requirements remain. Synthetic
@@ -60,7 +99,7 @@ Earlier quiet-guard proposals are superseded. Inner sandbox failures remain dist
 from the separate controller gate, whose run report is unavailable to this worker.
 Owner Linux C3750X, C3850 and EdgeSwitch live validation of #134 remains pending.
 Owner C3750X/EdgeSwitch lab validation following PR #118 is reported; C3850
-live validation remains outstanding. Other families,
+live validation remains outstanding. Other device families beyond Issue #154,
 Manual CLI apply, HTTP, automatic rollback and write replay/resume remain unsupported.
 See [execution manual](user_manual/configuration-execution.md) and
 [public APIs](operations/configuration-execution-api.md). Planning paragraphs below

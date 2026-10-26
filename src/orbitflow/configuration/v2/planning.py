@@ -320,7 +320,10 @@ def _build(requests, observations, decisions, now, max_age):
             require(type(obs.get('service_details', {})) is dict, 'invalid service details')
             for target, detail in obs.get('service_details', {}).items():
                 safe(target)
-                keys(detail, 'status facts evidence operational_status')
+                keys({k: v for k, v in detail.items() if k not in {'service_instance_id', 'interface', 'identity_status'}}, 'status facts evidence operational_status')
+                require('service_instance_id' not in detail or type(detail['service_instance_id']) is int and detail['service_instance_id'] > 0, 'invalid service identity')
+                require('interface' not in detail or type(detail['interface']) is str and bool(detail['interface']), 'invalid service interface')
+                require('identity_status' not in detail or detail['identity_status'] in {'matched', 'contradictory'}, 'invalid service identity status')
                 require(detail['status'] in {'present', 'absent', 'unknown', 'error'} and type(detail['facts']) is list
                         and type(detail['evidence']) is list and type(detail['operational_status']) is str, 'invalid service detail')
             keys(obs["identity"], IDENTITY_FIELDS)

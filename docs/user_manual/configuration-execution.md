@@ -1,9 +1,32 @@
-# Catalyst and EdgeSwitch configuration execution
+# Approved configuration execution
+
+Issue #154 / PR #155 parent initialization correction (2026-10-26):
+
+ME3600X Template 10 assigns trunk/allowed-none setup once, to the first applicable
+proposed EVC row per device/canonical parent in workbook order, including an
+all-Pending plan. Later compatible proposals omit both commands; an observed
+initialized parent needs neither. Proposed CLI is immutable and digest-bound:
+Pending/Approve/Reject changes never reassign setup. Later independent rows may be
+approved alone, but require the proposed parent setup to have actually succeeded
+or the parent to be initialized independently. Pending/Rejected proposals are not
+execution evidence. `PROPOSED_PARENT_SETUP_PREREQUISITE` makes this sequencing
+requirement visible without an approval dependency.
+
+The additional ME3600X parent-readiness/drift execution gate is removed. Execution
+never inserts, deletes or reallocates CLI. If setup was skipped or failed, later
+rows send only their own approved commands under the remaining safety checks;
+actual device rejection is recorded and stops that row. Unknown/lost synchronization
+stops device writes without blind retry. Identity, ownership, ingress/child drift,
+VLAN prerequisites, backup, explicit confirmation, partial save and presence-only
+EVC verification remain. ASR920 behavior is unchanged. Synthetic tests do not
+establish owner-controlled lab validation, which remains pending.
+
 
 Issue #117 implements the [approved execution contract](../architecture/configuration/approved-device-execution.md).
 This is a configuration-changing workflow for predefined C3750X, C3850 (worksheet
 label C3850X) and EdgeSwitch VLAN Database, supported port and Description templates.
-Other families and Manual CLI execution remain unsupported. v1 and v2 planning
+Issue #154 adds ME3600X Templates 9–11 and ASR920 Templates 12–13 (owner lab
+validation pending). Other families and Manual CLI execution remain unsupported. v1 and v2 planning
 commands retain their existing behavior. Owner C3750X/EdgeSwitch validation of PR #118
 was reported. Following merged PR #126 (2026-10-18), the owner validated ordered template-stage execution on C3750X and EdgeSwitch: 36/36 selected rows verified, both device saves reported Saved, 10 planned rows skipped, and 131.5 seconds end-to-end including report export. The preceding owner lab run took approximately 277.9 seconds; this single-run comparison is indicative, not a controlled benchmark. C3850, Linux, exhaustive error-path live validation and independently complete rotated timing logs remain outstanding.
 
@@ -15,6 +38,122 @@ from a separate protected `devices.xlsx` (`management_ip`, `username`, `password
 optional `secret`); never put credentials in the plan or review workbook.
 
 ## Inputs and confirmation
+
+### ME3600X and ASR920 (Issue #154)
+
+ME3600X uses IOS/`me3600x_evc`; ASR920 uses IOS-XE/`asr920_evc`.
+Supported functions: ME3600X VLAN Database (9), EVC (10), Description (11),
+ASR920 EVC (12), Description (13). Existing v2 planner/workbook schemas and
+CLI options apply. The console **Execute Approved Plan** action uses the same
+service, concurrency selection and single independent execution confirmation.
+
+EVC rows replace the complete child using exact approved remove/recreate commands,
+even for matching instances. Forwarding may be interrupted; old optional child
+settings omitted from the specification are removed. Review omitted-settings evidence.
+Fresh checks reject incompatible parents, unresolved ownership, ingress overlap,
+unknown/duplicate children, operational contradictions and target-child changes
+(`SERVICE_INSTANCE_DRIFT`). ME3600X planning requires trunk/allowed-none or proposed empty-parent setup;
+execution retains the freshly present BD VLAN requirement
+(`VLAN_PREREQUISITE_UNAVAILABLE` otherwise). This is an execution prerequisite,
+not a VLAN Database approval dependency or implicit creation. ASR920 uses inline
+BDs and rejects conflicting global binding evidence.
+
+The child drift comparison is conservative: retained child command settings and
+ordering must match the reviewed observation; reordered settings require review
+and a fresh plan rather than silent acceptance.
+
+Owner-approved revision (2026-10-26): Templates 10 and 12 use fresh operational
+service-instance **presence** verification through `VlanService.service_detail`.
+A validated `present` result must identify the exact requested ID and normalized
+associated interface. Up and Down both pass; Down is informational. The report
+says **Presence verified** and retains operational detail. This does not prove
+encapsulation, rewrite, BD, descriptions, preservation or forwarding health.
+Reliable absence or contradictory ID/interface fails; timeout, CLI error and
+missing/incomplete/ambiguous detail are Unknown. Apply-command rejection still
+fails independently. No configuration-tree fallback can establish EVC success.
+Fresh pre-apply configuration, ownership, prerequisite and drift gates remain;
+other templates retain their existing configured-intent verification. Scoped
+running-config pre/post evidence is still retained, including nested `!` output.
+Partial-save, unknown-after-send, no retries/rollback/resume and offline recovery
+follow the existing lifecycle below. Outputs remain the execution XLSX, durable
+per-row pre/post/command evidence and journal in the run, separate protected backups
+and sanitized configuration logs; no full backup is copied into XLSX/logs.
+
+Owner lab procedure: use the Linux/Windows `execute` commands below with lab-only
+artifacts and credentials. Cover all five templates, create and matching/different
+child recreation, untagged/dot1q/QinQ, push/pop, group 0, preserved shutdown/MTU/
+policies/siblings, and supplied descriptions. Inspect skipped decisions, responses,
+verification and save independently. Test drift/missing-VLAN and controlled rejection/
+disconnect only in the lab: expect Failed versus Unknown, safe independent-row
+continuation, one partial save when EXEC remains usable and no retry. Disconnect,
+then run the offline `report` command below and compare retained outcomes. Keep
+the full run and backups. Owner-reported ME3600X lab finding (2026-10-26):
+14 selected rows, seven VLAN/description rows verified; seven EVC command sequences
+returned and save reported Saved, but `service=False` falsely failed those rows.
+Positive detail was reported for Gi0/7 SI 445 and 545. Those historical outcomes
+remain immutable. Do not replay completed changes. The revised verifier and ASR920
+owner lab validation remain pending.
+
+Deterministic checks (no device access), from the repository Python environment:
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_configuration_v2_approved_services.py tests/test_bulk_configuration_v2.py tests/test_operations_console.py tests/test_vlan_capability.py -q
+```
+
+```powershell
+$env:PYTHONPATH = "$PWD/src"
+python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_configuration_v2_approved_services.py tests/test_bulk_configuration_v2.py tests/test_operations_console.py tests/test_vlan_capability.py -q
+```
+
+The revision has Linux synthetic test evidence; Windows commands are supplied for
+owner/CI use. Earlier Windows evidence remains historical. No production or unattended changes are authorized.
+
+Read-only owner validation after the revision (Linux and Windows): first preserve
+the original plan, run directory, backups and report. Offline report regeneration
+reads the journal without changing historical outcomes:
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -m orbitflow.configuration.execution_cli report outputs/runs/configuration_execution/ORIGINAL_RUN outputs/reports/configuration_execution/historical-copy.xlsx
+```
+
+```powershell
+$env:PYTHONPATH = "$PWD/src"
+python -m orbitflow.configuration.execution_cli report outputs/runs/configuration_execution/ORIGINAL_RUN outputs/reports/configuration_execution/historical-copy.xlsx
+```
+
+Replace ORIGINAL_RUN with the retained run directory. Expected: recovered XLSX
+with the original Failed/Verified/Unknown and Saved outcomes, without reconnection
+or reclassification. A missing/corrupt journal fails; do not execute again to
+recover a report.
+
+For a fresh presence check, use an owner-controlled lab session with the existing
+[transport/validation caller](live-validation.md#cisco-terminal-width-issue-114),
+resolved context and borrowed CLI. This is read-only and performs no apply/save:
+
+```python
+from orbitflow.capabilities import VlanService
+from orbitflow.vendors.interface_names import canonical_interface_name
+
+# Existing operator-owned session/context/cli; use targets from original approved plan.
+for interface, sid in [("GigabitEthernet0/7", 445), ("GigabitEthernet0/7", 545)]:
+    detail = VlanService().service_detail(session, context, interface, sid, cli=cli)
+    print(sid, detail.get("interface"), detail["status"], detail["operational_status"])
+    assert detail["status"] == "present"
+    assert detail.get("service_instance_id") == sid
+    assert detail.get("interface") == canonical_interface_name(context.platform, interface)
+```
+
+The examples are the owner-reported ME3600X targets. For ASR920 use its actual
+approved interface/ID pairs from retained plan inputs. The capability sends exactly
+`show ethernet service instance id 445 interface GigabitEthernet0/7 detail` (and
+545 for the second target). Owner CLI sessions on either operating system may run
+these same read-only commands directly. Expected: exact ID/Associated Interface,
+validated present with Up or Down, safe detail evidence. Missing/ambiguous detail
+is Unknown; an explicit wrong target/absence fails. Preserve new validation evidence
+separately from historical results. Complete revised live validation remains pending;
+any new apply requires separate owner authorization and fresh reviewed artifacts.
 
 Generate the immutable `plan.json` and adjacent review workbook using the
 [planning manual](bulk-configuration-planning.md). Change only Engineer Decision
@@ -799,7 +938,7 @@ C3850 and EdgeSwitch. The focused Issue #139 command (Bash with `PYTHONPATH=src`
 or PowerShell after `$env:PYTHONPATH = "$PWD/src"`) is:
 
 ```text
-python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_execution_observation_timing.py tests/test_shared_cli.py tests/test_configuration_backup.py tests/test_operations_console.py -q
+python -m pytest tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_execution_observation_timing.py tests/test_shared_cli.py tests/test_configuration_backup.py tests/test_operations_console.py tests/test_vlan_capability.py -q
 ```
 
 Use the Linux/Windows full-suite commands above with a writable OS temporary
@@ -857,3 +996,75 @@ review. Planning, preparation/fresh target checks and post-change verification u
 the same selector; no approval/digest or spool schema changes. The forwarding child
 blocker remains `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`. See the existing validation
 matrix for Linux/Windows read-only reproduction; live validation remains pending.
+
+### Parent initialization revision validation (Issue #154 / PR #155)
+
+Offline deterministic checks from the repository root (Linux):
+
+```bash
+python -m pytest tests/test_configuration_plans.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py tests/test_configuration_execution.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_operations_console.py -q
+```
+
+Windows PowerShell, with the project environment activated:
+
+```powershell
+python -m pytest tests/test_configuration_plans.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py tests/test_configuration_execution.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_operations_console.py -q
+```
+
+Expected: deterministic tests pass; synthetic four-row 445/30/31/32 runs retain
+exact ordered CLI, one initialization on an initially empty ME parent and zero
+on an observed trunk-none parent, independent later approvals, per-row outcomes,
+one device save and offline XLSX recovery. Rejection/timeout fixtures check no
+unsafe later EVC write. Synthetic tests are not Windows execution or live evidence.
+
+Owner-operated checks on an already authorized lab session are read-only:
+
+```text
+show running-config interface GigabitEthernet0/6
+show vlan id 445
+show ethernet service instance id 445 interface GigabitEthernet0/6 detail
+show ethernet service instance id 30 interface GigabitEthernet0/6 detail
+show ethernet service instance id 31 interface GigabitEthernet0/6 detail
+show ethernet service instance id 32 interface GigabitEthernet0/6 detail
+```
+
+Confirm current parent trunk/allowed-none and each exact service identity; Up/Down
+is retained as operational evidence. Keep output private and sanitize any review
+extract. Do not replay previously applied rows. Any future lab apply requires a
+new plan from fresh state, workbook review, summary inspection and owner-controlled
+execution confirmation. This revision has no live validation evidence. Existing
+**Execute Approved Plan** console integration uses the same corrected service;
+no additional menu action or confirmation is required.
+
+## Pending preview revision validation (Issue #154 / PR #155)
+
+Linux deterministic regressions (from repository root):
+
+```bash
+export PYTHONPATH=src
+python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py tests/test_configuration_plans.py tests/test_operations_console.py tests/test_vlan_capability.py -q
+```
+
+Windows PowerShell uses the same pytest command after:
+
+```powershell
+$env:PYTHONPATH = "src"
+```
+
+Owner offline, read-only validation of existing artifacts (Linux and Windows after
+setting PYTHONPATH as above; replace paths and digest with the matching artifacts):
+
+```text
+python -c "from orbitflow.configuration.v2.planning import load; from orbitflow.configuration.execution import ExecutionService,operator_summary,render_summary; p=load('plan.json'); s=ExecutionService('outputs/validation/issue154-authority'); r=s.prepare_workbook(p,'plan.xlsx',expected_digest='TRUSTED_PLAN_SHA256'); print(render_summary(operator_summary(r)))"
+```
+
+This creates local confirmation authority only; it never calls confirm or connects
+to devices. Use a newly exported four-row Pending Gi0/6 plan with distinct SI
+445/30/31/32 and disjoint valid ingress selectors in rows 5–8. Inspect the original
+all-Pending JSON and workbook: both parent commands appear only in row 5. Edit
+decisions to Pending/Approve/Reject/Approve: selected rows 6 and 8 retain their
+original CLI with no parent commands. Repeat with row 5 Rejected, then all Approved:
+setup stays only on row 5, never reassigned. An already initialized parent produces
+no setup on any row. Original JSON/digest must remain unchanged.
+Fresh device checks and partial-failure behavior require separate owner-controlled
+lab validation using the lab commands above; do not replay historical plans.

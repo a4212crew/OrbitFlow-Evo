@@ -244,6 +244,32 @@ def test_corrupt_plan_fails_before_session(settings):
         ui.execute()
 
 
+@pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])
+def test_evc_console_real_preparation_warning_and_decline(settings, monkeypatch, family):
+    from test_configuration_execution_evc import fixture
+    from orbitflow.configuration.v2.planning import save
+    from orbitflow.configuration.v2.workbook import export_plan
+    from openpyxl import load_workbook
+    from orbitflow.configuration import execution as ex
+    _, _, _, original, _ = fixture(family)
+    save(original, 'plan.json')
+    export_plan(original, 'plan.xlsx')
+    workbook = load_workbook('plan.xlsx')
+    for sheet in workbook:
+        if sheet.title != family + ' EVC':
+            continue
+        for cell in sheet[2]:
+            if cell.value == 'Engineer Decision':
+                sheet.cell(3, cell.column, 'Approve')
+    workbook.save('plan.xlsx')
+    ui, output = console(['plan.json', '', '', '1', 'n'], session_check=lambda _: pytest.fail('decline connected'))
+    monkeypatch.setattr(ex, 'connect_device', lambda *a: pytest.fail('decline connected'))
+    with pytest.raises(Cancelled):
+        ui.execute()
+    assert any('Changes: 1' in line for line in output)
+    assert any('Forwarding may be interrupted' in line for line in output)
+
+
 def test_missing_headers_and_missing_file_fail_without_session(settings):
     workbook = Workbook()
     workbook.active.append(['wrong'])

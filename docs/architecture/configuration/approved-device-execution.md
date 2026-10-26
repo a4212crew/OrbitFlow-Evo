@@ -1,6 +1,39 @@
 # Approved device configuration execution — Catalyst and EdgeSwitch
 
+Issue #154 / PR #155 parent initialization correction (2026-10-26):
+
+ME3600X Template 10 assigns trunk/allowed-none setup once, to the first applicable
+proposed EVC row per device/canonical parent in workbook order, including an
+all-Pending plan. Later compatible proposals omit both commands; an observed
+initialized parent needs neither. Proposed CLI is immutable and digest-bound:
+Pending/Approve/Reject changes never reassign setup. Later independent rows may be
+approved alone, but require the proposed parent setup to have actually succeeded
+or the parent to be initialized independently. Pending/Rejected proposals are not
+execution evidence. `PROPOSED_PARENT_SETUP_PREREQUISITE` makes this sequencing
+requirement visible without an approval dependency.
+
+The additional ME3600X parent-readiness/drift execution gate is removed. Execution
+never inserts, deletes or reallocates CLI. If setup was skipped or failed, later
+rows send only their own approved commands under the remaining safety checks;
+actual device rejection is recorded and stops that row. Unknown/lost synchronization
+stops device writes without blind retry. Identity, ownership, ingress/child drift,
+VLAN prerequisites, backup, explicit confirmation, partial save and presence-only
+EVC verification remain. ASR920 behavior is unchanged. Synthetic tests do not
+establish owner-controlled lab validation, which remains pending.
+
+
 Status: **Owner-approved design, 2026-10-17 (Australia/Sydney); initially implemented by Issue #117 and revised by merged Issue #125 / PR #126 (2026-10-18). Owner live validation covers C3750X and EdgeSwitch ordered template-stage execution; C3850 and Linux validation remain pending.**
+Issue #154 authorizes extending this lifecycle to ME3600X Templates 9–11 and
+ASR920 Templates 12–13. Their family planning semantics remain separate; EVC
+execution adds fresh parent/ownership/overlap/child-drift checks, ME3600X BD VLAN
+prerequisites and complete approved recreation. Owner revision 2026-10-26 supersedes
+only Templates 10/12 post-verification: fresh validated operational presence for the
+exact ID/interface (Up or Down), with no configuration-tree equality or fallback
+for success. Report Presence verified, not complete configured intent. Preserve
+pre-write safeguards and independent command/save outcomes. Earlier exclusions of these families are superseded for this scope
+only. No second EVC confirmation, automatic rollback or Manual CLI apply is added.
+Synthetic implementation evidence does not establish owner lab validation.
+
 See the [execution manual](../../user_manual/configuration-execution.md) and
 [supported APIs](../../operations/configuration-execution-api.md) for actual names,
 defaults, behavior and limitations. Design-time suggestions below retain provenance.

@@ -1186,9 +1186,8 @@ def test_initial_parent_siblings_remain_independent(family):
     assert all(not r['dependencies'] and not r['blockers'] and not r.get('overlaps') for r in rows)
     assert rows[1]['deployment_ready']
     if family == 'ME3600X':
-        for row in rows:
-            assert 'switchport mode trunk' in row['commands']
-            assert 'switchport trunk allowed vlan none' in row['commands']
+        assert ['switchport mode trunk' in row['commands'] for row in rows] == [True, False]
+        assert ['switchport trunk allowed vlan none' in row['commands'] for row in rows] == [True, False]
 
 
 @pytest.mark.parametrize('family', ['ASR920', 'ME3600X'])
@@ -1306,13 +1305,13 @@ def test_issue_152_operator_disjoint_services(family, initialized, reverse, deci
     services = planned.to_dict()['results'][-2:]
     assert services[1]['deployment_ready']
     assert services[0]['deployment_ready'] == (decision == 'Approve')
-    for row, (si, _) in zip(services, pairs):
+    for index, (row, (si, _)) in enumerate(zip(services, pairs)):
         assert not row['dependencies'] and not row['blockers'] and not row.get('overlaps')
         assert 'DEPENDENCY_NOT_APPROVED' not in row['findings']
         assert not row['execution_authorized']
         assert f'no service instance {si}' in row['commands']
         assert not any('shutdown' in c or c.startswith('vlan ') for c in row['commands'])
-        assert ('switchport trunk allowed vlan none' in row['commands']) == (family == 'ME3600X' and not initialized)
+        assert ('switchport trunk allowed vlan none' in row['commands']) == (family == 'ME3600X' and not initialized and index == 0)
 
 
 @pytest.mark.parametrize('family', ['ME3600X', 'ASR920'])

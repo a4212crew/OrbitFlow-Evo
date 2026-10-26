@@ -43,6 +43,7 @@ from orbitflow.vendors.aggregation import for_observation, relationship_uncertai
 from orbitflow.vendors.interface_names import canonical_interface_name
 from orbitflow.vendors.vlan_types import parse_vlan_list
 from orbitflow.vendors.cisco import configuration_execution as cisco_execution
+from orbitflow.vendors.cisco import evc_execution
 from orbitflow.vendors.ubiquiti import configuration_execution as edge_execution
 
 
@@ -80,7 +81,7 @@ class ApplySettings:
 def verification_commands(request, result):
     t, p = BY_ID[request['template_id']], request['inputs']
     target = result.get('resolved_target', p.get('interface', ''))
-    if t.family not in {'C3750X', 'C3850X', 'EdgeSwitch'}:
+    if t.family not in {'C3750X', 'C3850X', 'EdgeSwitch', 'ME3600X', 'ASR920'}:
         return []
     adapter = edge_execution if t.family == 'EdgeSwitch' else cisco_execution
     return adapter.verification_commands(t.function, p, target)
@@ -116,10 +117,10 @@ class ExecutionService:
         for request in data['requests']:
             result = results[request['row_id']]
             t = BY_ID[request['template_id']]
-            reason = ('UNSUPPORTED_TEMPLATE' if t.family not in {'C3750X', 'C3850X', 'EdgeSwitch'} else
+            reason = ('UNSUPPORTED_TEMPLATE' if t.family not in {'C3750X', 'C3850X', 'EdgeSwitch', 'ME3600X', 'ASR920'} else
                       result['decision'] if result['decision'] != 'Approve' else
                       'BLOCKED' if not result['deployment_ready'] else '')
-            if not reason and t.function in {'Access Port', 'Trunk Port', 'VLAN Port'}:
+            if not reason and t.function in {'Access Port', 'Trunk Port', 'VLAN Port', 'EVC'}:
                 observation = data['observations'].get(request['inputs']['management_ip'], {})
                 platform = observation.get('identity', {}).get('platform', '')
                 aggregation = for_observation(observation, platform)
@@ -224,6 +225,17 @@ def _observe(session, context, cli, entries, timeout):
         vids.update(p.get('vlans', []))
         vids.update(parse_vlan_list(p.get('tagged_vlans', '')))
     obs['vlan_lookups'] = {str(v): timed_call('vlan_lookup', VlanService(timeout=timeout).lookup, session, context, v, cli=cli) for v in sorted(vids)}
+    if evc_execution.supported_context(context):
+        evcs = [e for e in entries if BY_ID[e['request']['template_id']].function == 'EVC']
+        if context.device_family == 'ME3600X':
+            for vid in sorted({e['request']['inputs']['bridge_domain'] for e in evcs}):
+                obs['vlan_lookups'][str(vid)] = timed_call('vlan_lookup', VlanService(timeout=timeout).lookup, session, context, vid, cli=cli)
+        obs['service_details'] = {}
+        for e in evcs:
+            p = e['request']['inputs']
+            target = e['result'].get('resolved_target') or p['interface']
+            obs['service_details'][target + ':' + str(p['service_instance_id'])] = timed_call(
+                'service_detail', VlanService(timeout=timeout).service_detail, session, context, target, p['service_instance_id'], cli=cli)
     return obs
 
 
@@ -255,7 +267,8 @@ def _check_target(entry, observed, context):
         _gate(len(interface_settings(observed['facts'], context.platform, name)) == 1,
               'INTERFACE_DECLARATION_ABSENT_OR_AMBIGUOUS')
     adapter = edge_execution if context.platform == 'ubiquiti_edgeswitch' else cisco_execution
-    code = adapter.target_blocker(function, source, target, observed, context.platform)
+    code = (evc_execution.target_blocker(entry, observed, context) if function == 'EVC' else
+            adapter.target_blocker(function, source, target, observed, context.platform))
     _gate(not code, code)
 
 
@@ -265,6 +278,8 @@ def verify_row(session, context, cli, entry, before, *, timeout=30.0, correlatio
 
     Access-only missing operational VLAN may use reliable explicit exact-target
     normalized config; preserve parser unknowns and disclose the fallback source.
+    EVC verification independently compares configured child intent, operational
+    detail and preserved parent/sibling settings on ME3600X/ASR920 profiles.
     """
     return _verify_observed(session, context, cli, entry, before, timeout=timeout, correlation=correlation)
 
@@ -280,6 +295,8 @@ def _verify_observed(session, context, cli, entry, before, *, timeout=30.0, corr
         return dict(status=status, lookup=lookup, warnings=['VLAN_INACTIVE'] if lookup.get('operational_status') in {'suspended', 'inactive', 'act/lshut'} else [])
     if after is None:
         after = _observe(session, context, cli, [entry], timeout)
+    if t.function == 'EVC':
+        return evc_execution.verify(entry, before, after, context)
     target = result.get('resolved_target', p['interface'])
     key = lambda value: canonical_interface_name(context.platform, value, normalize_aggregation=True)
     actual = [i for i in after['interfaces'] if key(i['port_name']) == key(target)]
@@ -782,7 +799,7 @@ def short_findings(findings):
 
 
 def operator_summary(prepared):
-    """Pure presentation projection; full confirmation payload/digest remain unchanged."""
+    """Project bound preparation for concise operator confirmation."""
     source = prepared['summary']
     devices = {}
     changes = no_ops = 0
@@ -826,6 +843,8 @@ def render_summary(summary):
     if summary['reasons']:
         lines.append('Warnings/blockers or skipped selections: see preparation findings and configuration logs for details.')
     lines.append('Fresh checks + backup before writes; execute approved rows; save entire running config once when usable after attempted writes (including partial changes). EdgeSwitch may interrupt management; save answer: y.')
+    if any('EVC: ' in action for device in summary['devices'] for action in device['actions']):
+        lines.append('EVC rows remove/recreate the entire selected service instance, even when matching. Forwarding may be interrupted; omitted child settings are removed.')
     return '\n'.join(lines)
 
 
@@ -852,9 +871,11 @@ def verification_text(verification, result, request):
     if not verification:
         return 'Not performed'
     evidence = verification.get('evidence', {})
-    lines = [verification.get('status', 'Unknown'), 'Expected: ' + compact(result.get('projected_state') or request.get('inputs', {}))]
+    lines = [verification.get('status', 'Unknown')]
+    if not isinstance(evidence, dict) or 'verification_scope' not in evidence:
+        lines.append('Expected: ' + compact(result.get('projected_state') or request.get('inputs', {})))
     if isinstance(evidence, dict):
-        for name in ('access_vlan_check', 'access_vlan_source', 'preservation', 'missing_fields', 'invalid_fields'):
+        for name in ('verification_scope', 'service_detail', 'access_vlan_check', 'access_vlan_source', 'preservation', 'missing_fields', 'invalid_fields'):
             if name in evidence:
                 lines.append(name + ': ' + compact(evidence[name]))
         facts = evidence.get('switchport', {}).get('facts', {})

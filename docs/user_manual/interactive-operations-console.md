@@ -1,5 +1,13 @@
 # Interactive Operations Console
 
+Issue #154: **Configuration Management → Execute Approved Plan** also accepts
+ME3600X Templates 9–11 and ASR920 Templates 12–13 via the existing executor.
+EVC summary warns about complete remove/recreate and forwarding interruption before
+the single confirmation. Concurrency, cancellation, profile paths, results and
+offline recovery are unchanged. See the [execution guide](configuration-execution.md#me3600x-and-asr920-issue-154).
+Synthetic menu coverage uses real workbook preparation and declining without
+network access; owner ME3600X/ASR920 lab validation remains pending.
+
 Implemented for Issue #123. The console is a terminal adapter over existing services; direct CLIs and public APIs remain supported. Deterministic Windows testing and limited owner-operated Windows lab validation are recorded in the devlog; Linux operator validation remains pending.
 
 ## Launch and cancellation
@@ -154,3 +162,14 @@ complete/partial parser-to-workbook regression coverage and distinct safe error
 categories. Revised live validation and actual sanitized termination snippets
 remain pending; OneDrive spool cleanup was deferred, without invalidating the
 workbook. See [report revision status](device-interface-vlan-report.md#first-windows-console-run-revision-2026-10-24).
+
+Issue #154 revision (2026-10-26): existing Execute Approved Plan uses the same
+executor and reports Templates 10/12 as Presence verified only for trustworthy
+fresh exact-ID/interface service detail (Up or Down). Pre-apply gates and single
+confirmation remain unchanged. No new menu action is required; see the
+[execution manual](configuration-execution.md#me3600x-and-asr920-issue-154).
+
+ME3600X EVC execution confirmation now displays the effective digest-bound CLI in
+row order through the existing Execute Approved Plan action. Planning workbook
+Proposed CLI is explicitly provisional; decision edits do not recalculate Excel.
+See [execution semantics](configuration-execution.md). No new menu or confirmation is added.

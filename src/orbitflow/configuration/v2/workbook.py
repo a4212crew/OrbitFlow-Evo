@@ -319,9 +319,10 @@ def export_plan(plan, path):
         if len(evidence) > 30000:
             evidence = "Evidence Details: " + r["row_id"]
         commands = result["commands"]
+        cli = commands if isinstance(commands, str) else "\n".join(commands)
         original = r["source_inputs"]
         values = [(",".join(map(str, original[k])) if isinstance(original.get(k), list) else original.get(k, "")) for k in t.columns]
-        extras = [r["row_id"], evidence, commands if isinstance(commands, str) else "\n".join(commands),
+        extras = [r["row_id"], evidence, cli,
                    result["live_validation"], result["consistency"], ",".join(result["dependencies"]), obs.get("observed_at", ""),
                    ",".join(result["findings"]), str(result["no_op"]), "Valid", "; ".join(f"conflicts with {q['sheet']} row {q['row']}" for q in result.get("conflicting_rows", [])) + ("; " + result["prerequisite_details"] if result.get("prerequisite_details") else ""),
                    result.get("resolved_target", p.get("interface", "")), ",".join(result.get("warnings", [])), ",".join(result.get("blockers", [])), canonical(result.get("overlaps", [])), canonical(result.get("projected_state")), canonical(result.get("service_instance_changes")), result["decision"]]

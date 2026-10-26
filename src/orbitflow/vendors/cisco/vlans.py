@@ -337,7 +337,11 @@ def parse_ios_xr_running_config(
 
 
 def parse_service_detail(output, interface, service_instance_id):
-    """Operational EVC fields reuse the saved-config fact grammar."""
+    """Validate exact EVC identity and normalize operational fields and safe evidence.
+
+    Single explicit identity fields are retained even on a contradictory response;
+    missing/duplicate identity never proves presence. Facts reuse config grammar.
+    """
     from dataclasses import asdict
     from orbitflow.vendors.configuration_facts import _safe_source
     result = dict(status='unknown', facts=[], operational_status='', evidence=[
@@ -362,6 +366,10 @@ def parse_service_detail(output, interface, service_instance_id):
                 port_key(negatives[0][1]) == port_key(interface)):
             result['status'] = 'absent'
         return result
+    if len(ids) == 1 and len(ports) == 1:
+        result['service_instance_id'] = int(ids[0])
+        result['interface'] = port_key(ports[0])
+        result['identity_status'] = 'matched' if matches else 'contradictory'
     if not matches:
         return result
     lines = []

@@ -1,5 +1,13 @@
 # OrbitFlow
 
+Issue #154 adds lab-first confirmed execution for ME3600X Templates 9–11 and
+ASR920 Templates 12–13 through the existing CLI/API and console. EVCs execute
+exact approved remove/recreate after fresh safety checks and backup, with
+independent verification, partial-save handling and offline report recovery.
+ME3600X parent setup appears only in the first applicable Pending proposal and
+is never reassigned by approval; later rows retain a documented sequencing prerequisite.
+Owner live validation is pending. See the [execution manual](docs/user_manual/configuration-execution.md#me3600x-and-asr920-issue-154).
+
 OrbitFlow is a multi-vendor network automation platform providing shared
 Teleport/device transport, inventory refresh, read-only interface/VLAN reporting,
 VLAN compliance, configuration backup, offline configuration planning, and confirmed

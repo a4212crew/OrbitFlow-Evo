@@ -2,11 +2,25 @@
 
 ## Issue #152: independent EVC review and VLAN database policy
 
-Distinct ME3600X/ASR920 service instances with disjoint ingress are independently
-reviewable in either row order, including on a compatible empty parent. Each row
-renders any safe parent initialization from its own observed parent state; it does
-not borrow initialization or approval from a sibling. Repeating the same ME trunk /
-allowed-none setup is idempotent and leaves unrelated service instances intact.
+ME3600X Template 10 assigns trunk/allowed-none setup once, to the first applicable
+proposed EVC row per device/canonical parent in workbook order, including an
+all-Pending plan. Later compatible proposals omit both commands; an observed
+initialized parent needs neither. Proposed CLI is immutable and digest-bound:
+Pending/Approve/Reject changes never reassign setup. Later independent rows may be
+approved alone, but require the proposed parent setup to have actually succeeded
+or the parent to be initialized independently. Pending/Rejected proposals are not
+execution evidence. `PROPOSED_PARENT_SETUP_PREREQUISITE` makes this sequencing
+requirement visible without an approval dependency.
+
+The additional ME3600X parent-readiness/drift execution gate is removed. Execution
+never inserts, deletes or reallocates CLI. If setup was skipped or failed, later
+rows send only their own approved commands under the remaining safety checks;
+actual device rejection is recorded and stops that row. Unknown/lost synchronization
+stops device writes without blind retry. Identity, ownership, ingress/child drift,
+VLAN prerequisites, backup, explicit confirmation, partial save and presence-only
+EVC verification remain. ASR920 behavior is unchanged. Synthetic tests do not
+establish owner-controlled lab validation, which remains pending.
+
 Compatible optional parent descriptions do not serialize siblings; contradictory
 parent descriptions, duplicate SIs, overlapping ingress, uncertain observations,
 incompatible parents and physical Port-channel ownership still block.
@@ -19,7 +33,7 @@ EVC parent-initialization dependency statements. EdgeSwitch retains actual order
 membership/PVID dependencies and its fresh execution VLAN prerequisite gate.
 Immutable digests, explicit per-row decisions, execution_authorized=False in plans,
 and separate preparation/confirmation, fresh identity/target/transport, backup and
-verification gates remain. ME3600X/ASR920 EVC execution remains unsupported.
+verification gates remain. Issue #154 provides separately confirmed ME3600X/ASR920 execution; live validation of this revision is pending.
 Synthetic tests do not establish hardware or Linux validation.
 
 The planner remains read-only. Issue #117 adds a separate
