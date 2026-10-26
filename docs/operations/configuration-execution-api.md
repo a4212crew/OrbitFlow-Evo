@@ -1,41 +1,25 @@
 # Configuration execution and standalone observation API
 
-ME3600X Pending preview versus effective execution CLI (Issue #154 / PR #155):
-`plan.json` result `commands` are proposals evaluated at the decisions stored in
-that immutable plan. A four-row all-Pending empty-parent plan therefore correctly
-contains four standalone setup proposals: no Pending row establishes readiness.
-The ME3600X EVC workbook Proposed CLI cells now explicitly label these proposals
-PROVISIONAL, including when decision cells are later edited (Excel does not
-recalculate planning). Do not concatenate these cells for execution.
-`consume_decisions` / `prepare_workbook` reevaluate decisions offline against the
-original observations. Only the earliest eligible Approved row carries parent
-setup; subsequent compatible approved siblings omit it, without a sibling approval
-dependency. Reject/Pending/Blocked rows never establish readiness. The original
-JSON/digest and workbook commands remain unchanged. Preparation binds effective
-selected commands and decisions in the summary digest. `operator_summary` exposes
-`effective_cli` entries (`ip`, `sheet`, `row`, `commands`) for ME3600X EVC rows;
-`render_summary` displays that exact ordered CLI before the existing independent
-confirmation in both direct CLI and console Execute Approved Plan. Decision/order
-changes require renewed preparation/confirmation. Execution sends those commands
-unchanged, with fresh state gates; failed or unknown initialization is never
-assumed successful. No runtime rerender, retry or historical replay is introduced.
-Regenerate review workbooks for the revised protected display. ASR920 behavior and
-ME3600X presence verification are unchanged. Owner read-only/live validation of
-this presentation revision remains pending.
-
-
 Issue #154 / PR #155 parent initialization correction (2026-10-26):
 
-ME3600X Template 10 assigns empty-parent trunk/allowed-none initialization to
-only the earliest executable Approved row in workbook order. Later approved disjoint
-rows omit both commands; Pending, Reject and Blocked rows never provide readiness.
-An observed trunk/allowed-none parent requires no setup. ASR920 Template 12 is
-unchanged. Decisions/order changes require renewed digest-bound preparation and
-confirmation. Execution never rewrites approved CLI: fresh empty/partially initialized
-parents block rows without approved setup; an initialized parent blocks a row still
-carrying setup (`EVC_PARENT_DRIFT`). Failed/Unknown setup is never presumed successful;
-only fresh compatible state permits independent continuation, and lost synchronization
-stops device writes. Presence-only EVC post-verification, partial save and no retry remain.
+ME3600X Template 10 assigns trunk/allowed-none setup once, to the first applicable
+proposed EVC row per device/canonical parent in workbook order, including an
+all-Pending plan. Later compatible proposals omit both commands; an observed
+initialized parent needs neither. Proposed CLI is immutable and digest-bound:
+Pending/Approve/Reject changes never reassign setup. Later independent rows may be
+approved alone, but require the proposed parent setup to have actually succeeded
+or the parent to be initialized independently. Pending/Rejected proposals are not
+execution evidence. `PROPOSED_PARENT_SETUP_PREREQUISITE` makes this sequencing
+requirement visible without an approval dependency.
+
+The additional ME3600X parent-readiness/drift execution gate is removed. Execution
+never inserts, deletes or reallocates CLI. If setup was skipped or failed, later
+rows send only their own approved commands under the remaining safety checks;
+actual device rejection is recorded and stops that row. Unknown/lost synchronization
+stops device writes without blind retry. Identity, ownership, ingress/child drift,
+VLAN prerequisites, backup, explicit confirmation, partial save and presence-only
+EVC verification remain. ASR920 behavior is unchanged. Synthetic tests do not
+establish owner-controlled lab validation, which remains pending.
 
 
 Canonical CLI and operational semantics: [execution manual](../user_manual/configuration-execution.md).

@@ -1,41 +1,25 @@
 # Approved configuration execution
 
-ME3600X Pending preview versus effective execution CLI (Issue #154 / PR #155):
-`plan.json` result `commands` are proposals evaluated at the decisions stored in
-that immutable plan. A four-row all-Pending empty-parent plan therefore correctly
-contains four standalone setup proposals: no Pending row establishes readiness.
-The ME3600X EVC workbook Proposed CLI cells now explicitly label these proposals
-PROVISIONAL, including when decision cells are later edited (Excel does not
-recalculate planning). Do not concatenate these cells for execution.
-`consume_decisions` / `prepare_workbook` reevaluate decisions offline against the
-original observations. Only the earliest eligible Approved row carries parent
-setup; subsequent compatible approved siblings omit it, without a sibling approval
-dependency. Reject/Pending/Blocked rows never establish readiness. The original
-JSON/digest and workbook commands remain unchanged. Preparation binds effective
-selected commands and decisions in the summary digest. `operator_summary` exposes
-`effective_cli` entries (`ip`, `sheet`, `row`, `commands`) for ME3600X EVC rows;
-`render_summary` displays that exact ordered CLI before the existing independent
-confirmation in both direct CLI and console Execute Approved Plan. Decision/order
-changes require renewed preparation/confirmation. Execution sends those commands
-unchanged, with fresh state gates; failed or unknown initialization is never
-assumed successful. No runtime rerender, retry or historical replay is introduced.
-Regenerate review workbooks for the revised protected display. ASR920 behavior and
-ME3600X presence verification are unchanged. Owner read-only/live validation of
-this presentation revision remains pending.
-
-
 Issue #154 / PR #155 parent initialization correction (2026-10-26):
 
-ME3600X Template 10 assigns empty-parent trunk/allowed-none initialization to
-only the earliest executable Approved row in workbook order. Later approved disjoint
-rows omit both commands; Pending, Reject and Blocked rows never provide readiness.
-An observed trunk/allowed-none parent requires no setup. ASR920 Template 12 is
-unchanged. Decisions/order changes require renewed digest-bound preparation and
-confirmation. Execution never rewrites approved CLI: fresh empty/partially initialized
-parents block rows without approved setup; an initialized parent blocks a row still
-carrying setup (`EVC_PARENT_DRIFT`). Failed/Unknown setup is never presumed successful;
-only fresh compatible state permits independent continuation, and lost synchronization
-stops device writes. Presence-only EVC post-verification, partial save and no retry remain.
+ME3600X Template 10 assigns trunk/allowed-none setup once, to the first applicable
+proposed EVC row per device/canonical parent in workbook order, including an
+all-Pending plan. Later compatible proposals omit both commands; an observed
+initialized parent needs neither. Proposed CLI is immutable and digest-bound:
+Pending/Approve/Reject changes never reassign setup. Later independent rows may be
+approved alone, but require the proposed parent setup to have actually succeeded
+or the parent to be initialized independently. Pending/Rejected proposals are not
+execution evidence. `PROPOSED_PARENT_SETUP_PREREQUISITE` makes this sequencing
+requirement visible without an approval dependency.
+
+The additional ME3600X parent-readiness/drift execution gate is removed. Execution
+never inserts, deletes or reallocates CLI. If setup was skipped or failed, later
+rows send only their own approved commands under the remaining safety checks;
+actual device rejection is recorded and stops that row. Unknown/lost synchronization
+stops device writes without blind retry. Identity, ownership, ingress/child drift,
+VLAN prerequisites, backup, explicit confirmation, partial save and presence-only
+EVC verification remain. ASR920 behavior is unchanged. Synthetic tests do not
+establish owner-controlled lab validation, which remains pending.
 
 
 Issue #117 implements the [approved execution contract](../architecture/configuration/approved-device-execution.md).
@@ -68,8 +52,8 @@ even for matching instances. Forwarding may be interrupted; old optional child
 settings omitted from the specification are removed. Review omitted-settings evidence.
 Fresh checks reject incompatible parents, unresolved ownership, ingress overlap,
 unknown/duplicate children, operational contradictions and target-child changes
-(`SERVICE_INSTANCE_DRIFT`). ME3600X requires trunk/allowed-none or explicitly
-approved empty-parent initialization, plus a freshly present BD VLAN
+(`SERVICE_INSTANCE_DRIFT`). ME3600X planning requires trunk/allowed-none or proposed empty-parent setup;
+execution retains the freshly present BD VLAN requirement
 (`VLAN_PREREQUISITE_UNAVAILABLE` otherwise). This is an execution prerequisite,
 not a VLAN Database approval dependency or implicit creation. ASR920 uses inline
 BDs and rejects conflicting global binding evidence.
@@ -1058,7 +1042,7 @@ Linux deterministic regressions (from repository root):
 
 ```bash
 export PYTHONPATH=src
-python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py tests/test_configuration_plans.py tests/test_operations_console.py -q
+python -m pytest tests/test_configuration_execution_evc.py tests/test_configuration_execution.py tests/test_configuration_execution_stages.py tests/test_configuration_execution_performance.py tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py tests/test_configuration_plans.py tests/test_operations_console.py tests/test_vlan_capability.py -q
 ```
 
 Windows PowerShell uses the same pytest command after:
@@ -1076,9 +1060,11 @@ python -c "from orbitflow.configuration.v2.planning import load; from orbitflow.
 
 This creates local confirmation authority only; it never calls confirm or connects
 to devices. Use a newly exported four-row Pending Gi0/6 plan with distinct SI
-445/30/31/32 and disjoint valid ingress selectors. Inspect the provisional labels,
-then edit decisions to Pending/Approve/Reject/Approve. Expect only rows 4 and 6 in
-the effective CLI, with one parent trunk/allowed-none setup in row 4. Repeat with
-all Approved: one setup in row 3. Original JSON/digest must remain unchanged.
+445/30/31/32 and disjoint valid ingress selectors in rows 5–8. Inspect the original
+all-Pending JSON and workbook: both parent commands appear only in row 5. Edit
+decisions to Pending/Approve/Reject/Approve: selected rows 6 and 8 retain their
+original CLI with no parent commands. Repeat with row 5 Rejected, then all Approved:
+setup stays only on row 5, never reassigned. An already initialized parent produces
+no setup on any row. Original JSON/digest must remain unchanged.
 Fresh device checks and partial-failure behavior require separate owner-controlled
-lab validation; do not execute or replay historical plans for this read-only check.
+lab validation using the lab commands above; do not replay historical plans.

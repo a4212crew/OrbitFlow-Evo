@@ -2,7 +2,7 @@
 
 This layer compares typed observations only. CLI grammar and rendering belong
 to vendor modules; projected services follow per-device row order for conflicts,
-while ME3600X parent setup is assigned to the first executable approved row.
+while ME3600X parent setup is assigned to the first applicable proposed row.
 """
 from copy import deepcopy
 from orbitflow.vendors.configuration_facts import interface_settings
@@ -163,7 +163,7 @@ def evaluate(t, p, obs, out, prior):
             else:
                 services = [n for n in node['children'] if n['kind'] == 'service_instance']
                 # Project sibling services for collision detection. Parent readiness
-                # is projected separately, only from executable approved setup.
+                # is projected separately from proposals, independently of decisions.
                 observed_services = services
                 if projected and 'services' in projected:
                     services = projected['services']
@@ -273,9 +273,15 @@ def evaluate(t, p, obs, out, prior):
                 warn('SERVICE_IMPACT_REVIEW')
                 initializes_parent = t.family == 'ME3600X' and empty and not any(
                     key(result.get('resolved_target', '')) == key(target)
-                    and result.get('deployment_ready')
+                    and not result.get('blockers')
                     and result.get('projected_state', {}).get('initializes_parent')
                     for _, result in prior)
+                if t.family == 'ME3600X' and empty and not initializes_parent:
+                    warn('PROPOSED_PARENT_SETUP_PREREQUISITE')
+                    out['prerequisite_details'] = (
+                        'Parent setup is assigned to an earlier proposal, regardless of decision. '
+                        'This row requires that setup to have actually succeeded or the parent '
+                        'to be initialized independently; approval never adds or reassigns CLI.')
                 out['commands'] = renderer(t, p, dict(initialize=initializes_parent if t.family == 'ME3600X' else empty, description=vals('description')[-1] if vals('description') else ''))
                 # Store normalized desired children through the shared vendor helper.
                 from orbitflow.vendors.cisco.evc import desired_service

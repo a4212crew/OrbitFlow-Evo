@@ -68,19 +68,13 @@ def target_blocker(entry, observed, context):
     vals = lambda kind: [n['value'] for n in nodes if n['kind'] == kind]
     services = [n for n in nodes if n['kind'] == 'service_instance']
     routed = any(n.get('excerpt', '').strip().startswith(('ip address ', 'ipv6 address ', 'ip unnumbered ', 'no switchport')) for n in nodes if n['kind'] != 'service_instance')
-    empty = not services and not any(vals(k) for k in ('routed', 'access', 'allowed', 'native', 'mode', 'methodology_unknown')) and not routed
     if routed or vals('methodology_unknown'):
         return 'INCOMPATIBLE_EVC_PARENT'
     if context.device_family == 'ME3600X':
-        compatible = vals('mode') == ['trunk'] and vals('allowed') == ['NONE']
-        if (not compatible and not empty) or any(vals(k) for k in ('access', 'native', 'allowed_add', 'allowed_remove', 'allowed_except')):
+        # Parent setup is immutable proposed CLI, not an execution readiness gate.
+        if (vals('mode') not in ([], ['trunk']) or vals('allowed') not in ([], ['NONE'])
+                or any(vals(k) for k in ('access', 'native', 'allowed_add', 'allowed_remove', 'allowed_except'))):
             return 'INCOMPATIBLE_EVC_PARENT'
-        # An empty parent can only be initialized by commands actually approved.
-        setup = {'switchport mode trunk', 'switchport trunk allowed vlan none'} & set(result['commands'])
-        if compatible and setup:
-            return 'EVC_PARENT_DRIFT'
-        if empty and setup != {'switchport mode trunk', 'switchport trunk allowed vlan none'}:
-            return 'EVC_PARENT_DRIFT'
         if vlan_prerequisite(observed, p['bridge_domain']) is not True:
             return 'VLAN_PREREQUISITE_UNAVAILABLE'
     else:

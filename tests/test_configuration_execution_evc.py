@@ -383,7 +383,8 @@ def test_service_detail_exchange_failure_is_unknown(monkeypatch, family, fault):
     for family in ['ME3600X', 'ASR920']
     for initialized in [False, True]
     for first in ['Approve', 'Pending', 'Reject', 'Blocked', 'BlockedEmpty']
-] + [('ME3600X', False, 'Approve', failure) for failure in ['reject', 'timeout']])
+] + [('ME3600X', False, 'Approve', failure) for failure in ['reject', 'timeout']]
+  + [('ME3600X', False, first, 'reject') for first in ['Pending', 'Reject']])
 def test_ordered_parent_initialization_lifecycle(tmp_path, monkeypatch, family, initialized, first, failure):
     """Four disjoint owner-shaped rows, real preparation/worker/report lifecycle."""
     ctx, _, _, _, _ = fixture(family)
@@ -413,7 +414,7 @@ def test_ordered_parent_initialization_lifecycle(tmp_path, monkeypatch, family, 
     before = observed(initial_children, ready)
     if first == 'BlockedEmpty':
         attach_presence(before, params[0])  # Operational/configuration contradiction blocks only this row.
-    requests = [request(template(family).id, p, row=i+3) for i, p in enumerate(params)]
+    requests = [request(template(family).id, p, row=i+5) for i, p in enumerate(params)]
     decisions = {r['row_id']: ('Approve' if i or first in {'Blocked', 'BlockedEmpty'} else first) for i, r in enumerate(requests)}
     original = plan(requests, {IP: before}, now=NOW)
     from orbitflow.configuration.v2.workbook import export_plan, output_columns
@@ -426,11 +427,7 @@ def test_ordered_parent_initialization_lifecycle(tmp_path, monkeypatch, family, 
     sheet = book[t.sheet]
     for r in requests:
         cli = sheet.cell(r['row'], len(t.columns) + output_columns(t).index('Proposed CLI') + 1).value
-        if family == 'ME3600X':
-            assert cli.startswith('PROVISIONAL row proposal')
-            assert 'Pending/Reject/Blocked rows cannot establish parent readiness' in cli
-            if not ready:
-                assert 'switchport mode trunk' in cli
+        assert cli == '\n'.join(original.to_dict()['results'][requests.index(r)]['commands'])
         sheet.cell(r['row'], len(t.columns) + len(output_columns(t)), decisions[r['row_id']])
     book.save(workbook)
     book.close()
@@ -439,13 +436,11 @@ def test_ordered_parent_initialization_lifecycle(tmp_path, monkeypatch, family, 
     assert original.content == snapshot and original.digest == digest
     summary = ex.operator_summary(prepared)
     effective = [e['result']['commands'] for e in prepared['summary']['selected']]
-    if family == 'ME3600X':
-        assert [e['commands'] for e in summary['effective_cli']] == effective
-        assert ex.render_summary(summary).count('switchport mode trunk') == (not ready)
+    assert 'effective_cli' not in summary
     evaluated = ex.evaluate_decisions(original, decisions, expected_digest=original.digest, now=NOW).to_dict()['results']
     selected = [i for i, result in enumerate(evaluated) if result['deployment_ready']]
     assert selected == ([0, 1, 2, 3] if first == 'Approve' else [1, 2, 3])
-    assert sum('switchport mode trunk' in evaluated[i]['commands'] for i in selected) == (family == 'ME3600X' and not ready)
+    assert sum('switchport mode trunk' in evaluated[i]['commands'] for i in selected) == (family == 'ME3600X' and not ready and first in {'Approve', 'BlockedEmpty'})
     verifier = ex._verify_observed
     saves = fake_runtime(monkeypatch, ctx, before)
     monkeypatch.setattr(ex, '_verify_observed', verifier)
@@ -463,6 +458,9 @@ def test_ordered_parent_initialization_lifecycle(tmp_path, monkeypatch, family, 
     send = WorkerCLI.run_command
     mode_sent = [initialized or first == 'Blocked']
     def command(self, cmd, **kw):
+        if failure == 'reject' and cmd.startswith('service instance ') and not mode_sent[0]:
+            self.sent.append(cmd)
+            return '% Invalid input: parent not initialized'
         if cmd == 'switchport mode trunk':
             if failure:
                 self.sent.append(cmd)
@@ -481,8 +479,10 @@ def test_ordered_parent_initialization_lifecycle(tmp_path, monkeypatch, family, 
     rows = next(spool.records())['payload']['rows']
     if failure:
         assert rows[0]['status'] == ('Unknown' if failure == 'timeout' else 'Failed')
-        assert all(row['status'] != 'Verified' for row in rows[1:])
-        assert not any(c.startswith('service instance ') for c in WorkerCLI.instances[0].sent)
+        if failure == 'timeout':
+            assert all(row['status'] != 'Verified' for row in rows[1:])
+            assert not any(c.startswith('service instance ') for c in WorkerCLI.instances[0].sent)
+        assert WorkerCLI.instances[0].sent.count('switchport mode trunk') == (first == 'Approve')
         assert len(saves) == (0 if failure == 'timeout' else 1)
         return
     assert all(row['status'] == 'Verified' for row in rows)
@@ -491,16 +491,17 @@ def test_ordered_parent_initialization_lifecycle(tmp_path, monkeypatch, family, 
     assert ex.export_results(spool.path, tmp_path / 'result.xlsx').exists()
 
 
-def test_parent_setup_requires_fresh_readiness_and_rejects_redundant_setup():
+def test_parent_readiness_is_not_an_execution_gate():
     ctx, initialized, r, _, entry = fixture('ME3600X')
     empty = observation('ME3600X', 'vlan 445\n name Customer\n!\ninterface GigabitEthernet0/1\n shutdown\n!\n')
     empty['vlan_lookups'] = initialized['vlan_lookups']
-    assert evc.target_blocker(entry, empty, ctx) == 'EVC_PARENT_DRIFT'
+    assert not evc.target_blocker(entry, empty, ctx)
     entry['result']['commands'][2:2] = ['switchport mode trunk', 'switchport trunk allowed vlan none']
     assert not evc.target_blocker(entry, empty, ctx)
-    assert evc.target_blocker(entry, initialized, ctx) == 'EVC_PARENT_DRIFT'
-    partial = observation('ME3600X', 'interface GigabitEthernet0/1\n switchport mode trunk\n!\n')
-    assert evc.target_blocker(entry, partial, ctx) == 'INCOMPATIBLE_EVC_PARENT'
+    assert not evc.target_blocker(entry, initialized, ctx)
+    partial = observation('ME3600X', 'vlan 445\n name Customer\n!\ninterface GigabitEthernet0/1\n switchport mode trunk\n!\n')
+    partial['vlan_lookups'] = initialized['vlan_lookups']
+    assert not evc.target_blocker(entry, partial, ctx)
 
 
 def test_parent_initialization_decisions_order_and_digest():
@@ -515,7 +516,7 @@ def test_parent_initialization_decisions_order_and_digest():
     later = ex.evaluate_decisions(original, {**approvals, requests[0]['row_id']: 'Reject'},
                                   expected_digest=original.digest, now=NOW).to_dict()['results']
     assert ['switchport mode trunk' in r['commands'] for r in all_rows] == [True, False, False, False]
-    assert 'switchport mode trunk' in later[1]['commands']
+    assert [r['commands'] for r in later] == [r['commands'] for r in original.to_dict()['results']]
     changed = original.to_dict()
     changed['results'][0]['commands'].remove('switchport mode trunk')
     with pytest.raises(PlanError, match='tampered planning result'):
@@ -529,15 +530,15 @@ def test_parent_initialization_decisions_order_and_digest():
     assert ['switchport mode trunk' in r['commands'] for r in reversed_plan.to_dict()['results']] == [True, False, False, False]
 
 
-def test_pending_preview_mixed_decisions_effective_cli(tmp_path):
+def test_pending_plan_mixed_decisions_preserve_original_cli(tmp_path):
     from orbitflow.configuration.v2.workbook import export_plan, consume_decisions, output_columns
     from openpyxl import load_workbook
     obs = observation('ME3600X', 'vlan 445\n name Customer\n!\ninterface Gi0/6\n!\n')
     requests = [request(template('ME3600X').id, dict(evc_inputs(), interface='Gi0/6', service_instance_id=si,
                                outer_vlan=str(si)), row=i+3) for i, si in enumerate([445, 30, 31, 32])]
     original = plan(requests, {IP: obs}, now=NOW)
-    assert all(r['decision'] == 'Pending' and 'switchport mode trunk' in r['commands']
-               for r in original.to_dict()['results'])
+    assert all(r['decision'] == 'Pending' for r in original.to_dict()['results'])
+    assert ['switchport mode trunk' in r['commands'] for r in original.to_dict()['results']] == [True, False, False, False]
     path = tmp_path / 'plan.xlsx'
     export_plan(original, path)
     book = load_workbook(path)
@@ -553,8 +554,27 @@ def test_pending_preview_mixed_decisions_effective_cli(tmp_path):
     assert all(not e['result']['dependencies'] for e in selected)
     assert [e['result']['commands'] for e in selected] == [r['commands'] for r in reevaluated.to_dict()['results'] if r['deployment_ready']]
     text = ex.render_summary(ex.operator_summary(prepared))
-    assert text.count('switchport mode trunk') == 1
-    assert text.count('switchport trunk allowed vlan none') == 1
+    assert 'switchport mode trunk' not in text
+    assert 'switchport trunk allowed vlan none' not in text
+    assert all('switchport mode trunk' not in e['result']['commands'] for e in selected)
     changed = ex.ExecutionService(tmp_path / 'other').prepare(original,
         {r['row_id']: 'Approve' for r in requests}, expected_digest=original.digest)
     assert changed['summary_digest'] != prepared['summary_digest']
+
+
+def test_pending_parent_setup_is_scoped_by_device_and_canonical_parent(tmp_path):
+    other_ip = '192.0.2.92'
+    obs = observation('ME3600X', 'vlan 445\n name Customer\n!\ninterface Gi0/6\n!\ninterface Gi0/7\n!\n')
+    requests = [request(template('ME3600X').id, dict(evc_inputs(), management_ip=ip,
+        interface=parent, service_instance_id=si, outer_vlan=str(si)), row=row)
+        for row, ip, parent, si in [(5, IP, 'Gi0/6', 445),
+            (6, IP, 'GigabitEthernet0/6', 30), (7, IP, 'Gi0/7', 31),
+            (8, other_ip, 'Gi0/6', 32)]]
+    original = plan(requests, {IP: obs, other_ip: obs}, now=NOW)
+    rows = original.to_dict()['results']
+    assert ['switchport mode trunk' in r['commands'] for r in rows] == [True, False, True, True]
+    assert 'PROPOSED_PARENT_SETUP_PREREQUISITE' in rows[1]['warnings']
+    for first in ['Pending', 'Reject', 'Approve']:
+        evaluated = ex.evaluate_decisions(original, {requests[0]['row_id']: first,
+            requests[1]['row_id']: 'Approve'}, expected_digest=original.digest, now=NOW)
+        assert [r['commands'] for r in evaluated.to_dict()['results']] == [r['commands'] for r in rows]

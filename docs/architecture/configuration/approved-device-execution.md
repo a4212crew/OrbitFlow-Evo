@@ -2,16 +2,24 @@
 
 Issue #154 / PR #155 parent initialization correction (2026-10-26):
 
-ME3600X Template 10 assigns empty-parent trunk/allowed-none initialization to
-only the earliest executable Approved row in workbook order. Later approved disjoint
-rows omit both commands; Pending, Reject and Blocked rows never provide readiness.
-An observed trunk/allowed-none parent requires no setup. ASR920 Template 12 is
-unchanged. Decisions/order changes require renewed digest-bound preparation and
-confirmation. Execution never rewrites approved CLI: fresh empty/partially initialized
-parents block rows without approved setup; an initialized parent blocks a row still
-carrying setup (`EVC_PARENT_DRIFT`). Failed/Unknown setup is never presumed successful;
-only fresh compatible state permits independent continuation, and lost synchronization
-stops device writes. Presence-only EVC post-verification, partial save and no retry remain.
+ME3600X Template 10 assigns trunk/allowed-none setup once, to the first applicable
+proposed EVC row per device/canonical parent in workbook order, including an
+all-Pending plan. Later compatible proposals omit both commands; an observed
+initialized parent needs neither. Proposed CLI is immutable and digest-bound:
+Pending/Approve/Reject changes never reassign setup. Later independent rows may be
+approved alone, but require the proposed parent setup to have actually succeeded
+or the parent to be initialized independently. Pending/Rejected proposals are not
+execution evidence. `PROPOSED_PARENT_SETUP_PREREQUISITE` makes this sequencing
+requirement visible without an approval dependency.
+
+The additional ME3600X parent-readiness/drift execution gate is removed. Execution
+never inserts, deletes or reallocates CLI. If setup was skipped or failed, later
+rows send only their own approved commands under the remaining safety checks;
+actual device rejection is recorded and stops that row. Unknown/lost synchronization
+stops device writes without blind retry. Identity, ownership, ingress/child drift,
+VLAN prerequisites, backup, explicit confirmation, partial save and presence-only
+EVC verification remain. ASR920 behavior is unchanged. Synthetic tests do not
+establish owner-controlled lab validation, which remains pending.
 
 
 Status: **Owner-approved design, 2026-10-17 (Australia/Sydney); initially implemented by Issue #117 and revised by merged Issue #125 / PR #126 (2026-10-18). Owner live validation covers C3750X and EdgeSwitch ordered template-stage execution; C3850 and Linux validation remain pending.**

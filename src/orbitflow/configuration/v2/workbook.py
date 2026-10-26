@@ -320,10 +320,6 @@ def export_plan(plan, path):
             evidence = "Evidence Details: " + r["row_id"]
         commands = result["commands"]
         cli = commands if isinstance(commands, str) else "\n".join(commands)
-        if t.family == 'ME3600X' and t.function == 'EVC':
-            cli = ("PROVISIONAL row proposal at plan-generation decisions; not final execution CLI.\n"
-                   "Pending/Reject/Blocked rows cannot establish parent readiness. Parent setup may appear in multiple proposals.\n"
-                   "Review effective approved CLI in execution confirmation after decision reevaluation; setup is selected once per parent.\n\n" + cli)
         original = r["source_inputs"]
         values = [(",".join(map(str, original[k])) if isinstance(original.get(k), list) else original.get(k, "")) for k in t.columns]
         extras = [r["row_id"], evidence, cli,
