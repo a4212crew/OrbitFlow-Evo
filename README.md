@@ -865,4 +865,7 @@ this correction remain pending.
 
 Issue #162 adds shared lease-protected SQLite spool retrieval and pre-network
 planning request/workbook digest metadata. End-to-end large-plan processing and
-planning recovery remain unfinished; see the [audit and validation ledger](docs/operations/issue-162-processing-audit.md).
+large-run planning recovery remain unfinished. A limited read-only
+[offline recovery command](docs/user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision)
+now verifies workbook/request binding and freshness, with non-executable legacy
+diagnostics; existing aggregate limits still apply. See the [audit and validation ledger](docs/operations/issue-162-processing-audit.md).

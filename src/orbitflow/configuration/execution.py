@@ -110,6 +110,9 @@ class ExecutionService:
         require(original.digest == expected_digest, 'source digest mismatch')
         settings = ApplySettings(**asdict(settings))
         data = original.to_dict()
+        from orbitflow.configuration.v2.planning import UNVERIFIED_SOURCE
+        require(not data['source'].startswith(UNVERIFIED_SOURCE),
+                'unverified historical recovery cannot authorize execution')
         intent = evaluate_decisions(original, decisions, expected_digest=expected_digest,
                                     now=datetime.fromisoformat(data['evaluated_at'])).to_dict()
         selected, skipped = [], []

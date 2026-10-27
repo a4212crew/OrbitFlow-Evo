@@ -397,7 +397,13 @@ class ResultSpool:
                     count = db.execute('SELECT count(*) FROM offsets').fetchone()[0]
                     if self.manifest['collection_complete'] and count != self.manifest['target_count']:
                         raise ValueError('Incomplete persisted outcomes')
-                    yield ResultIndex(self, db, source)
+                    index = ResultIndex(self, db, source)
+                    self._reading_index = index
+                    self._reader_owner = get_ident()
+                    try:
+                        yield index
+                    finally:
+                        self._reading_index = None
 
     def records(self):
         """Input order through the shared bounded SQLite retrieval interface."""

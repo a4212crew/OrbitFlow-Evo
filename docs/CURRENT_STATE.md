@@ -1186,6 +1186,8 @@ Future v2 observations persist request/workbook digest metadata before networkin
 legacy source binding cannot be inferred. Synthetic 88-target/~77 MB, 500-target
 and 1,500-target spool tests assert peak Python allocations below 16 MiB. This
 is not end-to-end planning/RSS validation. Planning's 16/32 MiB aggregate limits,
-full-plan review/confirmation materialization and supported offline planning
-recovery remain unfinished. No live, private-spool or Windows validation claimed.
+full-plan review/confirmation materialization remain unfinished. A direct offline
+`configuration.v2.cli recover` entry point checks bound workbook/request identity
+and freshness; explicit legacy diagnostic recovery cannot authorize execution.
+It retains the aggregate limits and cannot yet recover the ~77 MB case. No live, private-spool or Windows validation claimed.
 See the [audit ledger](operations/issue-162-processing-audit.md).

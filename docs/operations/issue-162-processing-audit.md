@@ -1,8 +1,9 @@
 # Issue #162 processing audit and validation ledger
 
 This is an implementation audit for review, **not Issue acceptance**. The shared
-spool increment is implemented; end-to-end large-plan processing and supported
-planning recovery remain unfinished. No production captures or devices were used.
+spool increment is implemented; end-to-end large-plan processing remains
+unfinished. The revision below adds limited offline recovery with existing
+aggregate limits. No production captures or devices were used.
 The owner's private workbook/spool are unavailable and are not needed for synthetic
 validation. No historical source-workbook association can be reconstructed.
 
@@ -144,3 +145,66 @@ Final-source checks:
 
 The complete Issue acceptance gate has not passed. No commits, pushes, PR/state
 changes, configuration writes or live testing were performed.
+
+
+## Same-Issue revision: limited recovery and streamed review (2026-10-27)
+
+This revision does **not** close the remaining acceptance gates above. The matrix
+and prior test ledger describe the initial increment; the following entries
+supersede only their recovery/review statements:
+
+| Module | Revision and evidence | Remaining gap |
+|---|---|---|
+| `configuration/v2/recovery.py`, `cli.py` | New offline `recover` API/subcommand leases the shared index; checks task, completeness, exact source/request binding, target positions/status/identity and bound freshness before export. Legacy opt-in labels provenance unverified. Both files generated before exclusive publication. Tests: `test_configuration_recovery.py`. | Retains aggregate limits; cannot recover ~77 MB. Two-file publication is not crash-atomic. No live/Windows validation. |
+| `configuration/v2/planning.py`, `configuration/execution.py` | Diagnostic provenance is deterministic digest-bound result evidence, persists through decision reevaluation, and is an unconditional execution-preparation rejection. Tampered results fail revalidation. Tests: recovery and existing planning/execution suites. | Full canonical plan/confirmation materialization unchanged. |
+| `configuration/v2/workbook.py` | Protected actual/expected review workbooks use read-only iterators; dimensions, sheet order, formulas and protected values still checked. Regression verifies both loader calls use streaming mode. | Regenerated workbook export and decoded plan remain materialized. |
+| `result_spool.py` | Public indexed context exposes its existing index to nested `records()`/`indexed()` on the owning thread; fixes duplicate lease acquisition found by recovery tests. Normal/exception exit clear the view and release scratch/lease. Tests: `test_result_index.py`. | Individual 16 MiB envelope cap and other earlier audit gaps remain unresolved. |
+
+Exact supported Linux/Windows recovery commands, return values, errors and
+limitations are in the [operator/API guide](../user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision).
+The direct optional recovery entry point leaves menus unchanged under the Issue's
+explicit interface requirement. No private input was sought or used.
+
+Security-guard environment evidence: `TMPDIR`, `TMP`, and `TEMP` point beneath
+`/tmp/orbitflow-issue-162-codex-xzq3e_jt`; this sandbox exposes `/tmp/.git`.
+`controller_temp()` correctly rejects a temp root with any `.git` ancestor.
+All writable roots are within that ancestor or this checkout. No guard, Git marker,
+permissions, or orchestration code was altered to bypass the rejection. A passing
+whole-suite run still requires a controller-safe owner environment outside these
+managed filesystem constraints; this is an environment limitation, not Issue
+completion or a demonstrated contradiction in the requested processing design.
+
+
+Revision checks completed so far:
+
+- Recovery/planning before read-only comparison: `PYTHONPATH=src python -m pytest tests/test_configuration_recovery.py tests/test_result_spool.py tests/test_result_index.py tests/test_bulk_configuration_v2.py -q`: **215 passed**, zero failures/skips.
+- Recovery/index/planning/execution with read-only comparison: **422 passed**, zero failures/skips (`/tmp/issue-162-revision-final-targeted.txt`, worker-only log).
+- Final protected review/recovery check: `PYTHONPATH=src python -m pytest tests/test_configuration_recovery.py tests/test_bulk_configuration_v2.py -q`: **176 passed**, zero failures/skips, 15.59 seconds; includes forged OOXML dimensions and resource closure changes.
+- Initial revision whole suite: `PYTHONPATH=src python -m pytest -q`: **3,775 passed / 25 failed / 0 skipped**, 173.26 seconds. Same controller temp-root guard failure category described above. This preceded the final streamed-review/resource-closure additions.
+- `PYTHONPATH=src python -m orbitflow.configuration.v2.cli recover --help`: passed without network access.
+- Changed Markdown local-file links and `git diff --check`: passed.
+
+Final whole-suite and all-module targeted commands/results follow below.
+
+
+Final-source audited-module command:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_configuration_recovery.py tests/test_result_spool.py tests/test_result_index.py tests/test_bulk_configuration_v2.py tests/test_device_execution.py tests/test_device_reporting.py tests/test_inventory_refresh.py tests/test_vlan_compliance.py tests/test_mac_lookup.py tests/test_configuration_backup.py tests/test_manual_configuration.py tests/test_configuration_execution.py tests/test_configuration_execution_evc.py tests/test_configuration_plans.py tests/test_transport.py tests/test_logging.py tests/test_operations_console.py -q
+```
+
+Result: **1,396 passed / 0 failed / 0 skipped**, 137.77 seconds. Covers all
+workflow families in that command; additional family/parser and orchestration
+suites are included in the whole-repository run. A subsequent whole suite after
+streamed-review additions returned **3,779 passed / 25 failed / 0 skipped**,
+183.69 seconds; same temp-root guard category, no passing full gate claimed.
+
+
+Final-source full repository gate: `PYTHONPATH=src python -m pytest -q` returned
+**3,779 passed / 25 failed / 0 skipped**, 178.36 seconds
+(`/tmp/issue-162-final-source-full.txt`, worker-only log). Failed test IDs match
+the earlier 25 controller temp-root guard cases. This is **not a green full-suite
+run**. No guard was weakened. Owner-run safe-temp commands are in the canonical
+planning manual. The remaining primary >16/>32 MiB pipeline, full all-module
+implementation and oversized-record compatibility gates are still open; no
+technical design contradiction is asserted and no Issue acceptance is claimed.

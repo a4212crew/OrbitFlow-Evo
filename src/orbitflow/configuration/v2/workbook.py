@@ -353,38 +353,46 @@ def export_plan(plan, path):
 def consume_decisions(original, path, *, expected_digest, now=None):
     """Future preflight adapter: caller pins a trusted plan digest; no authority.
 
-    Validates protected values, then evaluates untrusted decision intent in memory.
+    Streams protected-cell comparison, then evaluates untrusted decision intent.
     Never persists, re-signs or modifies the source plan.
     """
     require(original.digest == expected_digest, "source plan digest mismatch")
-    # Regenerate the exact expected workbook in memory; compare every populated
-    # cell and physical sheet order except ordinary engineer decision cells.
+    # Regenerate the exact expected workbook, then stream both worksheets;
+    # compare every populated cell except ordinary engineer decision cells.
+    from contextlib import ExitStack
     from tempfile import TemporaryDirectory
-    book = load_workbook(path, data_only=False)
     decisions = {}
-    with TemporaryDirectory() as directory:
+    with ExitStack() as resources:
+        directory = resources.enter_context(TemporaryDirectory())
+        book = load_workbook(path, read_only=True, data_only=False)
+        resources.callback(book.close)
         expected_path = Path(directory) / "expected.xlsx"
         export_plan(original, expected_path)
-        expected = load_workbook(expected_path, data_only=False)
-        try:
-            require(book.sheetnames == expected.sheetnames, "review worksheet order changed")
-            decision_cells = {}
-            for r in original.to_dict()["requests"]:
-                t = BY_ID[r["template_id"]]
-                decision_cells[(t.sheet, r["row"], len(t.columns) + len(output_columns(t)))] = r["row_id"]
-            for sheet in expected:
-                actual = book[sheet.title]
-                require(actual.max_row == sheet.max_row and actual.max_column == sheet.max_column, "review dimensions changed")
-                for row in sheet:
-                    for cell in row:
-                        other = actual.cell(cell.row, cell.column)
-                        require(other.data_type != "f", "review formulas forbidden")
-                        identity = decision_cells.get((sheet.title, cell.row, cell.column))
-                        if identity:
-                            decisions[identity] = other.value
-                        else:
-                            require(other.value == cell.value, "review content changed; re-plan required")
-        finally:
-            expected.close()
-            book.close()
+        expected = load_workbook(expected_path, read_only=True, data_only=False)
+        resources.callback(expected.close)
+        require(book.sheetnames == expected.sheetnames, "review worksheet order changed")
+        decision_cells = {}
+        for r in original.to_dict()["requests"]:
+            t = BY_ID[r["template_id"]]
+            decision_cells[(t.sheet, r["row"], len(t.columns) + len(output_columns(t)))] = r["row_id"]
+        for sheet in expected:
+            actual = book[sheet.title]
+            # OOXML dimension hints are untrusted. Scan actual worksheet
+            # records before comparing, including cells beyond the hint.
+            for candidate in (sheet, actual):
+                candidate.reset_dimensions()
+                candidate.calculate_dimension(force=True)
+            require(actual.max_row == sheet.max_row and actual.max_column == sheet.max_column, "review dimensions changed")
+            from itertools import zip_longest
+            for row_number, pair in enumerate(zip_longest(sheet.iter_rows(), actual.iter_rows()), 1):
+                row, actual_row = pair
+                require(row is not None and actual_row is not None and len(row) == len(actual_row),
+                        "review dimensions changed")
+                for column, (cell, other) in enumerate(zip(row, actual_row), 1):
+                    require(other.data_type != "f", "review formulas forbidden")
+                    identity = decision_cells.get((sheet.title, row_number, column))
+                    if identity:
+                        decisions[identity] = other.value
+                    else:
+                        require(other.value == cell.value, "review content changed; re-plan required")
     return evaluate_decisions(original, decisions, expected_digest=expected_digest, now=now)

@@ -228,3 +228,24 @@ def test_consumption_reuses_one_index_across_tables_and_clears_after_failure(tmp
     assert spool._reading_index is None
     assert spool.consume(lambda run: sum(1 for _ in run.records()), cleanup=False) == 3
     assert len(calls) == 2
+
+
+def test_public_index_context_reuses_lease_for_nested_spool_readers(tmp_path):
+    spool = collected(tmp_path)
+    with spool.indexed() as index:
+        with spool.indexed() as nested:
+            assert nested is index
+            assert list(spool.records()) == list(index.records())
+        assert spool._reading_index is index
+    assert spool._reading_index is None
+    assert not list(spool.path.glob('read-*'))
+
+
+def test_public_index_reader_exception_releases_lease(tmp_path):
+    spool = collected(tmp_path)
+    with pytest.raises(RuntimeError, match='consumer failure'):
+        with spool.indexed():
+            raise RuntimeError('consumer failure')
+    assert spool._reading_index is None
+    with spool.indexed() as index:
+        assert len(index) == 3

@@ -19,6 +19,7 @@ from .catalogue import BY_ID, BY_SHEET, FAMILIES, VERSION, safe, normalize_displ
 DECISIONS = ("Pending", "Approve", "Reject")
 MAX_ROWS = 5000
 MAX_CONTENT = 32 * 1024 * 1024
+UNVERIFIED_SOURCE = "historical-unverified:"
 
 
 def request(template_id, inputs, *, sheet_order=0, row=3, row_id=None, source_inputs=None):
@@ -294,7 +295,7 @@ def _classify_overlap(group):
                         item["blockers"] = sorted(set(item["blockers"]) | {code})
 
 
-def _build(requests, observations, decisions, now, max_age):
+def _build(requests, observations, decisions, now, max_age, *, diagnostic=False):
     require(type(requests) is list and 0 <= len(requests) <= MAX_ROWS, "invalid row count")
     require(type(observations) is dict and type(decisions) is dict, "invalid planning inputs")
     require(safe_data(observations, _safe_source) == observations, "unsafe observation content")
@@ -380,6 +381,12 @@ def _build(requests, observations, decisions, now, max_age):
     for result in rows:
         if "blockers" in result:
             result["blockers"] = sorted(set(result["findings"]) - set(result["warnings"]))
+    if diagnostic:
+        for result in rows:
+            result["findings"] = sorted(set(result["findings"]) | {"UNVERIFIED_HISTORICAL_PROVENANCE"})
+            if "blockers" in result:
+                result["blockers"] = sorted(set(result["blockers"]) | {"UNVERIFIED_HISTORICAL_PROVENANCE"})
+            result.update(deployment_ready=False, execution_authorized=False)
     return rows
 
 
@@ -405,7 +412,7 @@ class BulkPlan:
                     and error["reason"] == "INVALID_INPUT_ROW", "invalid input error")
         now = datetime.fromisoformat(d["evaluated_at"])
         timestamp(now)
-        require(d["results"] == _build(d["requests"], d["observations"], d["decisions"], now, d["max_evidence_age"]), "tampered planning result")
+        require(d["results"] == _build(d["requests"], d["observations"], d["decisions"], now, d["max_evidence_age"], diagnostic=d["source"].startswith(UNVERIFIED_SOURCE)), "tampered planning result")
         object.__setattr__(self, "content", canonical(d))
 
     @property
@@ -429,7 +436,7 @@ def plan(requests, observations=None, *, decisions=None, source="api", now=None,
     return BulkPlan(canonical(dict(schema_version=2, catalogue_version=VERSION, source=source, layout=layout, input_errors=input_errors,
         evaluated_at=timestamp(now), max_evidence_age=max_evidence_age, requests=requests,
         observations=observations, decisions=decisions,
-        results=_build(requests, observations, decisions, now, max_evidence_age), execution_authorized=False)))
+        results=_build(requests, observations, decisions, now, max_evidence_age, diagnostic=isinstance(source, str) and source.startswith(UNVERIFIED_SOURCE)), execution_authorized=False)))
 
 
 @dataclass(frozen=True)
@@ -453,7 +460,7 @@ def evaluate_decisions(original, decisions, *, expected_digest, now=None):
     d = original.to_dict()
     now = now or datetime.now(timezone.utc)
     intent = {**d["decisions"], **decisions}
-    results = _build(d["requests"], d["observations"], intent, now, d["max_evidence_age"])
+    results = _build(d["requests"], d["observations"], intent, now, d["max_evidence_age"], diagnostic=d["source"].startswith(UNVERIFIED_SOURCE))
     return DecisionEvaluation(original.digest, canonical(dict(
         source_digest=original.digest, decisions=intent, results=results,
         evaluated_at=timestamp(now), authenticated=False, execution_authorized=False)))

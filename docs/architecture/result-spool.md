@@ -153,9 +153,12 @@ bindings over 64 KiB. Future v2 planning observations bind the canonical request
 identity (including layout and invalid input rows) and source workbook SHA-256
 when present; API-only request lists record a null workbook digest. Metadata is
 not authentication. Legacy runs have no binding and cannot acquire a trusted
-historical workbook association through inference. No supported planning recovery
-command is implemented by this increment, and existing evidence-age, immutable
-plan and execution safety gates remain unchanged.
+historical workbook association through inference. The direct offline planning recovery entry point is described in the
+[planning manual](../user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision).
+It verifies complete target order, binding and freshness under the shared lease.
+Explicit unbound legacy interpretation is diagnostic only and is rejected by
+execution preparation. Aggregate planning limits remain; recovery does not yet
+process the ~77 MB case. Existing immutable plan and execution gates remain.
 
 See the [whole-module audit and validation ledger](../operations/issue-162-processing-audit.md).
 End-to-end disk-backed planning/review/confirmation and >32 MiB candidate plans

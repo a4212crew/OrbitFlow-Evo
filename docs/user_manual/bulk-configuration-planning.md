@@ -763,3 +763,113 @@ which still apply. A failure retains the spool; it does not reconnect or replay.
 There is no supported offline planning recovery command in this increment.
 See [Linux/Windows tests and read-only inspection](../operations/issue-162-processing-audit.md).
 The end-to-end large-plan Issue is not complete.
+
+## Offline retained-observation recovery (Issue #162 revision)
+
+Recovery is read-only with respect to devices: it does not connect, request
+credentials, refresh inventory, execute commands or change the retained manifest
+and observations. It writes a new immutable JSON and decision workbook. This
+increment retains the existing 16 MiB aggregate observation and 32 MiB plan
+limits; it **does not yet recover the owner's approximately 77 MB run**.
+
+Linux (from the repository root):
+
+```bash
+PYTHONPATH=src python -m orbitflow.configuration.v2.cli recover input.xlsx OWNER_SELECTED_RETAINED_RUN outputs/reports/configuration/recovered/plan.json
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m orbitflow.configuration.v2.cli recover input.xlsx OWNER_SELECTED_RETAINED_RUN outputs/reports/configuration/recovered/plan.json
+```
+
+The three positional arguments are the original source workbook, the retained
+`configuration_observation_v2` run directory, and a new `.json` destination.
+`--max-evidence-age SECONDS` accepts integers 1–86400, default 3600. Bound runs
+require the exact persisted workbook and request digests, complete ordered target
+records, matching management identities and successful evidence within that age.
+A different workbook is rejected even if its request cells are unchanged.
+Failed device outcomes remain unavailable evidence, rather than being recollected.
+
+Legacy runs without binding require `--allow-unverified-legacy`. This is an
+explicit historical diagnostic mode, never proof that the workbook originally
+produced those observations. The source is labelled `historical-unverified:`;
+every result has `UNVERIFIED_HISTORICAL_PROVENANCE`, remains deployment-unready,
+and is rejected by confirmed-execution preparation even after Approve decisions.
+Existing identity and stale-evidence findings remain visible. The option never
+bypasses a mismatching binding on a newer run. Do not use recovery to replay
+completed or Unknown device changes.
+
+Expected outputs: `plan.json` and sibling `plan.xlsx` with the existing schemas,
+sheets and columns. Both are completely generated in a temporary directory
+before exclusive publication; an ordinary second-file publication failure removes
+only the JSON published by this attempt. Existing files are never overwritten.
+A process crash between the two publications can leave JSON alone; retain or move
+it for inspection and retry into a new destination. Filesystem hard-link support
+and writable output/spool scratch space are required. Recovery does not provide
+a crash-atomic two-file transaction.
+
+Wrong task, incomplete/corrupt/duplicate records, source/target mismatch, stale
+bound evidence, existing outputs and size-limit errors fail without networking.
+The CLI returns status 2 with a sanitized category; configuration module logs
+identify the failing stage. The Python API below raises fixed `PlanError`
+diagnostics for validation failures and filesystem exceptions for I/O failures.
+The retained source remains available for another attempt.
+
+Supported Python API:
+
+```python
+from orbitflow.configuration.v2.recovery import recover
+result = recover("input.xlsx", "OWNER_SELECTED_RETAINED_RUN", "new-output/plan.json",
+                 allow_unverified_legacy=False, max_evidence_age=3600, now=None)
+print(result.digest)
+```
+
+`now=None` uses current timezone-aware UTC; a supplied timezone-aware datetime
+supports deterministic offline validation. The return value is the existing
+`BulkPlan`. This optional direct recovery entry point leaves interactive menus
+unchanged, as required by Issue #162's explicit interface constraint.
+
+Automated Linux validation:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_configuration_recovery.py tests/test_result_spool.py tests/test_result_index.py tests/test_bulk_configuration_v2.py tests/test_configuration_execution.py -q
+PYTHONPATH=src python -m pytest -q
+```
+
+PowerShell validation uses the same commands after setting `PYTHONPATH` as above
+and omitting the Linux `PYTHONPATH=src` prefix. Run the full suite with OS temp
+outside every Git checkout; never remove Git markers or weaken controller guards
+to make it pass. Owner validation should use an owner-selected sanitized retained
+run and fresh output path, verify matching digest and expected workbook contents,
+then check wrong-workbook rejection and explicit legacy diagnostic rejection by
+execution preparation. No device access is needed. Private-spool, actual device
+and native Windows validation remain owner-controlled and pending.
+
+
+For owner-run full-suite validation when the inherited temp environment points
+inside a checkout, select a writable directory outside all Git ancestors first.
+For example on Linux (assuming `/var/tmp` has no Git ancestor):
+
+```bash
+validation_temp=$(mktemp -d /var/tmp/orbitflow-validation.XXXXXX)
+TMPDIR="$validation_temp" TMP="$validation_temp" TEMP="$validation_temp" PYTHONPATH=src python -m pytest -q
+```
+
+PowerShell (assuming LocalAppData is outside every Git checkout):
+
+```powershell
+$validationTemp = Join-Path $env:LOCALAPPDATA ('OrbitFlow-validation-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $validationTemp | Out-Null
+$env:TEMP = $validationTemp
+$env:TMP = $validationTemp
+$env:TMPDIR = $validationTemp
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m pytest -q
+```
+
+These are owner-host commands, not a workaround applied inside the managed
+implementation sandbox. Retain test artifacts for inspection; do not alter Git
+markers, weaken guards or replay configuration to validate recovery.

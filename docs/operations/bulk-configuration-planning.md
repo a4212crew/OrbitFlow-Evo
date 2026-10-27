@@ -564,3 +564,8 @@ review. Planning, preparation/fresh target checks and post-change verification u
 the same selector; no approval/digest or spool schema changes. The forwarding child
 blocker remains `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`. See the existing validation
 matrix for Linux/Windows read-only reproduction; live validation remains pending.
+
+Offline retained-observation recovery is available through the supported direct
+CLI and Python API documented in the [canonical recovery guide](../user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision).
+This entry point retains aggregate plan limits; legacy interpretation is
+explicitly unverified and cannot authorize execution.
