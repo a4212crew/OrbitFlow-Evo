@@ -153,3 +153,16 @@ When execution behaviour changes, cover as applicable:
 - tests do not require live devices.
 
 Live validation remains operator-controlled.
+
+
+## Manual grouped execution — Issue #158
+
+Manual Configuration retains one worker per canonical IP and owns one DeviceContext,
+DeviceSession/transport chain and one exact live CLI shell for the ordered row group.
+Prepare identity/privilege/paging and protected backup once, synchronize global-config/
+EXEC boundaries per row and save once after the last successful EXEC return. Never
+close/reopen shells between rows. Stop that device and prevent new automatic save
+on invalid input, setup, command, boundary or mandatory-recording failure; retain
+prior block evidence. Attempt all owned cleanup at device end. Other workflows
+retain their existing lifecycle and save policy. Earlier fresh-row acceptance is
+historical; grouped hardware compatibility remains owner-validated.
