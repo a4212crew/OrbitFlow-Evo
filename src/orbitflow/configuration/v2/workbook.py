@@ -327,12 +327,12 @@ def export_plan(plan, path):
     """Export the unchanged review workbook with disk-backed worksheet writers.
 
     Requests/results and source plan decoding remain aggregate and retain their
-    existing limits. Expanded worksheet/evidence cells stream to owned XML files;
+    per-device limits. Expanded worksheet/evidence cells stream to owned XML files;
     ordinary failures close writers and remove those temporary files.
     """
     require(not Path(path).exists(), "output already exists")
     base = _base()
-    data = plan.to_dict()
+    data = plan.view() if hasattr(plan, "view") else plan.to_dict()
     digest = plan.digest
     base["Introduction"]["B1"] = digest
     results = {r["row_id"]: r for r in data["results"]}
@@ -466,7 +466,7 @@ def consume_decisions(original, path, *, expected_digest, now=None):
         resources.callback(expected.close)
         require(book.sheetnames == expected.sheetnames, "review worksheet order changed")
         decision_cells = {}
-        for r in original.to_dict()["requests"]:
+        for r in original.view()["requests"]:
             t = BY_ID[r["template_id"]]
             decision_cells[(t.sheet, r["row"], len(t.columns) + len(output_columns(t)))] = r["row_id"]
         for sheet in expected:

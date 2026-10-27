@@ -1,11 +1,14 @@
 # Issue #162 processing audit and validation ledger
 
-This is an implementation audit for review, **not Issue acceptance**. The shared
-spool increment is implemented; end-to-end large-plan processing remains
-unfinished. Offline recovery retains the existing aggregate limits. The third-review
-increment streams worksheet cells, while full-plan decoding remains aggregate. No production captures or devices were used.
-The owner's private workbook/spool are unavailable and are not needed for synthetic
-validation. No historical source-workbook association can be reconstructed.
+This is an implementation audit for review, **not Issue acceptance**. The fourth
+revision replaces aggregate observation/result storage in the v2 pipeline,
+streams public plan JSON, preserves protected workbook review and retains source
+files for new confirmations. It also adds indexed execution-journal consumption,
+backup failure recovery, bounded journal append/read and prompt/save response bounds. The matrix describes
+current source; older increment ledgers below are historical and superseded where
+explicitly noted. No private captures or devices were used. Historical workbook
+binding cannot be reconstructed. Owner/native Windows and controller-safe suite
+gates remain separate from synthetic implementation checks.
 
 Paths below are relative to `src/orbitflow/`; test paths are relative to `tests/`.
 All listed automated tests are offline. The full-suite ledger below distinguishes
@@ -13,21 +16,21 @@ repository-wide regression checks from newly added scalability assertions.
 
 | Workflow / source | Collection and memory | Persistence / consumption / output / recovery | Decision and remaining risks | Regression coverage |
 |---|---|---|---|---|
-| Shared runner `execution.py` | Bounded device futures; sink mode retains only in-flight payloads; no-sink mode returns full list | Caller-owned sink; per-device cleanup and failure isolation | Retain scheduler. No-sink callers require explicit audit, not a global behavior change | `test_device_execution.py`, `test_result_spool.py` |
-| Shared spool `result_spool.py` | One owner appends sanitized envelopes; input-position metadata retained | Authoritative JSONL + manifest; temporary SQLite offsets; partial recovery opt-in; lease-controlled cleanup | Implement reusable index, point/target/256-position batch retrieval, one index per consumption, explicit 64 MiB envelope/64 GiB spool limits (second-review increment; see below), envelope checks, fsync before checkpoint; scratch index is disposable | `test_result_spool.py`, `test_result_index.py` |
-| Planning v1 `configuration/plans.py`, `approvals.py` | Offline request and inventory snapshots materialized | Closed-schema canonical JSON; signed SQLite authority | Retain authorization semantics. Full-plan serialization is **not yet migrated** | `test_configuration_plans.py` |
-| Planning v2 observation `configuration/v2/observation.py` | Shared per-device workers; normalized evidence in one payload per device | Shared spool; `bounded_observations` still builds aggregate dictionary | Implement pre-network request/workbook digest metadata. **16 MiB aggregate observation gate remains**; limited offline recovery is available; see revision section | `test_bulk_configuration_v2.py`, binding test in `test_result_index.py` |
-| Planning v2 build/validation `configuration/v2/planning.py` | All observations, requests, projected rows/results materialized; same-device prior rows retain dependencies/conflicts | Immutable string content; canonical digest; re-evaluation detects tamper | **Unfinished:** replace aggregate planning/validation with disk-backed intermediates without changing order, projections, schema or safety. 32 MiB plan gate remains | `test_bulk_configuration_v2.py`, `test_configuration_v2_approved_services.py` |
-| Planning review/XLSX `configuration/v2/workbook.py` | Write-only worksheet cells; full decoded plan remains in memory; review regenerates expected workbook using the streaming writer | Existing sheets/columns/presentation; exact protected-cell comparison and digest; ordinary writer scratch cleanup | Implemented worksheet streaming in third review. **Unfinished:** full-plan decode and per-request evidence aggregation; protected comparison uses read-only iterators | Same v2 suites; `test_configuration_streaming_workbook.py`; `test_operations_console.py` |
-| Confirmed execution prepare/confirm `configuration/execution.py` | Full plan decoded and copied into confirmation payload; selected/skipped rows materialized | Transactional SQLite replay claims; summary JSON; journal and spool; separate explicit confirmation | Retain write/backup/verify/save gates. **Unfinished:** bounded confirmation preparation/load; never infer execution authority from recovery | `test_configuration_execution*.py`, `test_execution_observation_timing.py` |
-| Execution report `configuration/execution.py:export_results` | Write-only workbook; full summary plus per-row event-offset maps and repeated journal scans | Offline journal-based reconstruction; detailed evidence retained | Retain output contract; **unfinished:** indexed event reduction and bounded summary consumption | Execution and performance suites |
-| Manual Configuration `configuration/manual.py` | One session/shell per IP group; input rows grouped in memory; device-local transcripts | fsynced events, shared outcomes, write-only consolidated workbook; offline journal recovery | Preserve no-replay and successful-group-only automatic save. Report still aggregates all bounded input metadata/results; **not migrated to indexed journal processing** | `test_manual_configuration.py` |
-| Inventory refresh `inventory_refresh.py`, `inventory.py` | Shared workers; per-device outcomes; status map and canonical inventory in memory | Shared spool; captured snapshot JSONL; write-only atomic workbook; offline captured-view export | Retain correct streaming export; inherits shared index reuse. Canonical JSON inventory and full status map remain separate memory risks; no format migration claimed | `test_inventory_refresh.py`, `test_device_inventory.py`, `test_inventory_atomic_replace.py` |
+| Shared runner `execution.py` | Bounded device futures; sink mode retains only in-flight payloads; no-sink mode returns full list | Caller-owned sink; per-device cleanup and failure isolation | Retain scheduler. Retain no-sink list API for bounded callers; audited data-heavy workflows use sinks | `test_device_execution.py`, `test_result_spool.py` |
+| Shared spool `result_spool.py` | One owner appends sanitized envelopes; input-position metadata retained | Authoritative JSONL + manifest; temporary SQLite offsets; partial recovery opt-in; lease-controlled cleanup | Implement reusable index, point/target/256-position batch retrieval, one index per consumption, 64 MiB marked/new envelopes, finite 256 MiB historical unmarked envelopes and 64 GiB spool limits, envelope checks, fsync before checkpoint; scratch index is disposable | `test_result_spool.py`, `test_result_index.py` |
+| Planning v1 `configuration/plans.py`, `approvals.py` | Offline closed-schema identity/operation metadata only; max 100 targets (default 5), max 100 operations each; bounded scalar fields, no large raw observations | Canonical immutable JSON and signed SQLite authority | **Implement/retain:** add shared 16 MiB bounded file reads before JSON decoding for v1 request/plan files; retain small canonical payload and transactional signed decisions without schema migration | `test_configuration_plans.py` |
+| Planning v2 observation `configuration/v2/observation.py` | Shared per-device workers; disk-backed detached observation map via shared `indexed_json.py` | Existing durable bound spool; one decoded device per access; no 16 MiB aggregate gate | **Implement:** request/workbook binding before networking; indexed working-set copy validates sanitation before persistence | `test_bulk_configuration_v2.py`, `test_result_index.py`, `test_configuration_indexed_pipeline.py` |
+| Planning v2 build/validation `configuration/v2/planning.py` | Requests capped at 5,000; complete same-device row groups evaluated in workbook order; global identity collision metadata; indexed ordered results | Streamed canonical JSON save/load, immutable digest and deterministic reevaluation; 256 MiB individual value/projection allowance, 64 GiB input bound | **Implement:** remove 32 MiB aggregate gate; preserve nonadjacent same-device projections and public schemas. Explicit content/to_dict compatibility APIs materialize on demand | Planning/v2 approved-service/recovery suites and full-pipeline test |
+| Planning review/XLSX `configuration/v2/workbook.py` | Write-only worksheet cells, indexed observation/result views; bounded input/result row metadata and per-device scoped evidence | Existing sheets/columns/presentation, exact protected-cell comparison and digest; read-only review, scratch cleanup | **Implement/retain:** indexed source view replaces full-plan decode; retain complete protected review and unchanged output cells | `test_configuration_streaming_workbook.py`, `test_configuration_recovery.py`, full-pipeline test, console regressions |
+| Confirmed execution prepare/confirm `configuration/execution.py` | Indexed source observation/result access; selected/skipped summary metadata remains capped by 5,000 source rows | New source plan JSON retained under existing authority directory; SQLite confirmation binds source/summary digests; old inline payload supported | **Implement:** remove aggregate source-plan confirmation parameter/load. Retain explicit summary confirmation, replay claim, backup, fresh identity, verification and save gates. Summary is still a materialized public return value | `test_configuration_execution*.py`, full-pipeline mocked confirm/replay, timing suites |
+| Execution report `configuration/execution.py:export_results` | Shared journal offset index; row-specific event reads and disk-backed detail references; per-row command evidence | Same offline write-only workbook, truthful historical Unknown statuses and complete links | **Implement:** eliminate full-run event-offset/reference maps and repeated per-row journal scans. Retain bounded source-summary metadata and per-row output construction | Execution/performance suites; journal-index regression in `test_result_index.py` |
+| Manual Configuration `configuration/manual.py` | One shell/session per device; max 10,000 input rows, 32,767 CLI characters and 1,000 commands per row; receive callback streams captures, pending fragment capped at 65,536 characters | Shared spool and fsynced journal; report reduces only per-row/device metadata; transcripts remain disk files; atomic workbook refresh/recovery | **Retain:** no full-run response/command-event list is retained in report reconstruction. Metadata maps have explicit source-row bounds. Preserve no replay/reconnect and success-only group save | `test_manual_configuration.py`, shared CLI/lifecycle regressions |
+| Inventory refresh `inventory_refresh.py`, `inventory/store.py` | Shared worker sink; attempt rows stay on spool; O(identity count) status membership and latest stable contexts, without volatile observations | Shared snapshot JSONL; atomic write-only captured-view workbook recovery; synchronized atomic canonical JSON inventory | **Retain:** existing 1,500-target/concurrency-five test verifies complete rows and cleanup. Canonical latest-facts snapshot and public contexts tuple remain materialized; this persistent-state format is distinct from large operational evidence. No database/schema migration claimed | `test_inventory_refresh.py::test_1500_inventory_attempts_stream_at_concurrency_five`, inventory/atomic replace suites |
 | Interface/VLAN and database report `reporting.py` | Shared workers; per-device normalized rows/evidence; no full-run report rows | Shared spool; table generators; evidence-reference overflow; atomic workbook; offline export | Retain per-device normalization and streaming workbook. Inherits one validated index across all passes. Oversized individual device now fails explicitly and retains incomplete spool | `test_device_reporting.py`, `test_aggregation.py`, `test_aggregation_consumers.py`, `test_aggregation_owner_revision.py` |
 | VLAN compliance/database `vlan_compliance.py`, `compliance_report.py`, `methodology_report.py` | Single-device audit resolvers; shared worker sink | Findings/error spool; multi-pass streaming tables; complete overflow detail; retained-spool retry | Retain family audit ownership and output schemas; index reuse removes repeated SQLite builds. Per-device finding/evidence payload is still the unit of memory | `test_vlan_compliance.py`, `test_vlan_configuration_audit.py`, `test_methodology*.py` |
 | MAC observation/report `mac_lookup.py` | Shared workers; device-local MAC/BD snapshots | Shared spool; write-only tables and offline retained-spool export | Retain normalized lookup ownership and seven-column main sheet; inherits shared index reuse. Single-device table size remains bounded only at spool write, after collection | `test_mac_lookup.py` |
-| Configuration backup `configuration_backup.py` | Workers own captures and immediately write protected files; outcome holds safe failure metadata | Separate protected capture files; caller streams failure workbook | Retain raw sensitive captures outside generic spool. Failure metadata workbook has no durable reconstruction source: **unfinished recovery audit gap**. Never insert raw config into SQLite | `test_configuration_backup.py` |
-| Transport/CLI `transport/`, `vendors/common.py` | Device-owned sessions/channels and receive buffers | No shared full-run payload storage | Retain connectivity/setup/cleanup. Spool limit does not bound buffers during live collection; **individual receive-size audit remains unfinished** | `test_transport*.py`, `test_shared_cli.py`, `test_cisco_ios_cli.py`, `test_cli_lifecycle.py` |
+| Configuration backup `configuration_backup.py` | Worker-owned protected captures; shared sink stores only sanitized six-column failure rows and success markers | Retained shared spool in existing backup run .processing directory; atomic failed_devices.xlsx export/retry; optional offline recovery API | **Implement:** durable failure-output reconstruction without recapture. Raw configuration stays outside SQLite/JSONL; capture paths and workbook columns unchanged | `test_configuration_backup.py`, offline failure/disk-full/retry test |
+| Transport/CLI `transport/`, `vendors/common.py` | Device-owned channels, bounded active workers; prompt/save exchanges cap received bytes at 64 MiB; literal callback stream stays disk-backed | No cross-device full-run buffers; setup/cleanup paths unchanged | **Implement/retain:** explicit oversize response failure before buffer growth, with unsafe-session handling; retain approved Linux/Windows SSH architecture, paging and prompts. Existing enable authentication caps receive bytes at 131,072 in `vendors/privilege.py`; retain its private exchange handling | `test_transport*.py`, `test_shared_cli.py`, `test_cisco_ios_cli.py`, `test_cli_lifecycle.py`, manual/execution suites |
 | Console/logging `menu.py`, `terminal_progress.py`, `logging/` | Serialized progress, bounded recent activity; module-owned sanitized logging | Existing menu/profile/log paths | Retain presentation and API defaults. Optional direct recovery CLI/API added; menus remain unchanged as required | `test_operations_console.py`, `test_logging.py`, `test_terminal_progress.py`, `test_workflow_progress.py` |
 | Shared XLSX `excel_output.py` | Write-only row generators; current-row memory | Temporary workbook + replace; literal strings, oversize-cell rejection | Retain existing atomic publication; new indexed API changes neither columns nor formatting | Reporting, compliance and MAC suites |
 
@@ -101,7 +104,7 @@ index allocation needs writable run-directory space. Complete collection is stil
 required for ordinary output consumption; partial export needs the existing
 explicit opt-in. Do not inspect or print private payloads in shared logs.
 
-The optional planning-recovery CLI/API is documented in the [planning manual](../user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision); aggregate planning limits still apply.
+The optional planning-recovery CLI/API is documented in the [planning manual](../user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision); the fourth revision uses indexed observations/results.
 The owner's private ~77 MB spool/workbook must remain outside this worktree and
 must not be searched for or uploaded. Legacy manifests have no binding. Current
 planning freshness, immutable digest, review and execution gates are unchanged.
@@ -315,3 +318,234 @@ The primary requested implementation remains incomplete. No full-pipeline 77 MB,
 >32 MiB plan or end-to-end 500/1,500 target recovery result is claimed. No
 production, private-spool or native Windows validation, commit/push/PR/state
 operation or merge occurred.
+
+
+## Fourth-review source rationale and remaining limits
+
+The current matrix supersedes previous open implementation decisions for v2,
+execution report indexing, backup report recovery and prompt/save receive buffers.
+All workflows use shared execution/spool interfaces where applicable. There are no
+feature-owned worker pools or new persistent per-feature processing databases.
+The reusable `indexed_json.py` scratch working set and existing result/journal
+offset interface own SQLite behavior; published JSON/JSONL remain authoritative.
+
+- Preserve v1 bounded signed-plan semantics; they do not collect large observation
+  bundles. Preserve streaming report/compliance/MAC normalization and exports.
+- Preserve canonical inventory latest-fact JSON and its synchronized writes; it
+  is a persistent identity catalogue with a public tuple accessor. The run report
+  uses captured spool snapshots and streams. No volatile device output is retained
+  in this canonical store. Its memory still grows with identity count; an
+  unbounded persistent catalogue migration is not claimed.
+- Preserve Manual Configuration source-row/decision metadata capped by existing
+  input validation. Transcripts stream to files and journal recovery retains
+  latest row/device metadata, not all command responses. No write resume exists.
+- Backup recovery now covers complete retained failure metadata; failed capture
+  files are never reconstructed from a generic spool. An interrupted collection
+  remains explicitly incomplete, requiring owner inspection rather than recapture.
+- New/marked envelopes remain limited to 64 MiB. Historical unmarked envelopes
+  allow up to 256 MiB, tested with the demonstrated 65 MiB case; this is a finite
+  compatibility strategy, not universal historical-size support. Larger single
+  legacy envelopes still require an owner capacity decision. Do not alter captures
+  to evade digest/provenance checks. SQLite JSON values and same-device projected
+  result groups also have a finite 256 MiB allowance; input totals cap at 64 GiB.
+- Public `content`/`to_dict` and execution summary return values retain their
+  materializing compatibility contract. Internal observation/result consumers
+  avoid full-plan materialization. Requests and selected/skipped command summaries
+  remain bounded source-row metadata. Two public recovery filenames are linked
+  separately; process-crash atomicity across the pair is not claimed. Each source
+  plan JSON is published atomically after complete serialization/fsync.
+
+The requested universal no-aggregate-consumer and complete crash/failure matrix
+are not asserted by these qualified limits. Source/identity/age, protected cells,
+canonical digest, replay, backup, verify and save safety remain required.
+No production/private-spool or native Windows result is inferred from synthetic
+coverage. Final automated commands/counts and measurements follow below.
+
+Fourth-review checks completed before the final full-suite gate:
+
+- `PYTHONPATH=src python -m pytest tests/test_configuration_indexed_pipeline.py -q -o junit_family=legacy --junitxml=/tmp/issue162-pipeline-final.xml`: **9 passed / 0 failed / 0 skipped**, 741.89 seconds. This run preceded the later load-result hash-only hardening and additional fault tests; the final full suite includes those changes. Measured full-pipeline peaks: **13,200,113 bytes** (88 targets × 900,000 padding characters, ~79 MB), **15,261,006 bytes** (500), **33,458,094 bytes** (1,500). All three output JSON files exceeded 32 MiB, with complete request/results checks, unchanged-workbook protected review, decision evaluation, source load, preparation, mocked confirmation and replay rejection. These are Python allocation measurements, not RSS or live network tests.
+- Audited-module command (the 18-file command above): **1,407 passed / 0 failed / 0 skipped**, 175.55 seconds. Later source-load/reference hardening is covered separately and by the final full run.
+- `PYTHONPATH=src python -m pytest tests/test_configuration_execution*.py -q`: **428 passed / 0 failed / 0 skipped**, 56.00 seconds, after restoring the older to_dict-only decision adapter compatibility. Two adapter failures in an earlier interrupted full run were corrected; no failed run is reported as green.
+- `PYTHONPATH=src python -m pytest tests/test_bulk_configuration_v2.py tests/test_configuration_v2_approved_services.py tests/test_configuration_execution_stages.py tests/test_configuration_indexed_pipeline.py -k 'not full_recovery' -q`: **581 passed / 0 failed / 3 deselected**, 98.36 seconds. Deselection is the three separately measured scale cases, not skipped validation.
+- `PYTHONPATH=src python -m pytest tests/test_configuration_indexed_pipeline.py -k 'not full_recovery' tests/test_configuration_recovery.py -q`: **31 passed / 0 failed / 3 deselected**, 4.22 seconds. Includes hash-only untrusted-result persistence, constructor compatibility, scratch transaction cleanup, value/disk limits, invalid JSON/chunk boundaries, concurrent immutable readers and atomic JSON publication failure.
+- Historical 65 MiB reader fixture invoked under `tracemalloc` in a temporary directory with a 512 MiB assertion: **274,080,815 peak Python bytes**, passed. This deliberately larger single-record working set is separate from the 96 MiB ordinary pipeline assertion. The finite legacy allowance does not assert compatibility with arbitrarily large historical envelopes.
+- Worker comparison against pre-revision HEAD planning source: four synthetic targets/eight requests, same-device database/description rows across sheets; **exact canonical content and SHA-256 matched** for Pending, Approve and Reject decisions. Existing deterministic suites cover dependencies, overlap, blockers/no-ops, tamper and vendor commands.
+- `PYTHONPATH=src python -m orbitflow.configuration.v2.cli recover --help`: passed, no networking. Changed Markdown local-file links: no missing targets. Final diff check and full-suite result follow below.
+
+Source-load security: supplied results are retained only as per-row SHA-256 values
+until deterministic reevaluation matches. An injected secret-bearing result never
+enters scratch SQLite; only the validated recomputed result is retained. Source
+observations are sanitized/validated before SQLite insertion, and observation keys
+must be canonical IP addresses. New confirmation file references must match their
+UUID and cannot select an arbitrary path. No freshness or approval bypass exists.
+
+
+Additional final-source focused checks:
+
+- `PYTHONPATH=src python -m pytest tests/test_result_index.py tests/test_configuration_execution*.py -q`: **461 passed / 0 failed / 0 skipped**, 64.92 seconds. Includes missing-journal compatibility: a run interrupted before its first event keeps the historical empty-evidence view, without creating a journal or reconnecting.
+- `PYTHONPATH=src python -m pytest tests/test_configuration_indexed_pipeline.py -k 'not full_recovery' tests/test_configuration_recovery.py tests/test_result_index.py -q`: **68 passed / 0 failed / 3 deselected**, 18.35 seconds. Includes one-/two-/seven-/17-character split-stream decimal/exponent/boolean/null/escaped-string parsing. Public plan loading additionally checks actual file bytes against the 64 GiB input ceiling before parsing.
+- `PYTHONPATH=src python -m pytest tests/test_configuration_execution.py tests/test_configuration_recovery.py -q`: **215 passed / 0 failed / 0 skipped**, 9.59 seconds, including confirmation-source validation.
+
+Owner validation remains read-only unless separately and explicitly authorized.
+The synthetic mocked confirm consumer verifies authorization/replay plumbing, not
+actual device configuration. Existing owner lab evidence is not new validation of
+this revision. No credentials, production captures, Git/GitHub lifecycle changes
+or live configuration operations were used.
+
+
+Final shared-journal audit closure: `ResultJournal.append` now stages sanitized
+encoder chunks under the owning writer lock and checks the 256 MiB event/64 GiB
+journal ceilings before copying. Both legacy iteration and indexed iteration
+read bounded complete lines. Serialization/size/scratch failures preserve the
+committed prefix and stop later appends; partial authoritative-copy failures
+remain incomplete final lines, ignored in recovery. Tests cover record/total
+limits, stopped writer, committed-prefix preservation and missing journals.
+An earlier focused shared-spool/index/Manual/all-execution run passed **690 tests**
+(74.63 seconds) before the final total-journal assertion; the final-source focused
+and whole-suite results follow. No completed interrupted full-suite run is
+represented as a passing gate.
+
+
+V1 audit refinement: schema bounds alone did not protect file loading before
+validation. V1 request/plan readers now share a 16 MiB bounded binary read before
+UTF-8/JSON decoding, exceeding the maximum canonical valid schema size. Signatures,
+schema, digests and signed approvals remain unchanged. `PYTHONPATH=src python -m
+pytest tests/test_configuration_plans.py -q`: **45 passed**, 0 failures/skips,
+0.21 seconds, including pre-decode file-bound and CLI rejection.
+
+The first completed fourth-review full run returned **3,818 passed / 29 failed /
+0 skipped** in 1,179.58 seconds. Four failures were integration assertions that
+forbade any backup results.jsonl; they now assert its exact metadata-only success
+payload while retaining all credential-disclosure checks. `PYTHONPATH=src python
+-m pytest tests/test_device_access.py -q`: **493 passed**, 0 failures/skips, 0.80
+seconds. The other 25 failures match the known controller temp-root guard cases.
+That is not a green full-suite gate. The final rerun includes the corrected tests
+and the v1 input bound.
+
+Fresh-process Linux RSS verification ran each full-pipeline node separately under
+`/usr/bin/time -f %M`, asserted a 256 MiB RSS ceiling and a passing pytest result.
+All three passed (one test each; 0 failures/skips):
+
+| Targets | Peak RSS bytes | Peak Python allocations bytes |
+|---|---:|---:|
+| 88 (~79 MB observations) | 108,011,520 | 13,871,908 |
+| 500 | 116,908,032 | 16,421,503 |
+| 1,500 | 164,986,880 | 33,980,937 |
+
+These measurements cover the full retained recovery/export/load/protected-review/
+decision/preparation/mocked-confirmation chain. Fixture spool construction is
+separate; shared collection/spooling scale tests cover that phase. They are
+Linux synthetic measurements, not native Windows, private captures or live-device
+validation. The v1-only file bound added afterward does not alter this v2 path.
+
+## Final fourth-review automated gate — 2026-10-28
+
+```bash
+PYTHONPATH=src python -m pytest -q -o junit_family=legacy --junitxml=/tmp/issue162-fourth-final-full.xml
+```
+
+**3,823 passed / 25 failed / 0 skipped; 1,061.61 seconds.** This is the complete
+repository suite after the v1 input-bound implementation and backup integration
+corrections. All 25 failure IDs exactly match the previously documented controller
+set (seven Codex-runner cases, 17 controller cases, one lifecycle case). The guard
+raises `OrchestrationError: OS temporary directory must be outside Git worktrees`
+for `/tmp/orbitflow-issue-162-codex-zdaokmqv`; `/tmp/.git` is an ancestor marker.
+No guard, Git marker or filesystem permission was changed. This is **not a green
+full-suite gate**; a controller-safe owner-host full run remains mandatory.
+
+Final-source full-pipeline peaks measured within that run were **19,022,107 /
+20,173,934 / 37,005,342 Python bytes** for 88 / 500 / 1,500 targets, all below
+96 MiB. Each generated complete JSON above 32 MiB, exported/reloaded/reviewed it,
+evaluated decisions, prepared/consumed a mocked confirmation and rejected replay.
+The separately isolated RSS assertions and their measurements are recorded above.
+
+Selected audited-module results extracted from the full-suite XML (all zero
+failures and zero skips; these are coverage groups, not an additional test run):
+
+| Module test selection | Passed |
+|---|---:|
+| Shared result spool / index | 27 / 35 |
+| Shared device execution | 17 |
+| V1 plans / signed approvals | 45 |
+| Bulk v2 / approved service planning | 159 / 326 |
+| Recovery / indexed full pipeline / streaming workbook | 17 / 21 / 7 |
+| All configuration execution test files | 428 |
+| Manual Configuration | 201 |
+| Device access / backup | 493 / 111 |
+| Inventory refresh / device inventory | 28 / 19 |
+| Interface/VLAN reporting | 83 |
+| VLAN compliance / configuration audit | 50 / 180 |
+| MAC lookup/reporting | 185 |
+| Transport / logging / console | 29 / 16 / 97 |
+
+Additional family, parser, interface, aggregation, timing, lifecycle, console and
+other regression files are included in the 3,848 total tests. The matrix above
+continues to distinguish retained stable metadata/public materializing accessors
+from indexed operational evidence; it does not claim universal historical-size
+support or a crash-atomic two-name publication. Legacy envelopes above 256 MiB
+still need an owner capacity decision. Source records are never split or changed
+to evade provenance or digest checks.
+
+Final `git diff --check`: passed. Changed Markdown local-file links: no missing
+targets. No private workbook/spool was sought or used. No production credentials,
+actual device operations, commit, push, PR/state change or merge occurred.
+Native Windows, private-spool and actual-device validation remain owner-controlled
+and pending. This ledger is implementation/test evidence, not Atlas acceptance.
+
+### Final pre-persistence validation hardening
+
+A post-gate security review moved the **complete existing observation validator**
+in front of SQLite insertion, rather than applying only its string sanitizer
+before insertion and its schema/platform checks afterward. Malformed status or
+platform data now fails before any supplied observation value is stored. The
+validator is shared with deterministic evaluation; valid content/digests and
+vendor behavior are unchanged. Two regression cases audit SQLite parameters to
+ensure injected text in invalid live/unavailable observations never reaches disk.
+
+`PYTHONPATH=src python -m pytest tests/test_bulk_configuration_v2.py
+tests/test_configuration_v2_approved_services.py tests/test_configuration_recovery.py
+tests/test_configuration_indexed_pipeline.py tests/test_configuration_execution*.py
+-k 'not full_recovery' -q`: **950 passed / 0 failed / 3 deselected**, 103.51 seconds.
+The three scale cases are repeated in the full suite and fresh RSS runs. The
+3,823/25 full result above precedes this final hardening; the final-source results
+are appended below, rather than being inferred from earlier runs.
+
+## Authoritative final-source result after pre-insert validation — 2026-10-28
+
+```bash
+PYTHONPATH=src python -m pytest -q -o junit_family=legacy --junitxml=/tmp/issue162-prepersist-full.xml
+```
+
+**3,825 passed / 25 failed / 0 skipped / 0 errors; 1,141.53 seconds.** This result
+supersedes the earlier final-gate counts for the completed source. The 25 failure
+IDs exactly equal the established controller guard set, with no additional
+failures. The OS temporary directory still has `/tmp/.git` as an ancestor; the
+controller guard is preserved. A controller-safe owner-host full run remains an
+outstanding gate. No Issue acceptance or merge readiness is claimed.
+
+All 23 indexed-pipeline test cases passed, including both malformed-observation
+pre-persistence checks. Other named module coverage counts in the table above are
+unchanged. Final full-suite pipeline Python peaks were **17,950,501 / 20,189,491 /
+37,063,070 bytes** at 88 / 500 / 1,500 targets (all <96 MiB).
+
+Fresh-process RSS checks were repeated against this same source, one passing
+full-pipeline test per invocation, asserting <256 MiB RSS and <96 MiB Python:
+
+| Targets | Final peak RSS bytes | Final isolated Python peak bytes |
+|---|---:|---:|
+| 88 | 107,016,192 | 13,871,397 |
+| 500 | 117,063,680 | 16,410,750 |
+| 1,500 | 164,261,888 | 33,968,324 |
+
+The latest XML/log/RSS files under `/tmp/issue162-prepersist-*` and
+`/tmp/issue162-final-rss-*` are worker-only synthetic artifacts; permanent evidence
+is this ledger and the deterministic tests. Linux/Windows reproduction and
+read-only owner recovery instructions are in the planning/backup guides.
+
+Final source/diff and changed Markdown file-link checks passed. Remaining limits
+are the explicitly materializing compatibility APIs/bounded summary metadata,
+canonical latest-inventory metadata, finite 256 MiB legacy allowance and lack of
+a crash-atomic two-filename publication; these are described above rather than
+claimed solved by a size-limit increase. Private-spool, actual-device, native
+Windows and controller-safe owner-host validation remain pending. No Git/GitHub
+lifecycle action or live configuration operation was performed.

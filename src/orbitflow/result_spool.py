@@ -24,8 +24,12 @@ logger = logging.getLogger(__name__)
 
 # Limits apply to individual envelopes, never the aggregate observation bundle.
 # readline(size) enforces the bound before allocating an untrusted full line.
-MAX_RECORD_BYTES = 64 * 1024 * 1024
-MAX_SPOOL_BYTES = 64 * 1024 * 1024 * 1024
+from orbitflow.indexed_json import MAX_VALUE_BYTES as MAX_RECORD_BYTES, MAX_TOTAL_BYTES as MAX_SPOOL_BYTES
+
+# Historical writers predate record bounds and request binding. Preserve their
+# demonstrated >64 MiB envelope case with a separate finite reader allowance;
+# new writers and provenance-bound records retain the 64 MiB limit.
+LEGACY_MAX_RECORD_BYTES = 256 * 1024 * 1024
 
 
 class ResultIndex:
@@ -39,7 +43,7 @@ class ResultIndex:
 
     def _read(self, offset):
         self.source.seek(offset)
-        return json.loads(self.source.readline(MAX_RECORD_BYTES + 1))
+        return json.loads(self.source.readline(self.spool._read_limit + 1))
 
     def records(self, *, positions=None, target=None):
         """Yield input order; optional positions are bounded to 256 per query."""
@@ -60,6 +64,23 @@ class ResultIndex:
             query += ' WHERE ' + ' AND '.join(clauses)
         for (offset,) in self.db.execute(query + ' ORDER BY position', parameters):
             yield self._read(offset)
+
+    def entries(self, *, target=None):
+        """Yield (input position, record), optionally for one indexed key."""
+        query, parameters = 'SELECT position, offset FROM offsets', ()
+        if target is not None:
+            query += ' WHERE target=?'
+            parameters = (target,)
+        for position, offset in self.db.execute(query + ' ORDER BY position', parameters):
+            yield position, self._read(offset)
+
+    def set_reference(self, position, reference):
+        """Attach a disk-backed consumer reference to an indexed journal event."""
+        self.db.execute('INSERT OR REPLACE INTO references_map VALUES (?, ?)', (position, reference))
+
+    def reference(self, position):
+        row = self.db.execute('SELECT reference FROM references_map WHERE position=?', (position,)).fetchone()
+        return row[0] if row else None
 
     def get(self, position):
         """Return one envelope or raise KeyError for a missing input position."""
@@ -89,15 +110,27 @@ class ResultJournal:
         self._safe.clean = clean
 
     def append(self, value):
-        line = json.dumps(self._safe._safe(value), allow_nan=False) + '\n'
         with self._lock:
             if self._failed:
                 raise RuntimeError('Journal stopped after persistence failure')
             try:
-                with self.path.open('a', encoding='utf-8', newline='\n') as stream:
-                    stream.write(line)
-                    stream.flush()
-                    os.fsync(stream.fileno())
+                with TemporaryFile(mode='w+b') as staged:
+                    size = 0
+                    encoder = json.JSONEncoder(allow_nan=False)
+                    for part in encoder.iterencode(self._safe._safe(value)):
+                        encoded = part.encode('utf-8')
+                        size += len(encoded)
+                        if size + 1 > self._read_limit:
+                            raise ValueError('Journal record size limit exceeded')
+                        staged.write(encoded)
+                    staged.write(b'\n')
+                    staged.seek(0)
+                    with self.path.open('ab') as stream:
+                        if os.fstat(stream.fileno()).st_size + size + 1 > MAX_SPOOL_BYTES:
+                            raise ValueError('Journal size limit exceeded')
+                        copyfileobj(staged, stream, length=65536)
+                        stream.flush()
+                        os.fsync(stream.fileno())
             except BaseException:
                 self._failed = True
                 raise
@@ -105,11 +138,53 @@ class ResultJournal:
     def records(self):
         if not self.path.exists():
             return
-        with self.path.open(encoding='utf-8') as stream:
-            for line in stream:
-                if not line.endswith('\n'):
+        with self.path.open('rb') as stream:
+            while True:
+                if stream.tell() > MAX_SPOOL_BYTES:
+                    raise ValueError('Journal size limit exceeded')
+                line = stream.readline(self._read_limit + 1)
+                if stream.tell() > MAX_SPOOL_BYTES:
+                    raise ValueError('Journal size limit exceeded')
+                if len(line) > self._read_limit:
+                    raise ValueError('Journal record size limit exceeded')
+                if not line or not line.endswith(b'\n'):
                     break
                 yield json.loads(line)
+
+    _read_limit = LEGACY_MAX_RECORD_BYTES
+
+    @contextmanager
+    def indexed(self):
+        """Bounded offset index for offline row/event consumption of a journal.
+
+        One scan accepts complete lines only; an interrupted final line remains
+        ignored. Payloads stay in authoritative JSONL, with row IDs indexed as
+        target keys. Scratch references are discarded with the owning context.
+        """
+        with TemporaryDirectory(prefix='read-', dir=self.path.parent) as scratch:
+            with closing(sqlite3.connect(str(Path(scratch) / 'order.sqlite'))) as db:
+                db.execute('PRAGMA cache_size=-512')
+                db.execute('PRAGMA temp_store=FILE')
+                db.execute('CREATE TABLE offsets (position INTEGER PRIMARY KEY, offset INTEGER, target TEXT)')
+                db.execute('CREATE INDEX targets ON offsets(target, position)')
+                db.execute('CREATE TABLE references_map (position INTEGER PRIMARY KEY, reference INTEGER)')
+                with (self.path.open('rb') if self.path.exists() else TemporaryFile(mode='w+b')) as source:
+                    with db:
+                        position = 0
+                        while True:
+                            offset = source.tell()
+                            if offset > MAX_SPOOL_BYTES:
+                                raise ValueError('Journal size limit exceeded')
+                            line = source.readline(self._read_limit + 1)
+                            if len(line) > self._read_limit:
+                                raise ValueError('Journal record size limit exceeded')
+                            if not line or not line.endswith(b'\n'):
+                                break
+                            record = json.loads(line)
+                            position += 1
+                            db.execute('INSERT INTO offsets VALUES (?, ?, ?)',
+                                       (position, offset, record.get('row_id', '')))
+                    yield ResultIndex(self, db, source)
 
 
 def _permission_retry(operation):
@@ -197,7 +272,7 @@ class ResultSpool:
             path.mkdir()
         manifest = dict(schema_version=1, run_id=run_id, task=task,
                         target_count=target_count, completed_count=0, failed_count=0,
-                        status='created', collection_complete=False, created_at=_now(), updated_at=_now())
+                        status='created', record_limit_bytes=MAX_RECORD_BYTES, collection_complete=False, created_at=_now(), updated_at=_now())
         (path / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
         (path / 'results.jsonl').touch()
         return cls(path, clean=clean)
@@ -368,6 +443,10 @@ class ResultSpool:
                 with self._indexed() as index:
                     yield index
 
+    @property
+    def _read_limit(self):
+        return MAX_RECORD_BYTES if ('binding' in self.manifest or 'record_limit_bytes' in self.manifest) else LEGACY_MAX_RECORD_BYTES
+
     @contextmanager
     def _indexed(self):
         """Build one bounded-cache SQLite index for repeated/batch consumption.
@@ -388,10 +467,10 @@ class ResultSpool:
                             offset = source.tell()
                             if offset > MAX_SPOOL_BYTES:
                                 raise ValueError('Spool size limit exceeded')
-                            line = source.readline(MAX_RECORD_BYTES + 1)
+                            line = source.readline(self._read_limit + 1)
                             if not line:
                                 break
-                            if len(line) > MAX_RECORD_BYTES:
+                            if len(line) > self._read_limit:
                                 raise ValueError('Spool record size limit exceeded')
                             if not line.endswith(b'\n'):
                                 if self.manifest['collection_complete']:

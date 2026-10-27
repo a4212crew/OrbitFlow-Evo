@@ -512,3 +512,25 @@ blocker remains `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`. See the existing validation
 matrix for Linux/Windows read-only reproduction; live validation remains pending.
 
 Issue #156 adds the explicit `manual=True` opt-in for the separate [Manual Configuration application](manual-configuration-api.md): identified IOS/IOS-XE/EdgeSwitch platform framing beyond predefined family profiles, with rejection detection before response redaction. Default predefined family restrictions and partial-save behavior are unchanged. The application, not this persistence capability, owns password authorization, backup, row success and durable evidence gates. XR/Huawei manual persistence remains unsupported.
+
+### Indexed source retention (Issue #162)
+
+The `prepare`, `prepare_workbook` and `confirm` signatures and returned summary
+fields remain unchanged. New confirmation rows reference a separately saved,
+complete public plan JSON named `confirmation-<reference>.json` in the existing
+protected authority directory. Keep this file with its SQLite confirmation row;
+missing, altered or linked sources fail before claiming or connecting. Preparation
+and confirmation stream/revalidate indexed observations instead of storing the
+whole plan inside one SQLite text parameter. Existing inline-plan confirmations
+remain supported. Exact source and summary digests and atomic replay claims are
+unchanged; recovered unverified historical plans cannot authorize execution.
+
+`BulkPlan.content` and `to_dict()` are explicit materializing compatibility APIs;
+large-run applications should use the existing `save`/`load` and workbook/service
+consumers, which use indexed internal views. Execution summary return values
+still contain bounded source-row/command metadata. Offline execution report
+recovery uses the shared SQLite event-offset index, preserving complete detail
+references without collecting all offsets or scanning the journal once per row.
+Prompt/save exchanges above 64 MiB fail explicitly and leave the session unsafe;
+there is no retry of writes. Synthetic confirmation tests mock the device runner;
+owner-operated live and native Windows validation remain pending.

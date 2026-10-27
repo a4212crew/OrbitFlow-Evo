@@ -107,13 +107,19 @@ revised worksheets before milestone completion. Templates 9-22 remain pending.
 Issue #156 approved design: [separate Manual Configuration](manual-configuration.md) supersedes legacy offline Manual CLI for new input generation only. Legacy plans remain offline/non-executable; predefined partial-save behavior is unchanged. The new optional profile password-hash section and success-only per-row save are implemented on this branch with synthetic deterministic tests; owner-operated live validation remains pending. Historical evidence above is retained.
 
 
-## Issue #162 third-review implementation boundary
+## Issue #162 indexed processing revision
 
-The v2 Excel exporter now writes expanded proposal/evidence cells through
-write-only worksheets; a fixed-size template supplies the existing navigation,
-styles, comments and validation lists. Protected workbook comparison still scans
-actual XML cells rather than trusting dimension hints. Writer scratch is removed
-on ordinary completion/failure. Immutable plan decoding, observation aggregation,
-32 MiB content validation, decision evaluation and confirmed execution preparation
-remain aggregate. This change does not establish end-to-end bounded planning or
-recovery. See the [audit ledger](../../operations/issue-162-processing-audit.md).
+V2 planning uses the shared SQLite JSON working set for observations and ordered
+results. Evaluation/validation groups all same-device rows before spooling results
+in original workbook order; target collision checks remain global. Canonical JSON
+is streamed with unchanged schema and digest, and loading indexes observations
+and results while parsing. XLSX output and protected review use indexed views.
+Public materializing compatibility accessors remain available; internal consumers
+avoid them. New confirmation records retain a digest-bound public plan file in
+the existing authority directory, supporting old inline confirmations as well.
+
+The [module audit ledger](../../operations/issue-162-processing-audit.md) records
+synthetic full-pipeline measurements, finite record/disk safety limits and pending
+owner validation. Atomic publication covers each file; the JSON/XLSX pair is not
+a single crash-atomic filesystem transaction. No recovery authorizes stale or
+unverified historical evidence and no private capture has been accessed.

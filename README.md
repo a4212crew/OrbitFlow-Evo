@@ -863,16 +863,15 @@ failures. See [tests and fresh owner lab checks](docs/user_manual/manual-configu
 Linux deterministic validation is recorded there; Windows and live validation of
 this correction remain pending.
 
-Issue #162 adds shared lease-protected SQLite spool retrieval (64 MiB per-envelope
-limit with disk-staged encoding; larger individual legacy records remain unsupported) and pre-network
-planning request/workbook digest metadata. End-to-end large-plan processing and
-large-run planning recovery remain unfinished. A limited read-only
-[offline recovery command](docs/user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision)
-now verifies workbook/request binding and freshness, with non-executable legacy
-diagnostics; existing aggregate limits still apply. See the [audit and validation ledger](docs/operations/issue-162-processing-audit.md).
-
-
-Issue #162 third-review increment streams configuration review worksheet cells
-and expanded evidence to disk, with ordinary-error scratch cleanup. Immutable
-plan decoding and the 16/32 MiB planning limits remain unchanged; this does not
-complete large-run planning. See the [writer validation and limitations](docs/user_manual/bulk-configuration-planning.md#review-workbook-writer-validation-third-review-increment).
+Issue #162 adds shared SQLite working sets for retained observations and ordered
+planning results, streamed immutable JSON loading/saving and XLSX export, and
+digest-bound source files for new execution confirmations. The former 16/32 MiB
+aggregate v2 planning gates are removed; small-contract v1 input files have a
+16 MiB pre-decode byte bound. Public plan JSON, workbooks, digests and
+approval/replay safeguards remain unchanged. See the
+[offline recovery instructions](docs/user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision)
+and [module audit and validation ledger](docs/operations/issue-162-processing-audit.md).
+New spool records retain a 64 MiB envelope limit; historical unmarked records have
+a finite 256 MiB read allowance. Configuration backup failure reports can be
+[regenerated offline](docs/user_manual/device-configuration-backup.md#offline-failure-report-recovery).
+Owner private-spool, live-device and native Windows validation remain pending.

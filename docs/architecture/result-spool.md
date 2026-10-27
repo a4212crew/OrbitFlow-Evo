@@ -65,11 +65,13 @@ Each JSONL envelope is limited to 64 MiB and the spool to 64 GiB, with explicit
 errors on append/read. Appends stage encoder chunks in a temporary on-disk file
 before copying a complete envelope to JSONL; scratch/serialization/size failures
 do not alter earlier committed records. The staging file needs writable space
-for one envelope in addition to the spool. The bound applies equally to legacy
-and new spools; historical individual records above 64 MiB remain unsupported.
+for one envelope in addition to the spool. New manifests record `record_limit_bytes`; provenance-bound or marked spools
+use the 64 MiB reader bound. Unmarked historical spools have a finite 256 MiB
+read allowance, preserving the demonstrated 65 MiB capture. Larger legacy records
+fail explicitly without deleting their source.
 Completed malformed, duplicate, out-of-range or truncated
 envelopes fail consumption and retain the run. Limits do not bound a device
-collector before it returns a payload. Only one target payload is decoded at a time.
+collector before it returns a payload. Retrieval decodes a bounded number of individual target payloads rather than a full run.
 The index is disposable; JSONL is authoritative. Per-target result size, input
 credentials and canonical inventory still occupy memory; this change bounds
 full-run report/attempt aggregation, not the existing inventory-store format.
@@ -162,9 +164,35 @@ historical workbook association through inference. The direct offline planning r
 [planning manual](../user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision).
 It verifies complete target order, binding and freshness under the shared lease.
 Explicit unbound legacy interpretation is diagnostic only and is rejected by
-execution preparation. Aggregate planning limits remain; recovery does not yet
-process the ~77 MB case. Existing immutable plan and execution gates remain.
+execution preparation. Observations and ordered results now use shared SQLite working sets;
+aggregate planning gates no longer apply. Existing immutable plan and execution gates remain.
 
 See the [whole-module audit and validation ledger](../operations/issue-162-processing-audit.md).
-End-to-end disk-backed planning/review/confirmation and >32 MiB candidate plans
-remain unfinished; shared spool scalability tests do not establish those features.
+`indexed_json.py` owns reusable immutable SQLite JSON maps/arrays and canonical
+stream encoding. Per-value processing is bounded to 256 MiB, total input to
+64 GiB, nesting to 64 and container membership to 100,000. Scratch databases use
+a 512 KiB cache and file-backed temporary storage; failed transactions remove
+scratch state. Spools and published JSON remain authoritative. Planning validation
+reevaluates complete same-device groups in workbook order, then indexes results
+by original position. During load, untrusted supplied results are retained only as
+hashes until reevaluation matches, preventing injected result secrets from reaching
+scratch SQLite. Canonical streaming preserves existing SHA-256 bytes.
+`BulkPlan.content`/`to_dict` retain explicit materializing compatibility behavior;
+internal consumers use indexed views. New confirmation SQLite rows bind a separate
+immutable public plan JSON by digest; old inline payloads remain supported.
+
+Journal appends stage encoded chunks on disk under the owning lock, enforce
+256 MiB per-event and 64 GiB total bounds before copying, then flush/fsync.
+Failures stop the writer; committed prefixes remain readable and incomplete
+final lines are ignored. Legacy iterator reads apply the same finite event/total
+bounds. `ResultJournal.indexed()` exposes the same offset interface for complete event
+lines, row-key lookup and disk-backed output references. Execution reports avoid
+full-run offset maps and repeated full journal scans. Backup failure outcomes use
+the shared spool beneath each backup run's `.processing` directory; raw config
+never enters it. Prompt/save exchange buffers have a 64 MiB receive ceiling;
+manual literal callbacks retain their disk-streamed receive behavior.
+
+Plan JSON publication is exclusive and atomic for one file. Recovery completes
+both exports before linking either, but two independent public filenames cannot
+be published atomically by these links; a process crash may leave one artifact.
+The retained spool can be exported to a new destination without networking.

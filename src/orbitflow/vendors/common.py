@@ -13,6 +13,8 @@ from orbitflow.vendors.privilege import ensure_privileged
 from orbitflow.vendors.prompts import is_structural_prompt
 from orbitflow.timing import measured, device_wait
 
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
 
@@ -120,6 +122,8 @@ class PromptCLI:
                 raise InteractiveCLIError(
                     f"channel closed before a {self._platform_name} prompt was received"
                 )
+            if len(received) + len(chunk) > MAX_RESPONSE_BYTES:
+                raise InteractiveCLIError('CLI response size limit exceeded')
             received.extend(chunk)
             self.last_response = received.decode('utf-8', errors='replace')
             candidate = None
@@ -411,6 +415,7 @@ class DeviceCLI(PromptCLI):
             raise InteractiveCLIError('save requires original EXEC and positive timeout')
         self.execution_mode(exec_prompt, platform)
         raw, echoed, answered = '', False, False
+        received_bytes = 0
         deadline = time.monotonic() + timeout
         try:
             self._channel.sendall(b'write memory\n')
@@ -423,6 +428,9 @@ class DeviceCLI(PromptCLI):
                     chunk = self._channel.recv(65535)
                 if not chunk:
                     raise InteractiveCLIError('save disconnected')
+                received_bytes += len(chunk)
+                if received_bytes > MAX_RESPONSE_BYTES:
+                    raise InteractiveCLIError('CLI response size limit exceeded')
                 raw += chunk.decode('utf-8', errors='replace')
                 lines = normalize_output(raw).split('\n')
                 if not echoed:

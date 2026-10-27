@@ -1177,30 +1177,50 @@ native Windows execution and controller-environment validation remain pending.
 See the [grouped validation procedure](user_manual/manual-configuration.md#grouped-session-validation-issue-158)
 and [protected-skill handoff](operations/issue-158-atlas-handoff.md).
 
-## Issue #162 shared indexed spool increment (incomplete Issue)
+## Issue #162 shared processing revision (acceptance pending)
 
-Shared spool consumption reuses one bounded-cache SQLite offset index across
-report passes; lease-protected point/target/batch retrieval, individual-envelope
-and disk safety limits, stricter envelope validation and file fsync are present.
-Individual envelopes allow up to 64 MiB, including legacy readers; disk-staged
-encoding avoids joining a full serialized device table during append. Larger
-historical individual records remain unsupported.
-Future v2 observations persist request/workbook digest metadata before networking;
-legacy source binding cannot be inferred. Synthetic 88-target/~77 MB, 500-target
-and 1,500-target spool tests assert peak Python allocations below 16 MiB. This
-is not end-to-end planning/RSS validation. Planning's 16/32 MiB aggregate limits,
-full-plan review/confirmation materialization remain unfinished. A direct offline
-`configuration.v2.cli recover` entry point checks bound workbook/request identity
-and freshness; explicit legacy diagnostic recovery cannot authorize execution.
-It retains the aggregate limits and cannot yet recover the ~77 MB case. No live, private-spool or Windows validation claimed.
-See the [audit ledger](operations/issue-162-processing-audit.md).
+Shared spool consumption uses a leased bounded-cache SQLite offset index. New
+writers mark their 64 MiB envelope limit; historical manifests without that marker
+or source binding use a finite 256 MiB reader allowance. Disk safety remains
+64 GiB. Historical 65 MiB captures are tested independently of new writer bounds.
+Shared `indexed_json` infrastructure holds per-device observations and ordered
+planning results on disk, streams canonical JSON and loads public artifacts
+without collecting observations into a full-run dictionary. The former 16/32 MiB
+aggregate planning limits are removed. Public `content`/`to_dict` compatibility
+accessors explicitly materialize JSON; internal planning/review consumers use
+indexed views. Requests and execution summaries retain bounded row metadata.
 
+New confirmations bind a separate complete public plan JSON in the existing
+protected authority directory; old inline-plan confirmations remain readable.
+Digest revalidation and transactional claim/replay behavior are preserved.
+Execution report event offsets/references use the shared SQLite journal index.
+Journal encoding stages to disk before append; both readers and writers enforce
+finite 256 MiB event/64 GiB total limits and preserve committed prefixes.
+Backup outcomes now retain sanitized failure metadata in a shared spool inside
+`.processing` beneath the existing backup run; raw captures stay separate. Its
+failure workbook has an offline atomic regeneration API. Prompt and save reads
+reject responses above 64 MiB; literal Manual Configuration receive callbacks
+continue to stream transcript bytes to disk with their existing pending-line bound.
 
-Issue #162 third-review increment: v2 XLSX export uses write-only worksheet XML
-for proposal/evidence cells, preserving template styling/navigation, decisions
-and protected review checks. Writer scratch files are cleaned on ordinary errors.
-Full-plan JSON decoding remains aggregate; 16/32 MiB gates, execution preparation,
-whole-module audit decisions and full-pipeline scalability remain unfinished.
-Synthetic writer-only 88/500/1,500-row tests are separate from the requested
-77 MB end-to-end recovery. A synthetic 65 MiB historical envelope demonstrates
-rejection by the unchanged 64 MiB reader guard; compatibility is unresolved.
+Future collections bind exact workbook/request digests before networking.
+Offline recovery preserves freshness/identity checks; explicitly requested legacy
+diagnostics remain unverified and cannot authorize execution. No historical source
+association is inferred. Two-file recovery publication is not crash-atomic across
+both names. V1 request and plan files now have a 16 MiB pre-decode byte bound while signed
+authority and closed schemas remain unchanged. Canonical inventory snapshots
+and Manual Configuration source metadata
+retain their existing public formats and bounded-workflow contracts.
+
+See the [module audit and test ledger](operations/issue-162-processing-audit.md)
+for final automated results and remaining gates. Owner private-spool, live-device,
+native Windows and controller-safe full-suite validation remain pending.
+
+Final fourth-review deterministic suite after pre-insert observation validation:
+**3,825 passed / 25 failed / 0 skipped**.
+All failed IDs match the pre-existing orchestration temp-root guard set; a green
+controller-safe owner run remains pending. Synthetic 88/~79 MB, 500 and 1,500
+retained-run pipelines pass export/load/protected review/decision/preparation and
+mocked confirmation/replay checks. Full-suite Python allocation peaks are
+18.0 / 20.2 / 37.1 MB; separate fresh-process RSS peaks are 107.0 / 117.1 / 164.3 MB,
+under asserted 96 MiB Python / 256 MiB RSS budgets. These are synthetic Linux
+measurements, distinct from pending owner/private-spool/native Windows/live checks.

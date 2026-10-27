@@ -401,11 +401,17 @@ Collection persists sanitized results through caller-owned `ResultSpool` sinks
 under `outputs/runs/configuration_observation`. Failures retain fixed status
 without exception text. These spools remain available for recovery; use the
 existing shared spool lifecycle tools to manage retention. The `observations`
-iterator supports per-device API consumption. The single-workbook adapter limits
-input to 5,000 occupied rows, row positions through 5,002, observation bundles to
-16 MiB and canonical plans to 32 MiB. Larger runs should consume the shared spool
-per device or use smaller review batches; workers never retain a full-run result
-set. Oversized artifacts fail explicitly instead of silently truncating evidence.
+iterator supports per-device API consumption. The single-workbook adapter retains its 5,000 occupied-row limit and row
+positions through 5,002. Observations and results use shared SQLite working sets;
+JSON save/load and workbook output stream. There is no aggregate 16/32 MiB gate.
+New observation envelopes are limited to 64 MiB; historical unmarked envelopes
+and individual JSON working values have a finite 256 MiB allowance. Disk input
+is limited to 64 GiB. Explicit oversized-record errors retain the source spool.
+Requests, same-device projections and execution summaries remain row metadata;
+Plan JSON save uses exclusive hard-link publication after complete serialization
+and fsync; its output filesystem must support hard links. Public
+`BulkPlan.content` and `to_dict()` explicitly materialize full JSON for
+compatibility and should be avoided by large-run application consumers.
 
 Platform bounds include VLANs 1â€“4094 (EdgeSwitch 2â€“4093), Catalyst/ME reserved
 1002â€“1005, EVC service-instance IDs 1â€“4000, NCS540 subinterfaces 0â€“2147483647,
@@ -757,10 +763,10 @@ a workbook match cannot be asserted retrospectively. This metadata does not
 authorize execution or relax freshness checks.
 
 The shared spool has lease-protected SQLite point/target/batch retrieval, with
-explicit 64 MiB individual-envelope and 64 GiB spool limits. These are separate
-from the planner's existing 16 MiB aggregate observation and 32 MiB plan limits,
-which still apply. A failure retains the spool; it does not reconnect or replay.
-The optional offline recovery command is described below; it retains both aggregate planning limits.
+explicit 64 MiB new-envelope and 64 GiB spool limits. Historical unmarked
+envelopes have a finite 256 MiB reader allowance. Planning uses indexed observations
+and results rather than aggregate size gates. A failure retains the spool; it does not reconnect or replay.
+The optional offline recovery command is described below; it uses the same indexed planning pipeline.
 See [Linux/Windows tests and read-only inspection](../operations/issue-162-processing-audit.md).
 The end-to-end large-plan Issue is not complete.
 
@@ -768,9 +774,10 @@ The end-to-end large-plan Issue is not complete.
 
 Recovery is read-only with respect to devices: it does not connect, request
 credentials, refresh inventory, execute commands or change the retained manifest
-and observations. It writes a new immutable JSON and decision workbook. This
-increment retains the existing 16 MiB aggregate observation and 32 MiB plan
-limits; it **does not yet recover the owner's approximately 77 MB run**.
+and observations. It writes a new immutable JSON and decision workbook. The
+indexed pipeline removes aggregate observation/plan limits. Synthetic large-run
+verification is recorded in the audit ledger; the owner's private run has not
+been accessed or validated.
 
 Linux (from the repository root):
 
@@ -881,9 +888,8 @@ Workbook export now streams proposal rows and Evidence Details to temporary XML
 files, removing those files on ordinary success or failure. Sheet order, columns,
 editable decisions, literal text, digest references, header comments, navigation,
 validation lists and row presentation remain unchanged. The public
-`export_plan(plan, path)` signature is unchanged. It still decodes the full plan;
-this is a writer-memory improvement, not complete disk-backed planning. The
-16/32 MiB aggregate gates and recovery restrictions above still apply.
+`export_plan(plan, path)` signature is unchanged. It consumes indexed plan observations/results. Freshness, provenance and
+protected workbook checks described above remain effective.
 
 Run the synthetic writer checks on Linux:
 
@@ -903,7 +909,63 @@ per row, complete ordered evidence output and less than 16 MiB additional peak
 Python allocations. They isolate the writer using already-decoded synthetic
 inputs; they do not measure full-pipeline memory, RSS, or a 77 MB recovery.
 The historical-envelope test directly constructs a sanitized 65 MiB JSONL record
-and expects rejection before JSON decoding. Today's 64 MiB reader limit is a
-known incompatibility with such historical records; retain the original spool.
+and verifies successful indexed retrieval under the finite 256 MiB legacy
+allowance. New marked/bound spools retain their 64 MiB limit. Legacy records above
+256 MiB still fail explicitly and remain retained; no unbounded decoder is used.
 Do not split or edit evidence to bypass provenance/digest checks. No native
 Windows, private-spool or live-device validation has occurred.
+
+
+### Complete synthetic pipeline validation (fourth revision)
+
+Linux:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_configuration_indexed_pipeline.py -q -o junit_family=legacy --junitxml=pipeline-results.xml
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m pytest tests/test_configuration_indexed_pipeline.py -q -o junit_family=legacy --junitxml=pipeline-results.xml
+```
+
+The three target-scale cases cover 88 (~79 MB), 500 and 1,500 targets with plans
+above 32 MiB, complete offline export/load, protected unchanged-workbook review,
+decision evaluation, preparation, mocked confirmation and replay rejection. They
+assert peak Python allocations below 96 MiB and record measured bytes in JUnit
+properties. The transport consumer is mocked; this does not perform a write or
+validate equipment. Run the full suite using the controller-safe temp-root
+instructions above. See the audit ledger for observed results.
+
+For owner-controlled read-only validation, use an exact retained source workbook
+and a **new** destination in the recovery command above. Bound sources must match
+both digests and pass freshness. Historical unbound captures require the explicit
+`--allow-unverified-legacy` diagnostic option and must remain non-executable.
+Inspect all expected JSON requests/results and protected Evidence Details against
+the source workbook; do not approve or execute changes to test recovery. Keep
+private captures outside Git, and never upload them. Native Windows and actual
+private-spool validation are pending. Ordinary export errors clean scratch files;
+a process crash between publishing JSON and XLSX can leave one name published.
+Retain source evidence and select a new destination when retrying that case.
+
+Optional Linux absolute-RSS validation uses GNU `/usr/bin/time`; each selected
+node also asserts its Python allocation budget. Run from the checkout with
+requirements installed:
+
+```bash
+set -e
+mkdir -p outputs/validation/configuration_processing
+/usr/bin/time -f '%M' -o outputs/validation/configuration_processing/88.rss_kib env PYTHONPATH=src python -m pytest 'tests/test_configuration_indexed_pipeline.py::test_full_recovery_review_preparation_pipeline[88-900000]' -q
+/usr/bin/time -f '%M' -o outputs/validation/configuration_processing/500.rss_kib env PYTHONPATH=src python -m pytest 'tests/test_configuration_indexed_pipeline.py::test_full_recovery_review_preparation_pipeline[500-72000]' -q
+/usr/bin/time -f '%M' -o outputs/validation/configuration_processing/1500.rss_kib env PYTHONPATH=src python -m pytest 'tests/test_configuration_indexed_pipeline.py::test_full_recovery_review_preparation_pipeline[1500-24000]' -q
+python -c "from pathlib import Path; root=Path('outputs/validation/configuration_processing'); peaks={n:int((root/(n+'.rss_kib')).read_text()) for n in ('88','500','1500')}; assert all(v<262144 for v in peaks.values()), peaks; print(peaks)"
+```
+
+Expected: one passing test per invocation and all recorded RSS values below
+262,144 KiB (256 MiB). Worker measurements and final suite counts are in the
+[audit ledger](../operations/issue-162-processing-audit.md). The PowerShell
+pipeline-test command above runs the portable Python allocation assertions;
+GNU time/RSS checks are Linux-specific. Native Windows measurements remain
+owner-controlled and pending.

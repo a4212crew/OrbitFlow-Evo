@@ -109,4 +109,5 @@ Issue #117 [revision handoff history](operations/issue-117-revision-handoff.md):
 - [Manual Configuration](user_manual/manual-configuration.md): multiline Excel rows with blank separators, numbered input selection, one consolidated report and named receive-only linked captures, password setup, per-row save and offline recovery.
 - [Manual Configuration API](operations/manual-configuration-api.md): reusable service and recovery contracts.
 
-- [Issue #162 processing audit and validation ledger](operations/issue-162-processing-audit.md) — shared indexed spool increment and explicitly unfinished end-to-end gates.
+- [Issue #162 processing audit and validation ledger](operations/issue-162-processing-audit.md) — indexed planning/review/confirmation, module decisions, measured synthetic coverage and pending owner gates.
+- [Offline backup failure recovery API](user_manual/device-configuration-backup.md#offline-failure-report-recovery) — regenerate retained safe failure metadata without device access.

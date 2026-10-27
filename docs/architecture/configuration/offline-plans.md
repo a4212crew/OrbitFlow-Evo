@@ -113,3 +113,13 @@ Deterministic tests cover the offline lifecycle, profiles, source kinds, no-op
 and conflict behavior, identity ambiguity, serialization, credential rejection,
 digest changes, expiry, tampering and CLI operation with sockets disabled.
 Device apply, live checks and adapter lab qualification remain future work.
+
+### Bounded v1 input loading (Issue #162)
+
+Valid v1 content remains bounded by its closed small-operation schema: at most
+100 targets and 100 VLAN operations each, with bounded identity/text fields.
+Request and saved-plan file loading now uses the shared bounded-text reader with
+a 16 MiB byte ceiling before decoding. It protects prevalidation without changing
+canonical JSON, signed authority, approval or the public CLI/API signatures.
+Large operational observation processing belongs to the shared indexed v2
+working set; it does not relax this v1 contract.

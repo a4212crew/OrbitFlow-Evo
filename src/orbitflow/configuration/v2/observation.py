@@ -162,16 +162,10 @@ def observations(spool):
 
 
 def bounded_observations(spool):
-    """Bound the adapter's immutable artifact size; the shared spool remains recoverable.
+    """Detach observations into the shared per-device SQLite working set.
 
-    Large API consumers can use observations() to plan/export one device at a
-    time instead. No worker accumulates results or writes shared artifacts.
+    The historical helper name is retained for callers. No aggregate observation
+    ceiling applies; individual record and disk bounds remain effective.
     """
-    from .planning import MAX_CONTENT
-    from orbitflow.configuration.plans import canonical
-    result, size = {}, 0
-    for ip, payload in observations(spool):
-        size += len(canonical(payload).encode())
-        require(size <= MAX_CONTENT // 2, "observation bundle too large; plan devices in smaller batches")
-        result[ip] = payload
-    return result
+    from orbitflow.indexed_json import IndexedJSON
+    return IndexedJSON(observations(spool))

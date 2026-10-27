@@ -25,7 +25,7 @@ def recover(workbook, spool_path, output, *, allow_unverified_legacy=False,
     evidence. Unbound legacy runs require explicit diagnostic opt-in; identity
     and evidence-age findings are preserved, and execution is prohibited.
     Complete outcomes (including failed targets) are required. Existing output
-    files are never replaced. The current BulkPlan aggregate limits still apply.
+    files are never replaced. Observation and result working sets are disk-backed; individual safety limits still apply.
     """
     require(type(allow_unverified_legacy) is bool, 'invalid recovery mode')
     require(type(max_evidence_age) is int and 1 <= max_evidence_age <= 86400,

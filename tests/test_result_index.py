@@ -326,14 +326,16 @@ def test_large_record_serialization_does_not_join_full_envelope(tmp_path, record
         assert index.get(1)['payload'] == payload
 
 
-def test_historical_envelope_over_64_mib_fails_before_json_decode(tmp_path, monkeypatch):
-    """Record the exact legacy compatibility boundary without a private capture.
+def test_historical_envelope_over_64_mib_remains_readable(tmp_path, monkeypatch):
+    """Preserve the demonstrated legacy capture with a finite reader allowance.
 
     Older writers had no per-envelope cap. Construct their public envelope
     directly, in chunks, so this exercises the reader rather than today's writer.
     """
     import orbitflow.result_spool as module
     spool = collected(tmp_path, 1)
+    spool.manifest.pop('record_limit_bytes', None)
+    (spool.path / 'manifest.json').write_text(json.dumps(spool.manifest))
     source = spool.path / 'results.jsonl'
     record = json.loads(source.read_text())
     del record['payload']
@@ -347,12 +349,75 @@ def test_historical_envelope_over_64_mib_fails_before_json_decode(tmp_path, monk
     size = source.stat().st_size
     decode = module.json.loads
     def bounded_decode(value, *args, **kwargs):
-        assert len(value) <= module.MAX_RECORD_BYTES
+        assert len(value) <= module.LEGACY_MAX_RECORD_BYTES
         return decode(value, *args, **kwargs)
     monkeypatch.setattr(module.json, 'loads', bounded_decode)
-    with pytest.raises(ValueError, match='record size limit'):
-        with spool.indexed():
-            pytest.fail('oversized historical record accepted')
+    with spool.indexed() as index:
+        assert len(index.get(1)['payload']['evidence']) == 65 * 1024 * 1024
     assert source.stat().st_size == size
     assert spool.manifest['collection_complete'] is True
     assert not list(spool.path.glob('read-*'))
+
+
+def test_journal_index_point_target_and_references(tmp_path):
+    from orbitflow.result_spool import ResultJournal
+    journal = ResultJournal(tmp_path / 'events.jsonl')
+    for i in range(1000):
+        journal.append({'row_id': f'row-{i % 10}', 'stage': 'synthetic', 'value': i})
+    with journal.path.open('a') as stream:
+        stream.write('{"interrupted":')
+    with journal.indexed() as index:
+        assert len(index) == 1000
+        assert index.get(11)['value'] == 10
+        assert [event['value'] for _, event in index.entries(target='row-0')] == list(range(0, 1000, 10))
+        index.set_reference(11, 55)
+        assert index.reference(11) == 55
+        assert index.reference(12) is None
+    assert not list(tmp_path.glob('read-*'))
+
+
+def test_journal_index_missing_file_preserves_empty_legacy_view(tmp_path):
+    from orbitflow.result_spool import ResultJournal
+    journal = ResultJournal(tmp_path / 'not-created.jsonl')
+    assert list(journal.records()) == []
+    with journal.indexed() as index:
+        assert len(index) == 0
+        assert list(index.entries()) == []
+    assert not journal.path.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_journal_record_limits_preserve_committed_records_and_stop_writer(tmp_path, monkeypatch):
+    from orbitflow.result_spool import ResultJournal
+    monkeypatch.setattr(ResultJournal, '_read_limit', 128)
+    journal = ResultJournal(tmp_path / 'events.jsonl')
+    journal.append({'row_id': 'first', 'status': 'complete'})
+    previous = journal.path.read_bytes()
+    with pytest.raises(ValueError, match='record size'):
+        journal.append({'oversized': 'x' * 256})
+    assert journal.path.read_bytes() == previous
+    with pytest.raises(RuntimeError, match='stopped'):
+        journal.append({'row_id': 'unsafe-retry'})
+    assert list(journal.records()) == [{'row_id': 'first', 'status': 'complete'}]
+    with journal.path.open('ab') as stream:
+        stream.write(b'x' * 129)
+    with pytest.raises(ValueError, match='record size'):
+        list(journal.records())
+    with pytest.raises(ValueError, match='record size'):
+        with journal.indexed():
+            pass
+
+
+def test_journal_disk_bound_fails_before_appending(tmp_path, monkeypatch):
+    import orbitflow.result_spool as module
+    journal = module.ResultJournal(tmp_path / 'events.jsonl')
+    journal.append({'safe': 'first'})
+    previous = journal.path.read_bytes()
+    monkeypatch.setattr(module, 'MAX_SPOOL_BYTES', len(previous) + 1)
+    with pytest.raises(ValueError, match='Journal size limit'):
+        journal.append({'safe': 'second'})
+    assert journal.path.read_bytes() == previous
+    with journal.path.open('ab') as stream:
+        stream.write(b'{"safe": "untrusted surplus"}\n')
+    with pytest.raises(ValueError, match='Journal size limit'):
+        list(journal.records())
