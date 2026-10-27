@@ -205,3 +205,9 @@ captures beside it are <sanitized-hostname>_<sanitized-ip>.txt with IP fallback.
 Durable references follow safe identity renames; historical recovery remains supported.
 The console retains the batch count, hidden password and explicit confirmation,
 removing explanatory warnings before the password. Execution/save safety is unchanged.
+
+Manual Configuration Issue #158 keeps the existing menu, password/confirmation
+gates and per-run concurrency choice. Each executable row now opens a fresh SSH
+connection and shell; fixed setup stages appear in row failure reasons. Repeated
+authentication and shared pacing increase connection overhead. See the
+[manual row validation procedure](manual-configuration.md#fresh-connections-and-setup-diagnostics-issue-158).

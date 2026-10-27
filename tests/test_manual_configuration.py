@@ -63,7 +63,7 @@ def fake(monkeypatch, tmp_path):
     def collect(self, *args, **kwargs):
         fail('backup')
         return 'hostname host\n'
-    def setup(*args):
+    def setup(*args, **kwargs):
         calls.append(('setup',))
         fail('setup')
     def finalize(*args):
@@ -101,7 +101,7 @@ def test_duplicate_noncontiguous_ip_fresh_shell_per_row(fake, auth):
     assert [r['source_row'] for r in records(path)] == [2, 4, 3]
     assert all(r['status'] == 'Completed' and r['save'] == 'Saved' for r in records(path))
     assert len([c for c in calls if c[0] == 'save']) == 3
-    assert len([c for c in calls if c[0] == 'connect']) == 2
+    assert len([c for c in calls if c[0] == 'connect']) == 3
     assert len([c for c in calls if c[0] == 'close_shell']) == 3
     assert [c[2] for c in calls if c[0] == 'command'] == rows[0]['commands'] * 3
     assert len(list(Path('outputs/reports/manual_configuration').rglob('*.txt'))) == 2
@@ -520,7 +520,8 @@ def test_shell_cleanup_failure_after_save_blocks_later_rows(fake, auth, monkeypa
     monkeypatch.setattr(m.DeviceCLI, '__exit__', fail)
     path = run([row(2), row(3)], auth)
     assert len([c for c in calls if c[0] == 'save']) == 1
-    assert records(path)[0]['status'] == 'Incomplete'
+    assert records(path)[0]['status'] == 'Completed'
+    assert records(path)[0]['cleanup'] == 'Failed'
     assert records(path)[0]['save'] == 'Saved'
     assert records(path)[1]['attempted'] == 0
     assert len([c for c in calls if c[0] == 'close_session']) == 1
@@ -1087,3 +1088,207 @@ def test_api_invalid_ip_has_fixed_diagnostic_without_echo(fake, auth):
                   credentials={}, transport_config=None, execution_config=config)
     assert str(error.value) == m.INPUT_ERROR
     assert fake[0] == []
+
+
+@pytest.fixture
+def owned_server(monkeypatch, tmp_path):
+    """Real session/CLI/identity/backup/save, with a one-shell SSH server model."""
+    from orbitflow.transport import DeviceSession, connect_device
+    from orbitflow.transport import linux
+    from orbitflow.transport.policy import ConnectionStartPacer
+    from orbitflow import execution
+    from test_capability_context import DEVICES
+    clients, faults, starts = [], {}, []
+    class Shell:
+        def __init__(self, client):
+            self.client, self.pending, self.sent = client, [], []
+            self.prompt, self.closed = 'sw#', False
+        def sendall(self, data):
+            assert self.client.active and not self.closed
+            command = data.decode().strip()
+            assert not self.pending
+            self.sent.append(command)
+            stage = {'': 'prompt', 'show version': 'identity',
+                     'show running-config': 'backup', 'configure terminal': 'config entry'}.get(command)
+            if self.client.failure == stage:
+                raise EOFError('received-sensitive-text')
+            if command == '' and self.client.failure == 'privilege':
+                self.prompt = 'sw>'  # Missing enable credential must fail in shared privilege setup.
+            old = self.prompt
+            if command == 'configure terminal':
+                self.prompt = 'sw(config)#'
+            elif command == 'end':
+                self.prompt = 'sw#'
+            output = {'show version': DEVICES[0][0], 'show running-config': 'hostname sw\n!\n',
+                      'write memory': '[OK]'}.get(command, '')
+            self.pending = [(f'{old}{command}\r\n{output}\r\n{self.prompt}' if command else self.prompt).encode()]
+            if command == 'description disposable' and self.client.failure == 'interruption':
+                self.pending = [KeyboardInterrupt()]
+        def recv(self, maximum):
+            if not self.pending:
+                raise socket.timeout()
+            item = self.pending.pop(0)
+            if isinstance(item, BaseException):
+                raise item
+            return item
+        def settimeout(self, timeout):
+            assert timeout > 0
+        def close(self):
+            self.closed = True
+            self.client.active = False  # Server destroys transport after first shell.
+            if self.client.failure == 'shell cleanup':
+                raise OSError('sensitive cleanup text')
+    class Client:
+        def __init__(self, ip, failure):
+            self.ip, self.failure, self.active = ip, failure, True
+            self.shell, self.released = None, []
+        def invoke_shell(self):
+            assert self.active and self.shell is None
+            if self.failure == 'shell':
+                raise EOFError('sensitive shell text')
+            self.shell = Shell(self)
+            return self.shell
+        def cleanup(self):
+            # Model reverse transport dependencies, continuing through each failure.
+            try:
+                self.released.append('target')
+                self.active = False
+                if self.failure == 'session cleanup':
+                    raise OSError('sensitive target text')
+            finally:
+                try:
+                    self.released.append('tunnel')
+                    if self.failure == 'tunnel cleanup':
+                        raise OSError('sensitive tunnel text')
+                finally:
+                    self.released.extend(['bastion', 'proxy'])
+    def connector(ip, credentials, config):
+        # A new attempt must follow full cleanup, even for noncontiguous same-IP rows.
+        assert all(c.released == ['target', 'tunnel', 'bastion', 'proxy'] for c in clients if c.ip == ip)
+        failure = faults.get(len(clients) + 1, '')
+        if failure == 'connection':
+            raise EOFError('sensitive connection text')
+        client = Client(ip, failure)
+        clients.append(client)
+        return DeviceSession(client, client.cleanup)
+    def paced_connect(*args):
+        return connect_device(*args, system='Linux')
+    monkeypatch.setattr(linux, 'connect_linux', connector)
+    monkeypatch.setattr(m, 'connect_device', paced_connect)
+    # Exercise actual shared admission with a deterministic clock, no wall-clock wait.
+    clock = [0.0]
+    def sleep(seconds):
+        starts.append(seconds)
+        clock[0] += seconds
+    pacer = ConnectionStartPacer(2, clock=lambda: clock[0], sleep=sleep)
+    monkeypatch.setattr(execution, 'ConnectionStartPacer', lambda interval: pacer)
+    monkeypatch.chdir(tmp_path)
+    yield clients, faults, starts
+
+
+def test_real_owned_sessions_noncontiguous_rows_and_offline_capture(owned_server, auth):
+    clients, _, starts = owned_server
+    path = run([row(2, text='description disposable'), row(3, '192.0.2.2', 'description disposable'),
+                row(4, text='description disposable')], auth)
+    result = records(path)
+    assert [r['source_row'] for r in result] == [2, 4, 3]
+    assert all(r['status'] == 'Completed' and r['save'] == 'Saved' for r in result)
+    assert len(clients) == 3 and len({id(c) for c in clients}) == 3
+    assert starts == [2, 2]
+    for client in clients:
+        assert client.shell.closed and not client.active
+        assert client.released == ['target', 'tunnel', 'bastion', 'proxy']
+        for command in ['show version', 'show inventory', 'show running-config', 'description disposable', 'write memory']:
+            assert client.shell.sent.count(command) == 1
+    assert result[0]['transcript'] == result[1]['transcript']
+    assert len(list(Path('outputs/backups/configuration').rglob('*.txt'))) == 3
+    # Offline refresh preserves row identity and one receive-only capture across sessions.
+    output = m.regenerate_report(path)
+    book = load_workbook(output)
+    assert [r[0].value for r in list(book.active.rows)[1:]] == ['2', '3', '4']
+    assert Path(result[0]['transcript']).read_text().count('description disposable') == 2
+    assert len(clients) == 3
+
+
+@pytest.mark.parametrize('failure, stage', [
+    ('connection', 'connection establishment'), ('shell', 'shell opening'),
+    ('prompt', 'initial prompt/session preparation'), ('privilege', 'privilege'),
+    ('identity', 'identification'), ('backup', 'backup'), ('config entry', 'config entry'),
+    ('interruption', 'command capture'), ('shell cleanup', 'cleanup'),
+    ('session cleanup', 'cleanup'), ('tunnel cleanup', 'cleanup'),
+])
+def test_second_owned_row_failure_preserves_previous_and_stops(owned_server, auth, failure, stage):
+    clients, faults, _ = owned_server
+    faults[2] = failure
+    path = run([row(2, text='description disposable'), row(3, text='description disposable'),
+                row(4, text='description disposable')], auth)
+    first, failed, stopped = records(path)
+    assert first['status'] == 'Completed' and first['save'] == 'Saved'
+    assert failed['reason'].startswith(stage + ':')
+    assert 'sensitive' not in failed['reason']
+    assert stopped['attempted'] == 0 and stopped['save'] == 'Not initiated'
+    if 'cleanup' in failure:
+        assert failed['status'] == 'Completed' and failed['save'] == 'Saved'
+        assert failed['cleanup'] == 'Failed'
+    else:
+        assert failed['status'] == 'Incomplete' and failed['save'] == 'Not initiated'
+        assert failed['attempted'] == (1 if failure == 'interruption' else 0)
+    assert len(clients) == (1 if failure == 'connection' else 2)
+    for client in clients:
+        assert client.released == ['target', 'tunnel', 'bastion', 'proxy']
+        assert not client.active
+        if client.shell is not None:
+            assert client.shell.closed
+    if len(clients) == 2 and 'cleanup' not in failure:
+        assert 'write memory' not in (clients[1].shell.sent if clients[1].shell else [])
+
+
+def test_owned_sessions_are_isolated_between_concurrent_workers(owned_server, auth):
+    clients, _, _ = owned_server
+    rows = [row(2, text='description disposable'), row(3, '192.0.2.2', 'description disposable'),
+            row(4, text='description disposable'), row(5, '192.0.2.2', 'description disposable')]
+    config = m.ExecutionConfig(2, 0, 0)
+    path = m.execute(rows, profile=auth, password='test authorization password',
+                     confirmation_digest=m.summary(rows, config)['digest'],
+                     credentials={r['management_ip']: DeviceCredentials('operator') for r in rows},
+                     transport_config=None, execution_config=config)
+    result = records(path)
+    assert all(r['status'] == 'Completed' and r['save'] == 'Saved' for r in result)
+    assert len(clients) == 4 and len({id(c.shell) for c in clients}) == 4
+    for ip in {r['management_ip'] for r in rows}:
+        assert [r['source_row'] for r in result if r['management_ip'] == ip] == [r['source_row'] for r in rows if r['management_ip'] == ip]
+        assert len({r['transcript'] for r in result if r['management_ip'] == ip}) == 1
+    assert len({r['transcript'] for r in result}) == 2
+
+
+def test_constructor_failure_and_failed_shell_close_still_close_session(owned_server, auth, monkeypatch):
+    from orbitflow.vendors.common import PromptCLI
+    clients, faults, _ = owned_server
+    faults[2] = 'prompt'
+    original = PromptCLI.close
+    def close(cli):
+        original(cli)
+        if cli.session.client.failure == 'prompt':
+            raise OSError('private close text')
+    monkeypatch.setattr(PromptCLI, 'close', close)
+    path = run([row(2, text='description disposable'), row(3), row(4)], auth)
+    first, failed, stopped = records(path)
+    assert first['status'] == 'Completed' and first['save'] == 'Saved'
+    assert failed['reason'].startswith('initial prompt/session preparation:')
+    assert failed['cleanup'] == 'Failed'
+    assert failed['attempted'] == stopped['attempted'] == 0
+    assert len(clients) == 2 and clients[1].released == ['target', 'tunnel', 'bastion', 'proxy']
+
+
+def test_cleanup_failure_preserves_row_but_marks_device_incomplete(owned_server, auth):
+    clients, faults, _ = owned_server
+    faults[1] = 'session cleanup'
+    path = run([row(2, text='description disposable')], auth)
+    result = records(path)[0]
+    assert result['status'] == 'Completed' and result['save'] == 'Saved'
+    report = m.regenerate_report(path)
+    book = load_workbook(report)
+    assert book['Devices']['B2'].value == 'Incomplete / pending'
+    assert book.active['C2'].value == 'Completed'
+    assert book.active['D2'].value == 'cleanup: Resource release failed'
+    assert clients[0].released == ['target', 'tunnel', 'bastion', 'proxy']

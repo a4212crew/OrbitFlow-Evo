@@ -1,4 +1,4 @@
-"""Literal Excel blocks: fresh shells, redacted evidence, success-only automatic save.
+"""Literal Excel blocks: fresh row connections/shells, redacted evidence, success-only automatic save.
 
 Explicit engineer persistence commands may save before any later row failure.
 
@@ -33,7 +33,7 @@ from orbitflow.transport import connect_device
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.capabilities.configuration import ConfigurationService
 from orbitflow.capabilities.save import save_configuration
-from orbitflow.vendors.common import DeviceCLI, normalize_output
+from orbitflow.vendors.common import DeviceCLI, CLICleanupError, normalize_output
 from orbitflow.vendors.configuration_facts import _safe_source
 from orbitflow.vendors import manual_configuration as vendor
 
@@ -208,6 +208,8 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
             reports_dir='outputs/reports/manual_configuration', on_output=None):
     """Apply only after local password and summary-bound explicit confirmation.
 
+    Each executable row owns a fresh shared transport connection and shell; cleanup
+    failure stops later same-IP rows without erasing completed/save evidence.
     credentials maps IP to existing DeviceCredentials. Authored CLI may contain secrets;
     source workbooks must be protected. Save status describes automatic save only.
     Returns a retained run path. Refreshes one consolidated report per device via the
@@ -325,7 +327,6 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
 
         def worker(ip):
             stopped = False
-            session = None
             transcript = None
             path = None
             try:
@@ -334,7 +335,9 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                status='Incomplete', reason='', attempted=0, total=len(source['commands']),
                                last_command=None, save='Not initiated', verification_scope=SCOPE,
                                transcript=str(path.resolve()) if path else '')
-                    phase = 'setup'
+                    phase = 'recording'
+                    session = None
+                    cleanup_failed = False
                     save_sent = False
                     pending = ''
                     try:
@@ -360,14 +363,31 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                             stopped = True
                         else:
                             checkpoint()
-                            if session is None:
-                                if ip not in credentials:
-                                    raise ValueError('Credentials unavailable')
-                                event(ip, 'connect', source_row=source['source_row'])
-                                session = connect_device(ip, credentials[ip], transport_config)
-                            # This context owns a NEW shell every row. No literal
-                            # exit is used for cleanup, even from unknown submodes.
-                            with DeviceCLI(session, timeout=settings.setup_timeout) as cli:
+                            phase = 'connection establishment'
+                            if ip not in credentials:
+                                raise ValueError('Credentials unavailable')
+                            event(ip, 'connect', source_row=source['source_row'])
+                            session = connect_device(ip, credentials[ip], transport_config)
+                            def setup_stage(stage):
+                                nonlocal phase
+                                phase = stage
+                                event(ip, stage, source_row=source['source_row'])
+                            @contextmanager
+                            def row_shell():
+                                nonlocal cleanup_failed
+                                cli = DeviceCLI(session, timeout=settings.setup_timeout,
+                                                setup_stage=setup_stage)
+                                try:
+                                    yield cli.__enter__()
+                                finally:
+                                    try:
+                                        cli.__exit__(None, None, None)
+                                    except BaseException:
+                                        cleanup_failed = True
+                            # The shell and its entire parent transport belong to this row.
+                            phase = 'shell opening'
+                            with row_shell() as cli:
+                                phase = 'identification'
                                 context = DeviceInventoryResolver(store, sanitize_fact=clean).resolve(session, management_ip=ip, cli=cli)
                                 desired = report_directory / (filename_component(clean(context.hostname or ip)) + '_' + filename_component(ip or 'invalid-input') + '.txt')
                                 if desired != path:
@@ -396,9 +416,9 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                     content = content.replace(value, '[REDACTED]')
                                 saved_backup = backup.write(context.hostname or ip, context.platform, content)
                                 event(ip, 'backup', source_row=source['source_row'], backup=str(saved_backup))
-                                phase = 'setup'
+                                phase = 'config entry'
                                 checkpoint()
-                                vendor.setup(cli, context, settings.setup_timeout)
+                                vendor.setup(cli, context, settings.setup_timeout, setup_stage=setup_stage)
                                 pending = ''
                                 recent = ''
                                 received = 0
@@ -468,6 +488,8 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                 phase = 'recording'
                                 row.update(status='Completed', reason='')
                     except BaseException as exc:
+                        if isinstance(exc, CLICleanupError):
+                            cleanup_failed = True
                         if pending and transcript is not None:
                             try:
                                 record('RECEIVE (interrupted)', pending)
@@ -484,12 +506,26 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                             'Global configuration mode not established', 'Save mode synchronization failed',
                             'Save not confirmed or explicitly rejected', 'Finalization rejected or interactive',
                             'Literal command overall deadline', 'Literal command first response deadline',
-                            'Literal command disconnected'} else type(exc).__name__
+                            'Literal command disconnected'} else ('Timeout' if isinstance(exc, TimeoutError) else
+                                  'Connection closed' if isinstance(exc, (EOFError, ConnectionError)) else
+                                  'Operation failed')
                         row['reason'] = f'{phase}: {detail}'
                         if save_sent and row['save'] not in {'Saved', 'Failed'}:
                             row['save'] = 'Unknown'
                         if not isinstance(exc, Exception):
                             row['reason'] = f'{phase}: Interrupted'
+                    finally:
+                        if session is not None:
+                            try:
+                                session.close()
+                            except BaseException:
+                                cleanup_failed = True
+                            finally:
+                                session = None
+                    if cleanup_failed:
+                        stopped = True
+                        row['cleanup'] = 'Failed'
+                        row['reason'] = (row['reason'] + '; ' if row['reason'] else '') + 'cleanup: Resource release failed'
                     try:
                         event(ip, 'row_result', **{k: v for k, v in row.items() if k != 'management_ip'})
                     except BaseException:
@@ -499,8 +535,6 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
             finally:
                 if transcript is not None:
                     transcript.close()
-                if session is not None:
-                    session.close()
             return dict(management_ip=ip, failed=stopped)
 
         def persist(outcome):
@@ -618,7 +652,8 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
                 grouped.setdefault(source['management_ip'], []).append(source)
             for ip, selected in grouped.items():
                 completed = sum(results.get(r['source_row'], {}).get('status') == 'Completed' for r in selected)
-                status = 'Completed' if completed == len(selected) else 'Incomplete / pending'
+                cleanup_failed = any(results.get(r['source_row'], {}).get('cleanup') == 'Failed' for r in selected)
+                status = 'Completed' if completed == len(selected) and not cleanup_failed else 'Incomplete / pending'
                 cells = [WriteOnlyCell(devices, value) for value in [ip, status, str(completed), str(len(selected))]]
                 for cell in cells:
                     cell.data_type = 's'

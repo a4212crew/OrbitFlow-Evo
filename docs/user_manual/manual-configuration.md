@@ -92,9 +92,10 @@ Incomplete outcome. No raw invalid cells are retained in artifacts.
 | Junos / other | No workflow support | Unsupported; no invented driver or command fallback. |
 
 Different IPs use shared bounded device execution. Repeated/noncontiguous IPs keep
-workbook order on that device's worker and share its healthy underlying transport
-and one transcript, but **never share a live shell**. Each row opens, identifies and
-prepares a fresh shell; its channel closes directly after the row even from an
+workbook order on that device's worker and share one transcript. The historical
+shared-transport policy is superseded by the approved Issue #158 correction below.
+Each executable row must open a fresh connection and shell and close both after
+the row, even from an
 unknown submode. A protected pre-change backup is collected before each row's
 user writes. Backup failure blocks that row and later rows on the same device.
 
@@ -347,3 +348,104 @@ Do not infer unsaved state. Exercise unsupported questions/disconnect and interr
 automatic save (Unknown, no retry), then regenerate offline with networking disabled.
 Use fake credentials for confidentiality checks; inspect sanitized captures and notes.
 No independent configuration verification is implied by these transcript checks.
+
+## Approved connection correction — Issue #158
+
+The owner-approved correction supersedes Issue #156 statements about sharing a
+healthy transport or one connection per IP. Historical source/tests reused one
+DeviceSession per IP with a new shell per row. This approved correction was
+recorded before implementation on this branch; source/tests establish historical
+behavior. Issue #158 now gives each valid executable row a fresh connection through
+shared `connect_device`, a fresh shell, identity and protected backup, and closes
+its entire transport chain before the next row. One worker per IP, original row
+order and one device capture remain. Invalid/stopped rows never connect.
+Repeated authentication/tunnel setup adds connection overhead and shared pacing.
+Owner run 20261027_064039 showed a second-row setup EOF; its exact failing operation
+and server-side cause are unproven. Never replay the completed first row.
+
+Setup failures use fixed sanitized stages: `connection establishment`, `shell
+opening`, `initial prompt/session preparation`, `privilege`, `identification`,
+`backup` and `config entry`. Categories include Timeout, Connection closed,
+Operation failed and Interrupted; approved fixed diagnostics remain available.
+No arbitrary exception text or received setup text enters the row reason. Shell
+cleanup and every owned transport cleanup are attempted before recording the row.
+A cleanup failure stops later same-device rows and adds a fixed cleanup reason; a
+row already Completed/Saved retains that evidence. Other devices may continue.
+No user command or save is retried. Only the existing shared establishment-only
+retry policy applies before a session is returned. Explicit user persistence and
+predefined partial-save behavior remain independent.
+
+## Fresh connections and setup diagnostics (Issue 158)
+
+Run these automated commands from the final checked-out branch root, after
+installing the repository test dependencies. Both are offline deterministic gates;
+the Windows command is supplied for controller/owner execution and was not run by
+the Linux implementation worker.
+
+Linux Bash:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_transport.py tests/test_transport_authentication.py tests/test_shared_cli.py tests/test_device_execution.py tests/test_result_spool.py tests/test_configuration_execution.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py tests/test_configuration_backup.py tests/test_cli_lifecycle.py tests/test_cisco_ios_cli.py tests/test_cisco_terminal_width.py tests/test_edgeswitch_angle_prompt.py tests/test_prompt_banners.py -q
+PYTHONPATH=src python -m pytest -q
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_transport.py tests/test_transport_authentication.py tests/test_shared_cli.py tests/test_device_execution.py tests/test_result_spool.py tests/test_configuration_execution.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py tests/test_configuration_backup.py tests/test_cli_lifecycle.py tests/test_cisco_ios_cli.py tests/test_cisco_terminal_width.py tests/test_edgeswitch_angle_prompt.py tests/test_prompt_banners.py -q
+python -m pytest -q
+```
+
+Owner-operated lab validation (pending; Codex performs no network changes):
+
+1. Use an isolated disposable lab interface and separately review two reversible
+   description changes. Create a new manual workbook with exactly two rows for
+   the same lab IP, one reviewed change per row. Do not rerun owner run
+   20261027_064039 or replay its completed first row. Authenticate Teleport using
+   the usual operator process, then select Manual Configuration, the fresh
+   workbook, concurrency 1, local password and explicit summary confirmation.
+2. Monitor connections independently: require two distinct target SSH sessions,
+   two shells, and complete tunnel/session cleanup after each row. Each row must
+   identify the device afresh, produce a protected backup, send only its reviewed
+   commands once, and issue exactly one confirmed automatic save. Expect both
+   rows Completed/Saved; this confirms transcript/save framing, not independent
+   semantic correctness. Inspect the lab configuration separately and restore
+   disposable changes under a separately reviewed operator action.
+3. Check one consolidated output workbook with the original source rows and
+   relative links to one named receive-only device capture containing both rows.
+   Record total elapsed time, including repeated connection setup and pacing.
+   Regenerate the retained run offline with networking disabled and compare row
+   status/save evidence and working links; also regenerate an historical retained
+   run without connecting or reclassifying Unknown.
+4. In a separate fresh, disposable failure run, make the second connection or
+   shell fail using operator-controlled lab access. Require first row
+   Completed/Saved, second row Incomplete at the observed fixed stage, zero
+   second-row user commands/save, and no replay. With an additional third same-IP
+   row it must remain unattempted; an independent lab device may finish. Safely
+   exercise cleanup interruption only in the lab, checking all tunnel resources
+   are attempted and later same-device rows stop. Never infer a device defect
+   solely from a setup EOF.
+
+The deterministic server model closes its transport after its first shell and
+requires a different owned session for each later row. It exercises real shared
+CLI, identity, configuration capture, finalization and save, second-row setup and
+cleanup failures, interruption, pacing, noncontiguous rows, concurrent ownership
+and offline report regeneration. Windows transport is mocked in Linux tests;
+actual Windows operation and fresh two-row hardware compatibility remain pending.
+Controller validation results are separate from implementation-worker results.
+
+The full-suite controller tests require an OS temporary directory outside any Git
+checkout (including its ancestors). The implementation sandbox has `.git` markers
+in both `/tmp` and its assigned temporary directory, so its controller temp guard
+rejects those paths. Do not remove markers or weaken the guard to make tests pass.
+Run the same full gate in the controller's normal external temporary environment.
+A cleanup failure leaves the device summary Incomplete / pending even when its
+completed rows truthfully remain Completed/Saved.
+
+Implementation-worker Linux results for Issue #158: affected suite **1,137
+passed**; full gate **3,727 passed, 25 failed**. All 25 failures are existing
+orchestration tests rejected by the sandbox temp-directory Git-marker guard
+described above. A retry using `/tmp` reproduced that restriction. Controller
+validation in a normal external temp environment remains pending; no controller
+Git/GitHub lifecycle actions were performed.

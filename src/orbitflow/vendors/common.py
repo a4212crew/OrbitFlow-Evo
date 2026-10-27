@@ -20,6 +20,10 @@ class InteractiveCLIError(Exception):
     """An interactive device CLI operation failed."""
 
 
+class CLICleanupError(InteractiveCLIError):
+    """Shell cleanup failed during construction; parent cleanup is still required."""
+
+
 class InteractiveCLITimeout(InteractiveCLIError, TimeoutError):
     """A prompt was not received before the command deadline."""
 
@@ -40,27 +44,36 @@ class PromptCLI:
         rejected: Callable[[str], bool],
         platform_name: str,
         timeout: float = 10.0,
+        setup_stage: Callable[[str], None] | None = None,
     ) -> None:
         if timeout <= 0:
             raise ValueError("timeout must be greater than zero")
         self._prompt_re = re.compile(prompt_pattern, re.MULTILINE)
         self._rejected = rejected
         self._platform_name = platform_name
+        stage = setup_stage or (lambda _stage: None)
+        stage('shell opening')
         self._channel: Any = session.invoke_shell()
         try:
+            stage('initial prompt/session preparation')
             self._channel.sendall(b"\n")
             _, self.prompt = self._read_until_prompt(timeout)
             if platform_name in {"identification", "Cisco", "Ubiquiti EdgeSwitch"}:
+                stage('privilege')
                 self.prompt = ensure_privileged(
                     self._channel, self.prompt, getattr(session, "secret", None), timeout
                 )
+            stage('initial prompt/session preparation')
             output = self.run_command(paging_command, timeout=timeout)
             if rejected(output):
                 raise InteractiveCLIError(
                     f"{platform_name} rejected required session setup command {paging_command!r}"
                 )
         except BaseException:
-            self.close()
+            try:
+                self.close()
+            except BaseException:
+                raise CLICleanupError('Shell cleanup failed') from None
             raise
 
     def close(self) -> None:
@@ -169,9 +182,12 @@ class DeviceCLI(PromptCLI):
     fail locally rather than consuming a late response as a new command result.
     Additional required setup commands are cached after acceptance on this shell.
     This context is sequential only and never closes its parent transport.
+    Optional setup_stage receives fixed shell/prompt/privilege stage strings;
+    omitting it preserves the existing setup sequence.
     """
 
-    def __init__(self, session: DeviceSession, *, timeout: float = 10.0) -> None:
+    def __init__(self, session: DeviceSession, *, timeout: float = 10.0,
+                 setup_stage: Callable[[str], None] | None = None) -> None:
         self.session = session
         self._synchronized = True
         self._completed_setup: set[str] = set()
@@ -182,7 +198,7 @@ class DeviceCLI(PromptCLI):
         super().__init__(session, paging_command="terminal length 0",
                          prompt_pattern=r"^([^\r\n]+(?:#|>|\]))[ \t]*$",
                          rejected=lambda _: False, platform_name="identification",
-                         timeout=timeout)
+                         timeout=timeout, setup_stage=setup_stage)
 
     def __enter__(self) -> DeviceCLI:
         self.require_session(self.session)

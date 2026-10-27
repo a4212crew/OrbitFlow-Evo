@@ -837,3 +837,12 @@ automatic save only. Owner run 20261026_120437 showed ME3600X 12/12 and ASR920 2
 with confirmed save and refreshed consolidated reports/named captures. EdgeSwitch
 was rejected before connection; fresh EdgeSwitch validation and independent
 configuration verification are not established. Never replay those successful rows.
+
+Manual Configuration Issue #158 gives every executable row its own SSH connection
+and shell, with per-row identity/backup and full transport cleanup. Same-IP order
+and shared connection pacing remain; repeated authentication adds overhead. Fixed
+setup stages distinguish connection, shell, prompt, privilege, identity, backup and
+config entry failures. Completed/Saved evidence survives later setup/cleanup
+failures. See [tests and fresh owner lab checks](docs/user_manual/manual-configuration.md#fresh-connections-and-setup-diagnostics-issue-158).
+Linux deterministic validation is recorded there; Windows and live validation of
+this correction remain pending.

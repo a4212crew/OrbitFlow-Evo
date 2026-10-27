@@ -13,7 +13,7 @@ Public functions:
 | `create_template(directory='data/input/generated_template')` | Offline; returns an exclusively allocated `Path` named `manual_config_YYYYMMDD_NNN.xlsx`. |
 | `load_rows(path)` | Offline; returns source-ordered row dictionaries: `source_row`, `management_ip`, `commands` (literal nonblank list), `error`, and optional `command_lines` (original one-based cell lines). Invalid cells are discarded with a fixed diagnostic; malformed headers or >10000 rows fail the workbook. |
 | `summary(rows, execution_config=ExecutionConfig(1), settings=CaptureSettings())` | Offline; returns digest, rows/devices/commands/invalid counts and concurrency. Digest binds exact ordered row content and settings. |
-| `execute(rows, *, profile, password, confirmation_digest, credentials, transport_config, execution_config=ExecutionConfig(1), settings=CaptureSettings(), inventory_path='data/inventory/inventory.json', run_root='outputs/runs/manual_configuration', backups_dir='outputs/backups/configuration', progress=None, on_started=None, reports_dir='outputs/reports/manual_configuration', on_output=None)` | Network/apply; verifies local password and exact summary confirmation before allocation or connection. Copies and validates rows; groups same-IP rows, using shared device scheduling and per-row fresh CLI channels. Returns retained run `Path`; refreshes one consolidated workbook through the scheduler completion callback before waiting for other devices. Configuration exceptions produce Incomplete row records; persistence/interrupt failures can propagate with recovery retained. Never retry the run automatically. |
+| `execute(rows, *, profile, password, confirmation_digest, credentials, transport_config, execution_config=ExecutionConfig(1), settings=CaptureSettings(), inventory_path='data/inventory/inventory.json', run_root='outputs/runs/manual_configuration', backups_dir='outputs/backups/configuration', progress=None, on_started=None, reports_dir='outputs/reports/manual_configuration', on_output=None)` | Network/apply; verifies local password and exact summary confirmation before allocation or connection. Copies and validates rows; groups same-IP rows, using shared device scheduling and per-row fresh DeviceSession connections and CLI channels. Returns retained run `Path`; refreshes one consolidated workbook through the scheduler completion callback before waiting for other devices. Configuration exceptions produce Incomplete row records; persistence/interrupt failures can propagate with recovery retained. Never retry the run automatically. |
 | `regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/manual_configuration', management_ip=None, replace=False)` | Offline; returns an exclusively allocated report `Path`. Defaults under `outputs/reports/manual_configuration/`; explicit existing paths fail unless replace=True requests atomic refresh. Reads durable input/intents/results, never network or replay. |
 
 `CaptureSettings(first_response=10.0, inactivity=1.0, maximum=30.0,
@@ -165,3 +165,40 @@ predefined schemas or policies. The report `save` column describes automatic sav
 only; explicit authored persistence may already have executed before failure.
 `Not initiated` never asserts unsaved state. See the [owner evidence and fresh lab
 checks](../user_manual/manual-configuration.md#superseding-owner-decision--literal-manual-commands-2026-10-26).
+
+## Approved connection correction — Issue #158
+
+The owner-approved correction supersedes Issue #156 statements about sharing a
+healthy transport or one connection per IP. Historical source/tests reused one
+DeviceSession per IP with a new shell per row. This approved correction was
+recorded before implementation on this branch; source/tests establish historical
+behavior. Issue #158 now gives each valid executable row a fresh connection through
+shared `connect_device`, a fresh shell, identity and protected backup, and closes
+its entire transport chain before the next row. One worker per IP, original row
+order and one device capture remain. Invalid/stopped rows never connect.
+Repeated authentication/tunnel setup adds connection overhead and shared pacing.
+Owner run 20261027_064039 showed a second-row setup EOF; its exact failing operation
+and server-side cause are unproven. Never replay the completed first row.
+
+Setup failures use fixed sanitized stages: `connection establishment`, `shell
+opening`, `initial prompt/session preparation`, `privilege`, `identification`,
+`backup` and `config entry`. Categories include Timeout, Connection closed,
+Operation failed and Interrupted; approved fixed diagnostics remain available.
+No arbitrary exception text or received setup text enters the row reason. Shell
+cleanup and every owned transport cleanup are attempted before recording the row.
+A cleanup failure stops later same-device rows and adds a fixed cleanup reason; a
+row already Completed/Saved retains that evidence. Other devices may continue.
+No user command or save is retried. Only the existing shared establishment-only
+retry policy applies before a session is returned. Explicit user persistence and
+predefined partial-save behavior remain independent.
+
+The backward-compatible shared `DeviceCLI(session, *, timeout=10.0,
+setup_stage=None)` constructor accepts an optional callback receiving only the
+fixed setup stage strings above (shell, initial preparation and privilege). Existing
+callers omit it. The caller still owns the parent DeviceSession. A shell cleanup
+failure during failed construction raises `CLICleanupError`; the parent transport
+still requires cleanup. Internal vendor manual setup similarly accepts optional
+`setup_stage`; read-only and predefined setup policies are unchanged.
+
+Protected skill reconciliation is provided as an exact
+[Atlas handoff](issue-158-atlas-handoff.md); `.agents/` was not modified.

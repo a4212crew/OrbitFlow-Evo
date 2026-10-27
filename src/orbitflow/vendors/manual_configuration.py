@@ -16,17 +16,22 @@ def adapter(context):
     raise ValueError('Manual entry/save unsupported for identified platform')
 
 
-def setup(cli, context, timeout):
+def setup(cli, context, timeout, *, setup_stage=None):
+    """Prepare the shared reader and enter global mode with optional fixed stages."""
+    stage = setup_stage or (lambda _stage: None)
     selected = adapter(context)
     profile = PROFILES[context.platform]
+    stage('initial prompt/session preparation')
     cli.configure(paging_command=profile.paging, prompt_pattern=profile.prompt,
                   rejected=profile.rejected_setup, platform_name=context.platform,
                   setup_commands=profile.setup_commands, timeout=timeout)
+    stage('privilege')
     if not selected.is_exec_prompt(cli.prompt):
         raise ValueError('Privileged EXEC required')
     anchor = cli.prompt
     cli.execution_mode(anchor, context.platform)
     command = 'configure' if context.platform == 'ubiquiti_edgeswitch' else 'configure terminal'
+    stage('config entry')
     response = cli.run_command(command, timeout=timeout)
     if command_rejected(response) or not global_mode(cli.prompt, context.platform):
         raise ValueError('Global configuration mode not established')

@@ -1116,3 +1116,27 @@ passed with 25 orchestration-temp failures caused by this managed worker's read-
 Git markers under its OS-temp roots. Controller checks in a normal external-temp
 environment and fresh owner EdgeSwitch validation remain outstanding; see the
 [devlog](devlog/2026-10.md) and manual for exact checks and limitations.
+
+## Manual row connection ownership — Issue #158
+
+Manual Configuration now owns a fresh DeviceSession and shell for every valid
+executable row, through existing connect_device and its connection pacing/retry
+policy. Same-IP rows remain serialized on one worker, including noncontiguous
+rows; independent devices retain shared bounded execution. Each row reidentifies
+and captures a protected backup. Setup reasons identify connection establishment,
+shell opening, initial prompt/session preparation, privilege, identification,
+backup or config entry using fixed sanitized categories. Cleanup attempts shell
+and every dependent transport; failure stops later same-device rows without
+erasing Completed/Saved evidence. No writes/save replay is introduced.
+Linux/Windows connector cleanup also handles interruption while opening a
+connection. Read-only/predefined APIs retain existing defaults and save policies.
+One consolidated workbook, receive-only per-device capture and historical offline
+recovery remain. See the [validation procedure](user_manual/manual-configuration.md#fresh-connections-and-setup-diagnostics-issue-158).
+Synthetic Linux validation does not establish hardware compatibility; Windows
+execution and owner live validation of this correction remain pending. The exact
+operation/server cause of owner run 20261027_064039 EOF is unproven.
+
+Issue #158 implementation-worker Linux evidence: 1,137 affected tests passed;
+full deterministic gate has 3,727 passed and 25 existing orchestration failures
+from the sandbox temp-root Git-marker guard. A normal controller-environment gate
+is still required; no guard was weakened.
