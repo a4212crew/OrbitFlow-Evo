@@ -1176,3 +1176,16 @@ full evidence is in the October devlog. Grouped live hardware validation,
 native Windows execution and controller-environment validation remain pending.
 See the [grouped validation procedure](user_manual/manual-configuration.md#grouped-session-validation-issue-158)
 and [protected-skill handoff](operations/issue-158-atlas-handoff.md).
+
+## Issue #162 shared indexed spool increment (incomplete Issue)
+
+Shared spool consumption reuses one bounded-cache SQLite offset index across
+report passes; lease-protected point/target/batch retrieval, individual-envelope
+and disk safety limits, stricter envelope validation and file fsync are present.
+Future v2 observations persist request/workbook digest metadata before networking;
+legacy source binding cannot be inferred. Synthetic 88-target/~77 MB, 500-target
+and 1,500-target spool tests assert peak Python allocations below 16 MiB. This
+is not end-to-end planning/RSS validation. Planning's 16/32 MiB aggregate limits,
+full-plan review/confirmation materialization and supported offline planning
+recovery remain unfinished. No live, private-spool or Windows validation claimed.
+See the [audit ledger](operations/issue-162-processing-audit.md).

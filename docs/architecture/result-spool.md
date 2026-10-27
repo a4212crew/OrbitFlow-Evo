@@ -14,18 +14,19 @@ not interpret payload fields. Callers supply normalized data and a sanitizer tha
 redacts their runtime credentials; sanitization runs recursively before persistence.
 Never pass raw CLI output, credentials or exception objects as payloads.
 
-Only the collection owner appends. JSONL is flushed before manifest progress is
-atomically replaced. An interrupted final partial line is omitted during explicit
+Only the collection owner appends. JSONL is flushed and fsynced before manifest
+progress is atomically replaced. The temporary manifest is also flushed and
+fsynced before replacement. An interrupted final partial line is omitted during explicit
 partial recovery. A completed spool with corrupt, duplicate or missing records
-fails consumption and remains retained. This is process-interruption recovery,
-not a power-loss durability guarantee.
+fails consumption and remains retained. Directory rename durability still depends on the host filesystem; this is not
+a general power-loss durability guarantee.
 
 Manifest replacement retries only the atomic `manifest.tmp.replace(manifest.json)`
 operation on `PermissionError`: four attempts, with 0.1, 0.2 and 0.4 second delays.
 It never retries JSONL append, changes permissions, or ignores exhaustion. A
-successful JSONL flush commits the record for process-level recovery even if its
-manifest checkpoint fails. Neither flush nor atomic rename implies `fsync` or
-power-loss durability. JSONL remains canonical; manifest counts may lag after an
+successful JSONL flush/fsync commits the record for process-level recovery even if its
+manifest checkpoint fails. A successful file `fsync` and atomic rename do not establish directory-entry
+power-loss durability on every supported filesystem. JSONL remains canonical; manifest counts may lag after an
 interruption. Explicit consumption validates/streams JSONL under the lease and
 reconciles completed/failed counts before checkpointing the consumer state.
 
@@ -51,7 +52,19 @@ console stays concise; failure to write diagnostics is explicitly reported.
 These run-level errors are distinct from isolated device-stage failures.
 
 Completion order is persisted; consumers read input order through a temporary,
-bounded-cache SQLite offset index. Only one target payload is decoded at a time.
+bounded-cache SQLite offset index. A consumption holds one validated index across
+all table passes. `ResultSpool.indexed()` exposes the same lease-protected index
+for repeated input-position, target and bounded-batch lookup; the context owns its
+SQLite connection and deletes scratch state on exit. It is not a second authority.
+`index.get(position)` raises `KeyError` if missing;
+`index.records(positions=[...], target=None)` yields input order, accepts at most
+256 positions and optionally filters exact target. Duplicate requested positions
+are returned once. `index.records(target=...)` streams all matching positions.
+Readers cannot race collection/consumption/cleanup through separate spool handles.
+Each JSONL envelope is limited to 16 MiB and the spool to 64 GiB, with explicit
+errors on append/read; completed malformed, duplicate, out-of-range or truncated
+envelopes fail consumption and retain the run. Limits do not bound a device
+collector before it returns a payload. Only one target payload is decoded at a time.
 The index is disposable; JSONL is authoritative. Per-target result size, input
 credentials and canonical inventory still occupy memory; this change bounds
 full-run report/attempt aggregation, not the existing inventory-store format.
@@ -131,3 +144,19 @@ Inspect retained artifacts before expiring them. Recognized interrupted
 reader scratch files are removed only after validating their names and resolved
 paths; unknown contents are preserved. Cleanup never recursively deletes trees. Separate processes must not share an output destination or canonical
 inventory store; spool paths themselves are unique across processes.
+
+## Request binding and Issue #162 status
+
+`ResultSpool.bind(metadata)` persists sanitized JSON metadata once, only before
+collection starts, under the run lease. It rejects sanitizer-changing values and
+bindings over 64 KiB. Future v2 planning observations bind the canonical request
+identity (including layout and invalid input rows) and source workbook SHA-256
+when present; API-only request lists record a null workbook digest. Metadata is
+not authentication. Legacy runs have no binding and cannot acquire a trusted
+historical workbook association through inference. No supported planning recovery
+command is implemented by this increment, and existing evidence-age, immutable
+plan and execution safety gates remain unchanged.
+
+See the [whole-module audit and validation ledger](../operations/issue-162-processing-audit.md).
+End-to-end disk-backed planning/review/confirmation and >32 MiB candidate plans
+remain unfinished; shared spool scalability tests do not establish those features.

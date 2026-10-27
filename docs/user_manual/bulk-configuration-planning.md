@@ -747,3 +747,19 @@ planning entry points use the same planner; this correction adds no new workflow
 
 
 Issue #156: newly generated planning input contains 21 predefined worksheets and omits legacy Manual CLI/navigation without changing catalogue identifiers or v1/v2 plan integrity. Historical Manual CLI workbook/plan/report reading remains supported and non-executable. Use the separate [Manual Configuration workflow](manual-configuration.md) for new literal command blocks. Existing examples of Manual CLI sheets describe legacy inputs. Canonical v2 plan layouts retain the empty retired slot for compatibility.
+
+## Retained observations and Issue #162 status
+
+New read-only collections record canonical request and source workbook SHA-256
+metadata in their spool manifest before networking. API request lists without a
+workbook record a null workbook digest. Legacy observations have no source binding;
+a workbook match cannot be asserted retrospectively. This metadata does not
+authorize execution or relax freshness checks.
+
+The shared spool has lease-protected SQLite point/target/batch retrieval, with
+explicit 16 MiB individual-envelope and 64 GiB spool limits. These are separate
+from the planner's existing 16 MiB aggregate observation and 32 MiB plan limits,
+which still apply. A failure retains the spool; it does not reconnect or replay.
+There is no supported offline planning recovery command in this increment.
+See [Linux/Windows tests and read-only inspection](../operations/issue-162-processing-audit.md).
+The end-to-end large-plan Issue is not complete.

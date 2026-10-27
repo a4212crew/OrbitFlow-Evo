@@ -10,6 +10,7 @@ import logging
 import os
 from pathlib import Path
 import sqlite3
+from itertools import islice
 from tempfile import TemporaryDirectory
 from threading import get_ident
 from time import sleep
@@ -19,6 +20,57 @@ from orbitflow.logging import sanitize_text
 
 
 logger = logging.getLogger(__name__)
+
+# Limits apply to individual envelopes, never the aggregate observation bundle.
+# readline(size) enforces the bound before allocating an untrusted full line.
+MAX_RECORD_BYTES = 16 * 1024 * 1024
+MAX_SPOOL_BYTES = 64 * 1024 * 1024 * 1024
+
+
+class ResultIndex:
+    """Lease-scoped disk index over authoritative JSONL, with bounded retrieval.
+
+    Created by ResultSpool.indexed(); callers must not retain it beyond that
+    context. SQLite stores offsets, not a second copy of device payloads.
+    """
+    def __init__(self, spool, db, source):
+        self.spool, self.db, self.source = spool, db, source
+
+    def _read(self, offset):
+        self.source.seek(offset)
+        return json.loads(self.source.readline(MAX_RECORD_BYTES + 1))
+
+    def records(self, *, positions=None, target=None):
+        """Yield input order; optional positions are bounded to 256 per query."""
+        clauses, parameters = [], []
+        if positions is not None:
+            positions = tuple(islice(positions, 257))
+            if len(positions) > 256 or any(type(p) is not int for p in positions):
+                raise ValueError('Index batch must contain at most 256 integer positions')
+            if not positions:
+                return
+            clauses.append('position IN (' + ','.join('?' for _ in positions) + ')')
+            parameters.extend(positions)
+        if target is not None:
+            clauses.append('target = ?')
+            parameters.append(target)
+        query = 'SELECT offset FROM offsets'
+        if clauses:
+            query += ' WHERE ' + ' AND '.join(clauses)
+        for (offset,) in self.db.execute(query + ' ORDER BY position', parameters):
+            yield self._read(offset)
+
+    def get(self, position):
+        """Return one envelope or raise KeyError for a missing input position."""
+        if type(position) is not int:
+            raise ValueError('Index position must be an integer')
+        row = self.db.execute('SELECT offset FROM offsets WHERE position=?', (position,)).fetchone()
+        if row is None:
+            raise KeyError(position)
+        return self._read(row[0])
+
+    def __len__(self):
+        return self.db.execute('SELECT count(*) FROM offsets').fetchone()[0]
 
 
 class ResultJournal:
@@ -117,6 +169,7 @@ class ResultSpool:
         if not isinstance(self.manifest, dict) or self.manifest.get('schema_version') != 1 or self.manifest.get('run_id') != self.path.name:
             raise ValueError('Invalid spool manifest')
         self._writer = None
+        self._reading_index = None
 
     @classmethod
     def create(cls, root, task, target_count, *, clean=sanitize_text, short_name=False):
@@ -151,8 +204,29 @@ class ResultSpool:
     def _state(self, status):
         self.manifest.update(status=status, updated_at=_now())
         temporary = self.path / 'manifest.tmp'
-        temporary.write_text(json.dumps(self.manifest), encoding='utf-8')
+        with temporary.open('w', encoding='utf-8') as stream:
+            stream.write(json.dumps(self.manifest))
+            stream.flush()
+            os.fsync(stream.fileno())
         _permission_retry(lambda: temporary.replace(self.path / 'manifest.json'))
+
+    def bind(self, metadata):
+        """Persist sanitized request provenance once, before collection starts.
+
+        Binding is caller-owned JSON metadata, not authentication. Legacy runs
+        lack it; recovery must never infer a historical source association.
+        """
+        with _lease(self.path):
+            self.manifest = json.loads((self.path / 'manifest.json').read_text(encoding='utf-8'))
+            if self.manifest['status'] != 'created' or 'binding' in self.manifest:
+                raise ValueError('Run binding must precede collection and cannot be replaced')
+            if not isinstance(metadata, dict):
+                raise ValueError('Run binding must be a JSON object')
+            value = self._safe(metadata)
+            if value != metadata or len(json.dumps(value, allow_nan=False).encode()) > 65536:
+                raise ValueError('Unsafe or oversized run binding')
+            self.manifest['binding'] = value
+            self._state('created')
 
     def _failed_state(self, status, original):
         """Keep the primary failure even when the diagnostic checkpoint fails."""
@@ -230,9 +304,16 @@ class ResultSpool:
                       completed_at=_now(), error_category=category,
                       payload=self._safe(outcome.value if payload is None else payload))
         line = json.dumps(record, ensure_ascii=True, allow_nan=False) + '\n'
+        if len(line.encode('utf-8')) > MAX_RECORD_BYTES:
+            self._append_failed = True
+            raise ValueError('Spool record size limit exceeded')
+        if self._writer.tell() + len(line.encode('utf-8')) > MAX_SPOOL_BYTES:
+            self._append_failed = True
+            raise ValueError('Spool size limit exceeded')
         try:
             self._writer.write(line)
             self._writer.flush()
+            os.fsync(self._writer.fileno())
             self._positions.add(position)
             self.manifest['completed_count'] += 1
             self.manifest['failed_count'] += record['status'] == 'failed'
@@ -250,33 +331,83 @@ class ResultSpool:
         except Exception:
             pass
 
-    def records(self):
-        """Input order via a bounded-cache disk index; JSONL remains authoritative."""
+    @contextmanager
+    def indexed(self):
+        """Lease a reusable bounded SQLite view of authoritative JSONL.
+
+        Public readers cannot race collection, output consumption or cleanup.
+        The owning collection/consumption thread reuses its existing lease.
+        """
+        if self._reading_index is not None:
+            if get_ident() != self._reader_owner:
+                raise RuntimeError('Only the consumption owner may read the shared index')
+            yield self._reading_index
+        elif self._writer is not None and get_ident() == self._owner:
+            with self._indexed() as index:
+                yield index
+        else:
+            with _lease(self.path):
+                self.manifest = json.loads((self.path / 'manifest.json').read_text(encoding='utf-8'))
+                if self.manifest.get('cleanup_started'):
+                    raise ValueError('Output already consumed; retained run permits cleanup only')
+                with self._indexed() as index:
+                    yield index
+
+    @contextmanager
+    def _indexed(self):
+        """Build one bounded-cache SQLite index for repeated/batch consumption.
+
+        JSONL remains authoritative. Call under collection/consumption ownership
+        when concurrent lifecycle operations are possible. No index is trusted
+        across contexts or after an interrupted transaction.
+        """
         with TemporaryDirectory(prefix='read-', dir=self.path) as temporary:
             with closing(sqlite3.connect(str(Path(temporary) / 'order.sqlite'))) as db:
                 db.execute('PRAGMA cache_size = -512')
-                db.execute('CREATE TABLE offsets (position INTEGER PRIMARY KEY, offset INTEGER)')
+                db.execute('PRAGMA temp_store = FILE')
+                db.execute('CREATE TABLE offsets (position INTEGER PRIMARY KEY, offset INTEGER, target TEXT)')
+                db.execute('CREATE INDEX targets ON offsets(target, position)')
                 with (self.path / 'results.jsonl').open('rb') as source:
-                    while True:
-                        offset = source.tell()
-                        line = source.readline()
-                        if not line:
-                            break
-                        if not line.endswith(b'\n'):
-                            if self.manifest['collection_complete']:
-                                raise ValueError('Truncated completed spool')
-                            break  # A crash can leave an uncommitted final append.
-                        record = json.loads(line)
-                        if record['run_id'] != self.manifest['run_id']:
-                            raise ValueError('Mismatched run identity')
-                        db.execute('INSERT INTO offsets VALUES (?, ?)', (record['input_position'], offset))
-                    db.commit()
-                    count, minimum, maximum = db.execute('SELECT count(*), min(position), max(position) FROM offsets').fetchone()
-                    if self.manifest['collection_complete'] and (count != self.manifest['target_count'] or (count and (minimum != 1 or maximum != count))):
+                    with db:
+                        while True:
+                            offset = source.tell()
+                            if offset > MAX_SPOOL_BYTES:
+                                raise ValueError('Spool size limit exceeded')
+                            line = source.readline(MAX_RECORD_BYTES + 1)
+                            if not line:
+                                break
+                            if len(line) > MAX_RECORD_BYTES:
+                                raise ValueError('Spool record size limit exceeded')
+                            if not line.endswith(b'\n'):
+                                if self.manifest['collection_complete']:
+                                    raise ValueError('Truncated completed spool')
+                                break
+                            record = json.loads(line)
+                            if not isinstance(record, dict) or record.get('run_id') != self.manifest['run_id']:
+                                raise ValueError('Mismatched run identity')
+                            position = record.get('input_position')
+                            if (type(position) is not int or not 1 <= position <= self.manifest['target_count']
+                                    or record.get('status') not in {'success', 'failed'}
+                                    or not isinstance(record.get('target'), str) or 'payload' not in record):
+                                raise ValueError('Invalid spool envelope')
+                            try:
+                                db.execute('INSERT INTO offsets VALUES (?, ?, ?)', (position, offset, record['target']))
+                            except sqlite3.IntegrityError:
+                                raise ValueError('Duplicate persisted input position') from None
+                    count = db.execute('SELECT count(*) FROM offsets').fetchone()[0]
+                    if self.manifest['collection_complete'] and count != self.manifest['target_count']:
                         raise ValueError('Incomplete persisted outcomes')
-                    for (offset,) in db.execute('SELECT offset FROM offsets ORDER BY position'):
-                        source.seek(offset)
-                        yield json.loads(source.readline())
+                    yield ResultIndex(self, db, source)
+
+    def records(self):
+        """Input order through the shared bounded SQLite retrieval interface."""
+        if self._reading_index is not None:
+            if get_ident() != self._reader_owner:
+                raise RuntimeError('Only the consumption owner may read the shared index')
+            yield from self._reading_index.records()
+        else:
+            with self.indexed() as index:
+                yield from index.records()
 
     def snapshot(self, rows):
         """Persist consumer-owned normalized snapshot data, not canonical state."""
@@ -324,15 +455,21 @@ class ResultSpool:
             if not allow_partial and (not complete or self.manifest['status'] in {'created', 'collecting', 'interrupted'}):
                 raise ValueError('Incomplete collection; explicitly request partial consumption')
             try:
-                # Reconcile stale checkpoints from canonical records under the lease.
-                completed = failed = 0
-                for record in self.records():
-                    completed += 1
-                    failed += record['status'] == 'failed'
-                self.manifest.update(completed_count=completed, failed_count=failed)
-                self._state('consuming')
-                result = consumer(self)
-                self._state('consumed' if complete else 'partial_consumed')
+                # Reuse one validated index across all report tables and passes.
+                with self._indexed() as index:
+                    self._reading_index = index
+                    self._reader_owner = get_ident()
+                    try:
+                        completed = failed = 0
+                        for record in self.records():
+                            completed += 1
+                            failed += record['status'] == 'failed'
+                        self.manifest.update(completed_count=completed, failed_count=failed)
+                        self._state('consuming')
+                        result = consumer(self)
+                        self._state('consumed' if complete else 'partial_consumed')
+                    finally:
+                        self._reading_index = None
             except BaseException as exc:
                 self._failed_state('output_failed', exc)
                 raise

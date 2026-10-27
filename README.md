@@ -862,3 +862,7 @@ config entry failures. Completed/Saved evidence survives later setup/cleanup
 failures. See [tests and fresh owner lab checks](docs/user_manual/manual-configuration.md#fresh-connections-and-setup-diagnostics-issue-158).
 Linux deterministic validation is recorded there; Windows and live validation of
 this correction remain pending.
+
+Issue #162 adds shared lease-protected SQLite spool retrieval and pre-network
+planning request/workbook digest metadata. End-to-end large-plan processing and
+planning recovery remain unfinished; see the [audit and validation ledger](docs/operations/issue-162-processing-audit.md).

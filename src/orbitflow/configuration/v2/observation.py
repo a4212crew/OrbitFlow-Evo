@@ -2,6 +2,8 @@
 from dataclasses import asdict, replace
 from orbitflow.vendors.aggregation import from_facts
 import re
+import hashlib
+import json
 
 from orbitflow.capabilities.interfaces import InterfaceService
 from orbitflow.capabilities.vlans import VlanService
@@ -63,7 +65,14 @@ def collect(requests, credentials, transport_config, *, inventory_path="data/inv
     def clean(text):
         text = sanitize_text(text)
         return pattern.sub("[REDACTED]", text) if pattern else text
-    spool = ResultSpool.create(spool_root, "configuration_observation_v2", len(ips), clean=clean)
+    source_digest = getattr(requests, 'source_digest', None)
+    require(source_digest is None or type(source_digest) is str and re.fullmatch('[0-9a-f]{64}', source_digest) is not None,
+            'invalid source workbook digest')
+    # Binding contains only digests, not credential-bearing text. Do not apply
+    # runtime substring redaction to hashes (a short credential can match hex).
+    spool = ResultSpool.create(spool_root, "configuration_observation_v2", len(ips))
+    spool.bind(dict(request_digest=request_digest(requests), workbook_digest=source_digest))
+    spool.clean = clean
     store = JsonInventoryStore(inventory_path)
 
     def event(stage, ip="-", category="-", identity="-"):
@@ -133,6 +142,17 @@ def collect(requests, credentials, transport_config, *, inventory_path="data/inv
         finally:
             event(f"run end; completed={counts[0]}; failed={counts[1]}; run_id={spool.path.name}")
     return spool
+
+
+def request_digest(requests):
+    """Bind canonical requests, layout and invalid rows without storing credentials."""
+    value = dict(requests=sorted(requests, key=lambda r: (r['sheet_order'], r['row'])),
+                 layout=getattr(requests, 'layout', None), errors=getattr(requests, 'errors', []))
+    digest = hashlib.sha256()
+    encoder = json.JSONEncoder(sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False)
+    for chunk in encoder.iterencode(value):
+        digest.update(chunk.encode('ascii'))
+    return digest.hexdigest()
 
 
 def observations(spool):
