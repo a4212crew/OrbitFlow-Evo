@@ -117,7 +117,7 @@ def connect_windows(
             sock=forwarded_socket,
             timeout=config.connect_timeout,
         )
-    except Exception as exc:
+    except BaseException as exc:
         # Attempt every cleanup before the shared layer considers a retry.
         cleanup_failed = False
         for cleanup_resource in (lambda: client.close() if client is not None else None,
@@ -125,10 +125,12 @@ def connect_windows(
                                  lambda: _stop_process(process)):
             try:
                 cleanup_resource()
-            except Exception:
+            except BaseException:
                 cleanup_failed = True
         if cleanup_failed:
             raise ConnectionCleanupError("Connection cleanup failed; retry suppressed.") from None
+        if not isinstance(exc, Exception):
+            raise
         if isinstance(exc, TunnelError):
             raise
         raise DeviceConnectionError(

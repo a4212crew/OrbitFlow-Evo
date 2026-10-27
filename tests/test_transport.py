@@ -378,3 +378,75 @@ def test_linux_cleans_up_after_target_authentication_failure(
     channel.close.assert_called_once_with()
     bastion.close.assert_called_once_with()
     proxy_command.return_value.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize('failure', [OSError, KeyboardInterrupt])
+@pytest.mark.parametrize('resource', ['target', 'channel', 'bastion', 'proxy'])
+def test_linux_cleanup_attempts_every_dependency_after_failure(credentials, config, failure, resource):
+    with patch('orbitflow.transport.linux.paramiko.ProxyCommand') as proxy_factory, \
+         patch('orbitflow.transport.linux.paramiko.PKey.from_path'), \
+         patch('orbitflow.transport.linux.paramiko.SSHClient') as factory:
+        bastion, target = MagicMock(), MagicMock()
+        factory.side_effect = [bastion, target]
+        bastion.get_transport.return_value.is_active.return_value = True
+        channel = bastion.get_transport.return_value.open_channel.return_value
+        resources = dict(target=target, channel=channel, bastion=bastion, proxy=proxy_factory.return_value)
+        session = connect_linux('192.0.2.10', credentials, config)
+        resources[resource].close.side_effect = failure('private cleanup detail')
+        with pytest.raises(failure):
+            session.close()
+        for owned in resources.values():
+            owned.close.assert_called_once_with()
+        session.close()  # Never replay close or writes after an unsafe cleanup.
+        for owned in resources.values():
+            owned.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize('resource', ['target', 'socket', 'process'])
+def test_windows_cleanup_attempts_all_dependencies_after_interruption(credentials, config, resource):
+    with patch('orbitflow.transport.windows._free_local_port', return_value=49152), \
+         patch('orbitflow.transport.windows._open_forwarded_socket') as socket_factory, \
+         patch('orbitflow.transport.windows.subprocess.Popen') as popen, \
+         patch('orbitflow.transport.windows.paramiko.SSHClient') as factory:
+        process, target, sock = popen.return_value, factory.return_value, socket_factory.return_value
+        process.poll.return_value = None
+        session = connect_windows('192.0.2.10', credentials, config)
+        action = dict(target=target.close, socket=sock.close, process=process.terminate)[resource]
+        action.side_effect = KeyboardInterrupt()
+        with pytest.raises(KeyboardInterrupt):
+            session.close()
+        target.close.assert_called_once_with()
+        sock.close.assert_called_once_with()
+        process.terminate.assert_called_once_with()
+
+
+@pytest.mark.parametrize('hop', ['bastion', 'target'])
+def test_linux_interrupted_connection_cleans_owned_chain(credentials, config, hop):
+    with patch('orbitflow.transport.linux.paramiko.ProxyCommand') as proxy_factory, \
+         patch('orbitflow.transport.linux.paramiko.PKey.from_path'), \
+         patch('orbitflow.transport.linux.paramiko.SSHClient') as factory:
+        bastion, target = MagicMock(), MagicMock()
+        factory.side_effect = [bastion, target]
+        bastion.get_transport.return_value.is_active.return_value = True
+        (bastion if hop == 'bastion' else target).connect.side_effect = KeyboardInterrupt()
+        with pytest.raises(KeyboardInterrupt):
+            connect_linux('192.0.2.10', credentials, config)
+        bastion.close.assert_called_once_with()
+        proxy_factory.return_value.close.assert_called_once_with()
+        if hop == 'target':
+            target.close.assert_called_once_with()
+            bastion.get_transport.return_value.open_channel.return_value.close.assert_called_once_with()
+
+
+def test_windows_interrupted_connection_closes_forward_and_process(credentials, config):
+    with patch('orbitflow.transport.windows._free_local_port', return_value=49152), \
+         patch('orbitflow.transport.windows._open_forwarded_socket') as socket_factory, \
+         patch('orbitflow.transport.windows.subprocess.Popen') as popen, \
+         patch('orbitflow.transport.windows.paramiko.SSHClient') as factory:
+        popen.return_value.poll.return_value = None
+        factory.return_value.connect.side_effect = KeyboardInterrupt()
+        with pytest.raises(KeyboardInterrupt):
+            connect_windows('192.0.2.10', credentials, config)
+        factory.return_value.close.assert_called_once_with()
+        socket_factory.return_value.close.assert_called_once_with()
+        popen.return_value.terminate.assert_called_once_with()

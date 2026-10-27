@@ -1,3 +1,19 @@
+> **Issue #158 superseding owner-approved grouped-session contract (2026-10-27).**
+> Earlier fresh-row connection/shell/save statements below are historical and superseded.
+> Group canonical IPs in workbook order; one owned DeviceSession and one live shell per
+> device, one initial identity/privilege/paging preparation and protected backup.
+> Each block enters global configuration from confirmed privileged EXEC and explicitly
+> returns to confirmed EXEC, including the last block. Only then save once per device.
+> Journal block completion immediately as Commands completed / awaiting device save;
+> only confirmed final save promotes completed blocks to Completed/Saved. Any invalid
+> row, write/boundary/recording failure stops that device and prevents a new automatic
+> save. Explicit engineer persistence may already have saved changes. Never replay.
+> Preserve Unknown after an issued save, command evidence and unsafe cleanup reporting.
+> One shell avoids the historical second-shell path; synthetic tests and earlier owner
+> fresh-row acceptance do not establish grouped-session live hardware compatibility.
+> The grouped implementation is present on this branch; final validation is recorded
+> in the October devlog. No live testing is authorized for Codex.
+
 # Manual Configuration — Issue #156
 
 Owner-approved design implemented on this branch. Deterministic synthetic tests cover safety and compatibility; owner-supplied run evidence is recorded below. Fresh EdgeSwitch and broader owner validation remain pending. See the [operator guide](../../user_manual/manual-configuration.md) and [API](../../operations/manual-configuration-api.md).
@@ -7,7 +23,7 @@ new input generation. Historical v1/v2 plans, immutable digests and workbook/rep
 reading remain unchanged; legacy Manual CLI plans remain non-executable. Predefined
 template identifiers remain stable.
 
-Each management_ip/command row is a literal multiline block in a fresh shell.
+Each management_ip/command row is a literal multiline block on its device group’s single live shell.
 Repeated IPs retain workbook order on one device worker; other devices may proceed
 independently through shared bounded execution. Every successful row requires durable
 sanitized transcript evidence, explicit mode synchronization and confirmed vendor
@@ -139,3 +155,29 @@ notes above describe the implementation history; the current skill sections now
 record the final literal-command, authorization, output and automatic-save contract.
 No executable changes were made by Atlas. Validation evidence/limitations above
 remain unchanged.
+
+## Historical fresh-row correction — Issue #158 (superseded)
+
+The owner-approved correction supersedes Issue #156 statements about sharing a
+healthy transport or one connection per IP. Historical source/tests reused one
+DeviceSession per IP with a new shell per row. This approved correction was
+recorded before implementation on this branch; source/tests establish historical
+behavior. Issue #158 now gives each valid executable row a fresh connection through
+shared `connect_device`, a fresh shell, identity and protected backup, and closes
+its entire transport chain before the next row. One worker per IP, original row
+order and one device capture remain. Invalid/stopped rows never connect.
+Repeated authentication/tunnel setup adds connection overhead and shared pacing.
+Owner run 20261027_064039 showed a second-row setup EOF; its exact failing operation
+and server-side cause are unproven. Never replay the completed first row.
+
+Setup failures use fixed sanitized stages: `connection establishment`, `shell
+opening`, `initial prompt/session preparation`, `privilege`, `identification`,
+`backup` and `config entry`. Categories include Timeout, Connection closed,
+Operation failed and Interrupted; approved fixed diagnostics remain available.
+No arbitrary exception text or received setup text enters the row reason. Shell
+cleanup and every owned transport cleanup are attempted before recording the row.
+A cleanup failure stops later same-device rows and adds a fixed cleanup reason; a
+row already Completed/Saved retains that evidence. Other devices may continue.
+No user command or save is retried. Only the existing shared establishment-only
+retry policy applies before a session is returned. Explicit user persistence and
+predefined partial-save behavior remain independent.

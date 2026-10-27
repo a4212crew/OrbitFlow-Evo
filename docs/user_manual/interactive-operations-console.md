@@ -175,7 +175,7 @@ Proposed CLI is explicitly provisional; decision edits do not recalculate Excel.
 See [execution semantics](configuration-execution.md). No new menu or confirmation is added.
 
 
-Issue #156 approved design: [separate Manual Configuration](../architecture/configuration/manual-configuration.md) supersedes legacy offline Manual CLI for new input generation only. Legacy plans remain offline/non-executable; predefined partial-save behavior is unchanged. The new optional profile password-hash section and success-only per-row save are implemented on this branch with synthetic deterministic tests; owner-operated live validation remains pending. Historical evidence above is retained.
+Issue #156 approved design: [separate Manual Configuration](../architecture/configuration/manual-configuration.md) supersedes legacy offline Manual CLI for new input generation only. Legacy plans remain offline/non-executable; predefined partial-save behavior is unchanged. The new optional profile password-hash section and one final device save after all grouped rows succeed are implemented on this branch with synthetic deterministic tests; owner-operated live validation remains pending. Historical evidence above is retained.
 
 ## Owner-approved usability revision — implemented on this branch
 
@@ -205,3 +205,16 @@ captures beside it are <sanitized-hostname>_<sanitized-ip>.txt with IP fallback.
 Durable references follow safe identity renames; historical recovery remains supported.
 The console retains the batch count, hidden password and explicit confirmation,
 removing explanatory warnings before the password. Execution/save safety is unchanged.
+
+Manual Configuration Issue #158 keeps the existing menu, password/confirmation
+gates and per-run concurrency choice. Each executable row now opens a fresh SSH
+connection and shell; fixed setup stages appear in row failure reasons. Repeated
+authentication and shared pacing increase connection overhead. See the
+[manual row validation procedure](manual-configuration.md#fresh-connections-and-setup-diagnostics-issue-158).
+
+
+Issue #158 grouped Manual Configuration uses one live device shell across all that
+IP's rows, with explicit global-config/EXEC boundaries and one final automatic save.
+The existing menu, admin password, confirmation, chooser and output paths remain.
+Completed blocks await device save; later row failure preserves command evidence
+and prevents new automatic save. See the [grouped validation](manual-configuration.md#grouped-session-validation-issue-158).

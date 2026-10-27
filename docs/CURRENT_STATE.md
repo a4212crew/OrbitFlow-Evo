@@ -1,3 +1,19 @@
+> **Issue #158 superseding owner-approved grouped-session contract (2026-10-27).**
+> Earlier fresh-row connection/shell/save statements below are historical and superseded.
+> Group canonical IPs in workbook order; one owned DeviceSession and one live shell per
+> device, one initial identity/privilege/paging preparation and protected backup.
+> Each block enters global configuration from confirmed privileged EXEC and explicitly
+> returns to confirmed EXEC, including the last block. Only then save once per device.
+> Journal block completion immediately as Commands completed / awaiting device save;
+> only confirmed final save promotes completed blocks to Completed/Saved. Any invalid
+> row, write/boundary/recording failure stops that device and prevents a new automatic
+> save. Explicit engineer persistence may already have saved changes. Never replay.
+> Preserve Unknown after an issued save, command evidence and unsafe cleanup reporting.
+> One shell avoids the historical second-shell path; synthetic tests and earlier owner
+> fresh-row acceptance do not establish grouped-session live hardware compatibility.
+> The grouped implementation is present on this branch; final validation is recorded
+> in the October devlog. No live testing is authorized for Codex.
+
 # CURRENT_STATE.md â€” OrbitFlow-Evo Current State
 
 Use this file as the concise source of truth for what is implemented and validated today.
@@ -1086,7 +1102,7 @@ October devlog. Existing console workflows consume the corrected shared selector
 
 ## Manual Configuration — Issue #156
 
-The separate `orbitflow.configuration.manual` application API and console submenu implement multiline command workbooks, repeated-IP ordering, fresh shell per row, shared device execution/spooling, pre-row protected backup, prompt-free bounded capture, durable sanitized transcripts, success-only per-row save and offline report recovery. Optional profile PBKDF2 password hash and summary-bound hidden-password gate precede networking. IOS/IOS-XE platform framing and EdgeSwitch reuse shared setup/save; XR/Huawei manual entry/save and Junos are unsupported and fail before user writes. Predefined partial-save policy and v1/v2 plan schemas remain unchanged. New input generation removes only the legacy Manual CLI worksheet/navigation; canonical v2 layouts retain its empty compatibility slot. Synthetic deterministic validation is separate from pending owner Windows/Linux live lab validation. Reports explicitly state transcript-only scope. See the [manual](user_manual/manual-configuration.md) and [API](operations/manual-configuration-api.md).
+The separate `orbitflow.configuration.manual` application API and console submenu implement multiline command workbooks, repeated-IP ordering, one live shell/session per canonical IP group, shared device execution/spooling, one protected pre-change backup, prompt-free bounded capture, durable block evidence, per-row confirmed EXEC boundaries and one final device save and offline report recovery. Optional profile PBKDF2 password hash and summary-bound hidden-password gate precede networking. IOS/IOS-XE platform framing and EdgeSwitch reuse shared setup/save; XR/Huawei manual entry/save and Junos are unsupported and fail before user writes. Predefined partial-save policy and v1/v2 plan schemas remain unchanged. New input generation removes only the legacy Manual CLI worksheet/navigation; canonical v2 layouts retain its empty compatibility slot. Synthetic deterministic validation is separate from pending owner Windows/Linux live lab validation. Reports explicitly state transcript-only scope. See the [manual](user_manual/manual-configuration.md) and [API](operations/manual-configuration-api.md).
 
 Issue #156 revision: manual-only finalization accepts exact current-command echoes
 from supported structural submodes and changed hostnames, waits for quiescence and
@@ -1116,3 +1132,47 @@ passed with 25 orchestration-temp failures caused by this managed worker's read-
 Git markers under its OS-temp roots. Controller checks in a normal external-temp
 environment and fresh owner EdgeSwitch validation remain outstanding; see the
 [devlog](devlog/2026-10.md) and manual for exact checks and limitations.
+
+## Historical manual row connection ownership — Issue #158 (superseded)
+
+Manual Configuration now owns a fresh DeviceSession and shell for every valid
+executable row, through existing connect_device and its connection pacing/retry
+policy. Same-IP rows remain serialized on one worker, including noncontiguous
+rows; independent devices retain shared bounded execution. Each row reidentifies
+and captures a protected backup. Setup reasons identify connection establishment,
+shell opening, initial prompt/session preparation, privilege, identification,
+backup or config entry using fixed sanitized categories. Cleanup attempts shell
+and every dependent transport; failure stops later same-device rows without
+erasing Completed/Saved evidence. No writes/save replay is introduced.
+Linux/Windows connector cleanup also handles interruption while opening a
+connection. Read-only/predefined APIs retain existing defaults and save policies.
+One consolidated workbook, receive-only per-device capture and historical offline
+recovery remain. See the [validation procedure](user_manual/manual-configuration.md#fresh-connections-and-setup-diagnostics-issue-158).
+Synthetic Linux validation does not establish hardware compatibility; Windows
+execution and owner live validation of this correction remain pending. The exact
+operation/server cause of owner run 20261027_064039 EOF is unproven.
+
+Issue #158 implementation-worker Linux evidence: 1,137 affected tests passed;
+full deterministic gate has 3,727 passed and 25 existing orchestration failures
+from the sandbox temp-root Git-marker guard. A normal controller-environment gate
+is still required; no guard was weakened.
+
+
+## Current grouped Manual Configuration — Issue #158 / PR #159
+
+The superseding revision owns one DeviceSession and one exact live interactive
+shell per canonical IP group. It preserves workbook order across noncontiguous
+rows, identifies/backs up once, enters global configuration from verified EXEC
+and explicitly returns to verified EXEC after every row. Only after the final
+successful boundary does it automatically save once. Failures stop same-device
+writes without replay; independent workers may finish. Durable block/row evidence
+is independent of device save; consolidated/offline reports expose pending,
+Failed/Unknown save and unsafe cleanup while retaining historical per-row artifacts.
+Initial identity determines the capture filename across later hostname changes.
+This removes repeated setup overhead while keeping the device shell open longer.
+Worker Linux affected suite: 1,146 passed; expanded final manual suite: 201 passed.
+Final-tree worker gate: 3,740 passed / 25 orchestration temp-root guard failures;
+full evidence is in the October devlog. Grouped live hardware validation,
+native Windows execution and controller-environment validation remain pending.
+See the [grouped validation procedure](user_manual/manual-configuration.md#grouped-session-validation-issue-158)
+and [protected-skill handoff](operations/issue-158-atlas-handoff.md).

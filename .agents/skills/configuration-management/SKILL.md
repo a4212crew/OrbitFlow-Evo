@@ -156,13 +156,20 @@ and [operator guide](../../../docs/user_manual/manual-configuration.md).
 - Accept literal engineer CLI, including configure/conf, abbreviations, unknown
   roots, wrappers, credential commands and explicit save/commit. No semantic
   allowlist/denylist; retain structural bounds and redact secrets before persistence.
-- Open a fresh shell per row, reuse shared transport/identity/enable/paging/backup,
-  enter global configuration mode, then capture user-command output without prompt
-  detection. Supported setup/finalization/save remain vendor-owned. Unsupported
-  questions fail incomplete; never invent answers, retry writes or replay changes.
-- Automatic save is successful-row-only. Failed/unknown rows stop later same-device
-  rows. Explicit user save/commit may persist before later failure; automatic save
-  Not initiated never proves unsaved state. Predefined device-end partial save stays.
+- Group canonical IP rows in original workbook order, including noncontiguous rows.
+  Own one DeviceSession and one exact live DeviceCLI shell per device group; identify,
+  establish privilege/paging and take a protected backup once before writes. Never
+  close/reopen the shell between rows.
+- Start each row from confirmed privileged EXEC, enter supported global config,
+  send literal bounded prompt-free blocks, then explicitly synchronize to confirmed
+  EXEC after every block. Journal Commands completed / awaiting device save immediately.
+  Save automatically exactly once after all device rows succeed and return to EXEC;
+  only confirmed save yields Completed/Saved. Any invalid row, setup/write/boundary/
+  recording failure stops same-device writes and prevents new automatic save.
+  Preserve Unknown after save transmission, prior block evidence and confirmed save
+  despite cleanup failure; expose unsafe cleanup. Explicit engineer persistence is
+  independent. Never replay/reconnect/resume after writes. Predefined partial-save
+  policy is unchanged.
 - Ignore blank separators, preserve nonblank CLI and cell-line identity. Numbered
   selection filters manual_*.xlsx, including explicit paths. Hidden admin password
   verification and separate confirmation precede networking; omit pre-password prose.

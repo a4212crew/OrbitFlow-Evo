@@ -30,7 +30,7 @@ def _close_all(*resources: Any | None) -> None:
     for resource in resources:
         try:
             _close(resource)
-        except Exception as exc:  # cleanup must continue through all dependencies
+        except BaseException as exc:  # cleanup must continue through all dependencies
             first_error = first_error or exc
     if first_error is not None:
         raise first_error
@@ -80,11 +80,13 @@ def connect_linux(
             sock=proxy,
             timeout=config.connect_timeout,
         )
-    except Exception as exc:
+    except BaseException as exc:
         try:
             _close_all(bastion, proxy)
-        except Exception:
+        except BaseException:
             raise ConnectionCleanupError("Connection cleanup failed; retry suppressed.") from None
+        if not isinstance(exc, Exception):
+            raise
         raise TeleportError("failed to establish the Teleport bastion session") from exc
 
     try:
@@ -110,11 +112,13 @@ def connect_linux(
             sock=channel,
             timeout=config.connect_timeout,
         )
-    except Exception as exc:
+    except BaseException as exc:
         try:
             _close_all(target, channel, bastion, proxy)
-        except Exception:
+        except BaseException:
             raise ConnectionCleanupError("Connection cleanup failed; retry suppressed.") from None
+        if not isinstance(exc, Exception):
+            raise
         if isinstance(exc, TunnelError):
             raise
         raise DeviceConnectionError(

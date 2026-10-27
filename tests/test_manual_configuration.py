@@ -24,7 +24,21 @@ def row(number, ip='192.0.2.1', text='interface Gi1\n description Customer\n exi
 
 
 def records(path):
-    return [e for e in m.ResultJournal(path / 'events.jsonl').records() if e['kind'] == 'row_result']
+    events = list(m.ResultJournal(path / 'events.jsonl').records())
+    results = [dict(e) for e in events if e['kind'] == 'row_result']
+    for event in events:
+        for result in results:
+            if event.get('management_ip') != result['management_ip']:
+                continue
+            if event['kind'] in {'device_save_intent', 'device_save_result'} and result['status'] == 'Commands completed':
+                result['save'] = event.get('save', 'Unknown')
+                if result['save'] == 'Saved':
+                    result['status'] = 'Completed'
+                result['reason'] = event.get('reason', '')
+            if event['kind'] == 'device_cleanup_failed':
+                result['cleanup'] = 'Failed'
+                result['reason'] += '; cleanup: Resource release failed'
+    return results
 
 
 @pytest.fixture
@@ -63,7 +77,7 @@ def fake(monkeypatch, tmp_path):
     def collect(self, *args, **kwargs):
         fail('backup')
         return 'hostname host\n'
-    def setup(*args):
+    def setup(*args, **kwargs):
         calls.append(('setup',))
         fail('setup')
     def finalize(*args):
@@ -94,15 +108,15 @@ def run(rows, auth, **kwargs):
                      transport_config=None, execution_config=config, **kwargs)
 
 
-def test_duplicate_noncontiguous_ip_fresh_shell_per_row(fake, auth):
+def test_duplicate_noncontiguous_ip_one_live_shell_per_device(fake, auth):
     calls, _ = fake
     rows = [row(2), row(3, '192.0.2.2'), row(4)]
     path = run(rows, auth)
     assert [r['source_row'] for r in records(path)] == [2, 4, 3]
     assert all(r['status'] == 'Completed' and r['save'] == 'Saved' for r in records(path))
-    assert len([c for c in calls if c[0] == 'save']) == 3
+    assert len([c for c in calls if c[0] == 'save']) == 2
     assert len([c for c in calls if c[0] == 'connect']) == 2
-    assert len([c for c in calls if c[0] == 'close_shell']) == 3
+    assert len([c for c in calls if c[0] == 'close_shell']) == 2
     assert [c[2] for c in calls if c[0] == 'command'] == rows[0]['commands'] * 3
     assert len(list(Path('outputs/reports/manual_configuration').rglob('*.txt'))) == 2
     report = m.regenerate_report(path)
@@ -151,7 +165,8 @@ def test_save_transmission_failure_unknown_no_retry(fake, auth, exception):
     path = run([row(2), row(3)], auth)
     assert len([c for c in calls if c[0] == 'save']) == 1
     assert records(path)[0]['save'] == 'Unknown'
-    assert records(path)[1]['attempted'] == 0
+    assert records(path)[1]['attempted'] == 3
+    assert records(path)[1]['save'] == 'Unknown'
 
 
 @pytest.mark.parametrize('result, expected', [(dict(status='Unknown', response='', explicit_error=False), 'Unknown'),
@@ -161,8 +176,8 @@ def test_save_result_error_stops(fake, auth, result, expected):
     fault['save'] = result
     path = run([row(2), row(3)], auth)
     assert records(path)[0]['save'] == expected
-    assert records(path)[0]['status'] == 'Incomplete'
-    assert records(path)[1]['attempted'] == 0
+    assert records(path)[0]['status'] == 'Commands completed'
+    assert records(path)[1]['attempted'] == 3
 
 
 def test_gate_before_network_and_allocation(fake, auth):
@@ -224,7 +239,7 @@ def test_save_intent_recovery_unknown_and_partial_line(fake, auth):
     calls, _ = fake
     path = run([row(2)], auth)
     journal = path / 'events.jsonl'
-    lines = [line for line in journal.read_text().splitlines(True) if json.loads(line)['kind'] != 'row_result']
+    lines = [line for line in journal.read_text().splitlines(True) if json.loads(line)['kind'] not in {'row_result', 'device_save_result'}]
     journal.write_text(''.join(lines) + '{"partial":', encoding='utf-8')
     calls.clear()
     report = m.regenerate_report(path)
@@ -463,7 +478,7 @@ def test_manual_save_allows_identified_platform_and_checks_errors_before_redacti
     assert 'hidden' not in result['response']
 
 
-def test_manual_concurrency_uses_shared_workers_with_fresh_shells(fake, auth):
+def test_manual_concurrency_uses_one_live_shell_per_worker(fake, auth):
     calls, _ = fake
     rows = [row(i + 2, f'192.0.2.{i % 5 + 1}') for i in range(20)]
     config = m.ExecutionConfig(5, 0, 0)
@@ -475,9 +490,9 @@ def test_manual_concurrency_uses_shared_workers_with_fresh_shells(fake, auth):
     assert len(result) == 20 and all(r['status'] == 'Completed' for r in result)
     for ip in {r['management_ip'] for r in rows}:
         assert [r['source_row'] for r in result if r['management_ip'] == ip] == [r['source_row'] for r in rows if r['management_ip'] == ip]
-    assert len([c for c in calls if c[0] == 'shell']) == 20
-    assert len([c for c in calls if c[0] == 'close_shell']) == 20
-    assert len([c for c in calls if c[0] == 'save']) == 20
+    assert len([c for c in calls if c[0] == 'shell']) == 5
+    assert len([c for c in calls if c[0] == 'close_shell']) == 5
+    assert len([c for c in calls if c[0] == 'save']) == 5
 
 
 def test_password_set_change_and_environment_preservation(fake, auth, monkeypatch):
@@ -520,9 +535,10 @@ def test_shell_cleanup_failure_after_save_blocks_later_rows(fake, auth, monkeypa
     monkeypatch.setattr(m.DeviceCLI, '__exit__', fail)
     path = run([row(2), row(3)], auth)
     assert len([c for c in calls if c[0] == 'save']) == 1
-    assert records(path)[0]['status'] == 'Incomplete'
+    assert records(path)[0]['status'] == 'Completed'
+    assert records(path)[0]['cleanup'] == 'Failed'
     assert records(path)[0]['save'] == 'Saved'
-    assert records(path)[1]['attempted'] == 0
+    assert records(path)[1]['status'] == 'Completed'
     assert len([c for c in calls if c[0] == 'close_session']) == 1
 
 
@@ -649,7 +665,8 @@ def test_application_real_reader_finalize_stops_later_rows(fake, auth, monkeypat
             self._channel = Channel([
                 b'description FAILED LINK\r\nnewhost(config-if)#', socket.timeout(),
                 response[:12], b'' if failure == 'disconnect' else response[12:], socket.timeout(),
-                b'newhost#write memory\r\n[OK]\r\nnewhost#'])
+                b'description FAILED LINK\r\nnewhost(config-if)#', socket.timeout(),
+                response, socket.timeout(), b'newhost#write memory\r\n[OK]\r\nnewhost#'])
             self._channel.close = lambda: calls.append(('real_close',))
             self.execution_mode('host#', 'cisco_ios')
             self.sent = self._channel.sent
@@ -661,7 +678,7 @@ def test_application_real_reader_finalize_stops_later_rows(fake, auth, monkeypat
     monkeypatch.setattr(m, 'save_configuration', save)
     path = run([row(2, text='description FAILED LINK'), row(3, text='description FAILED LINK')], auth)
     results = records(path)
-    assert len(shells) == (1 if failure else 2)
+    assert len(shells) == 1
     assert [r['status'] for r in results] == (['Incomplete', 'Incomplete'] if failure else ['Completed', 'Completed'])
     for cli in shells:
         assert cli._channel is None
@@ -915,7 +932,7 @@ def test_hostname_changes_update_all_repeated_row_links(fake, auth, monkeypatch)
     path = run([row(2), row(3)], auth)
     report = next(Path('outputs/reports/manual_configuration').rglob('*.xlsx'))
     sheet = load_workbook(report).active
-    assert sheet['J2'].hyperlink.target == sheet['J3'].hyperlink.target == 'second-host_192.0.2.1.txt'
+    assert sheet['J2'].hyperlink.target == sheet['J3'].hyperlink.target == 'first-host_192.0.2.1.txt'
     assert len(list(report.parent.glob('*.txt'))) == 1
     assert m.regenerate_report(path).exists()
 
@@ -947,7 +964,7 @@ def test_capture_name_collision_preserves_existing_file(fake, auth, monkeypatch)
 EDGE_BLOCK = "\nexit\n\nvlan database\nvlan 10-12\nexit\nconfigure\n interface 0/1\n description Literal\n"
 
 
-def test_edgeswitch_literal_workbook_and_api_fresh_rows(fake, auth, tmp_path):
+def test_edgeswitch_literal_workbook_and_api_grouped_rows(fake, auth, tmp_path):
     calls, fault = fake
     fault['platform'] = 'ubiquiti_edgeswitch'
     source = m.create_template(tmp_path)
@@ -961,10 +978,10 @@ def test_edgeswitch_literal_workbook_and_api_fresh_rows(fake, auth, tmp_path):
     assert rows[0]['command_lines'] == [2, 4, 5, 6, 7, 8, 9]
     path = run(rows, auth)
     expected = m.commands(EDGE_BLOCK)
-    for serial in range(1, 4):
-        assert [c[2] for c in calls if c[:2] == ('command', serial)] == expected
-    assert sum(c[0] == 'close_shell' for c in calls) == 3
-    assert sum(c[0] == 'save' for c in calls) == 3
+    for serial in range(1, 3):
+        assert [c[2] for c in calls if c[:2] == ('command', serial)] == expected * (2 if serial == 1 else 1)
+    assert sum(c[0] == 'close_shell' for c in calls) == 2
+    assert sum(c[0] == 'save' for c in calls) == 2
     assert all(r['status'] == 'Completed' for r in records(path))
     assert source.read_bytes() == before
 
@@ -1087,3 +1104,343 @@ def test_api_invalid_ip_has_fixed_diagnostic_without_echo(fake, auth):
                   credentials={}, transport_config=None, execution_config=config)
     assert str(error.value) == m.INPUT_ERROR
     assert fake[0] == []
+
+
+@pytest.fixture
+def owned_server(monkeypatch, tmp_path):
+    """Real session/CLI/identity/backup/save, with a one-shell SSH server model."""
+    from orbitflow.transport import DeviceSession, connect_device
+    from orbitflow.transport import linux
+    from orbitflow.transport.policy import ConnectionStartPacer
+    from orbitflow import execution
+    from test_capability_context import DEVICES
+    clients, faults, starts = [], {}, []
+    class Shell:
+        def __init__(self, client):
+            self.client, self.pending, self.sent = client, [], []
+            self.prompt, self.closed = ('(sw) #' if faults.get('platform') == 'edge' else 'sw#'), False
+            self.counts = {}
+        def sendall(self, data):
+            assert self.client.active and not self.closed
+            command = data.decode().strip()
+            assert not self.pending
+            self.sent.append(command)
+            stage = {'': 'prompt', 'show version': 'identity',
+                     'show running-config': 'backup', 'configure terminal': 'config entry'}.get(command)
+            self.counts[command] = self.counts.get(command, 0) + 1
+            if self.client.failure == (command, self.counts[command]):
+                raise EOFError('sensitive nth-operation failure')
+            if self.client.failure == stage:
+                raise EOFError('received-sensitive-text')
+            if command == '' and self.client.failure == 'privilege':
+                self.prompt = 'sw>'  # Missing enable credential must fail in shared privilege setup.
+            old = self.prompt
+            if command == 'configure terminal':
+                self.prompt = 'sw(config)#'
+            elif command == 'configure':
+                self.prompt = '(sw) (Config)#'
+            elif command == 'vlan database':
+                self.prompt = '(sw) (Vlan)#'
+            elif command == 'interface 0/1':
+                self.prompt = '(sw) (Interface 0/1)#'
+            elif command == 'exit' and faults.get('platform') == 'edge':
+                self.prompt = '(sw) #'
+            elif command == 'end':
+                self.prompt = '(sw) #' if faults.get('platform') == 'edge' else 'sw#'
+            output = {'show version': next(d[0] for d in DEVICES if d[1] == 'ubiquiti_edgeswitch') if faults.get('platform') == 'edge' else DEVICES[0][0], 'show running-config': 'hostname sw\n!\n',
+                      'write memory': '[OK]'}.get(command, '')
+            self.pending = [(f'{old}{command}\r\n{output}\r\n{self.prompt}' if command else self.prompt).encode()]
+            if command == 'description disposable' and self.client.failure == 'interruption':
+                self.pending = [KeyboardInterrupt()]
+        def recv(self, maximum):
+            if not self.pending:
+                raise socket.timeout()
+            item = self.pending.pop(0)
+            if isinstance(item, BaseException):
+                raise item
+            return item
+        def settimeout(self, timeout):
+            assert timeout > 0
+        def close(self):
+            self.closed = True
+            self.client.active = False  # Server destroys transport after first shell.
+            if self.client.failure == 'shell cleanup':
+                raise OSError('sensitive cleanup text')
+    class Client:
+        def __init__(self, ip, failure):
+            self.ip, self.failure, self.active = ip, failure, True
+            self.shell, self.released = None, []
+        def invoke_shell(self):
+            assert self.active and self.shell is None
+            if self.failure == 'shell':
+                raise EOFError('sensitive shell text')
+            self.shell = Shell(self)
+            return self.shell
+        def cleanup(self):
+            # Model reverse transport dependencies, continuing through each failure.
+            try:
+                self.released.append('target')
+                self.active = False
+                if self.failure == 'session cleanup':
+                    raise OSError('sensitive target text')
+            finally:
+                try:
+                    self.released.append('tunnel')
+                    if self.failure == 'tunnel cleanup':
+                        raise OSError('sensitive tunnel text')
+                finally:
+                    self.released.extend(['bastion', 'proxy'])
+    def connector(ip, credentials, config):
+        # A new attempt must follow full cleanup, even for noncontiguous same-IP rows.
+        assert all(c.released == ['target', 'tunnel', 'bastion', 'proxy'] for c in clients if c.ip == ip)
+        failure = faults.get(len(clients) + 1, '')
+        if failure == 'connection':
+            raise EOFError('sensitive connection text')
+        client = Client(ip, failure)
+        clients.append(client)
+        return DeviceSession(client, client.cleanup)
+    def paced_connect(*args):
+        return connect_device(*args, system='Linux')
+    monkeypatch.setattr(linux, 'connect_linux', connector)
+    monkeypatch.setattr(m, 'connect_device', paced_connect)
+    # Exercise actual shared admission with a deterministic clock, no wall-clock wait.
+    clock = [0.0]
+    def sleep(seconds):
+        starts.append(seconds)
+        clock[0] += seconds
+    pacer = ConnectionStartPacer(2, clock=lambda: clock[0], sleep=sleep)
+    monkeypatch.setattr(execution, 'ConnectionStartPacer', lambda interval: pacer)
+    monkeypatch.chdir(tmp_path)
+    yield clients, faults, starts
+
+
+def test_real_owned_sessions_noncontiguous_rows_and_offline_capture(owned_server, auth):
+    clients, _, starts = owned_server
+    path = run([row(2, text='description disposable'), row(3, '192.0.2.2', 'description disposable'),
+                row(4, text='description disposable')], auth)
+    result = records(path)
+    assert [r['source_row'] for r in result] == [2, 4, 3]
+    assert all(r['status'] == 'Completed' and r['save'] == 'Saved' for r in result)
+    assert len(clients) == 2 and len({id(c) for c in clients}) == 2
+    assert starts == [2]
+    for client in clients:
+        assert client.shell.closed and not client.active
+        assert client.released == ['target', 'tunnel', 'bastion', 'proxy']
+        for command in ['show version', 'show inventory', 'show running-config', 'write memory']:
+            assert client.shell.sent.count(command) == 1
+    assert result[0]['transcript'] == result[1]['transcript']
+    assert len(list(Path('outputs/backups/configuration').rglob('*.txt'))) == 2
+    # Offline refresh preserves row identity and one receive-only capture across sessions.
+    output = m.regenerate_report(path)
+    book = load_workbook(output)
+    assert [r[0].value for r in list(book.active.rows)[1:]] == ['2', '3', '4']
+    assert Path(result[0]['transcript']).read_text().count('description disposable') == 2
+    assert len(clients) == 2
+
+
+@pytest.mark.parametrize('failure, stage', [
+    ('connection', 'connection establishment'), ('shell', 'shell opening'),
+    ('prompt', 'initial prompt/session preparation'), ('privilege', 'privilege'),
+    ('identity', 'identification'), ('backup', 'backup'), ('config entry', 'config entry'),
+    ('interruption', 'command capture'), ('shell cleanup', 'cleanup'),
+    ('session cleanup', 'cleanup'), ('tunnel cleanup', 'cleanup'),
+])
+def test_group_setup_and_cleanup_failure(owned_server, auth, failure, stage):
+    clients, faults, _ = owned_server
+    faults[1] = failure
+    path = run([row(2, text='description disposable'), row(3), row(4)], auth)
+    result = records(path)
+    if 'cleanup' in failure:
+        assert all(r['save'] == 'Saved' for r in result)
+        assert all(r['cleanup'] == 'Failed' for r in result)
+    else:
+        assert result[0]['reason'].startswith(stage + ':')
+        assert all(r['save'] == 'Not initiated' for r in result)
+        assert all(r['attempted'] == 0 for r in result[1:])
+    assert len(clients) == (0 if failure == 'connection' else 1)
+    for client in clients:
+        assert client.released == ['target', 'tunnel', 'bastion', 'proxy']
+
+
+def test_owned_sessions_are_isolated_between_concurrent_workers(owned_server, auth):
+    clients, _, _ = owned_server
+    rows = [row(2, text='description disposable'), row(3, '192.0.2.2', 'description disposable'),
+            row(4, text='description disposable'), row(5, '192.0.2.2', 'description disposable')]
+    config = m.ExecutionConfig(2, 0, 0)
+    path = m.execute(rows, profile=auth, password='test authorization password',
+                     confirmation_digest=m.summary(rows, config)['digest'],
+                     credentials={r['management_ip']: DeviceCredentials('operator') for r in rows},
+                     transport_config=None, execution_config=config)
+    result = records(path)
+    assert all(r['status'] == 'Completed' and r['save'] == 'Saved' for r in result)
+    assert len(clients) == 2 and len({id(c.shell) for c in clients}) == 2
+    for ip in {r['management_ip'] for r in rows}:
+        assert [r['source_row'] for r in result if r['management_ip'] == ip] == [r['source_row'] for r in rows if r['management_ip'] == ip]
+        assert len({r['transcript'] for r in result if r['management_ip'] == ip}) == 1
+    assert len({r['transcript'] for r in result}) == 2
+
+
+def test_constructor_failure_and_failed_shell_close_still_close_session(owned_server, auth, monkeypatch):
+    from orbitflow.vendors.common import PromptCLI
+    clients, faults, _ = owned_server
+    faults[1] = 'prompt'
+    original = PromptCLI.close
+    def close(cli):
+        original(cli)
+        if cli.session.client.failure == 'prompt':
+            raise OSError('private close text')
+    monkeypatch.setattr(PromptCLI, 'close', close)
+    path = run([row(2, text='description disposable'), row(3), row(4)], auth)
+    first, failed, stopped = records(path)
+    assert first['reason'].startswith('initial prompt/session preparation:')
+    assert first['save'] == 'Not initiated'
+    assert failed['cleanup'] == 'Failed'
+    assert failed['attempted'] == stopped['attempted'] == 0
+    assert len(clients) == 1 and clients[0].released == ['target', 'tunnel', 'bastion', 'proxy']
+
+
+def test_cleanup_failure_preserves_row_but_marks_device_incomplete(owned_server, auth):
+    clients, faults, _ = owned_server
+    faults[1] = 'session cleanup'
+    path = run([row(2, text='description disposable')], auth)
+    result = records(path)[0]
+    assert result['status'] == 'Completed' and result['save'] == 'Saved'
+    report = m.regenerate_report(path)
+    book = load_workbook(report)
+    assert book['Devices']['B2'].value == 'Incomplete / pending'
+    assert book.active['C2'].value == 'Completed'
+    assert book.active['D2'].value == 'cleanup: Resource release failed'
+    assert clients[0].released == ['target', 'tunnel', 'bastion', 'proxy']
+
+
+@pytest.mark.parametrize('command, occurrence, stage', [
+    ('configure terminal', 2, 'config entry'),
+    ('description disposable', 2, 'command capture'),
+    ('end', 2, 'finalization'),
+])
+def test_group_intermediate_failure_preserves_prior_blocks(owned_server, auth, command, occurrence, stage):
+    clients, faults, _ = owned_server
+    faults[1] = (command, occurrence)
+    path = run([row(2, text='description disposable'), row(3, '192.0.2.2', 'description disposable'),
+                row(4, text='description disposable'), row(5, text='description disposable')], auth)
+    first, failed, remaining, peer = records(path)
+    assert first['status'] == 'Commands completed' and first['save'] == 'Not initiated'
+    assert failed['reason'].startswith(stage + ':')
+    assert remaining['attempted'] == 0
+    assert peer['status'] == 'Completed' and peer['save'] == 'Saved'
+    assert len(clients) == 2
+    assert 'write memory' not in clients[0].shell.sent
+    assert clients[0].shell.sent.count('description disposable') <= 2
+    assert all(c.released == ['target', 'tunnel', 'bastion', 'proxy'] for c in clients)
+    events = list(m.ResultJournal(path / 'events.jsonl').records())
+    assert any(e['kind'] == 'block_completed' and e['source_row'] == 2 for e in events)
+    report = load_workbook(m.regenerate_report(path))
+    assert report.active['C2'].value == 'Commands completed'
+    assert report.active['H2'].value == 'Not initiated'
+    assert report['Devices']['F2'].value == 'Not initiated'
+
+
+def test_group_invalid_later_row_prevents_final_save(fake, auth):
+    invalid = row(4)
+    invalid.update(commands=[], error=m.EMPTY_ERROR)
+    path = run([row(2), invalid, row(5)], auth)
+    first, failed, remaining = records(path)
+    assert first['status'] == 'Commands completed'
+    assert failed['attempted'] == remaining['attempted'] == 0
+    assert not any(c[0] == 'save' for c in fake[0])
+    assert len([c for c in fake[0] if c[0] == 'connect']) == 1
+
+
+def test_group_block_journal_precedes_save_and_recovers_pending(fake, auth):
+    path = run([row(2), row(4)], auth)
+    journal = path / 'events.jsonl'
+    events = [json.loads(line) for line in journal.read_text().splitlines()]
+    save_index = next(i for i, e in enumerate(events) if e['kind'] == 'device_save_intent')
+    assert len([e for e in events[:save_index] if e['kind'] == 'row_result']) == 2
+    # A process ending just before final save must not fabricate persistence.
+    journal.write_text(''.join(json.dumps(e) + '\n' for e in events[:save_index]))
+    report = load_workbook(m.regenerate_report(path))
+    assert report.active['C2'].value == report.active['C3'].value == 'Commands completed'
+    assert report.active['H2'].value == report.active['H3'].value == 'Not initiated'
+    assert report['Devices']['F2'].value == 'Not initiated'
+
+
+def test_group_real_one_shell_three_rows(owned_server, auth):
+    clients, _, _ = owned_server
+    path = run([row(2, text='description first'), row(3, '192.0.2.2', 'description peer'),
+                row(4, text='description second'), row(5, text='description third')], auth)
+    assert all(r['save'] == 'Saved' for r in records(path))
+    assert len(clients) == 2
+    sent = clients[0].shell.sent
+    assert [c for c in sent if c.startswith('description')] == ['description first', 'description second', 'description third']
+    assert sent.count('configure terminal') == sent.count('end') == 3
+    assert sent.count('write memory') == 1
+    assert sent.index('write memory') > max(i for i, c in enumerate(sent) if c == 'end')
+    assert sent.count('show version') == sent.count('show running-config') == 1
+
+
+
+def test_group_edgeswitch_real_boundaries_vlan_database_then_configure(owned_server, auth):
+    clients, faults, _ = owned_server
+    faults['platform'] = 'edge'
+    path = run([row(2, text='exit\nvlan database\nvlan 10\nexit'),
+                row(4, text='interface 0/1\ndescription disposable')], auth)
+    assert all(r['status'] == 'Completed' and r['save'] == 'Saved' for r in records(path))
+    assert len(clients) == 1
+    sent = clients[0].shell.sent
+    assert sent.count('configure') == sent.count('end') == 2
+    assert sent.count('write memory') == 1
+    assert sent.index('vlan database') < sent.index('interface 0/1')
+
+
+@pytest.mark.parametrize('kind', ['block_completed', 'row_result'])
+def test_group_journal_failure_prevents_save_and_closes(fake, auth, monkeypatch, kind):
+    original = m.ResultJournal.append
+    def append(self, event):
+        if event['kind'] == kind and event.get('source_row') == 4:
+            raise OSError('synthetic evidence failure')
+        return original(self, event)
+    monkeypatch.setattr(m.ResultJournal, 'append', append)
+    path = run([row(2), row(4), row(5)], auth)
+    assert not any(c[0] == 'save' for c in fake[0])
+    assert len([c for c in fake[0] if c[0] == 'command']) == 6
+    assert len([c for c in fake[0] if c[0] == 'close_session']) == 1
+    report = load_workbook(m.regenerate_report(path))
+    assert report.active['C2'].value == 'Commands completed'
+    assert report.active['H2'].value == 'Not initiated'
+
+
+def test_group_canonical_ipv6_aliases_share_shell(fake, auth):
+    rows = [row(2, '2001:db8::1'), row(4, '2001:0db8:0:0:0:0:0:1')]
+    path = run(rows, auth)
+    assert all(r['save'] == 'Saved' for r in records(path))
+    assert [c for c in fake[0] if c[0] == 'connect'] == [('connect', '2001:db8::1')]
+    assert len([c for c in fake[0] if c[0] == 'shell']) == 1
+
+
+def test_historical_per_row_save_results_are_not_reclassified(tmp_path):
+    path = tmp_path / 'historical'
+    path.mkdir()
+    journal = m.ResultJournal(path / 'events.jsonl')
+    journal.append(dict(kind='input', rows=[dict(source_row=i, management_ip='192.0.2.1', total=1) for i in (2, 4)]))
+    for number, status, save in [(2, 'Completed', 'Saved'), (4, 'Incomplete', 'Unknown')]:
+        journal.append(dict(kind='row_result', source_row=number, management_ip='192.0.2.1',
+                            status=status, save=save, attempted=1, total=1, reason=''))
+    report = load_workbook(m.regenerate_report(path, tmp_path / 'old.xlsx'))
+    assert report.active['C2'].value == 'Completed'
+    assert report.active['H2'].value == 'Saved'
+    assert report.active['C3'].value == 'Incomplete'
+    assert report.active['H3'].value == 'Unknown'
+
+
+@pytest.mark.parametrize('outcome', ['Unknown', 'Failed'])
+def test_group_final_save_outcome_visible_for_every_block(fake, auth, outcome):
+    fake[1]['save'] = dict(status=outcome, response='', explicit_error=outcome == 'Failed')
+    path = run([row(2), row(4), row(5)], auth)
+    report = load_workbook(m.regenerate_report(path))
+    for number in (2, 3, 4):
+        assert report.active.cell(number, 3).value == 'Commands completed'
+        assert report.active.cell(number, 8).value == outcome
+        assert report.active.cell(number, 11).value == 'True'
+    assert report['Devices']['F2'].value == outcome
+    assert len([c for c in fake[0] if c[0] == 'save']) == 1
