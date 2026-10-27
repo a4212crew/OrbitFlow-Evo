@@ -30,3 +30,8 @@ per-row lifecycle handoff with this paragraph after the Core Contract diagram:
 > command, boundary or mandatory-recording failure; retain prior block evidence.
 > Cleanup attempts every owned resource once at device end. Other workflows
 > retain their existing lifecycle and save policy.
+
+
+Atlas applied the superseding grouped-session corrections to all three skills on
+this PR before owner-authorized merge. The instructions above remain as historical
+handoff provenance. No executable changes were made by Atlas.
