@@ -1,3 +1,19 @@
+> **Issue #158 superseding owner-approved grouped-session contract (2026-10-27).**
+> Earlier fresh-row connection/shell/save statements below are historical and superseded.
+> Group canonical IPs in workbook order; one owned DeviceSession and one live shell per
+> device, one initial identity/privilege/paging preparation and protected backup.
+> Each block enters global configuration from confirmed privileged EXEC and explicitly
+> returns to confirmed EXEC, including the last block. Only then save once per device.
+> Journal block completion immediately as Commands completed / awaiting device save;
+> only confirmed final save promotes completed blocks to Completed/Saved. Any invalid
+> row, write/boundary/recording failure stops that device and prevents a new automatic
+> save. Explicit engineer persistence may already have saved changes. Never replay.
+> Preserve Unknown after an issued save, command evidence and unsafe cleanup reporting.
+> One shell avoids the historical second-shell path; synthetic tests and earlier owner
+> fresh-row acceptance do not establish grouped-session live hardware compatibility.
+> The grouped implementation is present on this branch; final validation is recorded
+> in the October devlog. No live testing is authorized for Codex.
+
 # Manual Configuration Python API
 
 `orbitflow.configuration.manual` is the reusable application service beneath the
@@ -13,7 +29,7 @@ Public functions:
 | `create_template(directory='data/input/generated_template')` | Offline; returns an exclusively allocated `Path` named `manual_config_YYYYMMDD_NNN.xlsx`. |
 | `load_rows(path)` | Offline; returns source-ordered row dictionaries: `source_row`, `management_ip`, `commands` (literal nonblank list), `error`, and optional `command_lines` (original one-based cell lines). Invalid cells are discarded with a fixed diagnostic; malformed headers or >10000 rows fail the workbook. |
 | `summary(rows, execution_config=ExecutionConfig(1), settings=CaptureSettings())` | Offline; returns digest, rows/devices/commands/invalid counts and concurrency. Digest binds exact ordered row content and settings. |
-| `execute(rows, *, profile, password, confirmation_digest, credentials, transport_config, execution_config=ExecutionConfig(1), settings=CaptureSettings(), inventory_path='data/inventory/inventory.json', run_root='outputs/runs/manual_configuration', backups_dir='outputs/backups/configuration', progress=None, on_started=None, reports_dir='outputs/reports/manual_configuration', on_output=None)` | Network/apply; verifies local password and exact summary confirmation before allocation or connection. Copies and validates rows; groups same-IP rows, using shared device scheduling and per-row fresh DeviceSession connections and CLI channels. Returns retained run `Path`; refreshes one consolidated workbook through the scheduler completion callback before waiting for other devices. Configuration exceptions produce Incomplete row records; persistence/interrupt failures can propagate with recovery retained. Never retry the run automatically. |
+| `execute(rows, *, profile, password, confirmation_digest, credentials, transport_config, execution_config=ExecutionConfig(1), settings=CaptureSettings(), inventory_path='data/inventory/inventory.json', run_root='outputs/runs/manual_configuration', backups_dir='outputs/backups/configuration', progress=None, on_started=None, reports_dir='outputs/reports/manual_configuration', on_output=None)` | Network/apply; verifies local password and exact summary confirmation before allocation or connection. Copies and validates rows; groups same-IP rows, using shared device scheduling and one DeviceSession/live CLI channel per canonical IP group. Returns retained run `Path`; refreshes one consolidated workbook through the scheduler completion callback before waiting for other devices. Configuration exceptions produce Incomplete row records; persistence/interrupt failures can propagate with recovery retained. Never retry the run automatically. |
 | `regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/manual_configuration', management_ip=None, replace=False)` | Offline; returns an exclusively allocated report `Path`. Defaults under `outputs/reports/manual_configuration/`; explicit existing paths fail unless replace=True requests atomic refresh. Reads durable input/intents/results, never network or replay. |
 
 `CaptureSettings(first_response=10.0, inactivity=1.0, maximum=30.0,
@@ -166,7 +182,7 @@ only; explicit authored persistence may already have executed before failure.
 `Not initiated` never asserts unsaved state. See the [owner evidence and fresh lab
 checks](../user_manual/manual-configuration.md#superseding-owner-decision--literal-manual-commands-2026-10-26).
 
-## Approved connection correction — Issue #158
+## Historical fresh-row correction — Issue #158 (superseded)
 
 The owner-approved correction supersedes Issue #156 statements about sharing a
 healthy transport or one connection per IP. Historical source/tests reused one
@@ -202,3 +218,18 @@ still requires cleanup. Internal vendor manual setup similarly accepts optional
 
 Protected skill reconciliation is provided as an exact
 [Atlas handoff](issue-158-atlas-handoff.md); `.agents/` was not modified.
+
+
+## Grouped-session journal and reporting contract — Issue #158
+
+`execute` owns one session and live shell per canonical IP group. Setup identity and
+protected backup occur once, config-entry and EXEC-finalization boundaries occur per
+row, and automatic save occurs once after all rows succeed. `block_completed` and
+`row_result` journal events preserve command evidence before `device_save_intent` /
+`device_save_result`. Missing device save result after intent is Unknown. Recovery
+projects device save only onto grouped Commands completed results; historical per-row
+Completed/Saved results are not reclassified. `device_cleanup_failed` exposes unsafe
+cleanup without erasing confirmed save. Workbooks append `command_block_completed`
+to row columns and `automatic_save` to Devices. Public signatures are unchanged.
+See [commands and owner lab procedure](../user_manual/manual-configuration.md#grouped-session-validation-issue-158).
+Protected skill reconciliation: [exact Atlas handoff](issue-158-atlas-handoff.md).

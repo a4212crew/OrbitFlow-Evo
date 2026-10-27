@@ -1,3 +1,19 @@
+> **Issue #158 superseding owner-approved grouped-session contract (2026-10-27).**
+> Earlier fresh-row connection/shell/save statements below are historical and superseded.
+> Group canonical IPs in workbook order; one owned DeviceSession and one live shell per
+> device, one initial identity/privilege/paging preparation and protected backup.
+> Each block enters global configuration from confirmed privileged EXEC and explicitly
+> returns to confirmed EXEC, including the last block. Only then save once per device.
+> Journal block completion immediately as Commands completed / awaiting device save;
+> only confirmed final save promotes completed blocks to Completed/Saved. Any invalid
+> row, write/boundary/recording failure stops that device and prevents a new automatic
+> save. Explicit engineer persistence may already have saved changes. Never replay.
+> Preserve Unknown after an issued save, command evidence and unsafe cleanup reporting.
+> One shell avoids the historical second-shell path; synthetic tests and earlier owner
+> fresh-row acceptance do not establish grouped-session live hardware compatibility.
+> The grouped implementation is present on this branch; final validation is recorded
+> in the October devlog. No live testing is authorized for Codex.
+
 # OrbitFlow
 
 Issue #154 adds lab-first confirmed execution for ME3600X Templates 9–11 and
@@ -820,7 +836,7 @@ Predefined non-Ubiquiti templates do not depend on VLAN Database approval.
 EdgeSwitch's genuine prerequisites and all separate execution safety gates remain.
 See the [planning guide](docs/user_manual/bulk-configuration-planning.md).
 
-Manual Configuration (Issue #156): separate Excel multiline blocks with fresh shells, local password gate and success-only per-row save. See the [operator guide](docs/user_manual/manual-configuration.md) and [Python API](docs/operations/manual-configuration-api.md). XR/Huawei manual entry/save and owner live validation remain pending; legacy plans and predefined partial-save behavior are unchanged.
+Manual Configuration (Issue #156): separate Excel multiline blocks grouped on one live shell per device, local password gate, verified EXEC row boundaries and one final automatic save. See the [operator guide](docs/user_manual/manual-configuration.md) and [Python API](docs/operations/manual-configuration-api.md). XR/Huawei manual entry/save and owner live validation remain pending; legacy plans and predefined partial-save behavior are unchanged.
 
 Issue #156 usability revision on this branch: blank cell separators are accepted,
 manual workbooks use the shared numbered chooser, and one consolidated workbook is atomically refreshed after each device finishes,
@@ -838,7 +854,7 @@ with confirmed save and refreshed consolidated reports/named captures. EdgeSwitc
 was rejected before connection; fresh EdgeSwitch validation and independent
 configuration verification are not established. Never replay those successful rows.
 
-Manual Configuration Issue #158 gives every executable row its own SSH connection
+Historical fresh-row revision of Manual Configuration Issue #158 gave every executable row its own SSH connection
 and shell, with per-row identity/backup and full transport cleanup. Same-IP order
 and shared connection pacing remain; repeated authentication adds overhead. Fixed
 setup stages distinguish connection, shell, prompt, privilege, identity, backup and

@@ -1,3 +1,19 @@
+> **Issue #158 superseding owner-approved grouped-session contract (2026-10-27).**
+> Earlier fresh-row connection/shell/save statements below are historical and superseded.
+> Group canonical IPs in workbook order; one owned DeviceSession and one live shell per
+> device, one initial identity/privilege/paging preparation and protected backup.
+> Each block enters global configuration from confirmed privileged EXEC and explicitly
+> returns to confirmed EXEC, including the last block. Only then save once per device.
+> Journal block completion immediately as Commands completed / awaiting device save;
+> only confirmed final save promotes completed blocks to Completed/Saved. Any invalid
+> row, write/boundary/recording failure stops that device and prevents a new automatic
+> save. Explicit engineer persistence may already have saved changes. Never replay.
+> Preserve Unknown after an issued save, command evidence and unsafe cleanup reporting.
+> One shell avoids the historical second-shell path; synthetic tests and earlier owner
+> fresh-row acceptance do not establish grouped-session live hardware compatibility.
+> The grouped implementation is present on this branch; final validation is recorded
+> in the October devlog. No live testing is authorized for Codex.
+
 # Manual Configuration — Issue #156
 
 Owner-approved design implemented on this branch. Deterministic synthetic tests cover safety and compatibility; owner-supplied run evidence is recorded below. Fresh EdgeSwitch and broader owner validation remain pending. See the [operator guide](../../user_manual/manual-configuration.md) and [API](../../operations/manual-configuration-api.md).
@@ -7,7 +23,7 @@ new input generation. Historical v1/v2 plans, immutable digests and workbook/rep
 reading remain unchanged; legacy Manual CLI plans remain non-executable. Predefined
 template identifiers remain stable.
 
-Each management_ip/command row is a literal multiline block in a fresh shell.
+Each management_ip/command row is a literal multiline block on its device group’s single live shell.
 Repeated IPs retain workbook order on one device worker; other devices may proceed
 independently through shared bounded execution. Every successful row requires durable
 sanitized transcript evidence, explicit mode synchronization and confirmed vendor
@@ -140,7 +156,7 @@ record the final literal-command, authorization, output and automatic-save contr
 No executable changes were made by Atlas. Validation evidence/limitations above
 remain unchanged.
 
-## Approved connection correction — Issue #158
+## Historical fresh-row correction — Issue #158 (superseded)
 
 The owner-approved correction supersedes Issue #156 statements about sharing a
 healthy transport or one connection per IP. Historical source/tests reused one

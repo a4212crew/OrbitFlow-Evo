@@ -1,4 +1,4 @@
-"""Literal Excel blocks: fresh row connections/shells, redacted evidence, success-only automatic save.
+"""Literal Excel blocks: one live shell per device, durable block evidence, final device save.
 
 Explicit engineer persistence commands may save before any later row failure.
 
@@ -6,7 +6,7 @@ Public API: create_template, load_rows, summary, execute, regenerate_report.
 No legacy plan conversion, automatic replay, rollback or independent verification.
 """
 from copy import deepcopy
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass, asdict
 from threading import Event, current_thread, main_thread
 import signal
@@ -36,6 +36,11 @@ from orbitflow.capabilities.save import save_configuration
 from orbitflow.vendors.common import DeviceCLI, CLICleanupError, normalize_output
 from orbitflow.vendors.configuration_facts import _safe_source
 from orbitflow.vendors import manual_configuration as vendor
+
+
+class RecordingError(Exception):
+    """Fixed internal category for mandatory evidence persistence failures."""
+
 
 EMPTY_ERROR = 'Invalid input: command block contains no executable commands'
 INPUT_ERROR = 'Invalid input: management_ip must be an IP address'
@@ -138,7 +143,7 @@ def create_template(directory='data/input/generated_template'):
     sheet.column_dimensions['B'].width = 90
     sheet['B2'].alignment = Alignment(wrap_text=True, vertical='top')
     from openpyxl.comments import Comment
-    sheet['B1'].comment = Comment('Literal newline-separated commands (Alt+Enter). Starts in global configuration mode. Engineer CLI is sent literally, including explicit save commands. Automatic save is success-only; unsupported questions stop the row. Protect credential-bearing source workbooks.', 'OrbitFlow')
+    sheet['B1'].comment = Comment('Literal newline-separated commands (Alt+Enter). Starts in global configuration mode. Engineer CLI is sent literally, including explicit save commands. Automatic save runs once after all device blocks succeed; unsupported questions stop the row. Protect credential-bearing source workbooks.', 'OrbitFlow')
     for sequence in range(1, 100000):
         path = root / f'manual_config_{datetime.now():%Y%m%d}_{sequence:03d}.xlsx'
         try:
@@ -208,8 +213,8 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
             reports_dir='outputs/reports/manual_configuration', on_output=None):
     """Apply only after local password and summary-bound explicit confirmation.
 
-    Each executable row owns a fresh shared transport connection and shell; cleanup
-    failure stops later same-IP rows without erasing completed/save evidence.
+    Each device group owns one connection and live shell across ordered rows.
+    Blocks are journaled before the single final automatic save; cleanup preserves evidence.
     credentials maps IP to existing DeviceCredentials. Authored CLI may contain secrets;
     source workbooks must be protected. Save status describes automatic save only.
     Returns a retained run path. Refreshes one consolidated report per device via the
@@ -249,6 +254,11 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
     bound = summary(rows, execution_config, settings)
     if confirmation_digest != bound['digest']:
         raise ValueError('Explicit manual summary confirmation required')
+    # Confirmation binds original input; grouping uses canonical address identity.
+    for row in rows:
+        if row['management_ip']:
+            row['management_ip'] = str(ipaddress.ip_address(row['management_ip']))
+    credentials = {str(ipaddress.ip_address(ip)): value for ip, value in credentials.items()}
     # Disclosure policy never rejects authored CLI. Learn sensitive operands so
     # bare/fragmented device echoes are redacted as well as labelled output.
     secrets = {password}
@@ -321,7 +331,10 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
             raise KeyboardInterrupt()
     with interrupt_guard(cancelled), Progress(progress) as reporter, module_logger('manual_configuration', 'execution') as (logger, log_path):
         def event(ip, kind, **values):
-            journal.append(safe_record(dict(timestamp=now(), management_ip=ip, kind=kind, log_reference=str(log_path), **values)))
+            try:
+                journal.append(safe_record(dict(timestamp=now(), management_ip=ip, kind=kind, log_reference=str(log_path), **values)))
+            except Exception:
+                raise RecordingError() from None
             reporter.emit(ip, kind, **{k: v for k, v in values.items() if k in {'source_row', 'command_index', 'command_total', 'status'}})
             logger.info('Manual configuration stage', extra=dict(management_ip=ip, stage=kind, run_id=spool.path.name))
 
@@ -329,6 +342,10 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
             stopped = False
             transcript = None
             path = None
+            session = None
+            shells = ExitStack()
+            completed = []
+            cleanup_failed = False
             try:
                 for source in groups[ip]:
                     row = dict(source_row=source['source_row'], management_ip=ip,
@@ -336,9 +353,6 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                last_command=None, save='Not initiated', verification_scope=SCOPE,
                                transcript=str(path.resolve()) if path else '')
                     phase = 'recording'
-                    session = None
-                    cleanup_failed = False
-                    save_sent = False
                     pending = ''
                     try:
                         # Allocate the IP fallback before identification so even
@@ -351,9 +365,12 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                         row['transcript'] = str(path.resolve())
                         event(ip, 'capture', transcript=str(path.resolve()))
                         def record(label, text):
-                            transcript.write(clean(text))
-                            transcript.flush()
-                            os.fsync(transcript.fileno())
+                            try:
+                                transcript.write(clean(text))
+                                transcript.flush()
+                                os.fsync(transcript.fileno())
+                            except Exception:
+                                raise RecordingError() from None
                         record('CHECK', '')
                         checkpoint()
                         if stopped:
@@ -363,30 +380,20 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                             stopped = True
                         else:
                             checkpoint()
-                            phase = 'connection establishment'
-                            if ip not in credentials:
-                                raise ValueError('Credentials unavailable')
-                            event(ip, 'connect', source_row=source['source_row'])
-                            session = connect_device(ip, credentials[ip], transport_config)
-                            def setup_stage(stage):
-                                nonlocal phase
-                                phase = stage
-                                event(ip, stage, source_row=source['source_row'])
-                            @contextmanager
-                            def row_shell():
-                                nonlocal cleanup_failed
-                                cli = DeviceCLI(session, timeout=settings.setup_timeout,
-                                                setup_stage=setup_stage)
-                                try:
-                                    yield cli.__enter__()
-                                finally:
-                                    try:
-                                        cli.__exit__(None, None, None)
-                                    except BaseException:
-                                        cleanup_failed = True
-                            # The shell and its entire parent transport belong to this row.
-                            phase = 'shell opening'
-                            with row_shell() as cli:
+                            if session is None:
+                                phase = 'connection establishment'
+                                if ip not in credentials:
+                                    raise ValueError('Credentials unavailable')
+                                event(ip, 'connect', source_row=source['source_row'])
+                                session = connect_device(ip, credentials[ip], transport_config)
+                                def setup_stage(stage):
+                                    nonlocal phase
+                                    phase = stage
+                                    event(ip, stage, source_row=source['source_row'])
+                                phase = 'shell opening'
+                                cli = DeviceCLI(session, timeout=settings.setup_timeout, setup_stage=setup_stage)
+                                shells.callback(cli.__exit__, None, None, None)
+                                cli.__enter__()
                                 phase = 'identification'
                                 context = DeviceInventoryResolver(store, sanitize_fact=clean).resolve(session, management_ip=ip, cli=cli)
                                 desired = report_directory / (filename_component(clean(context.hostname or ip)) + '_' + filename_component(ip or 'invalid-input') + '.txt')
@@ -416,78 +423,66 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                     content = content.replace(value, '[REDACTED]')
                                 saved_backup = backup.write(context.hostname or ip, context.platform, content)
                                 event(ip, 'backup', source_row=source['source_row'], backup=str(saved_backup))
-                                phase = 'config entry'
+                            phase = 'config entry'
+                            checkpoint()
+                            vendor.setup(cli, context, settings.setup_timeout, setup_stage=setup_stage, prepare=not completed)
+                            pending = ''
+                            recent = ''
+                            received = 0
+                            def receive(text):
+                                nonlocal pending, recent, received
+                                received += len(text.encode('utf-8'))
+                                if received > 8 * 1024 * 1024:
+                                    raise ValueError('Capture byte limit exceeded')
+                                pending += text
+                                recent = (recent + text)[-65536:]
+                                while '\n' in pending:
+                                    line, pending = pending.split('\n', 1)
+                                    record('RECEIVE', line.rstrip('\r') + '\n')
+                                    event(ip, 'receive', source_row=source['source_row'], text=line)
+                                if len(pending) > 65536:
+                                    raise ValueError('Capture line limit exceeded')
+                                if vendor.rejected(normalize_output(recent)):
+                                    if pending:
+                                        record('RECEIVE', pending)
+                                        pending = ''
+                                if vendor.rejected(normalize_output(recent)):
+                                    raise ValueError('Vendor rejected command')
                                 checkpoint()
-                                vendor.setup(cli, context, settings.setup_timeout, setup_stage=setup_stage)
+                            phase = 'command capture'
+                            for index, command in enumerate(source['commands'], 1):
+                                checkpoint()
+                                row.update(attempted=index, last_command=index)
+                                event(ip, 'command_intent', source_row=source['source_row'], command_index=index, command_total=row['total'], source_line=source.get('command_lines', list(range(1, row['total'] + 1)))[index - 1], command=command)
+                                record('CHECK', '')  # Check durable capture before transmission.
+                                cli.capture_literal(command, first_response=settings.first_response,
+                                                    inactivity=settings.inactivity, maximum=settings.maximum, receive=receive)
+                                # A chunk ending at `password:` may be only an echo
+                                # fragment. Classify questions after bounded capture,
+                                # before sending another command; never answer them.
+                                if INTERACTION.search(normalize_output(recent)):
+                                    raise ValueError('Unsupported interactive exchange')
+                            if pending:
+                                record('RECEIVE', pending)
                                 pending = ''
-                                recent = ''
-                                received = 0
-                                def receive(text):
-                                    nonlocal pending, recent, received
-                                    received += len(text.encode('utf-8'))
-                                    if received > 8 * 1024 * 1024:
-                                        raise ValueError('Capture byte limit exceeded')
-                                    pending += text
-                                    recent = (recent + text)[-65536:]
-                                    while '\n' in pending:
-                                        line, pending = pending.split('\n', 1)
-                                        record('RECEIVE', line.rstrip('\r') + '\n')
-                                        event(ip, 'receive', source_row=source['source_row'], text=line)
-                                    if len(pending) > 65536:
-                                        raise ValueError('Capture line limit exceeded')
-                                    if vendor.rejected(normalize_output(recent)):
-                                        if pending:
-                                            record('RECEIVE', pending)
-                                            pending = ''
-                                    if vendor.rejected(normalize_output(recent)):
-                                        raise ValueError('Vendor rejected command')
-                                    checkpoint()
-                                phase = 'command capture'
-                                for index, command in enumerate(source['commands'], 1):
-                                    checkpoint()
-                                    row.update(attempted=index, last_command=index)
-                                    event(ip, 'command_intent', source_row=source['source_row'], command_index=index, command_total=row['total'], source_line=source.get('command_lines', list(range(1, row['total'] + 1)))[index - 1], command=command)
-                                    record('CHECK', '')  # Check durable capture before transmission.
-                                    cli.capture_literal(command, first_response=settings.first_response,
-                                                        inactivity=settings.inactivity, maximum=settings.maximum, receive=receive)
-                                    # A chunk ending at `password:` may be only an echo
-                                    # fragment. Classify questions after bounded capture,
-                                    # before sending another command; never answer them.
-                                    if INTERACTION.search(normalize_output(recent)):
-                                        raise ValueError('Unsupported interactive exchange')
-                                if pending:
-                                    record('RECEIVE', pending)
-                                    pending = ''
-                                checkpoint()
-                                phase = 'finalization'
-                                cli.last_response = ''
-                                try:
-                                    anchor = vendor.finalize(cli, context, settings.setup_timeout)
-                                finally:
-                                    # Includes partial receive data on synchronization failure.
-                                    record('FINALIZATION RECEIVE', cli.last_response)
-                                if vendor.rejected(normalize_output(cli.last_response)) or INTERACTION.search(cli.last_response):
-                                    raise ValueError('Finalization rejected or interactive')
-                                record('CHECK', '')
-                                event(ip, 'save_intent', source_row=source['source_row'])
-                                checkpoint()
-                                phase = 'save'
-                                row['save'] = 'Unknown'
-                                save_sent = True  # Conservatively Unknown even if sendall fails partially.
-                                cli.last_response = ''
-                                try:
-                                    result = save_configuration(session, context, cli=cli, exec_prompt=anchor, timeout=settings.save_timeout, manual=True)
-                                except BaseException:
-                                    record('SAVE RECEIVE', cli.last_response)
-                                    raise
-                                record('SAVE RECEIVE', result['response'])
-                                checkpoint()
-                                row['save'] = 'Failed' if result.get('explicit_error') else result['status']
-                                if result['status'] != 'Saved' or result.get('explicit_error'):
-                                    raise ValueError('Save not confirmed or explicitly rejected')
-                                phase = 'recording'
-                                row.update(status='Completed', reason='')
+                            checkpoint()
+                            event(ip, 'block_completed', source_row=source['source_row'])
+                            row['command_block_completed'] = True
+                            phase = 'finalization'
+                            cli.last_response = ''
+                            try:
+                                anchor = vendor.finalize(cli, context, settings.setup_timeout)
+                            finally:
+                                # Includes partial receive data on synchronization failure.
+                                record('FINALIZATION RECEIVE', cli.last_response)
+                            if vendor.rejected(normalize_output(cli.last_response)) or INTERACTION.search(cli.last_response):
+                                raise ValueError('Finalization rejected or interactive')
+                            record('CHECK', '')
+                            row.update(status='Commands completed', reason='Awaiting device save')
+                            completed.append(row)
                     except BaseException as exc:
+                        if isinstance(exc, RecordingError):
+                            phase = 'recording'
                         if isinstance(exc, CLICleanupError):
                             cleanup_failed = True
                         if pending and transcript is not None:
@@ -510,31 +505,59 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
                                   'Connection closed' if isinstance(exc, (EOFError, ConnectionError)) else
                                   'Operation failed')
                         row['reason'] = f'{phase}: {detail}'
-                        if save_sent and row['save'] not in {'Saved', 'Failed'}:
-                            row['save'] = 'Unknown'
                         if not isinstance(exc, Exception):
                             row['reason'] = f'{phase}: Interrupted'
-                    finally:
-                        if session is not None:
-                            try:
-                                session.close()
-                            except BaseException:
-                                cleanup_failed = True
-                            finally:
-                                session = None
-                    if cleanup_failed:
-                        stopped = True
-                        row['cleanup'] = 'Failed'
-                        row['reason'] = (row['reason'] + '; ' if row['reason'] else '') + 'cleanup: Resource release failed'
                     try:
                         event(ip, 'row_result', **{k: v for k, v in row.items() if k != 'management_ip'})
                     except BaseException:
                         # A recording failure must never initiate save, continue
                         # rows or report a successful row. Recovery uses intent.
                         raise
+                if stopped:
+                    event(ip, 'device_stopped', reason='Device stopped; automatic save Not initiated')
+                if completed and not stopped:
+                    phase = 'save'
+                    save = 'Not initiated'
+                    reason = ''
+                    try:
+                        checkpoint()
+                        record('CHECK', '')
+                        event(ip, 'device_save_intent')
+                        save = 'Unknown'
+                        cli.last_response = ''
+                        result = save_configuration(session, context, cli=cli, exec_prompt=anchor,
+                                                    timeout=settings.save_timeout, manual=True)
+                        # Preserve confirmed outcome even if capture/journal cleanup fails.
+                        save = 'Failed' if result.get('explicit_error') else result['status']
+                        record('SAVE RECEIVE', result['response'])
+                    except BaseException as exc:
+                        stopped = True
+                        reason = 'save: Interrupted' if not isinstance(exc, Exception) else 'save: Operation failed'
+                        if transcript is not None:
+                            try:
+                                record('SAVE RECEIVE', cli.last_response)
+                            except BaseException:
+                                reason = 'recording: Operation failed'
+                    event(ip, 'device_save_result', save=save, reason=reason)
+                    stopped = stopped or save != 'Saved'
             finally:
-                if transcript is not None:
-                    transcript.close()
+                try:
+                    shells.close()
+                except BaseException:
+                    cleanup_failed = True
+                try:
+                    if session is not None:
+                        session.close()
+                except BaseException:
+                    cleanup_failed = True
+                try:
+                    if transcript is not None:
+                        transcript.close()
+                except BaseException:
+                    cleanup_failed = True
+                if cleanup_failed:
+                    stopped = True
+                    event(ip, 'device_cleanup_failed', reason='cleanup: Resource release failed')
             return dict(management_ip=ip, failed=stopped)
 
         def persist(outcome):
@@ -569,9 +592,20 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
     # Metadata aggregation is bounded by the 10000-row input limit;
     # command/response data stay in per-device transcripts on disk.
     inputs, results, attempts, saves, captures = [], {}, {}, set(), {}
+    device_saves, device_cleanup, blocks, device_stopped = {}, set(), set(), set()
     for event in journal.records():
         if event['kind'] == 'input':
             inputs = event['rows']
+        elif event['kind'] == 'block_completed':
+            blocks.add(event['source_row'])
+        elif event['kind'] == 'device_stopped':
+            device_stopped.add(event['management_ip'])
+        elif event['kind'] == 'device_save_intent':
+            device_saves[event['management_ip']] = dict(save='Unknown', reason='Device save outcome unknown')
+        elif event['kind'] == 'device_save_result':
+            device_saves[event['management_ip']] = event
+        elif event['kind'] == 'device_cleanup_failed':
+            device_cleanup.add(event['management_ip'])
         elif event['kind'] == 'capture':
             captures[event['management_ip']] = event['transcript']
         elif event['kind'] == 'row_result':
@@ -580,6 +614,20 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
             attempts[event['source_row']] = event['command_index']
         elif event['kind'] == 'save_intent':
             saves.add(event['source_row'])
+    for result in results.values():
+        if result['source_row'] in blocks:
+            result['command_block_completed'] = True
+        if result.get('status') == 'Commands completed':
+            if result['management_ip'] in device_stopped:
+                result['reason'] = 'Device stopped; automatic save Not initiated'
+            saved = device_saves.get(result['management_ip'])
+            if saved:
+                result.update(save=saved['save'], reason=saved.get('reason', ''))
+                if saved['save'] == 'Saved':
+                    result['status'] = 'Completed'
+        if result['management_ip'] in device_cleanup:
+            result['cleanup'] = 'Failed'
+            result['reason'] = (result.get('reason', '') + '; cleanup: Resource release failed').lstrip('; ')
     if not inputs:
         raise ValueError('Manual run has no durable input snapshot')
     if output is None:
@@ -613,7 +661,7 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
         with stream:
             book = Workbook(write_only=True)
             sheet = book.create_sheet('Manual Configuration')
-            fields = ['source_row', 'management_ip', 'status', 'reason', 'attempted', 'total', 'last_command', 'save', 'verification_scope', 'transcript']
+            fields = ['source_row', 'management_ip', 'status', 'reason', 'attempted', 'total', 'last_command', 'save', 'verification_scope', 'transcript', 'command_block_completed']
             sheet.append(fields)
             from openpyxl.cell import WriteOnlyCell
             for source in inputs:
@@ -623,7 +671,7 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
                 result = results.get(number) or dict(source_row=number, management_ip=source['management_ip'], status='Incomplete',
                             reason='Interrupted/recording incomplete' if number in attempts or number in saves else 'Not attempted: run incomplete',
                             attempted=attempts.get(number, 0), total=source['total'], last_command=attempts.get(number),
-                            save='Unknown' if number in saves else 'Not initiated', verification_scope=SCOPE, transcript='')
+                            save='Unknown' if number in saves or source['management_ip'] in device_saves else 'Not initiated', verification_scope=SCOPE, transcript='', command_block_completed=number in blocks)
                 reference = captures.get(source['management_ip'], '') or result.get('transcript')
                 capture = Path(reference) if reference else None
                 if capture is not None and not capture.is_absolute():
@@ -646,7 +694,7 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
                 sheet.append(cells)
             sheet.close()
             devices = book.create_sheet('Devices')
-            devices.append(['management_ip', 'status', 'completed_rows', 'total_rows', 'capture'])
+            devices.append(['management_ip', 'status', 'completed_rows', 'total_rows', 'capture', 'automatic_save'])
             grouped = {}
             for source in inputs:
                 grouped.setdefault(source['management_ip'], []).append(source)
@@ -670,7 +718,11 @@ def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/man
                     except ValueError:
                         link.hyperlink = capture.resolve().as_uri()
                     link.style = 'Hyperlink'
-                devices.append(cells + [link])
+                save_state = device_saves.get(ip, {}).get('save')
+                if save_state is None:
+                    historical = {results.get(r['source_row'], {}).get('save', 'Not initiated') for r in selected}
+                    save_state = next(iter(historical)) if len(historical) == 1 else 'Mixed (historical per-row saves)'
+                devices.append(cells + [link, save_state])
             devices.close()
             notes = book.create_sheet('Run Notes')
             for text in [SCOPE,

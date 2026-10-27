@@ -1,3 +1,19 @@
+> **Issue #158 superseding owner-approved grouped-session contract (2026-10-27).**
+> Earlier fresh-row connection/shell/save statements below are historical and superseded.
+> Group canonical IPs in workbook order; one owned DeviceSession and one live shell per
+> device, one initial identity/privilege/paging preparation and protected backup.
+> Each block enters global configuration from confirmed privileged EXEC and explicitly
+> returns to confirmed EXEC, including the last block. Only then save once per device.
+> Journal block completion immediately as Commands completed / awaiting device save;
+> only confirmed final save promotes completed blocks to Completed/Saved. Any invalid
+> row, write/boundary/recording failure stops that device and prevents a new automatic
+> save. Explicit engineer persistence may already have saved changes. Never replay.
+> Preserve Unknown after an issued save, command evidence and unsafe cleanup reporting.
+> One shell avoids the historical second-shell path; synthetic tests and earlier owner
+> fresh-row acceptance do not establish grouped-session live hardware compatibility.
+> The grouped implementation is present on this branch; final validation is recorded
+> in the October devlog. No live testing is authorized for Codex.
+
 # Manual Configuration (Issue #156)
 
 A separate console and Python API workflow executes literal multiline Excel rows.
@@ -349,7 +365,7 @@ automatic save (Unknown, no retry), then regenerate offline with networking disa
 Use fake credentials for confidentiality checks; inspect sanitized captures and notes.
 No independent configuration verification is implied by these transcript checks.
 
-## Approved connection correction — Issue #158
+## Historical fresh-row correction — Issue #158 (superseded)
 
 The owner-approved correction supersedes Issue #156 statements about sharing a
 healthy transport or one connection per IP. Historical source/tests reused one
@@ -449,3 +465,54 @@ orchestration tests rejected by the sandbox temp-directory Git-marker guard
 described above. A retry using `/tmp` reproduced that restriction. Controller
 validation in a normal external temp environment remains pending; no controller
 Git/GitHub lifecycle actions were performed.
+
+
+## Grouped session validation (Issue 158)
+
+Current behavior uses one SSH connection and one exact interactive shell per canonical
+IP group, including noncontiguous rows. Identity, privilege/paging setup and protected
+backup run once before writes. Each row enters supported global configuration from
+confirmed privileged EXEC and explicitly returns to EXEC after its block. The last
+row also returns to EXEC before exactly one automatic save. This avoids repeated
+connection/setup overhead, but holds the device shell for the whole group; capture
+and boundary timeouts still apply. There is no reconnect, command replay or rollback.
+Earlier fresh-row tests and owner acceptance are historical.
+
+Row command completion is durably journaled before device save. The workbook shows
+Commands completed / Awaiting device save until a final confirmed save yields
+Completed/Saved. Later failure preserves earlier command evidence and shows automatic
+save Not initiated. Failed/Unknown save applies to all completed blocks. A separate
+command_block_completed column preserves block evidence if EXEC return fails.
+Devices includes automatic_save; unsafe cleanup keeps the device incomplete while
+preserving confirmed row/save outcomes. Explicit engineer persistence is independent.
+Legacy per-row journals retain their historical classifications during offline recovery.
+
+Run these commands from the final controller worktree on Linux Bash (the absolute
+PYTHONPATH prevents an installed main checkout from overriding this branch):
+
+```bash
+export PYTHONPATH="$PWD/src"
+python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_transport.py tests/test_transport_authentication.py tests/test_shared_cli.py tests/test_device_execution.py tests/test_result_spool.py tests/test_configuration_execution.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py tests/test_configuration_backup.py tests/test_cli_lifecycle.py tests/test_cisco_ios_cli.py tests/test_cisco_terminal_width.py tests/test_edgeswitch_angle_prompt.py tests/test_prompt_banners.py -q
+python -m pytest -q
+```
+
+Windows PowerShell, from the same final controller worktree:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m pytest tests/test_manual_configuration.py tests/test_operations_console.py tests/test_transport.py tests/test_transport_authentication.py tests/test_shared_cli.py tests/test_device_execution.py tests/test_result_spool.py tests/test_configuration_execution.py tests/test_configuration_execution_evc.py tests/test_configuration_execution_stages.py tests/test_configuration_backup.py tests/test_cli_lifecycle.py tests/test_cisco_ios_cli.py tests/test_cisco_terminal_width.py tests/test_edgeswitch_angle_prompt.py tests/test_prompt_banners.py -q
+python -m pytest -q
+```
+
+Owner-only new lab validation: create a fresh manual workbook with two reviewed,
+disposable changes for one lab IP, optionally separated by a disposable peer row.
+Do not replay run 20261027_064039's completed first row. Authenticate Teleport through
+the usual operator process, authorize and confirm the summary. Verify one connection,
+one shell, one identity/backup, ordered blocks, an EXEC return after each block, and
+one confirmed final automatic save. Check the consolidated workbook, relative capture
+links and offline regeneration. Independently inspect running/persistent configuration.
+In separate disposable failure runs, reject the second block or interrupt final save:
+verify earlier block evidence survives, later commands are absent, automatic save is
+Not initiated before transmission or Unknown after unconfirmed transmission, and
+resources close. Owner controls all device changes and cleanup; Codex performs none.
+Grouped live validation and native Windows execution remain pending.
