@@ -105,3 +105,15 @@ revised worksheets before milestone completion. Templates 9-22 remain pending.
 
 
 Issue #156 approved design: [separate Manual Configuration](manual-configuration.md) supersedes legacy offline Manual CLI for new input generation only. Legacy plans remain offline/non-executable; predefined partial-save behavior is unchanged. The new optional profile password-hash section and success-only per-row save are implemented on this branch with synthetic deterministic tests; owner-operated live validation remains pending. Historical evidence above is retained.
+
+
+## Issue #162 third-review implementation boundary
+
+The v2 Excel exporter now writes expanded proposal/evidence cells through
+write-only worksheets; a fixed-size template supplies the existing navigation,
+styles, comments and validation lists. Protected workbook comparison still scans
+actual XML cells rather than trusting dimension hints. Writer scratch is removed
+on ordinary completion/failure. Immutable plan decoding, observation aggregation,
+32 MiB content validation, decision evaluation and confirmed execution preparation
+remain aggregate. This change does not establish end-to-end bounded planning or
+recovery. See the [audit ledger](../../operations/issue-162-processing-audit.md).

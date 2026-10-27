@@ -870,3 +870,9 @@ large-run planning recovery remain unfinished. A limited read-only
 [offline recovery command](docs/user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision)
 now verifies workbook/request binding and freshness, with non-executable legacy
 diagnostics; existing aggregate limits still apply. See the [audit and validation ledger](docs/operations/issue-162-processing-audit.md).
+
+
+Issue #162 third-review increment streams configuration review worksheet cells
+and expanded evidence to disk, with ordinary-error scratch cleanup. Immutable
+plan decoding and the 16/32 MiB planning limits remain unchanged; this does not
+complete large-run planning. See the [writer validation and limitations](docs/user_manual/bulk-configuration-planning.md#review-workbook-writer-validation-third-review-increment).

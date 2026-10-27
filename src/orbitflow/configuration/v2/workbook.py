@@ -1,7 +1,9 @@
 """Thin XLSX adapter. Only the decision cells may change during decision consumption."""
+from copy import copy
 from pathlib import Path
 import hashlib
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
@@ -34,12 +36,12 @@ class WorkbookRequests(list):
         self.source_digest = ""
 
 
-def literal(cell, value):
+def literal(cell, value, *, digest=None):
     text = str(value) if value is not None else ""
     if len(text) > 32767:
         # Excel/openpyxl would otherwise truncate silently. Never shorten the
         # immutable plan: replace only its XLSX presentation, deterministically.
-        digest = cell.parent.parent["Introduction"]["B1"].value
+        digest = digest or cell.parent.parent["Introduction"]["B1"].value
         require(digest, "oversized Excel value requires an immutable plan")
         text = (f"Complete value in immutable plan.json (plan digest {digest}). "
                 f"Field: {cell.parent.title}!{cell.coordinate}; "
@@ -286,16 +288,58 @@ def read_input(path):
         book.close()
 
 
+def _streaming_base(base):
+    """Copy the small fixed template into write-only sheets, preserving layout.
+
+    Expanded row/evidence cells are never retained by openpyxl. The immutable
+    plan is still decoded by the caller; this helper bounds XLSX writer memory.
+    """
+    book = Workbook(write_only=True)
+    for source in base:
+        target = book.create_sheet(source.title)
+        target.freeze_panes = source.freeze_panes
+        target.sheet_format = copy(source.sheet_format)
+        target.sheet_properties = copy(source.sheet_properties)
+        target.merged_cells = copy(source.merged_cells)
+        target.data_validations = copy(source.data_validations)
+        for key, dimension in source.column_dimensions.items():
+            target.column_dimensions[key] = copy(dimension)
+        for key, dimension in source.row_dimensions.items():
+            target.row_dimensions[key] = copy(dimension)
+        for row in source:
+            cells = []
+            for original in row:
+                cell = WriteOnlyCell(target, original.value)
+                # Style arrays index workbook-owned tables; register the
+                # concrete styles in the destination instead of copying IDs.
+                for attribute in ('font', 'fill', 'border', 'alignment', 'protection', 'number_format'):
+                    setattr(cell, attribute, copy(getattr(original, attribute)))
+                cell.comment = copy(original.comment)
+                cell.hyperlink = copy(original.hyperlink)
+                cell.data_type = original.data_type
+                cells.append(cell)
+            target.append(cells)
+    base.close()
+    return book
+
+
 def export_plan(plan, path):
+    """Export the unchanged review workbook with disk-backed worksheet writers.
+
+    Requests/results and source plan decoding remain aggregate and retain their
+    existing limits. Expanded worksheet/evidence cells stream to owned XML files;
+    ordinary failures close writers and remove those temporary files.
+    """
     require(not Path(path).exists(), "output already exists")
-    book = _base()
+    base = _base()
     data = plan.to_dict()
-    book["Introduction"]["B1"] = plan.digest
+    digest = plan.digest
+    base["Introduction"]["B1"] = digest
     results = {r["row_id"]: r for r in data["results"]}
     names = data["layout"]
-    book._sheets = [book[s] for s in names]
+    base._sheets = [base[s] for s in names]
     for t in CATALOGUE:
-        sheet = book[t.sheet]
+        sheet = base[t.sheet]
         for i, name in enumerate(output_columns(t), len(t.columns) + 1):
             literal(sheet.cell(2, i), name)
             sheet.column_dimensions[get_column_letter(i)].width = 40
@@ -303,51 +347,101 @@ def export_plan(plan, path):
         sheet.add_data_validation(dv)
         col = get_column_letter(len(t.columns) + len(output_columns(t)))
         dv.add(f"{col}3:{col}5002")
-    details = book.create_sheet("Evidence Details")
-    details.append(["Reference", "Source", "Line", "Exact sanitized excerpt"])
-    summary = book.create_sheet("Summary")
-    summary.append(["Sheet", "Row", "Result"])
-    for error in data["input_errors"]:
-        summary.append([error["sheet"], error["row"], error["reason"]])
-        t = BY_SHEET[error['sheet']]
-        sheet = book[t.sheet]
-        for index, field in enumerate(t.columns, 1):
-            literal(sheet.cell(error['row'], index), error.get('source_inputs', {}).get(field, ''))
-        for field, value in (("Validation Status", "Invalid"), ("Error Details", "; ".join(error.get('details', [error['reason']]))), ("Engineer Decision", "Pending")):
-            literal(sheet.cell(error['row'], len(t.columns) + output_columns(t).index(field) + 1), value)
-    for r in data["requests"]:
-        t, p, result = BY_ID[r["template_id"]], r["inputs"], results[r["row_id"]]
-        sheet = book[t.sheet]
-        summary.append([t.sheet, r["row"], "No-op" if result["no_op"] else result["decision"]])
-        obs = data["observations"].get(p["management_ip"], {}) if t.family != "All" else {}
-        excerpts = scoped_evidence(r, obs)
-        for e in excerpts:
-            row = details.max_row + 1
-            for col, v in enumerate((r["row_id"], e["source_filename"], e["line"], e["excerpt"]), 1):
-                literal(details.cell(row, col), v)
-        evidence = "\n".join(e["excerpt"] for e in excerpts)
-        if len(evidence) > 30000:
-            evidence = "Evidence Details: " + r["row_id"]
-        commands = result["commands"]
-        cli = commands if isinstance(commands, str) else "\n".join(commands)
-        original = r["source_inputs"]
-        values = [(",".join(map(str, original[k])) if isinstance(original.get(k), list) else original.get(k, "")) for k in t.columns]
-        extras = [r["row_id"], evidence, cli,
-                   result["live_validation"], result["consistency"], ",".join(result["dependencies"]), obs.get("observed_at", ""),
-                   ",".join(result["findings"]), str(result["no_op"]), "Valid", "; ".join(f"conflicts with {q['sheet']} row {q['row']}" for q in result.get("conflicting_rows", [])) + ("; " + result["prerequisite_details"] if result.get("prerequisite_details") else ""),
-                   result.get("resolved_target", p.get("interface", "")), ",".join(result.get("warnings", [])), ",".join(result.get("blockers", [])), canonical(result.get("overlaps", [])), canonical(result.get("projected_state")), canonical(result.get("service_instance_changes")), result["decision"]]
-        fields = dict(zip(FULL_EXTRA, extras))
-        if result.get('ingress_conflicts'):
-            fields['Error Details'] = '; '.join(filter(None, [fields['Error Details']] +
-                [item['explanation'] for item in result['ingress_conflicts']]))
-        values += [fields[name] for name in output_columns(t)]
-        for i, v in enumerate(values, 1):
-            literal(sheet.cell(r["row"], i), v)
-        sheet.row_dimensions[r["row"]].height = 90
-    for c in ("A", "B", "C", "D"):
-        details.column_dimensions[c].width = 70 if c == "D" else 28
-    with Path(path).open("xb") as stream:
-        book.save(stream)
+    book = _streaming_base(base)
+    try:
+        details = book.create_sheet("Evidence Details")
+        for c in ("A", "B", "C", "D"):
+            details.column_dimensions[c].width = 70 if c == "D" else 28
+        details.append(["Reference", "Source", "Line", "Exact sanitized excerpt"])
+        detail_row = 1
+        summary = book.create_sheet("Summary")
+        summary.append(["Sheet", "Row", "Result"])
+        # Requests are already bounded by MAX_ROWS. Retain only input metadata for
+        # ordering; worksheet cells and expanded evidence go directly to disk.
+        for error in data["input_errors"]:
+            summary.append([error["sheet"], error["row"], error["reason"]])
+        invalid_rows = {}
+        for error in data["input_errors"]:
+            t = BY_SHEET[error['sheet']]
+            values = [error.get('source_inputs', {}).get(k, '') for k in t.columns]
+            fields = {"Validation Status": "Invalid", "Error Details": "; ".join(error.get('details', [error['reason']])), "Engineer Decision": "Pending"}
+            values += [fields.get(k, '') for k in output_columns(t)]
+            invalid_rows[t.sheet, error['row']] = values
+        # Match the former cell writer: later invalid rows replace earlier
+        # ones, and valid requests overwrite invalid-row presentation.
+        for r in data['requests']:
+            invalid_rows.pop((BY_ID[r['template_id']].sheet, r['row']), None)
+        pending = {}
+        for (sheet_name, row), values in invalid_rows.items():
+            pending.setdefault(sheet_name, []).append((row, values))
+        positions = {t.sheet: 2 for t in CATALOGUE}
+
+        def emit(sheet_name, row, values, *, proposal=False):
+            sheet = book[sheet_name]
+            while positions[sheet_name] + 1 < row:
+                sheet.append([])
+                positions[sheet_name] += 1
+            cells = []
+            for column, value in enumerate(values, 1):
+                cell = WriteOnlyCell(sheet)
+                # WriteOnlyCell is otherwise always A1 until append assigns it.
+                cell.row, cell.column = row, column
+                literal(cell, value, digest=digest)
+                cells.append(cell)
+            if proposal:
+                sheet.row_dimensions[row].height = 90
+            sheet.append(cells)
+            positions[sheet_name] = row
+
+        for values in pending.values():
+            values.sort(reverse=True)
+        for r in data["requests"]:
+            t, p, result = BY_ID[r["template_id"]], r["inputs"], results[r["row_id"]]
+            while pending.get(t.sheet) and pending[t.sheet][-1][0] < r["row"]:
+                error_row, error_values = pending[t.sheet].pop()
+                emit(t.sheet, error_row, error_values)
+            summary.append([t.sheet, r["row"], "No-op" if result["no_op"] else result["decision"]])
+            obs = data["observations"].get(p["management_ip"], {}) if t.family != "All" else {}
+            excerpts = scoped_evidence(r, obs)
+            for e in excerpts:
+                detail_row += 1
+                cells = []
+                for column, v in enumerate((r["row_id"], e["source_filename"], e["line"], e["excerpt"]), 1):
+                    cell = WriteOnlyCell(details)
+                    cell.row, cell.column = detail_row, column
+                    literal(cell, v, digest=digest)
+                    cells.append(cell)
+                details.append(cells)
+            evidence = "\n".join(e["excerpt"] for e in excerpts)
+            if len(evidence) > 30000:
+                evidence = "Evidence Details: " + r["row_id"]
+            commands = result["commands"]
+            cli = commands if isinstance(commands, str) else "\n".join(commands)
+            original = r["source_inputs"]
+            values = [(",".join(map(str, original[k])) if isinstance(original.get(k), list) else original.get(k, "")) for k in t.columns]
+            extras = [r["row_id"], evidence, cli,
+                       result["live_validation"], result["consistency"], ",".join(result["dependencies"]), obs.get("observed_at", ""),
+                       ",".join(result["findings"]), str(result["no_op"]), "Valid", "; ".join(f"conflicts with {q['sheet']} row {q['row']}" for q in result.get("conflicting_rows", [])) + ("; " + result["prerequisite_details"] if result.get("prerequisite_details") else ""),
+                       result.get("resolved_target", p.get("interface", "")), ",".join(result.get("warnings", [])), ",".join(result.get("blockers", [])), canonical(result.get("overlaps", [])), canonical(result.get("projected_state")), canonical(result.get("service_instance_changes")), result["decision"]]
+            fields = dict(zip(FULL_EXTRA, extras))
+            if result.get('ingress_conflicts'):
+                fields['Error Details'] = '; '.join(filter(None, [fields['Error Details']] +
+                    [item['explanation'] for item in result['ingress_conflicts']]))
+            values += [fields[name] for name in output_columns(t)]
+            emit(t.sheet, r["row"], values, proposal=True)
+        for sheet_name, values in pending.items():
+            while values:
+                row, cells = values.pop()
+                emit(sheet_name, row, cells)
+        with Path(path).open("xb") as stream:
+            book.save(stream)
+    finally:
+        for sheet in book:
+            if not sheet.closed:
+                sheet.close()
+            if sheet._writer and Path(sheet._writer.out).exists():
+                sheet._writer.cleanup()
+        book.close()
 
 
 def consume_decisions(original, path, *, expected_digest, now=None):

@@ -2,8 +2,8 @@
 
 This is an implementation audit for review, **not Issue acceptance**. The shared
 spool increment is implemented; end-to-end large-plan processing remains
-unfinished. The revision below adds limited offline recovery with existing
-aggregate limits. No production captures or devices were used.
+unfinished. Offline recovery retains the existing aggregate limits. The third-review
+increment streams worksheet cells, while full-plan decoding remains aggregate. No production captures or devices were used.
 The owner's private workbook/spool are unavailable and are not needed for synthetic
 validation. No historical source-workbook association can be reconstructed.
 
@@ -18,7 +18,7 @@ repository-wide regression checks from newly added scalability assertions.
 | Planning v1 `configuration/plans.py`, `approvals.py` | Offline request and inventory snapshots materialized | Closed-schema canonical JSON; signed SQLite authority | Retain authorization semantics. Full-plan serialization is **not yet migrated** | `test_configuration_plans.py` |
 | Planning v2 observation `configuration/v2/observation.py` | Shared per-device workers; normalized evidence in one payload per device | Shared spool; `bounded_observations` still builds aggregate dictionary | Implement pre-network request/workbook digest metadata. **16 MiB aggregate observation gate remains**; limited offline recovery is available; see revision section | `test_bulk_configuration_v2.py`, binding test in `test_result_index.py` |
 | Planning v2 build/validation `configuration/v2/planning.py` | All observations, requests, projected rows/results materialized; same-device prior rows retain dependencies/conflicts | Immutable string content; canonical digest; re-evaluation detects tamper | **Unfinished:** replace aggregate planning/validation with disk-backed intermediates without changing order, projections, schema or safety. 32 MiB plan gate remains | `test_bulk_configuration_v2.py`, `test_configuration_v2_approved_services.py` |
-| Planning review/XLSX `configuration/v2/workbook.py` | Normal workbook plus full plan; review regenerates expected workbook in memory | Existing sheets/columns; exact protected-cell comparison and digest | **Unfinished:** streaming workbook generation with unchanged protected evidence and workbook structure; protected comparison now uses read-only iterators | Same v2 suites; `test_operations_console.py` |
+| Planning review/XLSX `configuration/v2/workbook.py` | Write-only worksheet cells; full decoded plan remains in memory; review regenerates expected workbook using the streaming writer | Existing sheets/columns/presentation; exact protected-cell comparison and digest; ordinary writer scratch cleanup | Implemented worksheet streaming in third review. **Unfinished:** full-plan decode and per-request evidence aggregation; protected comparison uses read-only iterators | Same v2 suites; `test_configuration_streaming_workbook.py`; `test_operations_console.py` |
 | Confirmed execution prepare/confirm `configuration/execution.py` | Full plan decoded and copied into confirmation payload; selected/skipped rows materialized | Transactional SQLite replay claims; summary JSON; journal and spool; separate explicit confirmation | Retain write/backup/verify/save gates. **Unfinished:** bounded confirmation preparation/load; never infer execution authority from recovery | `test_configuration_execution*.py`, `test_execution_observation_timing.py` |
 | Execution report `configuration/execution.py:export_results` | Write-only workbook; full summary plus per-row event-offset maps and repeated journal scans | Offline journal-based reconstruction; detailed evidence retained | Retain output contract; **unfinished:** indexed event reduction and bounded summary consumption | Execution and performance suites |
 | Manual Configuration `configuration/manual.py` | One session/shell per IP group; input rows grouped in memory; device-local transcripts | fsynced events, shared outcomes, write-only consolidated workbook; offline journal recovery | Preserve no-replay and successful-group-only automatic save. Report still aggregates all bounded input metadata/results; **not migrated to indexed journal processing** | `test_manual_configuration.py` |
@@ -260,3 +260,58 @@ has a Git ancestor. No guard or Git marker was changed. This is not a green gate
 Owner-host Linux/Windows safe-temp commands remain in the planning manual.
 `git diff --check` passed. No commits, pushes, PR/state changes, device writes or
 owner/private/live validation were performed.
+
+
+## Third-review increment (2026-10-27; Issue remains incomplete)
+
+This section supersedes the writer-specific statements above only. It does not
+close the primary functionality or whole-module acceptance findings.
+
+| Module / decision | Collection and memory | Persistence, output and recovery | Verification / remaining risk |
+|---|---|---|---|
+| v2 `workbook.py:export_plan` — implement | Still decodes full plan. Fixed template is copied into write-only worksheets; proposal/evidence cells stream to XML, retaining bounded input metadata and row dimensions. | Existing sheets/columns, layout, comments, hyperlinks, styles, validation lists, literal values, digest/evidence references and decisions retained. Ordinary errors close/remove owned XML scratch. | New `test_configuration_streaming_workbook.py`: 88/500/1,500 rows, 50 evidence lines each, complete exact ordered evidence, writer-only peak <16 MiB; presentation and error cleanup. Full plan and scoped per-request evidence remain materialized. No full-pipeline memory claim. |
+| v2 protected review — retain | Read-only expected/actual scans still calculate dimensions from actual cells. | Write-only XML omits optional dimension hints; forged-hint regression now inserts a lying hint explicitly before adding an out-of-range cell. | Existing recovery/planning regressions plus forged-hint check. Source plan, digest and execution authority unchanged. |
+| Shared spool historical envelopes — verified incompatibility | Individual `readline` remains capped at 64 MiB before JSON decoding. | A directly constructed historical-format 65 MiB sanitized envelope is rejected with `Spool record size limit exceeded`; original JSONL/manifest retained and scratch cleaned. | `test_result_index.py::test_historical_envelope_over_64_mib_fails_before_json_decode`. This is concrete historical incompatibility evidence, not a claim of supported recovery. Larger historical envelopes remain unresolved and need an owner-approved bound/compatibility decision. No limit was silently raised or bypassed. |
+| Other workflow decisions above — outstanding | No additional collection, inventory, manual, backup, transport or execution implementation changes in this increment. | Their previous implemented/retained/unfinished distinctions continue to apply. | Whole-suite regression is recorded below; this is not a completed per-module design audit or a rationale for leaving mandatory work unfinished. |
+
+The primary aggregate observation/plan pipeline is unchanged. In particular,
+`recovery.py` still calls `bounded_observations`, `BulkPlan` still enforces 32 MiB,
+and downstream JSON/decision/confirmation consumers remain aggregate. The required
+~77 MB end-to-end planning/review/recovery and 88/500/1,500 full-pipeline tests
+remain absent. No architecture contradiction is asserted. Owner private-spool,
+actual device and native Windows validation remain pending.
+
+Compatibility spot-check against the HEAD exporter used one synthetic C3750X
+plan with a row gap and compared all sheet values, concrete fonts/fills/borders/
+alignment/number formats/protection, comments, hyperlinks, data validations,
+merged cells and sheet order: matched. It used a temporary directory and no
+networking. Existing protected-review regressions provide the broader template
+coverage; the spot-check is not full-pipeline validation.
+
+The isolated writer measurement recorded peak Python allocations of 5,838,595
+bytes (88 rows), 5,869,019 (500), and 6,287,010 (1,500), excluding already-decoded
+input and full-plan construction. The measurement command also initially found a
+style-proxy comparison test failure, corrected before the final full-suite run;
+the measurement is not itself a passing final-source command. Full-source checks
+are recorded below. RSS and complete 77 MB planning were not measured.
+
+
+Third-review validation before the last invalid-row precedence correction:
+`PYTHONPATH=src python -m pytest -q`: **3,793 passed / 25 failed / 0 skipped**,
+207.98 seconds (`/tmp/issue-162-third-full.txt`, worker-only log). All failures
+remain the controller temp-root guard category. A final compatibility check then
+added last-invalid-row replacement and valid-row precedence handling; its direct
+regression passed. The final-source full-suite result follows below.
+
+
+Final-source third-review regression:
+
+- `PYTHONPATH=src python -m pytest -q`: **3,795 passed / 25 failed / 0 skipped**, 220.69 seconds (`/tmp/issue-162-third-delivery-full.txt`, worker-only log). Includes all module families, seven new writer test cases (including invalid-row precedence and oversized evidence coordinates), and the new historical-envelope boundary case. The 25 failed IDs exactly match the earlier controller guard failures; no new failing test IDs. The guard rejects `/tmp/orbitflow-issue-162-codex-wgv3d1_i` because `/tmp/.git` is an ancestor marker. Writable roots remain inside that ancestry or this checkout; no guard, permissions or Git marker was changed. A passing controller-safe owner run is still required.
+- Focused planning/recovery after invalid-row correction: `PYTHONPATH=src python -m pytest tests/test_configuration_recovery.py tests/test_bulk_configuration_v2.py -q`: **176 passed / 0 failed / 0 skipped**, 19.43 seconds. Subsequent oversized-reference correction is covered by the final full suite.
+- `PYTHONPATH=src python -m pytest tests/test_result_index.py -q`: **31 passed / 0 failed / 0 skipped**, 11.74 seconds; includes direct historical 65 MiB rejection.
+- `git diff --check`: passed. Affected Markdown relative file targets: no missing files.
+
+The primary requested implementation remains incomplete. No full-pipeline 77 MB,
+>32 MiB plan or end-to-end 500/1,500 target recovery result is claimed. No
+production, private-spool or native Windows validation, commit/push/PR/state
+operation or merge occurred.

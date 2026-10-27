@@ -324,3 +324,35 @@ def test_large_record_serialization_does_not_join_full_envelope(tmp_path, record
     assert (spool.path / 'results.jsonl').stat().st_size > 16 * 1024 * 1024
     with spool.indexed() as index:
         assert index.get(1)['payload'] == payload
+
+
+def test_historical_envelope_over_64_mib_fails_before_json_decode(tmp_path, monkeypatch):
+    """Record the exact legacy compatibility boundary without a private capture.
+
+    Older writers had no per-envelope cap. Construct their public envelope
+    directly, in chunks, so this exercises the reader rather than today's writer.
+    """
+    import orbitflow.result_spool as module
+    spool = collected(tmp_path, 1)
+    source = spool.path / 'results.jsonl'
+    record = json.loads(source.read_text())
+    del record['payload']
+    with source.open('wb') as stream:
+        stream.write(json.dumps(record).encode()[:-1])
+        stream.write(b',"payload":{"evidence":"')
+        chunk = b'x' * (1024 * 1024)
+        for _ in range(65):
+            stream.write(chunk)
+        stream.write(b'"}}\n')
+    size = source.stat().st_size
+    decode = module.json.loads
+    def bounded_decode(value, *args, **kwargs):
+        assert len(value) <= module.MAX_RECORD_BYTES
+        return decode(value, *args, **kwargs)
+    monkeypatch.setattr(module.json, 'loads', bounded_decode)
+    with pytest.raises(ValueError, match='record size limit'):
+        with spool.indexed():
+            pytest.fail('oversized historical record accepted')
+    assert source.stat().st_size == size
+    assert spool.manifest['collection_complete'] is True
+    assert not list(spool.path.glob('read-*'))

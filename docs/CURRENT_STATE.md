@@ -1194,3 +1194,13 @@ full-plan review/confirmation materialization remain unfinished. A direct offlin
 and freshness; explicit legacy diagnostic recovery cannot authorize execution.
 It retains the aggregate limits and cannot yet recover the ~77 MB case. No live, private-spool or Windows validation claimed.
 See the [audit ledger](operations/issue-162-processing-audit.md).
+
+
+Issue #162 third-review increment: v2 XLSX export uses write-only worksheet XML
+for proposal/evidence cells, preserving template styling/navigation, decisions
+and protected review checks. Writer scratch files are cleaned on ordinary errors.
+Full-plan JSON decoding remains aggregate; 16/32 MiB gates, execution preparation,
+whole-module audit decisions and full-pipeline scalability remain unfinished.
+Synthetic writer-only 88/500/1,500-row tests are separate from the requested
+77 MB end-to-end recovery. A synthetic 65 MiB historical envelope demonstrates
+rejection by the unchanged 64 MiB reader guard; compatibility is unresolved.

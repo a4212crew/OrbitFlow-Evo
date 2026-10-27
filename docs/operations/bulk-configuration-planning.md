@@ -569,3 +569,9 @@ Offline retained-observation recovery is available through the supported direct
 CLI and Python API documented in the [canonical recovery guide](../user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision).
 This entry point retains aggregate plan limits; legacy interpretation is
 explicitly unverified and cannot authorize execution.
+
+
+The unchanged public `export_plan(plan, path)` adapter now streams generated
+proposal/evidence worksheet cells using owned temporary XML files. Plan decoding
+remains aggregate; ordinary writer failures clean temporary XML. See the
+[writer validation contract](../user_manual/bulk-configuration-planning.md#review-workbook-writer-validation-third-review-increment).

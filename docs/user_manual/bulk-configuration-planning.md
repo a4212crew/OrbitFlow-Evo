@@ -760,7 +760,7 @@ The shared spool has lease-protected SQLite point/target/batch retrieval, with
 explicit 64 MiB individual-envelope and 64 GiB spool limits. These are separate
 from the planner's existing 16 MiB aggregate observation and 32 MiB plan limits,
 which still apply. A failure retains the spool; it does not reconnect or replay.
-There is no supported offline planning recovery command in this increment.
+The optional offline recovery command is described below; it retains both aggregate planning limits.
 See [Linux/Windows tests and read-only inspection](../operations/issue-162-processing-audit.md).
 The end-to-end large-plan Issue is not complete.
 
@@ -873,3 +873,37 @@ python -m pytest -q
 These are owner-host commands, not a workaround applied inside the managed
 implementation sandbox. Retain test artifacts for inspection; do not alter Git
 markers, weaken guards or replay configuration to validate recovery.
+
+
+### Review workbook writer validation (third-review increment)
+
+Workbook export now streams proposal rows and Evidence Details to temporary XML
+files, removing those files on ordinary success or failure. Sheet order, columns,
+editable decisions, literal text, digest references, header comments, navigation,
+validation lists and row presentation remain unchanged. The public
+`export_plan(plan, path)` signature is unchanged. It still decodes the full plan;
+this is a writer-memory improvement, not complete disk-backed planning. The
+16/32 MiB aggregate gates and recovery restrictions above still apply.
+
+Run the synthetic writer checks on Linux:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_configuration_streaming_workbook.py tests/test_configuration_recovery.py tests/test_result_index.py -q
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m pytest tests/test_configuration_streaming_workbook.py tests/test_configuration_recovery.py tests/test_result_index.py -q
+```
+
+Expected writer checks cover 88, 500 and 1,500 proposal rows, 50 evidence lines
+per row, complete ordered evidence output and less than 16 MiB additional peak
+Python allocations. They isolate the writer using already-decoded synthetic
+inputs; they do not measure full-pipeline memory, RSS, or a 77 MB recovery.
+The historical-envelope test directly constructs a sanitized 65 MiB JSONL record
+and expects rejection before JSON decoding. Today's 64 MiB reader limit is a
+known incompatibility with such historical records; retain the original spool.
+Do not split or edit evidence to bypass provenance/digest checks. No native
+Windows, private-spool or live-device validation has occurred.

@@ -204,7 +204,10 @@ def test_review_rejects_hidden_cells_beyond_forged_dimension(tmp_path):
     name = 'xl/worksheets/sheet1.xml'
     xml = contents[name]
     match = re.search(rb'<dimension ref="([^"]+)"', xml)
-    assert match
+    if match is None:
+        # Streaming writers omit the optional hint. Supply a lying hint so
+        # this still verifies that review scans actual cells beyond it.
+        xml = xml.replace(b'<sheetData>', b'<dimension ref="A1:D29"/><sheetData>')
     contents[name] = xml.replace(b'</sheetData>',
         b'<row r="5001"><c r="A5001" t="inlineStr"><is><t>tampered</t></is></c></row></sheetData>')
     with ZipFile(review, 'w', ZIP_DEFLATED) as archive:
