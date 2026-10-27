@@ -249,3 +249,78 @@ def test_public_index_reader_exception_releases_lease(tmp_path):
     assert spool._reading_index is None
     with spool.indexed() as index:
         assert len(index) == 3
+
+
+@pytest.mark.parametrize('legacy', [False, True])
+def test_large_individual_device_above_previous_envelope_limit(tmp_path, legacy):
+    """Legacy/new JSONL have identical shapes; neither needs a 16 MiB gate."""
+    size = 17 * 1024 * 1024
+    spool = ResultSpool.create(tmp_path, 'synthetic', 1)
+    if not legacy:
+        spool.bind({'request_digest': 'a' * 64})
+    with spool.collection():
+        spool.append(DeviceOutcome(1, {'evidence': 'x' * size}), target='192.0.2.1')
+    reopened = ResultSpool(spool.path)
+    original_size = (spool.path / 'results.jsonl').stat().st_size
+    assert original_size > 16 * 1024 * 1024
+    for _ in range(2):
+        with reopened.indexed() as index:
+            record = index.get(1)
+            assert record['target'] == '192.0.2.1'
+            assert len(record['payload']['evidence']) == size
+    assert (spool.path / 'results.jsonl').stat().st_size == original_size
+    assert not list(spool.path.glob('read-*'))
+
+
+@pytest.mark.parametrize('failure', ['nan', 'record_limit', 'disk_limit', 'scratch'])
+def test_staged_append_failure_preserves_previous_committed_record(tmp_path, monkeypatch, failure):
+    import orbitflow.result_spool as module
+    spool = ResultSpool.create(tmp_path, 'synthetic', 2)
+    with pytest.raises((ValueError, OSError)):
+        with spool.collection():
+            spool.append(DeviceOutcome(1, {'value': 'committed'}))
+            before = (spool.path / 'results.jsonl').read_bytes()
+            if failure == 'record_limit':
+                monkeypatch.setattr(module, 'MAX_RECORD_BYTES', 512)
+            elif failure == 'disk_limit':
+                monkeypatch.setattr(module, 'MAX_SPOOL_BYTES', len(before) + 512)
+            elif failure == 'scratch':
+                def fail(**kwargs):
+                    raise OSError(errno.ENOSPC, 'synthetic scratch failure')
+                monkeypatch.setattr(module, 'TemporaryFile', fail)
+            spool.append(DeviceOutcome(2, {'value': float('nan') if failure == 'nan' else 'x' * 1024}))
+    assert (spool.path / 'results.jsonl').read_bytes() == before
+    assert spool.manifest['completed_count'] == 1
+    assert spool.manifest['status'] == 'interrupted'
+    assert spool.manifest['collection_complete'] is False
+    assert sorted(p.name for p in spool.path.iterdir()) == ['.lock', 'manifest.json', 'results.jsonl']
+
+
+def test_staged_append_retains_jsonl_encoding_and_sanitization(tmp_path):
+    spool = ResultSpool.create(tmp_path, 'synthetic', 1)
+    with spool.collection():
+        spool.append(DeviceOutcome(1, {'unicode': 'é', 'credential': 'password=synthetic'}))
+    line = (spool.path / 'results.jsonl').read_text(encoding='ascii')
+    record = json.loads(line)
+    assert line == json.dumps(record, ensure_ascii=True, allow_nan=False) + '\n'
+    assert 'synthetic' not in record['payload']['credential']
+    assert record['payload']['unicode'] == 'é'
+
+
+def test_large_record_serialization_does_not_join_full_envelope(tmp_path, record_property):
+    # Input ownership/decoder memory is separate. Measure only persistence of a
+    # normalized device table with many small cells, above the former 16 MiB cap.
+    payload = {'rows': ['x' * 4096] * 4352}
+    spool = ResultSpool.create(tmp_path, 'synthetic', 1, clean=lambda text: text)
+    tracemalloc.start()
+    try:
+        with spool.collection():
+            spool.append(DeviceOutcome(1, payload))
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    record_property('serialization_peak_python_bytes', peak)
+    assert peak < 8 * 1024 * 1024, peak
+    assert (spool.path / 'results.jsonl').stat().st_size > 16 * 1024 * 1024
+    with spool.indexed() as index:
+        assert index.get(1)['payload'] == payload

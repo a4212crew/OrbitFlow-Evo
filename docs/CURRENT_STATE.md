@@ -1182,6 +1182,9 @@ and [protected-skill handoff](operations/issue-158-atlas-handoff.md).
 Shared spool consumption reuses one bounded-cache SQLite offset index across
 report passes; lease-protected point/target/batch retrieval, individual-envelope
 and disk safety limits, stricter envelope validation and file fsync are present.
+Individual envelopes allow up to 64 MiB, including legacy readers; disk-staged
+encoding avoids joining a full serialized device table during append. Larger
+historical individual records remain unsupported.
 Future v2 observations persist request/workbook digest metadata before networking;
 legacy source binding cannot be inferred. Synthetic 88-target/~77 MB, 500-target
 and 1,500-target spool tests assert peak Python allocations below 16 MiB. This

@@ -863,7 +863,8 @@ failures. See [tests and fresh owner lab checks](docs/user_manual/manual-configu
 Linux deterministic validation is recorded there; Windows and live validation of
 this correction remain pending.
 
-Issue #162 adds shared lease-protected SQLite spool retrieval and pre-network
+Issue #162 adds shared lease-protected SQLite spool retrieval (64 MiB per-envelope
+limit with disk-staged encoding; larger individual legacy records remain unsupported) and pre-network
 planning request/workbook digest metadata. End-to-end large-plan processing and
 large-run planning recovery remain unfinished. A limited read-only
 [offline recovery command](docs/user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision)

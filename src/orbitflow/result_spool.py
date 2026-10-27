@@ -11,7 +11,8 @@ import os
 from pathlib import Path
 import sqlite3
 from itertools import islice
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, TemporaryFile
+from shutil import copyfileobj
 from threading import get_ident
 from time import sleep
 from uuid import uuid4
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Limits apply to individual envelopes, never the aggregate observation bundle.
 # readline(size) enforces the bound before allocating an untrusted full line.
-MAX_RECORD_BYTES = 16 * 1024 * 1024
+MAX_RECORD_BYTES = 64 * 1024 * 1024
 MAX_SPOOL_BYTES = 64 * 1024 * 1024 * 1024
 
 
@@ -290,7 +291,12 @@ class ResultSpool:
                 self._positions.clear()
 
     def append(self, outcome, *, payload=None, target='', failed=False):
-        """Flush exactly once, then checkpoint. Never retry an append failure."""
+        """Stage sanitized JSON on disk, flush once, then checkpoint.
+
+        Envelopes above 64 MiB or a spool above 64 GiB fail explicitly. Staging
+        failures preserve preceding records; publication failures may leave an
+        incomplete final line. Never retry an append failure.
+        """
         if self._writer is None or get_ident() != self._owner:
             raise RuntimeError('Only the collection owner may append')
         if self._append_failed:
@@ -303,15 +309,24 @@ class ResultSpool:
                       target=self.clean(target), status='failed' if failed or category else 'success',
                       completed_at=_now(), error_category=category,
                       payload=self._safe(outcome.value if payload is None else payload))
-        line = json.dumps(record, ensure_ascii=True, allow_nan=False) + '\n'
-        if len(line.encode('utf-8')) > MAX_RECORD_BYTES:
-            self._append_failed = True
-            raise ValueError('Spool record size limit exceeded')
-        if self._writer.tell() + len(line.encode('utf-8')) > MAX_SPOOL_BYTES:
-            self._append_failed = True
-            raise ValueError('Spool size limit exceeded')
         try:
-            self._writer.write(line)
+            # Stage before touching authoritative JSONL: serialization, size or
+            # scratch-disk failure must not publish a partial envelope. Avoid
+            # joining all encoder chunks into an additional full-record string.
+            with TemporaryFile(mode='w+', encoding='ascii', newline='\n', dir=self.path) as staged:
+                size = 0
+                start = self._writer.tell()
+                encoder = json.JSONEncoder(ensure_ascii=True, allow_nan=False)
+                for chunk in encoder.iterencode(record):
+                    size += len(chunk)  # ensure_ascii makes characters == bytes
+                    if size + 1 > MAX_RECORD_BYTES:
+                        raise ValueError('Spool record size limit exceeded')
+                    if start + size + 1 > MAX_SPOOL_BYTES:
+                        raise ValueError('Spool size limit exceeded')
+                    staged.write(chunk)
+                staged.write('\n')
+                staged.seek(0)
+                copyfileobj(staged, self._writer, length=64 * 1024)
             self._writer.flush()
             os.fsync(self._writer.fileno())
             self._positions.add(position)

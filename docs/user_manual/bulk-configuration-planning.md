@@ -757,7 +757,7 @@ a workbook match cannot be asserted retrospectively. This metadata does not
 authorize execution or relax freshness checks.
 
 The shared spool has lease-protected SQLite point/target/batch retrieval, with
-explicit 16 MiB individual-envelope and 64 GiB spool limits. These are separate
+explicit 64 MiB individual-envelope and 64 GiB spool limits. These are separate
 from the planner's existing 16 MiB aggregate observation and 32 MiB plan limits,
 which still apply. A failure retains the spool; it does not reconnect or replay.
 There is no supported offline planning recovery command in this increment.

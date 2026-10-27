@@ -61,8 +61,13 @@ SQLite connection and deletes scratch state on exit. It is not a second authorit
 256 positions and optionally filters exact target. Duplicate requested positions
 are returned once. `index.records(target=...)` streams all matching positions.
 Readers cannot race collection/consumption/cleanup through separate spool handles.
-Each JSONL envelope is limited to 16 MiB and the spool to 64 GiB, with explicit
-errors on append/read; completed malformed, duplicate, out-of-range or truncated
+Each JSONL envelope is limited to 64 MiB and the spool to 64 GiB, with explicit
+errors on append/read. Appends stage encoder chunks in a temporary on-disk file
+before copying a complete envelope to JSONL; scratch/serialization/size failures
+do not alter earlier committed records. The staging file needs writable space
+for one envelope in addition to the spool. The bound applies equally to legacy
+and new spools; historical individual records above 64 MiB remain unsupported.
+Completed malformed, duplicate, out-of-range or truncated
 envelopes fail consumption and retain the run. Limits do not bound a device
 collector before it returns a payload. Only one target payload is decoded at a time.
 The index is disposable; JSONL is authoritative. Per-target result size, input
