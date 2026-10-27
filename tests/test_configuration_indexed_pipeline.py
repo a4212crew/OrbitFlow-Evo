@@ -240,3 +240,60 @@ def test_invalid_observation_schema_never_reaches_scratch_values(tmp_path, monke
     monkeypatch.setattr(module.sqlite3, 'connect', lambda *a, **k: connect(*a, factory=AuditedConnection, **k))
     with pytest.raises(PlanError):
         planning.plan([planning.request(t.id, inputs(t))], {'192.0.2.10': obs}, now=NOW)
+
+
+@pytest.mark.parametrize('suffix', [',"broken":', '} trailing'])
+def test_reader_error_closes_completed_indexes_with_traceback_retained(tmp_path, monkeypatch, suffix):
+    import orbitflow.indexed_json as module
+    from tempfile import TemporaryDirectory
+    monkeypatch.setattr(module, 'TemporaryDirectory', lambda **kw: TemporaryDirectory(dir=tmp_path, **kw))
+    text = '{"observations":{"192.0.2.1":{"status":"evidence_unavailable"}},"results":[]'
+    with pytest.raises(ValueError) as retained:
+        read_json(StringIO(text + suffix), hash_results=True)
+    assert retained.traceback is not None
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize('failure', ['build', 'validation', 'constructor', 'decisions'])
+def test_failed_plan_creation_releases_owned_indexes(tmp_path, monkeypatch, failure):
+    import orbitflow.indexed_json as module
+    from orbitflow.configuration.v2 import planning
+    from tempfile import TemporaryDirectory
+    monkeypatch.setattr(module, 'TemporaryDirectory', lambda **kw: TemporaryDirectory(dir=tmp_path, **kw))
+    t = template('C3750X', 'VLAN Database')
+    row = planning.request(t.id, inputs(t))
+    if failure == 'constructor':
+        valid = planning.plan([row], {'192.0.2.10': observed(t)}, now=NOW)
+        data = valid.to_dict()
+        module.close_json_resources(valid.view())
+        data['source'] = ''
+        with pytest.raises(PlanError) as retained:
+            planning.BulkPlan(canonical(data))
+    else:
+        with pytest.raises(TypeError if failure == 'decisions' else PlanError) as retained:
+            planning.plan([row], {'192.0.2.10': observed(t)}, now=NOW,
+                          decisions=object() if failure == 'decisions' else None,
+                          max_evidence_age=0 if failure == 'build' else 3600,
+                          layout=['invalid'] if failure == 'validation' else None)
+    assert retained.traceback is not None
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize('nested_key,nested_value', [
+    ('observations', {'192.0.2.2': {'text': 'synthetic-unvalidated-nested'}}),
+    ('results', [{'text': 'synthetic-unvalidated-nested'}]),
+])
+def test_nested_index_names_do_not_persist_before_observation_validation(tmp_path, monkeypatch, nested_key, nested_value):
+    import sqlite3
+    import orbitflow.indexed_json as module
+    from orbitflow.configuration.v2 import planning
+    connect = sqlite3.connect
+    class AuditedConnection(sqlite3.Connection):
+        def execute(self, sql, parameters=()):
+            assert 'synthetic-unvalidated-nested' not in repr(parameters)
+            return super().execute(sql, parameters)
+    monkeypatch.setattr(module.sqlite3, 'connect', lambda *a, **k: connect(*a, factory=AuditedConnection, **k))
+    data = {'plan': {'observations': {'192.0.2.1': {
+        'status': 'evidence_unavailable', nested_key: nested_value}}}}
+    with pytest.raises(PlanError):
+        read_json(StringIO(canonical(data)), validate_observations=planning._checked_observations)

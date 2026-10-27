@@ -215,3 +215,59 @@ def test_review_rejects_hidden_cells_beyond_forged_dimension(tmp_path):
             archive.writestr(entry, content)
     with pytest.raises(PlanError, match='dimensions changed'):
         consume_decisions(original, review, expected_digest=original.digest, now=NOW)
+
+
+def test_orphan_publication_detected_and_fresh_destination_retry(tmp_path, monkeypatch):
+    workbook, spool, _ = fixture(tmp_path)
+    monkeypatch.setattr(socket, 'create_connection', lambda *a, **k: pytest.fail('network forbidden'))
+    original = recover(workbook, spool.path, tmp_path / 'first.json', now=NOW)
+    # The durable state left by process death between the two link operations.
+    (tmp_path / 'first.xlsx').unlink()
+    before = (tmp_path / 'first.json').read_bytes()
+    with pytest.raises(PlanError, match='output already exists'):
+        recover(workbook, spool.path, tmp_path / 'first.json', now=NOW)
+    retry = recover(workbook, spool.path, tmp_path / 'retry.json', now=NOW)
+    assert retry.digest == original.digest
+    assert (tmp_path / 'first.json').read_bytes() == before
+    assert load(tmp_path / 'retry.json').digest == original.digest
+    assert (tmp_path / 'retry.xlsx').is_file()
+
+
+@pytest.mark.parametrize('mutation', ['digest', 'results'])
+def test_failed_plan_load_closes_scratch_with_traceback_retained(tmp_path, monkeypatch, mutation):
+    import orbitflow.indexed_json as module
+    from tempfile import TemporaryDirectory
+    workbook, spool, _ = fixture(tmp_path)
+    recover(workbook, spool.path, tmp_path / 'first.json', now=NOW)
+    data = json.loads((tmp_path / 'first.json').read_text())
+    if mutation == 'digest':
+        data['digest'] = '0' * 64
+    else:
+        data['plan']['results'][0]['commands'] = ['invalid synthetic command']
+    (tmp_path / 'bad.json').write_text(json.dumps(data))
+    scratch = tmp_path / 'scratch'
+    scratch.mkdir()
+    monkeypatch.setattr(module, 'TemporaryDirectory', lambda **kw: TemporaryDirectory(dir=scratch, **kw))
+    with pytest.raises(PlanError) as retained:
+        load(tmp_path / 'bad.json')
+    assert retained.traceback is not None
+    assert list(scratch.iterdir()) == []
+
+
+def test_failed_export_closes_scratch_with_traceback_retained(tmp_path, monkeypatch):
+    import orbitflow.indexed_json as module
+    import orbitflow.configuration.v2.recovery as recovery_module
+    from tempfile import TemporaryDirectory
+    workbook, spool, _ = fixture(tmp_path)
+    scratch = tmp_path / 'scratch'
+    scratch.mkdir()
+    monkeypatch.setattr(module, 'TemporaryDirectory', lambda **kw: TemporaryDirectory(dir=scratch, **kw))
+    def failed_export(*args):
+        raise OSError('synthetic disk full')
+    monkeypatch.setattr(recovery_module, 'export_plan', failed_export)
+    with pytest.raises(OSError) as retained:
+        recover(workbook, spool.path, tmp_path / 'first.json', now=NOW)
+    assert retained.traceback is not None
+    assert list(scratch.iterdir()) == []
+    assert not (tmp_path / 'first.json').exists()
+    assert not (tmp_path / 'first.xlsx').exists()

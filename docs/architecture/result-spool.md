@@ -196,3 +196,23 @@ Plan JSON publication is exclusive and atomic for one file. Recovery completes
 both exports before linking either, but two independent public filenames cannot
 be published atomically by these links; a process crash may leave one artifact.
 The retained spool can be exported to a new destination without networking.
+
+### Scratch lifecycle and recovery publication (Issue #162 fifth review)
+
+Failed streaming parsing explicitly closes all completed indexed values before
+propagating an exception, including when a traceback retains parser frames.
+Failed public plan loads close supplied indexes and recomputed results on digest
+or validation failure. Failed plan construction and offline export close their
+owned working sets; successful recovery releases its intermediate observation
+copy while retaining the returned plan's indexes. No public schema or CLI
+signature changes accompany this lifecycle hardening.
+
+Recovery's two exclusive public links are not a crash-atomic pair. A surviving
+single filename causes the existing-output check to reject the destination;
+operators preserve it and retry to a new basename, reviewing only a complete
+matched pair. The finite historical 256 MiB record allowance remains a capacity
+and security decision requiring owner acceptance for compatibility claims; bounds
+are not silently lifted. See the planning guide's fifth-review instructions.
+The streaming reader creates indexes only for direct working-document or public
+plan observations/results members; nested fields with those names remain ordinary
+values until their containing observation passes complete validation.

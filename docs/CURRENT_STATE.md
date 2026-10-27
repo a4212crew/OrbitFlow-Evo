@@ -1215,12 +1215,22 @@ See the [module audit and test ledger](operations/issue-162-processing-audit.md)
 for final automated results and remaining gates. Owner private-spool, live-device,
 native Windows and controller-safe full-suite validation remain pending.
 
-Final fourth-review deterministic suite after pre-insert observation validation:
-**3,825 passed / 25 failed / 0 skipped**.
-All failed IDs match the pre-existing orchestration temp-root guard set; a green
-controller-safe owner run remains pending. Synthetic 88/~79 MB, 500 and 1,500
-retained-run pipelines pass export/load/protected review/decision/preparation and
-mocked confirmation/replay checks. Full-suite Python allocation peaks are
-18.0 / 20.2 / 37.1 MB; separate fresh-process RSS peaks are 107.0 / 117.1 / 164.3 MB,
-under asserted 96 MiB Python / 256 MiB RSS budgets. These are synthetic Linux
-measurements, distinct from pending owner/private-spool/native Windows/live checks.
+Final fifth-review deterministic suite: **3,837 passed / 25 failed / 0 skipped /
+0 errors**, 1,004.99 seconds. The 25 failed IDs exactly match the previous
+orchestration temp-root guard set: 17 direct guard errors and eight downstream
+assertions after early rejection. A green controller-safe owner-host run remains
+pending. Synthetic 88/~79 MB, 500 and 1,500 retained-run pipelines pass complete
+export/load/protected review/decision/preparation and mocked confirmation/replay.
+Final-suite Python allocation peaks are 16,871,804 / 20,227,621 / 37,199,492 bytes,
+all below 96 MiB. Earlier Linux RSS measurements are qualified to their recorded
+source in the audit; no new RSS, Windows or live-device result is inferred.
+
+Issue #162 fifth-review hardening adds deterministic scratch cleanup on failed
+stream parsing, public plan load/build and recovery export, including retained
+tracebacks. Nested `observations`/`results` field names cannot create scratch
+indexes before containing-observation validation. Orphan JSON/XLSX publication is
+rejected by the existing destination check; read-only retry uses a fresh basename.
+Two-file crash atomicity and historical records above 256 MiB remain unsupported;
+the owner capacity decision is pending. Final revision test counts are recorded in
+the processing audit ledger; controller-safe owner-host, native Windows and actual
+device/private-spool validation remain separate pending gates.

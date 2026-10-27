@@ -875,3 +875,11 @@ New spool records retain a 64 MiB envelope limit; historical unmarked records ha
 a finite 256 MiB read allowance. Configuration backup failure reports can be
 [regenerated offline](docs/user_manual/device-configuration-backup.md#offline-failure-report-recovery).
 Owner private-spool, live-device and native Windows validation remain pending.
+
+Issue #162 fifth-review hardening explicitly releases scratch SQLite files on
+failed parsing, loading, planning and recovery export, even with retained error
+tracebacks. Recovery detects an existing orphan output; retry uses a fresh
+basename because publication of the JSON/XLSX pair is not crash-atomic. The
+[planning guide](docs/user_manual/bulk-configuration-planning.md#fifth-review-recovery-and-capacity-decisions)
+records safe regression commands and the outstanding owner decision for historical
+records above 256 MiB; that compatibility is not claimed.

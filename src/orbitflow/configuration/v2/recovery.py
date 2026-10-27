@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 
 from orbitflow.configuration.plans import require
 from orbitflow.result_spool import ResultSpool
+from orbitflow.indexed_json import close_json_resources
 from .catalogue import BY_ID
 from .observation import bounded_observations, request_digest
 from .planning import UNVERIFIED_SOURCE, plan, save
@@ -72,21 +73,30 @@ def recover(workbook, spool_path, output, *, allow_unverified_legacy=False,
                     require(0 <= age <= max_evidence_age, 'stale observation evidence')
         # Reuse the leased SQLite index; no recollection or manifest transition.
         observations = bounded_observations(spool)
-        source = (UNVERIFIED_SOURCE if legacy else 'workbook-sha256:') + requests.source_digest
-        result = plan(requests, observations, source=source, now=now,
-                      max_evidence_age=max_evidence_age)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        # Finish both exports before publishing either. Exclusive hard links
-        # prevent an output race from replacing another operator's artifacts.
-        with TemporaryDirectory(prefix='.recovery-', dir=output.parent) as scratch:
-            json_path = Path(scratch) / 'plan.json'
-            book_path = Path(scratch) / 'plan.xlsx'
-            save(result, json_path)
-            export_plan(result, book_path)
-            os.link(json_path, output)
-            try:
-                os.link(book_path, destination_book)
-            except BaseException:
-                output.unlink()
-                raise
+        result = None
+        try:
+            source = (UNVERIFIED_SOURCE if legacy else 'workbook-sha256:') + requests.source_digest
+            result = plan(requests, observations, source=source, now=now,
+                          max_evidence_age=max_evidence_age)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            # Finish both exports before publishing either. Exclusive hard links
+            # prevent an output race from replacing another operator's artifacts.
+            with TemporaryDirectory(prefix='.recovery-', dir=output.parent) as scratch:
+                json_path = Path(scratch) / 'plan.json'
+                book_path = Path(scratch) / 'plan.xlsx'
+                save(result, json_path)
+                export_plan(result, book_path)
+                os.link(json_path, output)
+                try:
+                    os.link(book_path, destination_book)
+                except BaseException:
+                    output.unlink()
+                    raise
+        except BaseException:
+            if result is not None:
+                close_json_resources(result.view())
+            raise
+        finally:
+            observations.close()
+
     return result

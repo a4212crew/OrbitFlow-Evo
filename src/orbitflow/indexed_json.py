@@ -116,6 +116,7 @@ def read_json(stream, *, validate_observations=None, hash_results=False):
     values and total input. No third-party parser or public format change.
     """
     decoder = json.JSONDecoder()
+    owned = []
     buffer, position, consumed = '', 0, 0
 
     def fill():
@@ -221,8 +222,10 @@ def read_json(stream, *, validate_observations=None, hash_results=False):
                         take('}')
                         return
                     take(',')
-            if path and path[-1] == 'observations':
-                return IndexedJSON(validate_observations(members()) if validate_observations else members())
+            if path in {('observations',), ('plan', 'observations')} and depth == len(path):
+                indexed = IndexedJSON(validate_observations(members()) if validate_observations else members())
+                owned.append(indexed)
+                return indexed
             return dict(members())
         if first == '[':
             take('[')
@@ -243,17 +246,41 @@ def read_json(stream, *, validate_observations=None, hash_results=False):
                         take(']')
                         return
                     take(',')
-            if path and path[-1] == 'results':
-                return HashedList(elements()) if hash_results else IndexedList(elements())
+            if path in {('results',), ('plan', 'results')} and depth == len(path):
+                indexed = HashedList(elements()) if hash_results else IndexedList(elements())
+                owned.append(indexed)
+                return indexed
             return [item for _, item in elements()]
         if first not in '"-0123456789tfn' or not first:
             raise ValueError('Invalid JSON value')
         return scalar()
 
-    result = value()
-    if peek():
-        raise ValueError('Trailing JSON content')
-    return result
+    try:
+        result = value()
+        if peek():
+            raise ValueError('Trailing JSON content')
+        owned.clear()  # Transfer ownership; recursive parser closures retain no indexes.
+        return result
+    except BaseException:
+        for resource in reversed(owned):
+            close_json_resources(resource)
+        raise
+
+
+def close_json_resources(value):
+    """Release owned indexed values without decoding their disk-backed contents."""
+    if isinstance(value, IndexedJSON):
+        value.close()
+    elif isinstance(value, IndexedList):
+        value.values.close()
+    elif isinstance(value, HashedList):
+        close_json_resources(value.hashes)
+    elif isinstance(value, dict):
+        for item in value.values():
+            close_json_resources(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            close_json_resources(item)
 
 
 class IndexedList:

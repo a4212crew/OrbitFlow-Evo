@@ -969,3 +969,47 @@ Expected: one passing test per invocation and all recorded RSS values below
 pipeline-test command above runs the portable Python allocation assertions;
 GNU time/RSS checks are Linux-specific. Native Windows measurements remain
 owner-controlled and pending.
+
+### Fifth-review recovery and capacity decisions
+
+Recovery publishes `plan.json` and `plan.xlsx` under their existing names, one
+exclusive link at a time. Each export completes before publication, but the pair
+is **not crash-atomic**. Before review, verify both files exist. A process killed
+between links can leave only JSON. Retrying the same output rejects with
+`output already exists`, including when only one file exists; it never overwrites
+that artifact. Preserve the partial output for inspection and repeat the same
+read-only `recover` command with a **fresh output basename**. With unchanged
+inputs, evidence time and evaluation time, the digest is identical. With the CLI's
+current evaluation time, a new evaluation timestamp legitimately changes the
+digest; review the new matched pair together. Do not combine files from different
+attempts, authorize execution from an orphan, or recollect to repair publication.
+An ordinary second-link exception removes only this attempt's JSON; it preserves
+an XLSX created by another process. Tests cover both collision and orphan states.
+
+Historical compatibility is finite: new/marked spool envelopes allow 64 MiB;
+unmarked historical envelopes allow 256 MiB. A single envelope is decoded and
+validated in memory, with temporary JSON/SQLite copies, so peak memory can exceed
+its encoded size (the synthetic 65 MiB legacy test measured about 274 MB of Python
+allocations). Raising the limit increases memory exhaustion and oversized-input
+exposure; the 64 GiB total disk bound does not prevent that. Larger legacy records
+are rejected explicitly and retained untouched. **Owner decision requested:**
+accept this finite compatibility limit, or require a separately approved capacity
+design before declaring support above 256 MiB. No universal historical-size
+compatibility or automatic record splitting is claimed.
+
+For a reviewable full-suite result, use the safe Linux/PowerShell temp setup above
+and run the following from the checkout (both shells, after setting `PYTHONPATH`):
+
+```text
+python -m pytest -q -o junit_family=legacy --junitxml=outputs/validation/configuration_processing/full-regression.xml
+```
+
+Create `outputs/validation/configuration_processing` first (`mkdir -p` on Linux,
+`New-Item -ItemType Directory -Force` in PowerShell). Record the exit status and
+pass/fail/skip counts; only exit zero with no failures meets the regression gate.
+The selected temp root **and every ancestor** must lack a `.git` marker. If that
+check fails, select a different owner-host directory; never remove the marker.
+The managed worker cannot use `/var/tmp` because it is outside its writable roots.
+Owner-host Linux, native Windows, private-spool and live/read-only checks remain
+pending until their actual results are supplied. Full-suite tests use mocks for
+network execution; they do not authorize or demonstrate device writes.

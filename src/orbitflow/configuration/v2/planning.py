@@ -469,7 +469,11 @@ class BulkPlan:
         require(type(d) is dict, "invalid v2 contract")
         require(type(d.get("observations")) is dict, "invalid planning inputs")
         d['observations'] = IndexedJSON(_checked_observations(d.get('observations', {}).items()))
-        self._initialize(d)
+        try:
+            self._initialize(d)
+        except BaseException:
+            d['observations'].close()
+            raise
 
     @classmethod
     def from_data(cls, data):
@@ -486,11 +490,22 @@ class BulkPlan:
             expected = _build(d['requests'], d['observations'], d['decisions'],
                 datetime.fromisoformat(d['evaluated_at']), d['max_evidence_age'],
                 diagnostic=d['source'].startswith(UNVERIFIED_SOURCE))
-            require(d['results'].matches(expected), "tampered planning result")
+            try:
+                require(d['results'].matches(expected), "tampered planning result")
+            except BaseException:
+                expected.values.close()
+                raise
+            finally:
+                d['results'].hashes.values.close()
             d['results'] = expected
-        self._validate(d)
-        self._data = d
-        self._digest = json_digest(d)
+        try:
+            self._validate(d)
+            self._data = d
+            self._digest = json_digest(d)
+        except BaseException:
+            if isinstance(data.get('results'), HashedList):
+                d['results'].values.close()
+            raise
 
     @staticmethod
     def _validate(d):
@@ -541,11 +556,20 @@ def plan(requests, observations=None, *, decisions=None, source="api", now=None,
     # Manual evidence is deliberately excluded, even in mixed runs.
     live_ips = {r["inputs"]["management_ip"] for r in requests if BY_ID[r["template_id"]].family != "All"}
     observations = IndexedJSON(_checked_observations((k, v) for k, v in (observations or {}).items() if k in live_ips))
-    decisions = {**{r["row_id"]: "Pending" for r in requests}, **(decisions or {})}
-    return BulkPlan.from_data(dict(schema_version=2, catalogue_version=VERSION, source=source, layout=layout, input_errors=input_errors,
-        evaluated_at=timestamp(now), max_evidence_age=max_evidence_age, requests=requests,
-        observations=observations, decisions=decisions,
-        results=_build(requests, observations, decisions, now, max_evidence_age, diagnostic=isinstance(source, str) and source.startswith(UNVERIFIED_SOURCE)), execution_authorized=False))
+    results = None
+    try:
+        decisions = {**{r["row_id"]: "Pending" for r in requests}, **(decisions or {})}
+        results = _build(requests, observations, decisions, now, max_evidence_age,
+                         diagnostic=isinstance(source, str) and source.startswith(UNVERIFIED_SOURCE))
+        return BulkPlan.from_data(dict(schema_version=2, catalogue_version=VERSION, source=source, layout=layout, input_errors=input_errors,
+            evaluated_at=timestamp(now), max_evidence_age=max_evidence_age, requests=requests,
+            observations=observations, decisions=decisions,
+            results=results, execution_authorized=False))
+    except BaseException:
+        observations.close()
+        if results is not None:
+            results.values.close()
+        raise
 
 
 class DecisionEvaluation:
@@ -607,8 +631,10 @@ def save(plan, path):
 
 
 def load(path):
-    from orbitflow.indexed_json import read_json
+    from orbitflow.indexed_json import read_json, close_json_resources
     from orbitflow.configuration.plans import PlanError
+    d = result = None
+    succeeded = False
     try:
         require(Path(path).stat().st_size <= MAX_TOTAL_BYTES, "plan input size limit exceeded")
         with Path(path).open(encoding="utf-8") as stream:
@@ -616,8 +642,14 @@ def load(path):
         keys(d, "digest plan")
         result = BulkPlan.from_data(d["plan"])
         require(result.digest == d["digest"], "plan digest mismatch")
+        succeeded = True
         return result
     except (ValueError, TypeError, RecursionError) as error:
         if isinstance(error, PlanError):
             raise
         raise PlanError("invalid plan JSON") from None
+    finally:
+        if not succeeded:
+            close_json_resources(d)
+            if result is not None:
+                close_json_resources(result.view())
