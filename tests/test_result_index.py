@@ -184,6 +184,7 @@ def test_binding_precedes_collection_is_immutable_and_sanitized(tmp_path):
     assert 'binding' not in ResultSpool(unsafe.path).manifest
 
 
+@pytest.mark.scale
 @pytest.mark.parametrize('count, size', [(88, 875000), (500, 65536), (1500, 65536)])
 def test_synthetic_scale_index_peak_memory(tmp_path, count, size, record_property):
     # 88 * 875,000 = 77 MB of sanitized observations, not a private capture.

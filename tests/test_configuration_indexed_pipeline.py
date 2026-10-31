@@ -44,6 +44,7 @@ def test_streaming_reader_rejects_invalid_json(text):
         read_json(StringIO(text))
 
 
+@pytest.mark.scale
 @pytest.mark.parametrize('count,padding', [(88, 900000), (500, 72000), (1500, 24000)])
 def test_full_recovery_review_preparation_pipeline(tmp_path, monkeypatch, count, padding, record_property):
     monkeypatch.setattr(socket, 'create_connection', lambda *a, **k: pytest.fail('network forbidden'))

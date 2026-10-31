@@ -174,3 +174,43 @@ closed and cleaned on success or failure. Filesystem power-loss and multi-file
 publication limitations above still apply.
 
 Planning recovery reports invalid/missing/corrupt retained storage as `PlanError`, preserving the planning API error contract. It publishes no plan, performs no network collection and does not relax workbook-binding, identity or age checks.
+
+## Issue #162 revision: fast iteration and required final gate (2026-11-01)
+
+Only the nine 88/500/1,500 cases in `test_configuration_indexed_pipeline.py`,
+`test_direct_sqlite.py` and `test_result_index.py` carry the `scale` marker.
+Their payloads, functional assertions, legacy compatibility and memory bounds
+are unchanged. Bare pytest still runs every test. The controller still invokes
+bare `python -m pytest -q` with its external temporary directory; it cannot claim
+final acceptance from the fast command. No menu or production workflow changes.
+
+Linux (from repository root):
+```bash
+export PYTHONPATH=src
+python -m pytest -q -m "not scale"  # routine complete fast regression
+python -m pytest -q -m scale        # explicit nine-case full-scale selection
+python -m pytest -q                 # mandatory final functional + scale gate
+```
+Windows PowerShell:
+```powershell
+$env:PYTHONPATH='src'
+python -m pytest -q -m "not scale"
+python -m pytest -q -m scale
+python -m pytest -q
+```
+Use distinct short `--basetemp` directories under an authorized external temporary
+root when needed on Windows. Do not set PYTEST_ADDOPTS or other environment/config
+filters for final acceptance. A single unfiltered final run satisfies both gates;
+no duplicate scale run is necessary. Run affected focused tests while editing,
+then the fast selection. Before review run the unfiltered suite once on final
+source; rerun affected scale tests after scale-relevant source changes. Record a
+SHA-256 source/test/config fingerprint before and after the final gate. Failures
+remain visible; fast deselections are explicit and are not final acceptance.
+
+CLI `--log-root PATH` and `--log-root=PATH` now route outer total and nested
+stage timing records to that root, including exceptions. Positional Python API
+log_root arguments also work; nested explicit roots override the inherited root
+only for their scope. Context is restored on exit. CLI argument values and error
+messages are never included in timing records. Existing parser validation,
+default roots and workflow signatures remain unchanged. Actual device/private
+capture validation and owner live timing remain pending; no speed gate exists.

@@ -118,6 +118,7 @@ def test_stage_success_and_exception_metadata(tmp_path, caplog):
 
 
 
+@pytest.mark.scale
 @pytest.mark.parametrize('count,size', [(88,875000),(500,65536),(1500,65536)])
 def test_direct_scale_has_bounded_python_memory(tmp_path, count, size):
     tracemalloc.start()

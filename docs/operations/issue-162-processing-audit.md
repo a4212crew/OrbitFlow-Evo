@@ -1111,3 +1111,79 @@ spool/workbook validation; broader hardware/transport failure behavior. Private
 inputs remain outside this worktree. No speed target or Codex live timing claim
 is added. Canonical/protected stores and the documented filesystem power-loss /
 multi-file publication limitations remain as explicitly described above.
+
+## Issue #162 revision: fast iteration and required final gate (2026-11-01)
+
+Only the nine 88/500/1,500 cases in `test_configuration_indexed_pipeline.py`,
+`test_direct_sqlite.py` and `test_result_index.py` carry the `scale` marker.
+Their payloads, functional assertions, legacy compatibility and memory bounds
+are unchanged. Bare pytest still runs every test. The controller still invokes
+bare `python -m pytest -q` with its external temporary directory; it cannot claim
+final acceptance from the fast command. No menu or production workflow changes.
+
+Linux (from repository root):
+```bash
+export PYTHONPATH=src
+python -m pytest -q -m "not scale"  # routine complete fast regression
+python -m pytest -q -m scale        # explicit nine-case full-scale selection
+python -m pytest -q                 # mandatory final functional + scale gate
+```
+Windows PowerShell:
+```powershell
+$env:PYTHONPATH='src'
+python -m pytest -q -m "not scale"
+python -m pytest -q -m scale
+python -m pytest -q
+```
+Use distinct short `--basetemp` directories under an authorized external temporary
+root when needed on Windows. Do not set PYTEST_ADDOPTS or other environment/config
+filters for final acceptance. A single unfiltered final run satisfies both gates;
+no duplicate scale run is necessary. Run affected focused tests while editing,
+then the fast selection. Before review run the unfiltered suite once on final
+source; rerun affected scale tests after scale-relevant source changes. Record a
+SHA-256 source/test/config fingerprint before and after the final gate. Failures
+remain visible; fast deselections are explicit and are not final acceptance.
+
+CLI `--log-root PATH` and `--log-root=PATH` now route outer total and nested
+stage timing records to that root, including exceptions. Positional Python API
+log_root arguments also work; nested explicit roots override the inherited root
+only for their scope. Context is restored on exit. CLI argument values and error
+messages are never included in timing records. Existing parser validation,
+default roots and workflow signatures remain unchanged. Actual device/private
+capture validation and owner live timing remain pending; no speed gate exists.
+
+### Final revision evidence ? 2026-11-01
+
+Run on Windows with `PYTHONPATH=src`; `<temp>` below was exactly
+`C:/Users/a4212/AppData/Local/Temp/orbitflow-issue-162-codex-odn7kn2a` (authorized external test artifacts, not repository files).
+
+- Fast: `python -m pytest -q -m "not scale" --basetemp=<temp>/fast --junitxml=<temp>/fast.xml`:
+  **3,907 passed, 9 deselected, 0 failed/skipped**, four JUnit xunit2
+  record_property warnings. This run collected before four additional real-CLI
+  cases were added; it is iteration evidence, not final-source acceptance.
+- Final-source focused: `python -m pytest tests/test_run_timing.py tests/test_orchestration_v2_codex_runner.py -q --basetemp=<temp>/t2`:
+  **19 passed, 0 failed/skipped**. Includes all four new real-CLI failure cases.
+- Selection discovery: `python -m pytest --collect-only -q -m scale`:
+  **9 selected / 3,911 deselected**, exactly the three required parameter groups.
+- Mandatory full final: `python -m pytest -q --basetemp=<temp>/final -o junit_family=legacy --junitxml=<temp>/final.xml`:
+  **3,920 passed, 0 failed, 0 errors, 0 skipped, no warnings**. All nine scale
+  cases passed once within this unfiltered gate; a duplicate scale-only run was
+  unnecessary. All deterministic modules are included, with no live device tests.
+
+SHA-256 fingerprint of the ordered `(relative path, file SHA-256)` JSON manifest
+for 188 files total: Python files under src/scripts/tests and pytest.ini:
+`c86c8a3c6486e3586587733787594b2255ddae81a262ee3a61de08909cdef996`.
+Verified every file unchanged before/after the final gate; only Markdown evidence
+was updated afterward. Temporary manifest: `<temp>/final-source.json`.
+
+Full recovery pipeline Python allocation peaks at 88/500/1,500 targets:
+10,300,387 / 9,849,138 / 26,590,021 bytes. Legacy index peaks:
+3,862,583 / 1,061,492 / 1,296,594 bytes; 88-target payload exactly
+77,000,000 bytes. Direct-store memory assertions passed at all three sizes.
+Original payload sizes and memory bounds were unchanged. These are correctness
+and bounded-memory results, not speed acceptance measurements. Actual devices,
+private historical captures and owner-host Linux/live validation remain pending.
+
+Review: scoped diff and whitespace checks passed; no Git/GitHub lifecycle action,
+network collection or device configuration was performed. Existing guides remain
+indexed; this internal test-selection change needs no operator console action.

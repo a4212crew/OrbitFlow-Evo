@@ -1296,3 +1296,14 @@ Owner Linux, actual-device/stage measurement and private-spool validation remain
 pending. No production/device writes, private capture import or merge occurred.
 Existing finite limits and documented filesystem/multi-file publication limitations
 remain; Atlas acceptance and owner merge approval are not implied.
+
+## Issue #162 revision validation ? 2026-11-01
+
+Exactly nine expensive synthetic cases now have an explicit `scale` marker;
+`-m "not scale"` is the documented fast iteration selection. Bare pytest and the
+controller still run the full gate. CLI-selected log roots propagate to outer and
+nested timing stages, including failures, without logging argument contents.
+Final unchanged-source Windows regression: **3,920 passed, no failures/skips**,
+including all 88/500/1,500 direct SQLite, legacy index and recovery-pipeline cases.
+Commands, fingerprint and memory evidence: [processing audit](operations/issue-162-processing-audit.md#final-revision-evidence--2026-11-01).
+Owner Linux/live/private-capture validation remains pending.
