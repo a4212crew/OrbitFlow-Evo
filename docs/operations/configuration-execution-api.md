@@ -534,3 +534,13 @@ references without collecting all offsets or scanning the journal once per row.
 Prompt/save exchanges above 64 MiB fail explicitly and leave the session unsafe;
 there is no retry of writes. Synthetic confirmation tests mock the device runner;
 owner-operated live and native Windows validation remain pending.
+
+
+### Collection versus historical consumption (2026-10-31 audit)
+
+Normal planning collection reads the existing workbook, binds its requests before
+networking and creates a new observation run on every call. It does not load an
+older successful run when a device is unreachable. Explicit recovery and immutable
+plan review remain offline operations; preparation/confirmation retain their existing
+freshness, identity, approval and replay checks. No API signatures or defaults changed.
+See the [source/test audit](issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).

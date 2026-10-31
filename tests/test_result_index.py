@@ -10,6 +10,33 @@ from orbitflow.execution import DeviceOutcome
 from orbitflow.result_spool import ResultSpool
 
 
+def test_indexed_json_cyclic_gc_closes_connection_before_scratch_cleanup(monkeypatch):
+    import gc
+    from pathlib import Path
+    import weakref
+    from orbitflow.indexed_json import IndexedJSON
+
+    events = []
+    value = IndexedJSON([('device', {'fresh': True})])
+    path = Path(value._scratch.name)
+    connection = value._db
+    cleanup = value._scratch.cleanup
+    def checked_cleanup():
+        # This asserts ordering on Linux too, where unlinking an open file works.
+        with pytest.raises(sqlite3.ProgrammingError, match='closed'):
+            connection.execute('SELECT 1')
+        events.append('closed')
+        cleanup()
+    monkeypatch.setattr(value._scratch, 'cleanup', checked_cleanup)
+    value.cycle = value
+    reference = weakref.ref(value)
+    del value
+    gc.collect()
+    assert reference() is None
+    assert events == ['closed']
+    assert not path.exists()
+
+
 def collected(root, count=3):
     spool = ResultSpool.create(root, 'synthetic', count)
     with spool.collection():

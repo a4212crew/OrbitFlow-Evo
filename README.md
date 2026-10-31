@@ -883,3 +883,9 @@ basename because publication of the JSON/XLSX pair is not crash-atomic. The
 [planning guide](docs/user_manual/bulk-configuration-planning.md#fifth-review-recovery-and-capacity-decisions)
 records safe regression commands and the outstanding owner decision for historical
 records above 256 MiB; that compatibility is not claimed.
+
+
+Existing Excel-driven workflows continue to use their supported workbooks. Normal
+reports collect fresh device evidence for each run; SQLite indexes only that run.
+Explicit offline recovery uses the selected historical evidence without connecting.
+See the [fresh-collection audit and validation instructions](docs/operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).

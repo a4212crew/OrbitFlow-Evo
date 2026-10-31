@@ -216,3 +216,46 @@ are not silently lifted. See the planning guide's fifth-review instructions.
 The streaming reader creates indexes only for direct working-document or public
 plan observations/results members; nested fields with those names remain ordinary
 values until their containing observation passes complete validation.
+
+
+### Fresh collection and authoritative input (owner contract, 2026-10-31)
+
+Excel remains the input for existing Excel-driven workflows; SQLite is an internal
+run-specific processing index, never a replacement input or shared observation cache.
+Normal reporting, compliance, MAC, inventory refresh and planning collection each
+create a distinct ResultSpool and execute their own device workers. A failed current
+collection records missing/failed evidence without consulting another run. Inventory
+alone continues its explicit latest-known stable-facts export, labelling retained
+facts and recording the current failed attempt; it is not current interface/VLAN evidence.
+DeviceInventoryResolver.resolve probes the connected device before reconciliation.
+
+Only explicit retained-run export/recovery and immutable-plan review consume
+historical evidence. They do not connect or recollect after export failure. Planning
+recovery checks the selected run's workbook/request binding and evidence age; legacy
+diagnostic opt-in cannot create execution authorization. Per-record and disk bounds,
+Excel schemas, public signatures and approval/replay gates remain unchanged.
+See the [revision audit](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).
+
+
+Windows validation exposed a verified scratch-lifecycle gap: cyclic garbage
+collection could finalize TemporaryDirectory before its SQLite connection closed.
+IndexedJSON now registers an ordered weakref finalizer that holds scratch alive,
+closes the connection, then removes the directory. Explicit close remains idempotent
+and permits cleanup retry after failure. No persistence, input or output format
+changed. test_result_index.py::test_indexed_json_cyclic_gc_closes_connection_before_scratch_cleanup
+asserts this order on every OS, including platforms that allow unlinking open files.
+
+
+A second Windows lifecycle failure was reproduced by the existing
+`test_consumption_reuses_one_index_across_tables_and_clears_after_failure`:
+a consumer traceback retained a suspended records iterator and its SQLite cursor,
+so connection close alone did not release order.sqlite. ResultIndex now fetches
+at most 256 offsets using position-keyed batches and closes each cursor before
+yielding. Record order, point/batch/target access and authoritative JSONL stay
+unchanged; no full-run offset list is created. Journal indexes reuse this reader.
+
+
+Backup's private .processing child uses ResultSpool.create(short_name=True), the
+existing atomic timestamp/numeric-collision naming mode, to reduce nested Windows
+path length. Public backup run names, captures and failure workbook locations are
+preserved; no other spool naming default or folder hierarchy changes.

@@ -254,3 +254,14 @@ output, phase-specific counters, saved paths, partial/interrupted/export-failure
 semantics and the coverage table (including specialist/lifecycle exemptions).
 Device/workflow semantics and existing arguments are unchanged. Deterministic
 terminal fixtures are separate from pending owner-operated Linux/Windows validation.
+
+
+### Fresh runs and explicit historical export (2026-10-31)
+
+Each normal MAC search/VLAN report reloads the supported device workbook and
+collects its selected devices anew in a distinct run. A current connection failure
+produces this run's error without borrowing a prior MAC table. SQLite is internal
+run-specific processing, not a replacement workbook or a shared observation cache.
+The existing explicit export action uses only its selected retained spool and
+never reconnects, including after export failure. See the
+[revision audit and tests](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).

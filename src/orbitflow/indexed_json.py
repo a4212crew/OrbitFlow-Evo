@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 import sqlite3
+import weakref
 from tempfile import TemporaryDirectory
 from threading import RLock
 
@@ -56,9 +57,14 @@ class IndexedJSON(Mapping):
     def __init__(self, entries):
         self._scratch = TemporaryDirectory(prefix='orbitflow-json-')
         self._db = None
+        self._finalizer = None
         self._lock = RLock()
         try:
             self._db = sqlite3.connect(str(Path(self._scratch.name) / 'values.sqlite'), check_same_thread=False)
+            # Keep scratch alive until its connection is closed, including cyclic
+            # GC. Independent TemporaryDirectory finalization can otherwise run
+            # first and fail to unlink an open SQLite file on Windows.
+            self._finalizer = weakref.finalize(self, self._release, self._db, self._scratch)
             self._db.execute('PRAGMA cache_size=-512')
             self._db.execute('PRAGMA temp_store=FILE')
             self._db.execute('CREATE TABLE entries (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
@@ -103,10 +109,13 @@ class IndexedJSON(Mapping):
             self._db.close()
             self._db = None
         self._scratch.cleanup()
+        if self._finalizer is not None:
+            self._finalizer.detach()
 
-    def __del__(self):
-        if hasattr(self, '_scratch'):
-            self.close()
+    @staticmethod
+    def _release(db, scratch):
+        db.close()
+        scratch.cleanup()
 
 
 def read_json(stream, *, validate_observations=None, hash_results=False):

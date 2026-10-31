@@ -1013,3 +1013,14 @@ The managed worker cannot use `/var/tmp` because it is outside its writable root
 Owner-host Linux, native Windows, private-spool and live/read-only checks remain
 pending until their actual results are supplied. Full-suite tests use mocks for
 network execution; they do not authorize or demonstrate device writes.
+
+
+### Fresh collection and retained evidence (2026-10-31)
+
+Continue using the existing Excel inputs, columns and selections. Every normal
+collection execution contacts its requested devices again in a distinct run;
+prior observations do not repair a failed current collection. Inventory exports
+retain explicitly labelled latest-known stable facts after failure. Deliberate
+offline export/recovery uses only the selected historical run, without reconnecting;
+planning binding, age, trust and authorization restrictions still apply.
+See the [audit and owner validation steps](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).

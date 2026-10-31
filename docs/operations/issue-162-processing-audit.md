@@ -664,3 +664,162 @@ owner gates: controller-safe green Linux full suite, native Windows, private-spo
 and actual-device/read-only validation, and the explicit historical >256 MiB
 capacity decision. Two-name crash atomicity remains unsupported; fresh-destination
 retry is documented and tested. Atlas acceptance and merge approval are not claimed.
+
+
+## Fresh-collection contract revision (2026-10-31)
+
+Scope: owner-approved same-Issue revision; audit normal input/collection versus
+explicit historical consumption. No verified application caching gap was found;
+retain implementation and add deterministic regression evidence. This table
+supplements the whole-module collection/memory/persistence matrix above.
+
+| Workflow | Authoritative input and fresh path retained | Historical/failure behavior and regression evidence |
+|---|---|---|
+| Interface/VLAN and VLAN database | scripts/device_interface_vlan_report.py:main -> load_targets -> reporting.run_report; ResultSpool.create and execute_devices on every call; worker constructs services, connects and collects | export_report_spool takes an explicit path. test_run_freshness.py::test_interface_vlan_excel_runs_collect_again covers real workbook reload, unchanged bytes/headers, distinct run IDs/timestamps, second success/failure, no prior rows on failure and offline export without connections |
+| Compliance and optional methodology/database outputs | scripts/device_vlan_compliance.py:main -> load_targets -> run_compliance -> collect_compliance; new spool, fresh connection and capability calls. Optional methodology is a projection of this same requested collection | test_run_freshness.py::test_compliance_runs_do_not_borrow_prior_success; test_vlan_compliance.py::test_report_failure_recovery_never_recollects and test_explicit_methodology_report_exports_and_recovers preserve offline retry and output contract |
+| MAC search/VLAN report | mac_cli.main loads Excel, validates selections, then run_lookup creates a new spool and executes collect_device per target | Explicit export action branches before profile/network loading. test_run_freshness.py::test_mac_runs_and_explicit_export_are_separate proves second invocation, failed-current empty rows, run isolation and historical export; test_mac_lookup.py covers seven-column output/description and CLI offline branch |
+| Inventory refresh | refresh_inventory_from_excel calls load_targets, creates spool and executes connect/resolve; inventory/resolver.py:resolve probes show/display version and chassis/inventory before store.reconcile | Deliberate latest-known stable inventory export remains authoritative inventory behavior. test_run_freshness.py::test_inventory_failed_refresh_labels_retained_facts proves fresh attempt, failed status and separate last-success/attempt times; test_inventory_refresh.py covers input selection/order/validation and retained-view recovery |
+| Planning v2 | configuration/v2/cli.py:main reads input workbook and credential workbook before observation.collect; collect binds workbook/request digests before executing new workers | Extended test_bulk_configuration_v2.py::test_shared_live_collection_one_session_and_read_only_commands proves identical requests/binding create a different run, both IPs are retried, historical success stays intact, current failed evidence remains unavailable. Existing workbook-order, all-template roundtrip and credential-precedence tests retained |
+| Planning recovery/review | recovery.recover reads specifically selected workbook/spool under lease, verifies task/completeness/order/binding/identity/age; workbook review reads immutable artifacts | test_configuration_recovery.py covers no-network idempotent export, wrong workbook, stale/future evidence, legacy diagnostic trust, failed target and publication failure. No recollection fallback exists |
+| V1/predefined prepare/confirm | V1 is explicitly offline metadata planning. configuration/execution.py consumes selected immutable source and enforces its current fresh confirmation/identity/backup gates | test_configuration_plans.py and test_configuration_execution*.py retain historical compatibility, source digest, replay, failed checks and confirmation behavior; no cached operational observations added |
+| Manual Configuration | configuration/manual.py:load_rows preserves Excel; execute creates a new run, spool and worker-owned live session per selected group | regenerate_report reads the explicit journal/run without executing commands. test_manual_configuration.py retains workbook grouping/order, password/confirmation gates, backup and no-replay recovery |
+| Configuration backup | scripts/device_configuration_backup.py shared Excel loader; configuration_backup.run_backup creates BackupWriter and per-run .processing spool then connects per target | recover_failed_devices only regenerates failure output. test_configuration_backup.py::test_entry_point_uses_shared_excel_loader and test_offline_failed_backup_recovery_is_atomic_and_contains_no_configuration retained |
+| Shared processing, transport, console, logging | ResultSpool.create collision-resistant directory; record run IDs validated by leased index; indexed_json scratch stores owned by current processing objects; DeviceInventoryResolver probes devices instead of returning cached observations | test_result_spool.py/test_result_index.py retain cross-run validation, corruption, bounds, cleanup/concurrency; transport/console/logging suites retain sessions, menus, sanitation and output behavior. No normal entry point searches prior run directories for observations |
+
+No input schema, output columns, public signature/default, menu or device command
+was changed. Excel remains authoritative for Excel-driven user input; there is no
+Web GUI prerequisite or database-table input. Run-isolated SQLite indexes are
+internal and disposable; durable spool/recovery and canonical inventory remain as
+previously documented. Historical capacity limits and controller temp-root guards
+were retained.
+
+### Owner validation for this revision
+
+Linux: `PYTHONPATH=src python -m pytest tests/test_run_freshness.py tests/test_bulk_configuration_v2.py tests/test_configuration_recovery.py -q`
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m pytest tests/test_run_freshness.py tests/test_bulk_configuration_v2.py tests/test_configuration_recovery.py -q
+python -m pytest -q
+```
+
+Linux full gate: `PYTHONPATH=src python -m pytest -q`.
+Run from the checked-out revision with installed dependencies. All tests use
+synthetic evidence/mocked devices; the full gate includes prior 88/~79 MB, 500 and
+1,500 target pipelines and finite oversized-record checks. No limit was raised.
+
+Owner-only read-only validation: use the existing manual's normal Excel invocation
+for each selected report twice, with the same approved device rows. Record each
+reported spool run ID, evidence time and collection/session attempt. Run IDs must
+be different and each target must be attempted again. In an operator-controlled
+lab, make one target unreachable for the second execution: require its current
+error/missing evidence, with no prior interface/VLAN/MAC success substituted.
+Inventory may retain stable facts only with failed-with-previous-data-retained and
+its original successful collection time. Compare original workbook and report
+sheets/columns/order to the existing manual. Separately use the documented explicit
+offline export/recovery syntax for a selected retained run to a new basename, with
+network access unavailable: require complete historical output or the documented
+binding/age/trust error, never a connection attempt. Review a selected immutable
+plan without confirming execution. Keep private captures outside this checkout;
+record metadata only. Actual-device, private-spool and owner-host Linux validation
+remain pending; this revision authorizes no live/device writes.
+
+
+Windows validation exposed a verified scratch-lifecycle gap: cyclic garbage
+collection could finalize TemporaryDirectory before its SQLite connection closed.
+IndexedJSON now registers an ordered weakref finalizer that holds scratch alive,
+closes the connection, then removes the directory. Explicit close remains idempotent
+and permits cleanup retry after failure. No persistence, input or output format
+changed. test_result_index.py::test_indexed_json_cyclic_gc_closes_connection_before_scratch_cleanup
+asserts this order on every OS, including platforms that allow unlinking open files.
+
+
+A second Windows lifecycle failure was reproduced by the existing
+`test_consumption_reuses_one_index_across_tables_and_clears_after_failure`:
+a consumer traceback retained a suspended records iterator and its SQLite cursor,
+so connection close alone did not release order.sqlite. ResultIndex now fetches
+at most 256 offsets using position-keyed batches and closes each cursor before
+yielding. Record order, point/batch/target access and authoritative JSONL stay
+unchanged; no full-run offset list is created. Journal indexes reuse this reader.
+
+
+Windows backup tests additionally reproduced WinError 206 beneath nested UUID run
+names. A shorter authorized pytest base alone was insufficient. run_backup now
+uses the existing ResultSpool short_name option for its private .processing child
+(timestamp with atomic numeric collision suffix). Public backup run/capture paths,
+failed_devices.xlsx, folder hierarchy and recovery API remain unchanged. All
+111 backup tests pass with this fix; shared short-name collision tests retain
+concurrent/repeated-run isolation. This is a bounded internal naming adjustment,
+not an output-path migration. Other spool names/defaults are unchanged.
+
+
+### Revision automated evidence (Windows worker)
+
+- `PYTHONPATH=src python -m pytest tests/test_result_index.py::test_indexed_json_cyclic_gc_closes_connection_before_scratch_cleanup tests/test_run_freshness.py tests/test_bulk_configuration_v2.py tests/test_configuration_recovery.py -q`: **188 passed / 0 failed / 0 skipped**, 85.87 seconds, no warnings. This run preceded the later ResultIndex cursor and backup short-name fixes, which do not change planning input/collection behavior.
+- `PYTHONPATH=src python -m pytest tests/test_result_index.py tests/test_result_spool.py -q --basetemp=<authorized-temp>/index -o junit_family=legacy --junitxml=<authorized-temp>/issue162-freshness-index.xml`: **63 passed / 0 failed / 0 skipped**, 56.94 seconds, final storage source.
+- `PYTHONPATH=src python -m pytest tests/test_configuration_backup.py -q --basetemp=<authorized-temp>/b2`: **111 passed / 0 failed / 0 skipped**, 7.82 seconds, final backup source.
+
+Here PYTHONPATH is set with `$env:PYTHONPATH='src'` in PowerShell. Temporary XML/log
+artifacts contain only synthetic test evidence and are not committed. Short pytest
+bases stay inside the controller-provided authorized temp root. Initial exploratory
+runs were interrupted after reproducing Windows lifecycle/path failures; they are
+not claimed as completed full-suite runs. The final-source whole-suite result follows.
+
+
+Completed first final-source Windows full suite:
+`$env:PYTHONPATH='src'; python -m pytest -q --basetemp="$env:TEMP/final" -o junit_family=legacy --junitxml="$env:TEMP/issue162-freshness-full-final.xml"`
+returned **3,867 passed / 2 failed / 2 errors / 0 skipped**, 1,885.87 seconds.
+All three scale pipelines and controller tests passed. The Manual Configuration
+failures were test portability defects: native XML fixture writing transformed
+CRLF, a file-URI assertion decoded a Windows drive path as POSIX, and an oversized
+parameter ID exceeded Windows' environment-variable limit during setup/teardown.
+Fixtures now write literal CRLF with XML carriage references, decode file URIs
+with url2pathname, and use short deterministic case IDs. Source diagnostics,
+line-number assertions, confirmation and command execution were not weakened.
+All seven affected targeted cases pass. A full gate with these corrected tests
+is rerun below; this first run is not represented as green.
+
+First complete run pipeline peak Python bytes: **10,686,033** (88/~79 MB),
+**9,909,512** (500), **26,438,730** (1,500), each below 96 MiB. XLSX writer peaks:
+5,707,143 / 5,903,785 / 6,340,972 bytes. Shared-index peaks:
+3,860,253 / 936,289 / 1,160,913 bytes. These are Python allocations on Windows,
+not RSS or private/live-device measurements.
+
+
+### Final green revision gate (2026-10-31)
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m pytest -q --basetemp="$env:TEMP/green" -o junit_family=legacy --junitxml="$env:TEMP/issue162-freshness-green.xml"
+```
+
+**3,870 passed / 0 failed / 0 errors / 0 skipped**, 1,828.45 seconds (30m28s),
+exit code 0, no warnings. This is the complete repository deterministic suite on
+native Windows, including every audited module, the eight added regression cases,
+corrected Manual Configuration portability fixtures, prior historical-artifact,
+security/approval/replay tests and all controller tests. No guard was weakened.
+The test base is a dedicated child of the authorized controller temp root, not a
+production or repository data directory. XML/log files remain worker-only artifacts.
+
+Final-source measured Python allocation peaks:
+
+| Targets | Complete pipeline bytes | XLSX writer bytes | Shared spool index bytes |
+|---|---:|---:|---:|
+| 88 (~79 MB pipeline observations) | 10,688,863 | 5,708,193 | 3,865,198 |
+| 500 | 9,909,794 | 5,903,986 | 934,659 |
+| 1,500 | 26,441,712 | 6,340,583 | 1,160,138 |
+
+Pipeline assertions remain <96 MiB; index assertions remain <16 MiB. Large-record
+serialization peak is 707,827 bytes. The complete pipeline checks >32 MiB JSON,
+public shapes/order/proposals/dependencies/decisions, protected workbook review,
+digests, source load, preparation, mocked confirmation and replay rejection.
+These are tracemalloc allocation measurements, not RSS or actual-device evidence.
+
+The prior 25 controller temp-root failures do not reproduce on this Windows host;
+all controller tests pass with the original guard. A controller-safe owner Linux
+full-suite run remains pending, rather than inferred from Windows success.
+Private-spool and actual-device/read-only validation, historical >256 MiB capacity
+acceptance and two-name crash-atomic publication limitations remain as documented.
+No private captures, production operations, Git/GitHub lifecycle changes or merge.

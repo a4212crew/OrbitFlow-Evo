@@ -59,19 +59,32 @@ class ResultIndex:
         if target is not None:
             clauses.append('target = ?')
             parameters.append(target)
-        query = 'SELECT offset FROM offsets'
-        if clauses:
-            query += ' WHERE ' + ' AND '.join(clauses)
-        for (offset,) in self.db.execute(query + ' ORDER BY position', parameters):
+        for _, offset in self._offsets(clauses, parameters):
             yield self._read(offset)
+
+    def _offsets(self, clauses, parameters):
+        # Close each cursor before yielding to consumer code: a suspended
+        # generator retained by an exception must not keep SQLite files open
+        # beyond the lease (Windows cannot unlink an active statement).
+        position = 0
+        while True:
+            query = ('SELECT position, offset FROM offsets WHERE ' +
+                     ' AND '.join([*clauses, 'position > ?']) +
+                     ' ORDER BY position LIMIT 256')
+            with closing(self.db.execute(query, [*parameters, position])) as cursor:
+                rows = cursor.fetchall()
+            if not rows:
+                return
+            for position, offset in rows:
+                yield position, offset
 
     def entries(self, *, target=None):
         """Yield (input position, record), optionally for one indexed key."""
-        query, parameters = 'SELECT position, offset FROM offsets', ()
+        clauses, parameters = [], []
         if target is not None:
-            query += ' WHERE target=?'
-            parameters = (target,)
-        for position, offset in self.db.execute(query + ' ORDER BY position', parameters):
+            clauses.append('target=?')
+            parameters.append(target)
+        for position, offset in self._offsets(clauses, parameters):
             yield position, self._read(offset)
 
     def set_reference(self, position, reference):

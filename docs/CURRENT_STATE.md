@@ -1234,3 +1234,34 @@ Two-file crash atomicity and historical records above 256 MiB remain unsupported
 the owner capacity decision is pending. Final revision test counts are recorded in
 the processing audit ledger; controller-safe owner-host, native Windows and actual
 device/private-spool validation remain separate pending gates.
+
+
+The 2026-10-31 fresh-collection revision audits existing Excel-driven entry points:
+normal interface/VLAN, compliance, MAC, inventory refresh and planning calls create
+new spools and invoke fresh workers. SQLite is run-isolated internal processing;
+no database input or Web GUI is introduced. Added consecutive-run regressions cover
+prior success followed by current connection failure and explicit historical export
+without collection. Inventory preserves its labelled latest-known stable-facts
+semantics. No collection/input behavior, protective limits or authorization gates changed.
+See the processing audit ledger for this revision's test results and pending owner gates.
+
+Windows synthetic validation additionally fixes ordered IndexedJSON finalization
+and suspended-iterator cursor cleanup: scratch files close before removal,
+including export failures with retained tracebacks. ResultIndex uses bounded
+256-offset batches; public spool formats, report paths and safety limits are unchanged.
+
+Backup's private .processing child now uses the existing collision-safe short
+spool name on Windows and Linux; public backup output paths remain unchanged.
+111 synthetic backup tests pass on this Windows worker. Owner actual-device
+validation is still pending; automated Windows evidence is recorded in the audit.
+
+
+Final fresh-collection revision Windows gate: **3,870 passed / 0 failed / 0 errors /
+0 skipped**, 1,828.45 seconds, no warnings. All controller tests pass here with the
+original guard; owner Linux controller-safe validation remains pending. Full
+88/~79 MB, 500 and 1,500 pipelines pass with peak Python allocations of
+10,688,863 / 9,909,794 / 26,441,712 bytes (<96 MiB). Manual Configuration test
+fixtures now preserve authored CRLF, decode Windows file URIs portably and avoid
+oversized pytest IDs; execution behavior is unchanged. Actual-device/private-spool
+validation and historical-capacity acceptance remain pending. See the audit ledger
+for exact commands, scope, limitations and retained prior-run failure evidence.

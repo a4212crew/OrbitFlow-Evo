@@ -296,6 +296,27 @@ def test_shared_live_collection_one_session_and_read_only_commands(tmp_path, mon
     assert "MUST_NOT_PERSIST" not in logs and "must never persist" not in logs
     assert spool.path.name in logs
 
+    # A normal second observation run must attempt networking again, even with
+    # complete retained success for this exact request in the same spool root.
+    @contextmanager
+    def unreachable(ip, credentials, config):
+        calls.append(("second_connect", ip))
+        raise OSError("must never persist exception text")
+        yield  # contextmanager protocol; the failed connection never yields
+    monkeypatch.setattr(observation, "connect_device", unreachable)
+    second = observation.collect(rows, creds, None, inventory_path=tmp_path / "inv.json",
+                                 spool_root=tmp_path / "runs",
+                                 execution_config=ExecutionConfig(1, 0, 0))
+    assert second.path != spool.path
+    assert second.manifest['created_at'] > spool.manifest['created_at']
+    assert second.manifest['binding'] == spool.manifest['binding']
+    assert calls.count(("second_connect", IP)) == 1
+    assert calls.count(("second_connect", "192.0.2.11")) == 1
+    assert dict(observation.observations(second)) == {
+        ip: {'status': 'evidence_unavailable'} for ip in creds}
+    assert dict(observation.observations(spool)) == records
+    assert all(r['status'] == 'failed' for r in second.records())
+
 
 def test_workbook_order_and_invalid_row_isolation(tmp_path):
     path = tmp_path / "input.xlsx"

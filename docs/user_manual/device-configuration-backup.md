@@ -72,3 +72,13 @@ The optional recovery API leaves menus/default arguments unchanged as required
 by Issue #162. Automated tests use synthetic safe failure metadata and prohibit
 connections, including export failure/retry. Actual captures and native Windows
 validation remain owner-controlled and pending.
+
+
+### Windows internal processing (2026-10-31)
+
+Each backup still collects its requested Excel targets anew. Its private
+`.processing` spool uses a timestamp and collision suffix to avoid nested UUID
+path overflow on Windows; public backup folders, captures and failure workbook
+paths are unchanged. Explicit failure-workbook recovery reads the selected backup
+run without recapturing devices. Very long owner-selected parent paths remain
+subject to OS limits. See the [revision audit](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).

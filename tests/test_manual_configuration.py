@@ -707,6 +707,23 @@ def test_blank_separators_and_source_lines(tmp_path):
     book.active.append(['192.0.2.2', ' \n\n'])
     path = tmp_path / 'manual_input.xlsx'
     book.save(path)
+    # Preserve authored CRLF bytes in a deterministic XLSX fixture. Some native
+    # Windows XML writers translate embedded newlines while saving the fixture.
+    from io import BytesIO
+    from xml.sax.saxutils import escape
+    from zipfile import ZipFile
+    import re
+    with ZipFile(BytesIO(path.read_bytes())) as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+    name = 'xl/worksheets/sheet1.xml'
+    literal = escape(text).replace('\r', '&#13;').encode('utf-8')
+    parts[name] = re.sub(rb'(<c r="B2"[^>]*>.*?<t[^>]*>).*?(</t>)',
+                         lambda match: match[1] + literal + match[2], parts[name],
+                         count=1, flags=re.DOTALL)
+    with ZipFile(path, 'w') as archive:
+        for name, content in parts.items():
+            archive.writestr(name, content)
+    assert load_workbook(path).active['B2'].value == text
     rows = m.load_rows(path)
     assert rows[0]['command_lines'] == [2, 4]
     assert rows[1]['error'] == m.EMPTY_ERROR
@@ -827,7 +844,7 @@ def test_legacy_missing_and_real_capture_links(tmp_path):
 
 def test_short_collision_names_and_windows_cross_drive_fallback(fake, auth, monkeypatch):
     from datetime import datetime
-    from urllib.parse import unquote
+    from urllib.request import url2pathname
     class FixedDate(datetime):
         @classmethod
         def now(cls, *args):
@@ -844,7 +861,7 @@ def test_short_collision_names_and_windows_cross_drive_fallback(fake, auth, monk
     third = m.regenerate_report(path)
     link = load_workbook(third).active['J2'].hyperlink.target
     assert link.startswith('file:///')
-    assert Path(unquote(link[7:])).is_file()
+    assert Path(url2pathname(link[7:])).is_file()
 
 
 def test_all_empty_block_never_connects(fake, auth, tmp_path):
@@ -1070,7 +1087,8 @@ def test_accepted_credentials_fragmented_echo_and_bare_output_never_persist(fake
 
 @pytest.mark.parametrize('text,reason', [(42, m.CELL_ERROR), ('x' * 32768, m.SIZE_ERROR),
     ('ok\n' * 1001, m.COUNT_ERROR), ('ok\n\nbad\tsecret-fixture', m.CONTROL_ERROR + '3'),
-    ('ok\n\x1bsecret-fixture', m.CONTROL_ERROR + '2')])
+    ('ok\n\x1bsecret-fixture', m.CONTROL_ERROR + '2')],
+    ids=['nontext', 'oversize', 'too-many-lines', 'tab', 'escape'])
 def test_structural_diagnostics_are_fixed_and_source_located(text, reason):
     with pytest.raises(ValueError) as error:
         m.commands(text)

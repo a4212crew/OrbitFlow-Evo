@@ -163,7 +163,10 @@ def run_backup(targets, transport_config, *, inventory_path='data/inventory/inve
     store = JsonInventoryStore(inventory_path)
     status = Progress(output if output is not None else sys.stdout)
     completed = failed = 0
-    spool = ResultSpool.create(writer.path / '.processing', 'configuration_backup', len(targets), clean=clean)
+    # This private nested processing run needs the shared collision-safe short
+    # name on Windows; capture/report paths and the backup run name stay stable.
+    spool = ResultSpool.create(writer.path / '.processing', 'configuration_backup', len(targets),
+                               clean=clean, short_name=True)
 
     def failure_row(target, context, stage, error=None):
         values = (context.hostname if context else '',
