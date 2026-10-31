@@ -162,10 +162,10 @@ def test_batch_failure_isolation_safe_outcomes_and_logs(tmp_path, monkeypatch, l
     safe += repr(rows)
     for secret in ['fixture-only', 'fixture-password', 'fixture-user', 'banner motd']:
         assert secret not in safe
-    spools = list(tmp_path.rglob('results.jsonl'))
+    spools = list(tmp_path.rglob('r.db'))
     assert len(spools) == 1
-    assert CONFIG not in spools[0].read_text()
-    assert 'password' not in spools[0].read_text().lower()
+    assert CONFIG.encode() not in spools[0].read_bytes()
+    assert b'password' not in spools[0].read_bytes().lower()
     assert all(p.stem.endswith(tuple(PROFILES)) for p in captures)
 
 

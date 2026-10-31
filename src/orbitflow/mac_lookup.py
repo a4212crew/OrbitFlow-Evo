@@ -22,6 +22,8 @@ MAIN_COLUMNS = ('Device IP', 'Device Name', 'Equipment Type', 'Physical Interfac
 DETAIL_COLUMNS = ('Observation', 'Device IP', 'MAC', 'Observed Attachment', 'Domain', 'VLANs', 'Original Type', 'Normalized Type', 'Scope', 'Destination Detail', 'Mapping', 'Classification', 'Forwarding Semantics', 'Physical Interface', 'Port Type', 'Selected Device Row', 'Source', 'Raw Attachment')
 
 
+from orbitflow.run_timing import timed
+
 class TargetResolutionError(ValueError):
     """Fixed safe diagnostic for exact target selection before any connection."""
 
@@ -125,6 +127,7 @@ def collect_device(target, transport_config, store, *, mac=None, vlan=None, xr_l
     return [main, details, totals, errors, bridge_rows]
 
 
+@timed('total')
 def run_lookup(targets, transport_config, *, mac=None, vlan=None, inventory_path='data/inventory/inventory.json',
                reports_dir='outputs/reports/mac_table', spool_root='outputs/runs/mac_table',
                log_root='outputs/logs', execution_config=None, xr_location='0/RP0/CPU0'):
@@ -160,6 +163,7 @@ def run_lookup(targets, transport_config, *, mac=None, vlan=None, inventory_path
     return path
 
 
+@timed('sqlite_project_excel_publication')
 def export_mac_spool(spool_path, path, *, allow_partial=False):
     """Offline regeneration; retain normalized spool after successful export."""
     spool = ResultSpool(spool_path)

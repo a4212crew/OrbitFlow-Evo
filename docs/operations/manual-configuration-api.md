@@ -233,3 +233,5 @@ cleanup without erasing confirmed save. Workbooks append `command_block_complete
 to row columns and `automatic_save` to Devices. Public signatures are unchanged.
 See [commands and owner lab procedure](../user_manual/manual-configuration.md#grouped-session-validation-issue-158).
 Protected skill reconciliation: [exact Atlas handoff](issue-158-atlas-handoff.md).
+
+New run outcomes and events are committed into the same run-specific SQLite store. Protected captures, grouped-shell/save policy, public signatures and timestamp/numeric folder names remain unchanged. Legacy JSONL journals remain readable. See [run processing](../user_manual/run-processing.md) for timing fields, offline recovery and validation.

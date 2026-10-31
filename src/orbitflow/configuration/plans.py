@@ -1,5 +1,6 @@
 """Version-one closed-schema, immutable, deterministic change plans."""
 
+from orbitflow.run_timing import timed
 from dataclasses import dataclass, field
 import hashlib
 import ipaddress
@@ -163,6 +164,7 @@ class ChangePlan:
         return json.dumps({"digest": self.digest, "plan": self.to_dict()}, indent=2, sort_keys=True)
 
 
+@timed('planning')
 def create_plan(request, contexts):
     """Resolve IDs against existing DeviceContexts; never refresh inventory or connect."""
     request = decode(canonical(request))
@@ -207,6 +209,7 @@ def create_plan(request, contexts):
     return ChangePlan(canonical(request))
 
 
+@timed('json_publication')
 def save_plan(plan, path):
     """Exclusive creation prevents accidental replacement of a reviewed artifact."""
     checked = ChangePlan(plan.content)
@@ -233,6 +236,7 @@ def _read_input(path):
         raise PlanError("plan input size or encoding limit exceeded") from None
 
 
+@timed('plan_load_validation')
 def load_plan(path):
     data = _read_input(path)
     keys(data, "digest plan")

@@ -4,6 +4,7 @@ Example: python scripts/configuration_execution_timings.py LOG [LOG ...] --run-i
 Only known timing stages/categories, safe identifiers and numeric aggregates are printed. Retain
 rotated logs externally if a long run outlives the shared logging retention.
 """
+from orbitflow.run_timing import timed
 import argparse
 from collections import defaultdict
 import json
@@ -135,6 +136,7 @@ def summarize(paths, run_id=None, *, group_by=(), warnings=None):
     return result
 
 
+@timed('total')
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('logs', nargs='+', help='execution.log and/or retained execution.log.1 through .3')

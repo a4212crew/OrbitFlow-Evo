@@ -239,8 +239,12 @@ def test_save_intent_recovery_unknown_and_partial_line(fake, auth):
     calls, _ = fake
     path = run([row(2)], auth)
     journal = path / 'events.jsonl'
-    lines = [line for line in journal.read_text().splitlines(True) if json.loads(line)['kind'] not in {'row_result', 'device_save_result'}]
-    journal.write_text(''.join(lines) + '{"partial":', encoding='utf-8')
+    from contextlib import closing
+    import sqlite3
+    with closing(sqlite3.connect(path / 'r.db')) as db, db:
+        positions = [(position,) for position, value in db.execute('SELECT position, record FROM events')
+                     if json.loads(value).get('kind') in {'row_result', 'device_save_result'}]
+        db.executemany('DELETE FROM events WHERE position=?', positions)
     calls.clear()
     report = m.regenerate_report(path)
     values = list(load_workbook(report).active.values)
@@ -1074,7 +1078,7 @@ def test_accepted_credentials_fragmented_echo_and_bare_output_never_persist(fake
                 with ZipFile(artifact) as archive:
                     content = b''.join(archive.read(n) for n in archive.namelist()).decode('utf-8')
             else:
-                content = artifact.read_text()
+                content = artifact.read_bytes().decode('latin1') if artifact.name.startswith('r.db') else artifact.read_text()
             # A single character can occur in fixed metadata. Check its emitted
             # standalone/labelled forms; multi-character fake secrets nowhere.
             if len(secret) > 1:
@@ -1372,11 +1376,14 @@ def test_group_invalid_later_row_prevents_final_save(fake, auth):
 def test_group_block_journal_precedes_save_and_recovers_pending(fake, auth):
     path = run([row(2), row(4)], auth)
     journal = path / 'events.jsonl'
-    events = [json.loads(line) for line in journal.read_text().splitlines()]
+    events = list(m.ResultJournal(journal).records())
     save_index = next(i for i, e in enumerate(events) if e['kind'] == 'device_save_intent')
     assert len([e for e in events[:save_index] if e['kind'] == 'row_result']) == 2
     # A process ending just before final save must not fabricate persistence.
-    journal.write_text(''.join(json.dumps(e) + '\n' for e in events[:save_index]))
+    from contextlib import closing
+    import sqlite3
+    with closing(sqlite3.connect(path / 'r.db')) as db, db:
+        db.execute('DELETE FROM events WHERE position>?', (save_index,))
     report = load_workbook(m.regenerate_report(path))
     assert report.active['C2'].value == report.active['C3'].value == 'Commands completed'
     assert report.active['H2'].value == report.active['H3'].value == 'Not initiated'

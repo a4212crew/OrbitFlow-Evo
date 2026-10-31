@@ -516,3 +516,5 @@ verify earlier block evidence survives, later commands are absent, automatic sav
 Not initiated before transmission or Unknown after unconfirmed transmission, and
 resources close. Owner controls all device changes and cleanup; Codex performs none.
 Grouped live validation and native Windows execution remain pending.
+
+Shared internal run storage, timing and recovery: [processing guide](run-processing.md). Existing workflow arguments and public outputs remain unchanged.

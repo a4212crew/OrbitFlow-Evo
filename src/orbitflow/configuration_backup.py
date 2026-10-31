@@ -45,6 +45,8 @@ FAILURE_REASONS = {
 }
 
 
+from orbitflow.run_timing import timed
+
 def failure_reason(stage, error=None):
     """Classify only approved types, never exception messages or class names.
 
@@ -136,6 +138,7 @@ class BackupWriter:
         return path
 
 
+@timed('total')
 def run_backup(targets, transport_config, *, inventory_path='data/inventory/inventory.json',
                backups_dir='outputs/backups/configuration', log_root='outputs/logs', output=None, clock=None,
                execution_config=None, timeout=60.0):
@@ -244,6 +247,7 @@ def run_backup(targets, transport_config, *, inventory_path='data/inventory/inve
     return writer.path
 
 
+@timed('offline_report_total')
 def recover_failed_devices(run_path, output):
     """Read-only export of retained safe backup failures; never recapture devices.
 

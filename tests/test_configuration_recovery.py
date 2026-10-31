@@ -37,7 +37,7 @@ def fixture(tmp_path, *, legacy=False, age=0, failed=False):
 
 def test_bound_offline_recovery_no_network_idempotent_and_immutable(tmp_path, monkeypatch):
     workbook, spool, requests = fixture(tmp_path)
-    before = {name: (spool.path / name).read_bytes() for name in ('manifest.json', 'results.jsonl')}
+    before = {name: (spool.path / name).read_bytes() for name in ('manifest.json', 'r.db')}
     monkeypatch.setattr(socket, 'create_connection', lambda *a, **k: pytest.fail('network forbidden'))
     first = recover(workbook, spool.path, tmp_path / 'first.json', now=NOW)
     second = recover(workbook, spool.path, tmp_path / 'second.json', now=NOW)
@@ -98,6 +98,10 @@ def test_wrong_task_or_incomplete_rejected(tmp_path, field, value):
     data = json.loads(manifest.read_text())
     data[field] = value
     manifest.write_text(json.dumps(data))
+    from contextlib import closing
+    import sqlite3
+    with closing(sqlite3.connect(spool.path / 'r.db')) as db, db:
+        db.execute("UPDATE metadata SET value=? WHERE key='manifest'", (json.dumps(data),))
     with pytest.raises(PlanError):
         recover(workbook, spool.path, tmp_path / 'plan.json', now=NOW)
 
@@ -143,20 +147,23 @@ def test_legacy_workbook_review_keeps_provenance_blocker(tmp_path):
 @pytest.mark.parametrize('mutation', ['target', 'identity', 'outcome', 'request_binding'])
 def test_recovery_rejects_inconsistent_metadata(tmp_path, mutation):
     workbook, spool, _ = fixture(tmp_path)
-    if mutation == 'request_binding':
-        path = spool.path / 'manifest.json'
-        data = json.loads(path.read_text())
-        data['binding']['request_digest'] = '0' * 64
-    else:
-        path = spool.path / 'results.jsonl'
-        data = json.loads(path.read_text())
-        if mutation == 'target':
-            data['target'] = '192.0.2.99'
-        elif mutation == 'identity':
-            data['payload']['identity']['management_ip'] = '192.0.2.99'
+    import sqlite3
+    from contextlib import closing
+    with closing(sqlite3.connect(spool.path / 'r.db')) as db, db:
+        if mutation == 'request_binding':
+            data = json.loads(db.execute("SELECT value FROM metadata WHERE key='manifest'").fetchone()[0])
+            data['binding']['request_digest'] = '0' * 64
+            db.execute("UPDATE metadata SET value=? WHERE key='manifest'", (json.dumps(data),))
+            (spool.path / 'manifest.json').write_text(json.dumps(data))
         else:
-            data['status'] = 'failed'
-    path.write_text(json.dumps(data) + '\n')
+            data = json.loads(db.execute('SELECT record FROM results').fetchone()[0])
+            if mutation == 'target':
+                data['target'] = '192.0.2.99'
+            elif mutation == 'identity':
+                data['payload']['identity']['management_ip'] = '192.0.2.99'
+            else:
+                data['status'] = 'failed'
+            db.execute('UPDATE results SET record=?', (json.dumps(data),))
     with pytest.raises(PlanError):
         recover(workbook, spool.path, tmp_path / 'plan.json', now=NOW)
     assert not (tmp_path / 'plan.json').exists()
@@ -271,3 +278,17 @@ def test_failed_export_closes_scratch_with_traceback_retained(tmp_path, monkeypa
     assert list(scratch.iterdir()) == []
     assert not (tmp_path / 'first.json').exists()
     assert not (tmp_path / 'first.xlsx').exists()
+
+
+@pytest.mark.parametrize('fault', ['missing', 'corrupt'])
+def test_recovery_preserves_plan_error_for_invalid_sqlite(tmp_path, monkeypatch, fault):
+    workbook, spool, _ = fixture(tmp_path)
+    if fault == 'missing':
+        spool.database_path.unlink()
+    else:
+        spool.database_path.write_bytes(b'invalid synthetic database')
+    monkeypatch.setattr(socket, 'create_connection', lambda *a, **k: pytest.fail('network forbidden'))
+    with pytest.raises(PlanError, match='retained observation store'):
+        recover(workbook, spool.path, tmp_path / 'plan.json', now=NOW)
+    assert not (tmp_path / 'plan.json').exists()
+    assert not (tmp_path / 'plan.xlsx').exists()

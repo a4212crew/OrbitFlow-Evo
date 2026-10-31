@@ -1,4 +1,5 @@
 """Bounded per-device scheduling; workers own and clean up their device resources."""
+from orbitflow.run_timing import timed
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from contextvars import copy_context
 from dataclasses import dataclass
@@ -66,6 +67,8 @@ def _execute_devices(targets, worker, *, config=None, on_outcome=None):
     display.workers = config.max_concurrent_devices
     if display.total is None and hasattr(targets, '__len__'):
         display.total = len(targets)
+    from orbitflow.run_timing import timed
+    timed_worker = timed('device_processing_total')(worker)
     def invoke(position, target):
         presentation_token = current_position.set(position)
         if not display.structured:
@@ -74,7 +77,7 @@ def _execute_devices(targets, worker, *, config=None, on_outcome=None):
         token = connection_pacer.set(pacer)
         retry_token = connection_retry_delay.set(config.connection_retry_delay)
         try:
-            return DeviceOutcome(position, worker(target))
+            return DeviceOutcome(position, timed_worker(target))
         except Exception as exc:
             return DeviceOutcome(position, error_category=type(exc).__name__)
         finally:
@@ -119,6 +122,7 @@ def _execute_devices(targets, worker, *, config=None, on_outcome=None):
     return sorted(outcomes, key=lambda outcome: outcome.position)
 
 
+@timed('device_execution_total')
 def execute_devices(targets, worker, *, config=None, on_outcome=None):
     """Run bounded device work with best-effort, output-neutral presentation.
 

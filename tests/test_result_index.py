@@ -10,6 +10,20 @@ from orbitflow.execution import DeviceOutcome
 from orbitflow.result_spool import ResultSpool
 
 
+@pytest.fixture(autouse=True)
+def legacy_jsonl_writer(monkeypatch):
+    """Retain the historical JSONL reader/fault matrix after writer migration."""
+    create = ResultSpool.create
+    def legacy(*args, **kwargs):
+        spool = create(*args, **kwargs)
+        spool.manifest.pop('storage')
+        (spool.path / 'r.db').unlink()
+        (spool.path / 'results.jsonl').touch()
+        spool._state('created')
+        return spool
+    monkeypatch.setattr(ResultSpool, 'create', legacy)
+
+
 def test_indexed_json_cyclic_gc_closes_connection_before_scratch_cleanup(monkeypatch):
     import gc
     from pathlib import Path

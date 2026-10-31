@@ -214,3 +214,20 @@ If the tenth review still requires changes, automated implementation stops and t
 ## 2026-10-26 — Issue #156 separate Manual Configuration
 
 Use a separate application/console workflow for literal Excel command blocks, not legacy plan execution. Serialize same-IP rows through one shared device worker with fresh shell channels. Persist only after a successful durably recorded row, preserving predefined device-end partial save. Gate networking with a local salted work-factor-protected password hash plus summary confirmation. Prompt-free user capture is bounded by inactivity and deadlines; prompt-aware setup/finalization and vendor persistence remain separate. Transcript-only evidence does not establish independent verification. XR/Huawei missing manual entry/save handling fails closed. See [design and protected skill corrections](configuration/manual-configuration.md).
+
+
+## 2026-10-31 - Issue #162 direct run SQLite and stage timing
+
+Owner-approved replacement: normal workflows commit sanitized results directly to
+one isolated SQLite DB per fresh run; ordered bounded retrieval feeds unchanged
+outputs. Inventory projections and execution events share that store. Legacy
+JSONL readers remain. Canonical inventory, signed approval authority, immutable
+plans, public reports and protected captures/transcripts keep their contracts.
+Excel remains authoritative input; there is no cross-run observation cache.
+
+Time actual input, collection, evaluation/planning, DB write/read and output
+boundaries with monotonic durations and UTC timestamps. Nested and parallel times
+are not additive. Owner measures devices; deterministic correctness, safety and
+bounded-memory tests remain mandatory without speed thresholds. See the
+[processing guide](../user_manual/run-processing.md) and
+[audit ledger](../operations/issue-162-processing-audit.md).

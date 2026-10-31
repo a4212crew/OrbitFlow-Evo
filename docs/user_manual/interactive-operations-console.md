@@ -218,3 +218,7 @@ IP's rows, with explicit global-config/EXEC boundaries and one final automatic s
 The existing menu, admin password, confirmation, chooser and output paths remain.
 Completed blocks await device save; later row failure preserves command evidence
 and prevents new automatic save. See the [grouped validation](manual-configuration.md#grouped-session-validation-issue-158).
+
+## Shared run processing (Issue #162)
+
+New applicable run results use direct run-specific SQLite persistence and sanitized stage timing. Existing inputs, arguments, menus and public outputs remain unchanged; explicit historical recovery never recollects. See the [processing/recovery guide](run-processing.md) for storage, retention, timing fields, Linux/Windows checks and limitations.

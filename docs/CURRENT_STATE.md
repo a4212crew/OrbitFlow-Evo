@@ -1265,3 +1265,34 @@ fixtures now preserve authored CRLF, decode Windows file URIs portably and avoid
 oversized pytest IDs; execution behavior is unchanged. Actual-device/private-spool
 validation and historical-capacity acceptance remain pending. See the audit ledger
 for exact commands, scope, limitations and retained prior-run failure evidence.
+
+
+## Issue #162 direct-storage revision (2026-10-31)
+
+New shared run outcomes, inventory export projections and execution events persist
+directly in one isolated `r.db` per fresh run. Ordered bounded queries replace
+new-run JSONL offset rebuilding. Legacy JSONL and prior direct SQLite names remain
+readable; canonical inventory, signed approval authority, immutable plans and
+protected captures/transcripts keep their contracts. Excel inputs, menus and
+public outputs remain unchanged. Offline recovery preserves provenance/age and
+execution-authorization gates. Cleanup-only tombstones support deletion retry;
+execution XLSX publication is atomic and does not replace existing destinations.
+
+Sanitized module logs cover input, collection/device processing, evaluation/planning,
+SQLite persistence/retrieval, protected preparation/confirmation, rendering and
+publication, using UTC boundaries and monotonic durations. Public API failures
+retain their error contracts. Invocation and retained-evidence identities are
+explicitly correlated without changing timestamp/numeric public folder names.
+
+Complete native Windows deterministic suite: **3,909 passed, zero failures/errors/
+skips/warnings**, with all 49 Python source fingerprints unchanged during the run.
+88/~77 MB direct-store, 500 and 1,500 cases pass <16 MiB allocation assertions;
+complete large-plan pipelines peak at 10,006,388 / 10,078,673 / 26,582,311 Python
+bytes, each <96 MiB. These are allocation checks, not RSS or speed benchmarks.
+See the [audit/validation ledger](operations/issue-162-processing-audit.md) and
+[processing guide](user_manual/run-processing.md).
+
+Owner Linux, actual-device/stage measurement and private-spool validation remain
+pending. No production/device writes, private capture import or merge occurred.
+Existing finite limits and documented filesystem/multi-file publication limitations
+remain; Atlas acceptance and owner merge approval are not implied.

@@ -11,6 +11,20 @@ from orbitflow.execution import DeviceOutcome, execute_devices
 from orbitflow.result_spool import ResultSpool, cleanup_stale_runs
 
 
+@pytest.fixture(autouse=True)
+def legacy_jsonl_writer(monkeypatch):
+    """Retain the historical JSONL reader/fault matrix after writer migration."""
+    create = ResultSpool.create
+    def legacy(*args, **kwargs):
+        spool = create(*args, **kwargs)
+        spool.manifest.pop('storage')
+        (spool.path / 'r.db').unlink()
+        (spool.path / 'results.jsonl').touch()
+        spool._state('created')
+        return spool
+    monkeypatch.setattr(ResultSpool, 'create', legacy)
+
+
 def test_1500_targets_five_workers_exactly_once_bounded_results(tmp_path):
     barrier, lock = Barrier(5), Lock()
     live = weakref.WeakSet()

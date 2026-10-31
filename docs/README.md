@@ -111,3 +111,5 @@ Issue #117 [revision handoff history](operations/issue-117-revision-handoff.md):
 
 - [Issue #162 processing audit and validation ledger](operations/issue-162-processing-audit.md) — indexed planning/review/confirmation, module decisions, measured synthetic coverage and pending owner gates.
 - [Offline backup failure recovery API](user_manual/device-configuration-backup.md#offline-failure-report-recovery) — regenerate retained safe failure metadata without device access.
+
+- [Run processing, SQLite recovery and stage timing](user_manual/run-processing.md)

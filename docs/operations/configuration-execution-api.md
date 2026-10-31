@@ -199,8 +199,9 @@ and `DeviceCLI.save_configuration` implement synchronization internally; prefer 
 capability wrapper for supported application use.
 
 `ResultJournal(path, *, clean=sanitize_text)` in `orbitflow.result_spool` owns
-synchronized fsynced JSONL append; `append(json_value)` sanitizes recursively and
-`records()` streams complete lines for recovery. It does not retry failed writes or
+synchronized transactional event append in the containing new run SQLite database;
+standalone/legacy JSONL journals retain fsynced complete-line recovery.
+`append(json_value)` sanitizes recursively and `records()` streams retained events. It does not retry failed writes or
 retain full runs. Callers must never submit sensitive raw backup content. The executor
 uses it for incremental progress alongside the existing central ResultSpool.
 
@@ -529,8 +530,9 @@ unchanged; recovered unverified historical plans cannot authorize execution.
 large-run applications should use the existing `save`/`load` and workbook/service
 consumers, which use indexed internal views. Execution summary return values
 still contain bounded source-row/command metadata. Offline execution report
-recovery uses the shared SQLite event-offset index, preserving complete detail
-references without collecting all offsets or scanning the journal once per row.
+recovery queries the shared run SQLite event table directly, preserving complete
+detail references through a temporary reference table. Legacy JSONL journals alone
+use the compatible event-offset index; new runs never rebuild one.
 Prompt/save exchanges above 64 MiB fail explicitly and leave the session unsafe;
 there is no retry of writes. Synthetic confirmation tests mock the device runner;
 owner-operated live and native Windows validation remain pending.
@@ -544,3 +546,7 @@ older successful run when a device is unreachable. Explicit recovery and immutab
 plan review remain offline operations; preparation/confirmation retain their existing
 freshness, identity, approval and replay checks. No API signatures or defaults changed.
 See the [source/test audit](issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).
+
+See [run processing and stage timing](../user_manual/run-processing.md) for direct SQLite lifecycle, historical evidence correlation and unchanged authorization/replay safeguards.
+
+Execution XLSX export now stages/fsyncs a complete workbook and publishes without overwriting a destination. A save failure leaves the destination unpublished; offline retry does not reconnect. Rendering/publication and cleanup are timed through the existing module logs.

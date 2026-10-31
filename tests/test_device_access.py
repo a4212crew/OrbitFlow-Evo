@@ -257,10 +257,11 @@ def test_enable_backup_end_to_end(tmp_path, monkeypatch, device):
     with ZipFile(folder/'failed_devices.xlsx') as archive:
         safe += ''.join(archive.read(name).decode() for name in archive.namelist())
     assert SECRET not in safe and 'synthetic-login-password' not in safe
-    spools = list(tmp_path.rglob('results.jsonl'))
+    spools = list(tmp_path.rglob('r.db'))
     assert len(spools) == 1
     import json
-    assert json.loads(spools[0].read_text())['payload'] == {'failure': None}
+    from orbitflow.result_spool import ResultSpool
+    assert next(ResultSpool(spools[0].parent).records())['payload'] == {'failure': None}
 
 
 @pytest.mark.parametrize('cli_type', [DeviceCLI, CiscoIOSCLI])
@@ -498,7 +499,7 @@ def test_inventory_refresh_secret_not_in_retained_spool(tmp_path, monkeypatch):
     refresh.refresh_inventory_from_excel(source, config, inventory_path=tmp_path/'inventory.json',
         export_path=tmp_path/'export.xlsx', log_root=tmp_path/'logs',
         execution_config=ExecutionConfig(1))
-    assert list(tmp_path.rglob('results.jsonl'))
+    assert list(tmp_path.rglob('r.db'))
     persisted = ''.join(p.read_text() for p in tmp_path.rglob('*')
                        if p.suffix in {'.json', '.jsonl', '.log'})
     assert SECRET not in persisted

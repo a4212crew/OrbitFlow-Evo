@@ -265,3 +265,5 @@ run-specific processing, not a replacement workbook or a shared observation cach
 The existing explicit export action uses only its selected retained spool and
 never reconnects, including after export failure. See the
 [revision audit and tests](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).
+
+Shared internal run storage, timing and recovery: [processing guide](run-processing.md). Existing workflow arguments and public outputs remain unchanged.

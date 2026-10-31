@@ -5,6 +5,7 @@ Explicit engineer persistence commands may save before any later row failure.
 Public API: create_template, load_rows, summary, execute, regenerate_report.
 No legacy plan conversion, automatic replay, rollback or independent verification.
 """
+from orbitflow.run_timing import timed
 from copy import deepcopy
 from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass, asdict
@@ -131,6 +132,7 @@ def commands(text):
     return lines
 
 
+@timed('template_render_publication')
 def create_template(directory='data/input/generated_template'):
     """Allocate an exclusive daily template; command cells accept Alt+Enter."""
     root = Path(directory)
@@ -160,6 +162,7 @@ def create_template(directory='data/input/generated_template'):
     raise ValueError('Template allocation exhausted')
 
 
+@timed('excel_input_validation')
 def load_rows(path):
     """Retain every nonempty input row and fixed validation errors, never secrets."""
     book = load_workbook(path, read_only=True, data_only=False)
@@ -205,6 +208,7 @@ def summary(rows, execution_config=ExecutionConfig(1), settings=CaptureSettings(
                 invalid=sum(bool(r['error']) for r in rows), concurrency=execution_config.max_concurrent_devices)
 
 
+@timed('total')
 def execute(rows, *, profile, password, confirmation_digest, credentials, transport_config,
             execution_config=ExecutionConfig(1), settings=CaptureSettings(),
             inventory_path='data/inventory/inventory.json',
@@ -580,6 +584,7 @@ def execute(rows, *, profile, password, confirmation_digest, credentials, transp
     return spool.path
 
 
+@timed('offline_report_total')
 def regenerate_report(run_path, output=None, *, reports_dir='outputs/reports/manual_configuration', management_ip=None, replace=False):
     """Offline recovery from durable input/intents/results; never connects/replays.
 

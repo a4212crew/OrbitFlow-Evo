@@ -70,3 +70,5 @@ For the configuration-v2 module, ensure the package is installed or `src` is in 
 
 - [Manual Configuration](manual-configuration.md): separate multiline-row workflow, blank separators, numbered selection, one immediately refreshed batch report/named capture links, platform matrix, authorization and owner lab validation.
 - [Manual Configuration API](../operations/manual-configuration-api.md): public Python interface.
+
+- [Run processing, SQLite recovery and stage timing](run-processing.md)

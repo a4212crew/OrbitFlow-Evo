@@ -82,3 +82,7 @@ path overflow on Windows; public backup folders, captures and failure workbook
 paths are unchanged. Explicit failure-workbook recovery reads the selected backup
 run without recapturing devices. Very long owner-selected parent paths remain
 subject to OS limits. See the [revision audit](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).
+
+## Shared run processing (Issue #162)
+
+New applicable run results use direct run-specific SQLite persistence and sanitized stage timing. Existing inputs, arguments, menus and public outputs remain unchanged; explicit historical recovery never recollects. See the [processing/recovery guide](run-processing.md) for storage, retention, timing fields, Linux/Windows checks and limitations.

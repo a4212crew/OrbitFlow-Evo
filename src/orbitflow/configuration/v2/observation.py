@@ -1,4 +1,5 @@
 """One shared read-only session per predefined target; sanitized spool persistence."""
+from orbitflow.run_timing import timed
 from dataclasses import asdict, replace
 from orbitflow.vendors.aggregation import from_facts
 import re
@@ -46,6 +47,7 @@ def snapshot(context, interfaces, vlans, *, clean=sanitize_text):
     return safe_data(value, lambda text: clean(_safe_source(text, context.platform)))
 
 
+@timed('collection')
 def collect(requests, credentials, transport_config, *, inventory_path="data/inventory/inventory.json",
             spool_root="outputs/runs/configuration_observation", execution_config=None, progress=None):
     """Credentials are an in-memory IP->DeviceCredentials map, never workbook data.
@@ -161,6 +163,7 @@ def observations(spool):
         yield record["target"], record["payload"]
 
 
+@timed('observation_projection')
 def bounded_observations(spool):
     """Detach observations into the shared per-device SQLite working set.
 

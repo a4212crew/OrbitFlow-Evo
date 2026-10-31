@@ -40,3 +40,7 @@ python -m pytest tests/test_configuration_plans.py -q
 Synthetic tests cover pre-decode oversize rejection, v1 CLI errors, historical
 plans, digests, mutation and signed approval safety. Native Windows validation
 remains owner-controlled and pending.
+
+## Shared run processing (Issue #162)
+
+New applicable run results use direct run-specific SQLite persistence and sanitized stage timing. Existing inputs, arguments, menus and public outputs remain unchanged; explicit historical recovery never recollects. See the [processing/recovery guide](run-processing.md) for storage, retention, timing fields, Linux/Windows checks and limitations.

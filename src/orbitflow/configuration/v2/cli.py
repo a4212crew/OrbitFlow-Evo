@@ -1,4 +1,5 @@
 """Operator adapters for v2 input, live read-only planning and workbook decisions."""
+from orbitflow.run_timing import timed
 from orbitflow.terminal_progress import cli_progress, location, workflow_progress, current_display
 import argparse
 import sys
@@ -138,6 +139,7 @@ def _main(argv, logger, progress):
 
 
 @cli_progress('Planning stages')
+@timed('total')
 def main(argv=None):
     with module_logger("configuration", "bulk_planning") as (logger, _):
         try:

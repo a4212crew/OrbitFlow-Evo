@@ -1,4 +1,5 @@
 """Thin XLSX adapter. Only the decision cells may change during decision consumption."""
+from orbitflow.run_timing import timed
 from copy import copy
 from pathlib import Path
 import hashlib
@@ -215,12 +216,14 @@ def template_help(t):
     return required + 'See docs/operations/configuration-template-reference.md; unknown fields and credentials are invalid.'
 
 
+@timed('template_render_publication')
 def create_input(path):
     require(not Path(path).exists(), "output already exists")
     with Path(path).open("xb") as stream:
         _base(legacy_manual=False).save(stream)
 
 
+@timed('excel_input_validation')
 def read_input(path):
     book = load_workbook(path, read_only=True, data_only=False)
     result = WorkbookRequests(book.sheetnames)
@@ -323,6 +326,7 @@ def _streaming_base(base):
     return book
 
 
+@timed('excel_render_publication')
 def export_plan(plan, path):
     """Export the unchanged review workbook with disk-backed worksheet writers.
 
@@ -444,6 +448,7 @@ def export_plan(plan, path):
         book.close()
 
 
+@timed('protected_workbook_review')
 def consume_decisions(original, path, *, expected_digest, now=None):
     """Future preflight adapter: caller pins a trusted plan digest; no authority.
 

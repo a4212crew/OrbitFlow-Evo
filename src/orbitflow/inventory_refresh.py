@@ -32,6 +32,9 @@ ATTEMPT_COLUMNS = (
 )
 
 
+from orbitflow.run_timing import timed
+
+@timed('total')
 def refresh_inventory_from_excel(
     excel_path: str | Path,
     transport_config: TransportConfig,
@@ -163,6 +166,7 @@ def refresh_inventory_from_excel(
     return destination
 
 
+@timed('excel_render_publication')
 def _write_export(path, inventory_rows, attempts, *, clean):
     """Write literal, sanitized cells and replace the destination only on success."""
     workbook = Workbook(write_only=True)
@@ -213,6 +217,7 @@ def _write_export(path, inventory_rows, attempts, *, clean):
             temporary.unlink()
 
 
+@timed('offline_report_total')
 def export_inventory_spool(spool_path, path, *, cleanup=True, allow_partial=False):
     """Retry the captured run export; never reads or mutates canonical inventory."""
     spool = ResultSpool(spool_path)
@@ -220,8 +225,8 @@ def export_inventory_spool(spool_path, path, *, cleanup=True, allow_partial=Fals
         raise ValueError('Not an inventory refresh spool')
     def consume(run):
         attempts = (record['payload'][1] for record in run.records())
-        rows = run.snapshot_rows() if (run.path / "snapshot.jsonl").exists() else ()
-        if not (run.path / "snapshot.jsonl").exists() and not allow_partial:
+        rows = run.snapshot_rows() if run.has_snapshot() else ()
+        if not run.has_snapshot() and not allow_partial:
             raise ValueError("Inventory export snapshot is missing")
         _write_export(Path(path), rows, attempts, clean=sanitize_text)
         return Path(path)

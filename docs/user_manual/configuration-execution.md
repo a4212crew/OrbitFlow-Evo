@@ -1071,3 +1071,5 @@ lab validation using the lab commands above; do not replay historical plans.
 
 
 Issue #156 approved design: [separate Manual Configuration](../architecture/configuration/manual-configuration.md) supersedes legacy offline Manual CLI for new input generation only. Legacy plans remain offline/non-executable; predefined partial-save behavior is unchanged. The new optional profile password-hash section and success-only per-row save are implemented on this branch with synthetic deterministic tests; owner-operated live validation remains pending. Historical evidence above is retained.
+
+Shared internal run storage, timing and recovery: [processing guide](run-processing.md). Existing workflow arguments and public outputs remain unchanged.

@@ -1,3 +1,8 @@
+> **2026-10-31 direct SQLite revision (Issue #162).** The JSONL writer/index
+> descriptions below are historical and apply only to retained legacy runs.
+> New ResultSpool runs commit sanitized outcomes directly to `r.db`.
+> See [current processing/recovery guide](../user_manual/run-processing.md).
+
 # Execution-result spool
 
 `orbitflow.result_spool.ResultSpool` owns persisted run outcomes. Workers return

@@ -1,4 +1,5 @@
 """Deterministic ordered planning and decision intent, independent of adapters."""
+from orbitflow.run_timing import timed
 from collections.abc import Mapping
 from copy import deepcopy
 from orbitflow.indexed_json import IndexedJSON, IndexedList, HashedList, MAX_TOTAL_BYTES, MAX_WORKING_VALUE_BYTES, chunks, digest as json_digest
@@ -547,6 +548,7 @@ class BulkPlan:
         return decode(self.content)
 
 
+@timed('planning')
 def plan(requests, observations=None, *, decisions=None, source="api", now=None, max_evidence_age=3600,
          layout=None, input_errors=None):
     now = now or datetime.now(timezone.utc)
@@ -597,6 +599,7 @@ class DecisionEvaluation:
         return decode(self.content)
 
 
+@timed('decision_evaluation')
 def evaluate_decisions(original, decisions, *, expected_digest, now=None):
     original = original.revalidate()
     require(original.digest == expected_digest, "decision source digest mismatch")
@@ -609,6 +612,7 @@ def evaluate_decisions(original, decisions, *, expected_digest, now=None):
         evaluated_at=timestamp(now), authenticated=False, execution_authorized=False))
 
 
+@timed('json_publication')
 def save(plan, path):
     plan = plan.revalidate()
     path = Path(path)
@@ -630,6 +634,7 @@ def save(plan, path):
             temporary.unlink(missing_ok=True)
 
 
+@timed('plan_load_validation')
 def load(path):
     from orbitflow.indexed_json import read_json, close_json_resources
     from orbitflow.configuration.plans import PlanError

@@ -6,6 +6,7 @@ the caller. Inventory resolution precedes collection on the same session.
 
 from __future__ import annotations
 
+from orbitflow.run_timing import timed
 import sys
 from pathlib import Path
 from typing import TextIO
@@ -21,6 +22,7 @@ from orbitflow.transport import (
 )
 
 
+@timed('total')
 def run_live_validation(
     device_host: str,
     platform: str | None,

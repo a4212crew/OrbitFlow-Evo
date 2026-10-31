@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from orbitflow.run_timing import timed
 import argparse
 import json
 import platform as host_platform
@@ -12,6 +13,9 @@ from pathlib import Path
 from typing import TextIO
 
 from orbitflow.targets import load_targets
+from orbitflow.result_spool import ResultSpool
+from orbitflow.execution import execute_devices
+from orbitflow.config import ExecutionConfig
 
 from orbitflow.inventory import DeviceInventoryResolver, JsonInventoryStore
 from orbitflow.logging import module_logger
@@ -68,13 +72,14 @@ def _run_batch_validation(
     clock=lambda: datetime.now(timezone.utc),
     logger,
     log_path,
+    materialize=True,
 ) -> dict[str, object]:
     """Validate every target sequentially and retain per-device snapshots."""
     store = JsonInventoryStore(inventory_path)
-    results: list[dict[str, object]] = []
+    run = ResultSpool.create(Path('outputs/runs/inventory_validation'), 'inventory_validation', len(targets))
     successful = 0
     logger.info("Inventory batch started")
-    for target in targets:
+    def worker(target):
         management_ip = target["management_ip"]
         resolver = DeviceInventoryResolver(store)
         try:
@@ -91,7 +96,6 @@ def _run_batch_validation(
                 "error": "",
             }
             logger.info("Inventory validation succeeded", extra={"management_ip": management_ip})
-            successful += 1
             print(f"{management_ip}: success", file=output)
         except Exception as exc:
             logger.error("Inventory validation failed", exc_info=True,
@@ -105,25 +109,64 @@ def _run_batch_validation(
                 "error": _safe_error(exc),
             }
             print(f"{management_ip}: failed ({type(exc).__name__})", file=output)
-        results.append(result)
+        return result
 
-    payload = {
-        "collection_time": clock().isoformat(),
-        "total_devices": len(results),
-        "successful": successful,
-        "failed": len(results) - successful,
-        "results": results,
-    }
-    _write_json(results_path, payload)
+    def record(outcome):
+        nonlocal successful
+        result = outcome.value
+        successful += bool(result["success"])
+        run.append(outcome, target=result["management_ip"], failed=not result["success"])
+
+    with run.collection():
+        execute_devices(targets, worker, config=ExecutionConfig(1), on_outcome=record)
+        payload = dict(collection_time=clock().isoformat(), total_devices=len(targets),
+                       successful=successful, failed=len(targets)-successful, results=[])
+        run.snapshot([payload])
+    export_validation_spool(run.path, results_path, cleanup=not materialize)
+    if materialize:
+        payload['results'] = [row['payload'] for row in run.records()]
+        run.remove()
+
     logger.info("Inventory batch completed")
-    print(f"\nTotal: {len(results)}", file=output)
+    print(f"\nTotal: {len(targets)}", file=output)
     print(f"Successful: {successful}", file=output)
-    print(f"Failed: {len(results) - successful}", file=output)
+    print(f"Failed: {len(targets) - successful}", file=output)
     print(f"Results: {results_path}", file=output)
     print(f"Log: {log_path}", file=output)
     return payload
 
 
+@timed('offline_report_total')
+def export_validation_spool(spool_path, results_path, *, cleanup=True):
+    """Re-export the explicitly selected historical validation run, without networking."""
+    run = ResultSpool(spool_path)
+    if run.manifest['task'] != 'inventory_validation':
+        raise ValueError('Not an inventory validation run')
+    def publish(source):
+        payload = next(source.snapshot_rows())
+        destination = Path(results_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(destination.name + '.tmp')
+        try:
+            with temporary.open('w', encoding='utf-8') as handle:
+                header = json.dumps({k: v for k, v in payload.items() if k != 'results'}, indent=2)
+                handle.write(header[:-2] + ',\n  "results": [')
+                first = True
+                for row in source.records():
+                    handle.write(('' if first else ',') + '\n' + json.dumps(row['payload'], indent=2))
+                    first = False
+                handle.write('\n]}\n')
+                handle.flush()
+                import os
+                os.fsync(handle.fileno())
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return destination
+    return run.consume(publish, cleanup=cleanup)
+
+
+@timed('total')
 def run_batch_validation(
     targets: list[dict[str, str]],
     transport_config: TransportConfig,
@@ -134,7 +177,10 @@ def run_batch_validation(
     clock=lambda: datetime.now(timezone.utc),
     log_root: str | Path = "logs",
 ) -> dict[str, object]:
-    """Validate a safe sequential batch with module-owned file diagnostics."""
+    """Validate sequentially; the legacy API explicitly materializes its result list.
+
+    The CLI streams SQLite results without building that compatibility return list.
+    """
     with module_logger("inventory", "inventory_batch", log_root=log_root) as (logger, path):
         return _run_batch_validation(
             targets, transport_config, inventory_path=inventory_path,
@@ -143,6 +189,7 @@ def run_batch_validation(
         )
 
 
+@timed('total')
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("excel_path", help="Excel file containing device targets")
@@ -156,7 +203,8 @@ def main(argv: list[str] | None = None) -> None:
         teleport_key_path=key_path,
         teleport_cert_path=cert_path,
     )
-    run_batch_validation(load_targets(args.excel_path), config)
+    with module_logger("inventory", "inventory_batch", log_root="logs") as (logger, path):
+        _run_batch_validation(load_targets(args.excel_path), config, logger=logger, log_path=path, materialize=False)
 
 
 if __name__ == "__main__":

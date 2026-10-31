@@ -351,8 +351,10 @@ def test_1500_device_batch_writes_once(tmp_path, monkeypatch):
         import json
         assert all(iter(rows) is rows for rows in (interfaces, database, errors))
         spool = next((tmp_path / 'runs').iterdir())
-        with (spool / 'results.jsonl').open() as source:
-            positions = [json.loads(line)['input_position'] for line in source]
+        import sqlite3
+        from contextlib import closing
+        with closing(sqlite3.connect(spool / 'r.db')) as source:
+            positions = [row[0] for row in source.execute('SELECT position FROM results')]
         assert sorted(positions) == list(range(1, 1501))
         return original(path, interfaces, database, errors, **kwargs)
     writer = Mock(side_effect=streaming_writer)
@@ -721,7 +723,7 @@ def test_legacy_699_outcomes_offline_retry_preserves_seven_failures(tmp_path, mo
             errors = [[ip, '', 'connect', 'TimeoutError', NOW.isoformat()]] if failed else []
             payload = [[], [], errors] if failed else [[row], [], []]
             spool.append(DeviceOutcome(position), payload=payload, target=ip, failed=failed)
-    source = (spool.path / 'results.jsonl').read_bytes()
+    source = list(spool.records())
     # A remaining noncompactable field must retain the spool and existing output.
     original = reporting.write_workbook
     def oversized(path, interfaces, database, errors, **kwargs):
@@ -739,7 +741,7 @@ def test_legacy_699_outcomes_offline_retry_preserves_seven_failures(tmp_path, mo
     assert ResultSpool(spool.path).manifest['status'] == 'output_failed'
     monkeypatch.setattr(reporting, 'write_workbook', original)
     reporting.export_report_spool(spool.path, path, cleanup=False)
-    assert (spool.path / 'results.jsonl').read_bytes() == source
+    assert list(spool.records()) == source
     manifest = ResultSpool(spool.path).manifest
     assert manifest['completed_count'] == 699
     book = load_workbook(path, read_only=True)

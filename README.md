@@ -889,3 +889,5 @@ Existing Excel-driven workflows continue to use their supported workbooks. Norma
 reports collect fresh device evidence for each run; SQLite indexes only that run.
 Explicit offline recovery uses the selected historical evidence without connecting.
 See the [fresh-collection audit and validation instructions](docs/operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).
+
+Run evidence and offline recovery: [SQLite processing and timing](docs/user_manual/run-processing.md).

@@ -181,3 +181,22 @@ def test_batch_uses_row_credentials_no_override_continues_and_excludes_secrets(
     assert successful_context["capability_flags"] == ["l2_subinterface"]
     assert successful_context["collection_status"] == "success"
     assert successful_context["collection_error"] == ""
+
+
+def test_offline_validation_export_uses_only_selected_store(tmp_path, monkeypatch):
+    from orbitflow.result_spool import ResultSpool
+    from orbitflow.execution import DeviceOutcome
+    run = ResultSpool.create(tmp_path / 'runs', 'inventory_validation', 1)
+    header = dict(collection_time=NOW.isoformat(), total_devices=1, successful=1, failed=0, results=[])
+    with run.collection():
+        run.append(DeviceOutcome(1, {'management_ip': '192.0.2.1', 'success': True}))
+        run.snapshot([header])
+    monkeypatch.setattr(batch, 'connect_device', lambda *a, **k: (_ for _ in ()).throw(AssertionError('network forbidden')))
+    output = tmp_path / 'historical.json'
+    batch.export_validation_spool(run.path, output, cleanup=False)
+    payload = json.loads(output.read_text())
+    assert payload['collection_time'] == NOW.isoformat()
+    assert payload['results'] == [{'management_ip': '192.0.2.1', 'success': True}]
+    previous = output.read_bytes()
+    batch.export_validation_spool(run.path, output, cleanup=False)
+    assert output.read_bytes() == previous

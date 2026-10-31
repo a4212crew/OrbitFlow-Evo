@@ -4,12 +4,15 @@ No transport or credential provider is invoked. Durable provenance is checked
 under the spool lease before any plan/output is built. Legacy interpretation is
 explicitly diagnostic and cannot enter confirmed execution.
 """
+from orbitflow.run_timing import timed
 from datetime import datetime, timezone
+from contextlib import contextmanager
+import sqlite3
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from orbitflow.configuration.plans import require
+from orbitflow.configuration.plans import require, PlanError
 from orbitflow.result_spool import ResultSpool
 from orbitflow.indexed_json import close_json_resources
 from .catalogue import BY_ID
@@ -18,6 +21,20 @@ from .planning import UNVERIFIED_SOURCE, plan, save
 from .workbook import read_input, export_plan
 
 
+@contextmanager
+def _retained_index(path):
+    """Keep storage validation failures inside the planning error contract."""
+    try:
+        spool = ResultSpool(path)
+        with spool.indexed() as index:
+            yield spool, index
+    except PlanError:
+        raise
+    except (ValueError, KeyError, sqlite3.DatabaseError) as exc:
+        raise PlanError('invalid retained observation store') from exc
+
+
+@timed('offline_recovery_total')
 def recover(workbook, spool_path, output, *, allow_unverified_legacy=False,
             max_evidence_age=3600, now=None):
     """Return a recovered BulkPlan and publish new JSON/XLSX, without networking.
@@ -40,8 +57,7 @@ def recover(workbook, spool_path, output, *, allow_unverified_legacy=False,
     requests = read_input(workbook)
     targets = list(dict.fromkeys(r['inputs']['management_ip'] for r in requests
                                 if BY_ID[r['template_id']].family != 'All'))
-    spool = ResultSpool(spool_path)
-    with spool.indexed() as index:
+    with _retained_index(spool_path) as (spool, index):
         manifest = spool.manifest
         require(manifest.get('task') == 'configuration_observation_v2', 'wrong observation task')
         require(manifest.get('collection_complete') is True, 'incomplete observation collection')

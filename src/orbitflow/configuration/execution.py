@@ -6,6 +6,7 @@ Fresh target/ownership/prerequisite checks do not replan or replace approved CLI
 Independent rows share stage observations; verification and EXEC-only save remain
 separate from command delivery.
 """
+from orbitflow.run_timing import timed
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from contextlib import contextmanager
@@ -104,6 +105,7 @@ class ExecutionService:
         finally:
             db.close()
 
+    @timed('execution_prepare')
     def prepare(self, original, decisions, *, expected_digest, settings=ApplySettings()):
         """No connection. Return exact summary/reference; decisions is row-ID mapping."""
         original = original.revalidate()
@@ -188,12 +190,14 @@ class ExecutionService:
             logger.info(f'Prepare; digest={original.digest}; confirmation={row[0]}; summary={digest}')
         return dict(status=row[1], reference=row[0], summary_digest=digest, summary=summary, run_path=row[2])
 
+    @timed('protected_workbook_prepare')
     def prepare_workbook(self, original, workbook, *, expected_digest, settings=ApplySettings()):
         from orbitflow.configuration.v2.workbook import consume_decisions
         intent = consume_decisions(original, workbook, expected_digest=expected_digest,
                                    now=datetime.fromisoformat(original.view()['evaluated_at']))
         return self.prepare(original, intent.to_dict()['decisions'], expected_digest=expected_digest, settings=settings)
 
+    @timed('confirmed_execution_total')
     def confirm(self, reference, *, summary_digest, apply=False, credentials=None,
                 transport_config=None, inventory_path='data/inventory/inventory.json',
                 run_root='outputs/runs/configuration_execution', backups_dir=None, progress=None):
@@ -445,6 +449,7 @@ def _template_stages(entries):
         yield pending
 
 
+@timed('total')
 def _run(summary, credentials, transport_config, *, inventory_path, run_root, backups_dir, on_started=None, progress=None):
     with Progress(progress) as reporter:
         reporter.emit('-', 'confirmed_start', rows_total=len(summary['selected']),
@@ -921,6 +926,7 @@ def verification_text(verification, result, request):
     return '\n'.join(lines)
 
 
+@timed('offline_report_total')
 def export_results(run_path, output):
     """Export retained execution evidence offline, with optional CLI presentation.
 
@@ -946,6 +952,7 @@ def _export_results(run_path, output):
         return _export_indexed_results(run_path, output, events)
 
 
+@timed('excel_projection_render')
 def _export_indexed_results(run_path, output, events):
     """Offline literal report grouped by original template, from retained journal only."""
     from openpyxl import Workbook
@@ -957,131 +964,134 @@ def _export_indexed_results(run_path, output, events):
     source = decode((run_path / 'summary.json').read_text(encoding='utf-8'))
     manifest_path = run_path / 'manifest.json'
     run_id = decode(manifest_path.read_text(encoding='utf-8')).get('run_id', run_path.name) if manifest_path.exists() else run_path.name
+    from orbitflow.excel_output import _publish_new_workbook, _close_workbook
+    import sys
     book = Workbook(write_only=True)
-    summary = book.create_sheet('Run Summary')
-    details = book.create_sheet('Evidence Details')
-    details.column_dimensions['A'].width = 28
-    details.column_dimensions['B'].width = 28
-    details.column_dimensions['C'].width = 8
-    details.column_dimensions['D'].width = 110
-    details.append(['Row / Event', 'Field', 'Part', 'Complete readable text'])
-    sheet_rows = {details.title: 1}
-    def literal_row(sheet, values, reference=''):
-        cells = []
-        for column, value in enumerate(values, 1):
-            text = ILLEGAL_CHARACTERS_RE.sub('', sanitize_text(str(value)))
-            if sheet is details and column == 4 and len(text) > 2400:
-                for offset in range(0, len(text), 2400):
-                    literal_row(details, [values[0], values[1], offset // 2400 + 1, text[offset:offset + 2400]])
-                return
-            if len(text) > 30000:
-                for offset in range(0, len(text), 30000):
-                    literal_row(details, [reference, column, offset // 30000 + 1, text[offset:offset + 30000]])
-                text = text[:29000] + f"\nContinued completely in Evidence Details: {reference}, field {column}"
-            cell = WriteOnlyCell(sheet, value=text)
-            cell.data_type = 's'
-            if text.startswith('Evidence Details!A'):
-                cell.hyperlink = "#'Evidence Details'!" + text.split('!')[1]
-                cell.style = 'Hyperlink'
-            cell.alignment = Alignment(wrap_text=True, vertical='top')
-            cells.append(cell)
-        sheet_rows[sheet.title] = sheet_rows.get(sheet.title, 0) + 1
-        sheet.row_dimensions[sheet_rows[sheet.title]].height = (300 if sheet is details else 90 if reference else 30)
-        sheet.append(cells)
-    literal_row(summary, ['Run', run_id])
-    literal_row(summary, ['Plan digest', source['source_digest']])
-    literal_row(summary, ['Save policy', source.get('save_behavior', '')])
-    saves, backups = {}, {}
-    row_counts, device_counts = {}, {}
-    for index, event in events.entries():
-        stage, ip, rid = event['stage'], event.get('management_ip', ''), event.get('row_id')
-        events.set_reference(index, sheet_rows.get(details.title, 1) + 1)
-        literal_row(details, [f'Event {index}', stage, 1, readable(event)], f'Event {index}')
-        if stage in {'row_result', 'save_result'}:
-            counts = row_counts if stage == 'row_result' else device_counts
-            status = event.get('status', 'Unknown')
-            counts[status] = counts.get(status, 0) + 1
-        if stage == 'save_result':
-            saves[ip] = {k: event[k] for k in ('status', 'explicit_error', 'error_category') if k in event}
-        elif stage == 'backup_complete':
-            backups[ip] = event.get('backup_reference', '')
-    for ip in dict.fromkeys([e['request']['inputs']['management_ip'] for e in source['selected']]):
-        literal_row(summary, [ip, 'Save: ' + readable(saves.get(ip, {'status': 'Not recorded'})), 'Backup: ' + backups.get(ip, 'Not recorded')])
-    literal_row(summary, ['Selected / skipped rows', f"{len(source['selected'])} / {len(source['skipped'])}"])
-    literal_row(summary, ['Rows by verification outcome', compact(row_counts)])
-    literal_row(summary, ['Devices by save outcome', compact(device_counts)])
-    sheets = {}
-    headers = ['Run ID', 'IP', 'Row ID', 'Source row', 'Hostname', 'Family', 'Original Inputs', 'Decision', 'No-op', 'Pre-config', 'Config Sent', 'Config Evidence (post-row)', 'Apply Status', 'Status Verification', 'Error', 'Warning', 'Save Status', 'Backup Reference', 'Log Reference']
-    entries = [(entry, False) for entry in source['selected']] + [(entry, True) for entry in source['skipped']]
-    entries.sort(key=lambda pair: (pair[0].get('request', {}).get('sheet_order', 999), pair[0].get('request', {}).get('row', 999)))
-    for entry, skipped in entries:
-        r, result = entry.get('request', {}), entry.get('result', {})
-        t = BY_ID.get(r.get('template_id'))
-        title = t.sheet if t else 'Legacy Skipped'
-        if title not in sheets:
-            sheet = book.create_sheet(title)
-            sheet.freeze_panes = 'D2'
-            from openpyxl.utils import get_column_letter
-            input_columns = list(t.columns) if t else []
-            template_headers = headers[:9] + input_columns + headers[9:] + ['Full detail']
-            for col, name in enumerate(template_headers, 1):
-                sheet.column_dimensions[get_column_letter(col)].width = 48 if name in {'Pre-config', 'Config Sent', 'Config Evidence (post-row)', 'Status Verification', 'Error', 'Warning'} else 24
-            sheet.column_dimensions['G'].hidden = bool(t)
-            sheet.column_dimensions['C'].hidden = True
-            literal_row(sheet, template_headers)
-            sheets[title] = sheet
-        rid = entry.get('row_id', r.get('row_id'))
-        ip = r.get('inputs', {}).get('management_ip', '')
-        event, pre_config, sent = {}, 'Not captured', []
-        positions = []
-        for index, item in events.entries(target=rid):
-            positions.append(index)
-            stage = item['stage']
-            if stage == 'pre_row_evidence':
-                pre_config = item['evidence']
-            elif stage == 'command_intent':
-                sent.append(dict(command=item['command'], status='Pending / uncertain'))
-                event = dict(item, status='Unknown')
-            elif stage in {'command_result', 'command_unknown'} and sent:
-                sent[-1].update(status=item.get('status', 'Unknown'), response=item.get('response', ''))
-            elif stage == 'row_result':
-                event = item
-                pre_config = item.get('pre_config', pre_config)
-        verification = event.get('verification', {})
-        evidence = verification.get('evidence', verification.get('lookup', 'Not captured'))
-        errors = {k: event[k] for k in ('error_category', 'blocker', 'missing_prerequisite_vlans') if event.get(k)}
-        if event.get('blocker'):
-            errors['Preflight findings'] = event.get('preflight_findings', [])
-        if verification.get('error_category'):
-            errors['Verification error'] = verification['error_category']
-        if skipped:
-            errors.update(reason=entry['reason'], details=entry.get('blockers', []))
-        for command in sent:
-            if command['status'] == 'Rejected':
-                errors['Rejected command'] = command['command'] + ' (see response detail)'
-            elif command['status'] in {'Unknown', 'Pending / uncertain'}:
-                errors['Uncertain command'] = command['command'] + ' (outcome unknown; see detail)'
-        if verification.get('status') == 'Failed':
-            errors['Verification'] = 'Failed; compare expected/actual checks and linked detail'
-        warnings = list(evidence.get('warnings', [])) if isinstance(evidence, dict) else []
-        warnings.extend(verification.get('warnings', []))
-        if not event.get('blocker'):
-            warnings.extend(event.get('preflight_findings', []))
-        warnings = short_findings(warnings)
-        errors = {k: short_findings(v) if k in {'Preflight findings', 'details'} else v for k, v in errors.items()}
-        apply_status = ('Skipped' if skipped else 'Unknown' if any(c['status'] in {'Unknown', 'Pending / uncertain'} for c in sent) else 'Rejected' if any(c['status'] == 'Rejected' for c in sent) else 'Applied' if sent else 'No-op' if result.get('no_op') and verification else 'Not executed')
-        values = [run_id, ip, rid, r.get('row', ''), (entry.get('identity') or {}).get('hostname', ''), t.family if t else '',
-            readable(r.get('source_inputs') or r.get('inputs', {})), entry.get('decision', result.get('decision', '')), result.get('no_op', ''),
-            raw_config(pre_config), '\n'.join('command: ' + c['command'] + ' [' + c['status'] + ']' for c in sent) if sent else 'None (no-op)' if result.get('no_op') else 'None attempted', raw_config(evidence.get('configuration', evidence.get('evidence', []))) if isinstance(evidence, dict) else readable(evidence),
-            apply_status, verification_text(verification, result, r), compact(errors), '\n'.join(warnings),
-            saves.get(ip, {}).get('status', 'Not recorded'), backups.get(ip, ''), event.get('log_reference', '')]
-        if not positions:
-            detail_start = sheet_rows.get(details.title, 1) + 1
-            literal_row(details, [rid, 'Retained source / review', 1, readable(entry)], rid)
-        else:
-            detail_start = events.reference(min(positions))
-        input_values = [compact((r.get('source_inputs') or r.get('inputs', {})).get(k, '')) for k in (t.columns if t else [])]
-        literal_row(sheets[title], values[:9] + input_values + values[9:] + [f"Evidence Details!A{detail_start}"], rid)
-    with Path(output).open('xb') as stream:
-        book.save(stream)
-    return Path(output)
+    try:
+        summary = book.create_sheet('Run Summary')
+        details = book.create_sheet('Evidence Details')
+        details.column_dimensions['A'].width = 28
+        details.column_dimensions['B'].width = 28
+        details.column_dimensions['C'].width = 8
+        details.column_dimensions['D'].width = 110
+        details.append(['Row / Event', 'Field', 'Part', 'Complete readable text'])
+        sheet_rows = {details.title: 1}
+        def literal_row(sheet, values, reference=''):
+            cells = []
+            for column, value in enumerate(values, 1):
+                text = ILLEGAL_CHARACTERS_RE.sub('', sanitize_text(str(value)))
+                if sheet is details and column == 4 and len(text) > 2400:
+                    for offset in range(0, len(text), 2400):
+                        literal_row(details, [values[0], values[1], offset // 2400 + 1, text[offset:offset + 2400]])
+                    return
+                if len(text) > 30000:
+                    for offset in range(0, len(text), 30000):
+                        literal_row(details, [reference, column, offset // 30000 + 1, text[offset:offset + 30000]])
+                    text = text[:29000] + f"\nContinued completely in Evidence Details: {reference}, field {column}"
+                cell = WriteOnlyCell(sheet, value=text)
+                cell.data_type = 's'
+                if text.startswith('Evidence Details!A'):
+                    cell.hyperlink = "#'Evidence Details'!" + text.split('!')[1]
+                    cell.style = 'Hyperlink'
+                cell.alignment = Alignment(wrap_text=True, vertical='top')
+                cells.append(cell)
+            sheet_rows[sheet.title] = sheet_rows.get(sheet.title, 0) + 1
+            sheet.row_dimensions[sheet_rows[sheet.title]].height = (300 if sheet is details else 90 if reference else 30)
+            sheet.append(cells)
+        literal_row(summary, ['Run', run_id])
+        literal_row(summary, ['Plan digest', source['source_digest']])
+        literal_row(summary, ['Save policy', source.get('save_behavior', '')])
+        saves, backups = {}, {}
+        row_counts, device_counts = {}, {}
+        for index, event in events.entries():
+            stage, ip, rid = event['stage'], event.get('management_ip', ''), event.get('row_id')
+            events.set_reference(index, sheet_rows.get(details.title, 1) + 1)
+            literal_row(details, [f'Event {index}', stage, 1, readable(event)], f'Event {index}')
+            if stage in {'row_result', 'save_result'}:
+                counts = row_counts if stage == 'row_result' else device_counts
+                status = event.get('status', 'Unknown')
+                counts[status] = counts.get(status, 0) + 1
+            if stage == 'save_result':
+                saves[ip] = {k: event[k] for k in ('status', 'explicit_error', 'error_category') if k in event}
+            elif stage == 'backup_complete':
+                backups[ip] = event.get('backup_reference', '')
+        for ip in dict.fromkeys([e['request']['inputs']['management_ip'] for e in source['selected']]):
+            literal_row(summary, [ip, 'Save: ' + readable(saves.get(ip, {'status': 'Not recorded'})), 'Backup: ' + backups.get(ip, 'Not recorded')])
+        literal_row(summary, ['Selected / skipped rows', f"{len(source['selected'])} / {len(source['skipped'])}"])
+        literal_row(summary, ['Rows by verification outcome', compact(row_counts)])
+        literal_row(summary, ['Devices by save outcome', compact(device_counts)])
+        sheets = {}
+        headers = ['Run ID', 'IP', 'Row ID', 'Source row', 'Hostname', 'Family', 'Original Inputs', 'Decision', 'No-op', 'Pre-config', 'Config Sent', 'Config Evidence (post-row)', 'Apply Status', 'Status Verification', 'Error', 'Warning', 'Save Status', 'Backup Reference', 'Log Reference']
+        entries = [(entry, False) for entry in source['selected']] + [(entry, True) for entry in source['skipped']]
+        entries.sort(key=lambda pair: (pair[0].get('request', {}).get('sheet_order', 999), pair[0].get('request', {}).get('row', 999)))
+        for entry, skipped in entries:
+            r, result = entry.get('request', {}), entry.get('result', {})
+            t = BY_ID.get(r.get('template_id'))
+            title = t.sheet if t else 'Legacy Skipped'
+            if title not in sheets:
+                sheet = book.create_sheet(title)
+                sheet.freeze_panes = 'D2'
+                from openpyxl.utils import get_column_letter
+                input_columns = list(t.columns) if t else []
+                template_headers = headers[:9] + input_columns + headers[9:] + ['Full detail']
+                for col, name in enumerate(template_headers, 1):
+                    sheet.column_dimensions[get_column_letter(col)].width = 48 if name in {'Pre-config', 'Config Sent', 'Config Evidence (post-row)', 'Status Verification', 'Error', 'Warning'} else 24
+                sheet.column_dimensions['G'].hidden = bool(t)
+                sheet.column_dimensions['C'].hidden = True
+                literal_row(sheet, template_headers)
+                sheets[title] = sheet
+            rid = entry.get('row_id', r.get('row_id'))
+            ip = r.get('inputs', {}).get('management_ip', '')
+            event, pre_config, sent = {}, 'Not captured', []
+            positions = []
+            for index, item in events.entries(target=rid):
+                positions.append(index)
+                stage = item['stage']
+                if stage == 'pre_row_evidence':
+                    pre_config = item['evidence']
+                elif stage == 'command_intent':
+                    sent.append(dict(command=item['command'], status='Pending / uncertain'))
+                    event = dict(item, status='Unknown')
+                elif stage in {'command_result', 'command_unknown'} and sent:
+                    sent[-1].update(status=item.get('status', 'Unknown'), response=item.get('response', ''))
+                elif stage == 'row_result':
+                    event = item
+                    pre_config = item.get('pre_config', pre_config)
+            verification = event.get('verification', {})
+            evidence = verification.get('evidence', verification.get('lookup', 'Not captured'))
+            errors = {k: event[k] for k in ('error_category', 'blocker', 'missing_prerequisite_vlans') if event.get(k)}
+            if event.get('blocker'):
+                errors['Preflight findings'] = event.get('preflight_findings', [])
+            if verification.get('error_category'):
+                errors['Verification error'] = verification['error_category']
+            if skipped:
+                errors.update(reason=entry['reason'], details=entry.get('blockers', []))
+            for command in sent:
+                if command['status'] == 'Rejected':
+                    errors['Rejected command'] = command['command'] + ' (see response detail)'
+                elif command['status'] in {'Unknown', 'Pending / uncertain'}:
+                    errors['Uncertain command'] = command['command'] + ' (outcome unknown; see detail)'
+            if verification.get('status') == 'Failed':
+                errors['Verification'] = 'Failed; compare expected/actual checks and linked detail'
+            warnings = list(evidence.get('warnings', [])) if isinstance(evidence, dict) else []
+            warnings.extend(verification.get('warnings', []))
+            if not event.get('blocker'):
+                warnings.extend(event.get('preflight_findings', []))
+            warnings = short_findings(warnings)
+            errors = {k: short_findings(v) if k in {'Preflight findings', 'details'} else v for k, v in errors.items()}
+            apply_status = ('Skipped' if skipped else 'Unknown' if any(c['status'] in {'Unknown', 'Pending / uncertain'} for c in sent) else 'Rejected' if any(c['status'] == 'Rejected' for c in sent) else 'Applied' if sent else 'No-op' if result.get('no_op') and verification else 'Not executed')
+            values = [run_id, ip, rid, r.get('row', ''), (entry.get('identity') or {}).get('hostname', ''), t.family if t else '',
+                readable(r.get('source_inputs') or r.get('inputs', {})), entry.get('decision', result.get('decision', '')), result.get('no_op', ''),
+                raw_config(pre_config), '\n'.join('command: ' + c['command'] + ' [' + c['status'] + ']' for c in sent) if sent else 'None (no-op)' if result.get('no_op') else 'None attempted', raw_config(evidence.get('configuration', evidence.get('evidence', []))) if isinstance(evidence, dict) else readable(evidence),
+                apply_status, verification_text(verification, result, r), compact(errors), '\n'.join(warnings),
+                saves.get(ip, {}).get('status', 'Not recorded'), backups.get(ip, ''), event.get('log_reference', '')]
+            if not positions:
+                detail_start = sheet_rows.get(details.title, 1) + 1
+                literal_row(details, [rid, 'Retained source / review', 1, readable(entry)], rid)
+            else:
+                detail_start = events.reference(min(positions))
+            input_values = [compact((r.get('source_inputs') or r.get('inputs', {})).get(k, '')) for k in (t.columns if t else [])]
+            literal_row(sheets[title], values[:9] + input_values + values[9:] + [f"Evidence Details!A{detail_start}"], rid)
+        return _publish_new_workbook(book, output)
+    finally:
+        _close_workbook(book, primary=sys.exc_info()[1])

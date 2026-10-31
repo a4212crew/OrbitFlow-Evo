@@ -22,7 +22,10 @@ from orbitflow.vendors.common import DeviceCLI
 DEFAULT_POLICY = Path(__file__).resolve().parents[2] / "policies/vlan_compliance.json"
 
 
+from orbitflow.run_timing import timed
+
 @dataclass(frozen=True)
+
 class ComplianceRun:
     spool_path: Path
     device_count: int
@@ -30,6 +33,7 @@ class ComplianceRun:
     finding_counts: dict[str, int]
 
 
+@timed('collection')
 def collect_compliance(targets, transport_config, *, policy_provider=None,
                        inventory_path="data/inventory/inventory.json",
                        spool_root="outputs/runs/vlan_compliance", log_root="outputs/logs",
@@ -142,6 +146,7 @@ def collect_compliance(targets, transport_config, *, policy_provider=None,
     return ComplianceRun(spool.path, len(targets), failed_devices, counts)
 
 
+@timed('total')
 def run_compliance(targets, transport_config, *, reports_dir="outputs/reports/vlan_compliance",
                    cleanup=True, methodology_report=False, **kwargs):
     """CLI convenience composition. API consumers may call collect_compliance alone."""

@@ -1,4 +1,5 @@
 """Explicit approved predefined apply, or offline execution-report recovery."""
+from orbitflow.run_timing import timed
 import argparse
 from pathlib import Path
 from time import monotonic
@@ -41,6 +42,7 @@ def outcome_summary(spool, elapsed, *, skipped=0):
     return f'Execution {label} | devices: {_counts(devices)} | rows: {_counts(rows)}; skipped={skipped} | total elapsed: {elapsed:.1f}s'
 
 
+@timed('total')
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)

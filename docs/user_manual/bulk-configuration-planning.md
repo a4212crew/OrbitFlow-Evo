@@ -1024,3 +1024,5 @@ retain explicitly labelled latest-known stable facts after failure. Deliberate
 offline export/recovery uses only the selected historical run, without reconnecting;
 planning binding, age, trust and authorization restrictions still apply.
 See the [audit and owner validation steps](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).
+
+Shared internal run storage, timing and recovery: [processing guide](run-processing.md). Existing workflow arguments and public outputs remain unchanged.

@@ -1,5 +1,6 @@
 """Offline plan creation, review, and explicit approval; no apply command."""
 
+from orbitflow.run_timing import timed
 import argparse
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from .approvals import ApprovalStore
 from .plans import PlanError, create_plan, decode, load_plan, save_plan
 
 
+@timed('total')
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)

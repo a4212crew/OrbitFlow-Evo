@@ -375,7 +375,7 @@ def test_execution_exact_commands_partial_save_and_unknown(tmp_path, monkeypatch
     assert WorkerCLI.instances[0].closed
     events = list(ResultJournal(spool.path / 'events.jsonl').records())
     assert any(e['stage'] == 'command_intent' for e in events)
-    text = (spool.path / 'events.jsonl').read_text()
+    text = repr(list(ResultJournal(spool.path / 'events.jsonl').records()))
     assert 'hidden' not in text
     capture = next((tmp_path / 'backups').rglob('*.txt')).read_text()
     assert 'description test-user' in capture and 'hidden' not in capture
@@ -563,7 +563,7 @@ def test_backup_failure_blocks_all_writes(tmp_path, monkeypatch):
     value = next(spool.records())['payload']
     assert value['rows'][0]['status'] == 'Not executed' and not saves
     assert not WorkerCLI.instances[0].sent
-    assert 'secret-bearing unsafe message' not in (spool.path / 'events.jsonl').read_text()
+    assert 'secret-bearing unsafe message' not in repr(list(ResultJournal(spool.path / 'events.jsonl').records()))
 
 
 def test_fresh_noop_sends_original_approved_cli(tmp_path, monkeypatch):
@@ -1612,3 +1612,40 @@ def test_issue_152_prepare_database_decision_does_not_gate_access(tmp_path, monk
     assert not selected[-1]['result']['execution_authorized']
     with pytest.raises(PlanError, match='digest'):
         service.prepare(original, {port['row_id']:'Approve'}, expected_digest='0'*64)
+
+
+def test_execution_report_write_failure_never_publishes_partial_file(tmp_path, monkeypatch):
+    from openpyxl import Workbook
+    run, _, _ = run_prepared(tmp_path, monkeypatch)
+    spool = run()
+    destination = tmp_path / 'atomic.xlsx'
+    save = Workbook.save
+    def fail(self, stream):
+        stream.write(b'partial archive')
+        raise OSError('synthetic disk full')
+    monkeypatch.setattr(Workbook, 'save', fail)
+    with pytest.raises(OSError):
+        ex.export_results(spool.path, destination)
+    assert not destination.exists()
+    monkeypatch.setattr(Workbook, 'save', save)
+    monkeypatch.setattr(ex, 'connect_device', lambda *a, **k: pytest.fail('offline export must not reconnect'))
+    assert ex.export_results(spool.path, destination).is_file()
+
+
+def test_execution_report_atomic_publication_preserves_racing_destination(tmp_path, monkeypatch):
+    import orbitflow.excel_output as output
+    run, _, _ = run_prepared(tmp_path, monkeypatch)
+    spool = run()
+    destination = tmp_path / 'racing.xlsx'
+    link = output.os.link
+    temporary_files = []
+    def race(source, target):
+        if Path(target) == destination:
+            temporary_files.append(Path(source))
+            destination.write_bytes(b'other completed output')
+        return link(source, target)
+    monkeypatch.setattr(output.os, 'link', race)
+    with pytest.raises(FileExistsError):
+        ex.export_results(spool.path, destination)
+    assert destination.read_bytes() == b'other completed output'
+    assert temporary_files and all(not path.exists() for path in temporary_files)
