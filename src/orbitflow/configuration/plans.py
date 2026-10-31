@@ -218,8 +218,23 @@ def save_plan(plan, path):
         os.fsync(stream.fileno())
 
 
+# Closed v1 schema: at most 100 targets x 100 small VLAN operations. This
+# allowance exceeds its maximum canonical payload, while bounding prevalidation.
+MAX_INPUT_BYTES = 16 * 1024 * 1024
+
+
+def _read_input(path):
+    from orbitflow.indexed_json import read_bounded_text
+    try:
+        return decode(read_bounded_text(path, max_bytes=MAX_INPUT_BYTES))
+    except ValueError as error:
+        if isinstance(error, PlanError):
+            raise
+        raise PlanError("plan input size or encoding limit exceeded") from None
+
+
 def load_plan(path):
-    data = decode(Path(path).read_text(encoding="utf-8"))
+    data = _read_input(path)
     keys(data, "digest plan")
     plan = ChangePlan(canonical(data["plan"]))
     require(data["digest"] == plan.digest, "plan digest mismatch")

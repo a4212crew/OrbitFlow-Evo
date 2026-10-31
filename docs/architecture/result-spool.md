@@ -14,18 +14,19 @@ not interpret payload fields. Callers supply normalized data and a sanitizer tha
 redacts their runtime credentials; sanitization runs recursively before persistence.
 Never pass raw CLI output, credentials or exception objects as payloads.
 
-Only the collection owner appends. JSONL is flushed before manifest progress is
-atomically replaced. An interrupted final partial line is omitted during explicit
+Only the collection owner appends. JSONL is flushed and fsynced before manifest
+progress is atomically replaced. The temporary manifest is also flushed and
+fsynced before replacement. An interrupted final partial line is omitted during explicit
 partial recovery. A completed spool with corrupt, duplicate or missing records
-fails consumption and remains retained. This is process-interruption recovery,
-not a power-loss durability guarantee.
+fails consumption and remains retained. Directory rename durability still depends on the host filesystem; this is not
+a general power-loss durability guarantee.
 
 Manifest replacement retries only the atomic `manifest.tmp.replace(manifest.json)`
 operation on `PermissionError`: four attempts, with 0.1, 0.2 and 0.4 second delays.
 It never retries JSONL append, changes permissions, or ignores exhaustion. A
-successful JSONL flush commits the record for process-level recovery even if its
-manifest checkpoint fails. Neither flush nor atomic rename implies `fsync` or
-power-loss durability. JSONL remains canonical; manifest counts may lag after an
+successful JSONL flush/fsync commits the record for process-level recovery even if its
+manifest checkpoint fails. A successful file `fsync` and atomic rename do not establish directory-entry
+power-loss durability on every supported filesystem. JSONL remains canonical; manifest counts may lag after an
 interruption. Explicit consumption validates/streams JSONL under the lease and
 reconciles completed/failed counts before checkpointing the consumer state.
 
@@ -51,7 +52,26 @@ console stays concise; failure to write diagnostics is explicitly reported.
 These run-level errors are distinct from isolated device-stage failures.
 
 Completion order is persisted; consumers read input order through a temporary,
-bounded-cache SQLite offset index. Only one target payload is decoded at a time.
+bounded-cache SQLite offset index. A consumption holds one validated index across
+all table passes. `ResultSpool.indexed()` exposes the same lease-protected index
+for repeated input-position, target and bounded-batch lookup; the context owns its
+SQLite connection and deletes scratch state on exit. It is not a second authority.
+`index.get(position)` raises `KeyError` if missing;
+`index.records(positions=[...], target=None)` yields input order, accepts at most
+256 positions and optionally filters exact target. Duplicate requested positions
+are returned once. `index.records(target=...)` streams all matching positions.
+Readers cannot race collection/consumption/cleanup through separate spool handles.
+Each JSONL envelope is limited to 64 MiB and the spool to 64 GiB, with explicit
+errors on append/read. Appends stage encoder chunks in a temporary on-disk file
+before copying a complete envelope to JSONL; scratch/serialization/size failures
+do not alter earlier committed records. The staging file needs writable space
+for one envelope in addition to the spool. New manifests record `record_limit_bytes`; provenance-bound or marked spools
+use the 64 MiB reader bound. Unmarked historical spools have a finite 256 MiB
+read allowance, preserving the demonstrated 65 MiB capture. Larger legacy records
+fail explicitly without deleting their source.
+Completed malformed, duplicate, out-of-range or truncated
+envelopes fail consumption and retain the run. Limits do not bound a device
+collector before it returns a payload. Retrieval decodes a bounded number of individual target payloads rather than a full run.
 The index is disposable; JSONL is authoritative. Per-target result size, input
 credentials and canonical inventory still occupy memory; this change bounds
 full-run report/attempt aggregation, not the existing inventory-store format.
@@ -131,3 +151,111 @@ Inspect retained artifacts before expiring them. Recognized interrupted
 reader scratch files are removed only after validating their names and resolved
 paths; unknown contents are preserved. Cleanup never recursively deletes trees. Separate processes must not share an output destination or canonical
 inventory store; spool paths themselves are unique across processes.
+
+## Request binding and Issue #162 status
+
+`ResultSpool.bind(metadata)` persists sanitized JSON metadata once, only before
+collection starts, under the run lease. It rejects sanitizer-changing values and
+bindings over 64 KiB. Future v2 planning observations bind the canonical request
+identity (including layout and invalid input rows) and source workbook SHA-256
+when present; API-only request lists record a null workbook digest. Metadata is
+not authentication. Legacy runs have no binding and cannot acquire a trusted
+historical workbook association through inference. The direct offline planning recovery entry point is described in the
+[planning manual](../user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision).
+It verifies complete target order, binding and freshness under the shared lease.
+Explicit unbound legacy interpretation is diagnostic only and is rejected by
+execution preparation. Observations and ordered results now use shared SQLite working sets;
+aggregate planning gates no longer apply. Existing immutable plan and execution gates remain.
+
+See the [whole-module audit and validation ledger](../operations/issue-162-processing-audit.md).
+`indexed_json.py` owns reusable immutable SQLite JSON maps/arrays and canonical
+stream encoding. Per-value processing is bounded to 256 MiB, total input to
+64 GiB, nesting to 64 and container membership to 100,000. Scratch databases use
+a 512 KiB cache and file-backed temporary storage; failed transactions remove
+scratch state. Spools and published JSON remain authoritative. Planning validation
+reevaluates complete same-device groups in workbook order, then indexes results
+by original position. During load, untrusted supplied results are retained only as
+hashes until reevaluation matches, preventing injected result secrets from reaching
+scratch SQLite. Canonical streaming preserves existing SHA-256 bytes.
+`BulkPlan.content`/`to_dict` retain explicit materializing compatibility behavior;
+internal consumers use indexed views. New confirmation SQLite rows bind a separate
+immutable public plan JSON by digest; old inline payloads remain supported.
+
+Journal appends stage encoded chunks on disk under the owning lock, enforce
+256 MiB per-event and 64 GiB total bounds before copying, then flush/fsync.
+Failures stop the writer; committed prefixes remain readable and incomplete
+final lines are ignored. Legacy iterator reads apply the same finite event/total
+bounds. `ResultJournal.indexed()` exposes the same offset interface for complete event
+lines, row-key lookup and disk-backed output references. Execution reports avoid
+full-run offset maps and repeated full journal scans. Backup failure outcomes use
+the shared spool beneath each backup run's `.processing` directory; raw config
+never enters it. Prompt/save exchange buffers have a 64 MiB receive ceiling;
+manual literal callbacks retain their disk-streamed receive behavior.
+
+Plan JSON publication is exclusive and atomic for one file. Recovery completes
+both exports before linking either, but two independent public filenames cannot
+be published atomically by these links; a process crash may leave one artifact.
+The retained spool can be exported to a new destination without networking.
+
+### Scratch lifecycle and recovery publication (Issue #162 fifth review)
+
+Failed streaming parsing explicitly closes all completed indexed values before
+propagating an exception, including when a traceback retains parser frames.
+Failed public plan loads close supplied indexes and recomputed results on digest
+or validation failure. Failed plan construction and offline export close their
+owned working sets; successful recovery releases its intermediate observation
+copy while retaining the returned plan's indexes. No public schema or CLI
+signature changes accompany this lifecycle hardening.
+
+Recovery's two exclusive public links are not a crash-atomic pair. A surviving
+single filename causes the existing-output check to reject the destination;
+operators preserve it and retry to a new basename, reviewing only a complete
+matched pair. The finite historical 256 MiB record allowance remains a capacity
+and security decision requiring owner acceptance for compatibility claims; bounds
+are not silently lifted. See the planning guide's fifth-review instructions.
+The streaming reader creates indexes only for direct working-document or public
+plan observations/results members; nested fields with those names remain ordinary
+values until their containing observation passes complete validation.
+
+
+### Fresh collection and authoritative input (owner contract, 2026-10-31)
+
+Excel remains the input for existing Excel-driven workflows; SQLite is an internal
+run-specific processing index, never a replacement input or shared observation cache.
+Normal reporting, compliance, MAC, inventory refresh and planning collection each
+create a distinct ResultSpool and execute their own device workers. A failed current
+collection records missing/failed evidence without consulting another run. Inventory
+alone continues its explicit latest-known stable-facts export, labelling retained
+facts and recording the current failed attempt; it is not current interface/VLAN evidence.
+DeviceInventoryResolver.resolve probes the connected device before reconciliation.
+
+Only explicit retained-run export/recovery and immutable-plan review consume
+historical evidence. They do not connect or recollect after export failure. Planning
+recovery checks the selected run's workbook/request binding and evidence age; legacy
+diagnostic opt-in cannot create execution authorization. Per-record and disk bounds,
+Excel schemas, public signatures and approval/replay gates remain unchanged.
+See the [revision audit](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).
+
+
+Windows validation exposed a verified scratch-lifecycle gap: cyclic garbage
+collection could finalize TemporaryDirectory before its SQLite connection closed.
+IndexedJSON now registers an ordered weakref finalizer that holds scratch alive,
+closes the connection, then removes the directory. Explicit close remains idempotent
+and permits cleanup retry after failure. No persistence, input or output format
+changed. test_result_index.py::test_indexed_json_cyclic_gc_closes_connection_before_scratch_cleanup
+asserts this order on every OS, including platforms that allow unlinking open files.
+
+
+A second Windows lifecycle failure was reproduced by the existing
+`test_consumption_reuses_one_index_across_tables_and_clears_after_failure`:
+a consumer traceback retained a suspended records iterator and its SQLite cursor,
+so connection close alone did not release order.sqlite. ResultIndex now fetches
+at most 256 offsets using position-keyed batches and closes each cursor before
+yielding. Record order, point/batch/target access and authoritative JSONL stay
+unchanged; no full-run offset list is created. Journal indexes reuse this reader.
+
+
+Backup's private .processing child uses ResultSpool.create(short_name=True), the
+existing atomic timestamp/numeric-collision naming mode, to reduce nested Windows
+path length. Public backup run names, captures and failure workbook locations are
+preserved; no other spool naming default or folder hierarchy changes.

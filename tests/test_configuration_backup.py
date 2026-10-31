@@ -162,7 +162,10 @@ def test_batch_failure_isolation_safe_outcomes_and_logs(tmp_path, monkeypatch, l
     safe += repr(rows)
     for secret in ['fixture-only', 'fixture-password', 'fixture-user', 'banner motd']:
         assert secret not in safe
-    assert not list(tmp_path.rglob('results.jsonl'))
+    spools = list(tmp_path.rglob('results.jsonl'))
+    assert len(spools) == 1
+    assert CONFIG not in spools[0].read_text()
+    assert 'password' not in spools[0].read_text().lower()
     assert all(p.stem.endswith(tuple(PROFILES)) for p in captures)
 
 
@@ -339,3 +342,30 @@ def test_standard_discovery_excludes_runtime_backups(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert '1 passed' in result.stdout
     assert sentinel.read_text() == content
+
+
+def test_offline_failed_backup_recovery_is_atomic_and_contains_no_configuration(tmp_path, monkeypatch):
+    from orbitflow.result_spool import ResultSpool
+    from orbitflow.execution import DeviceOutcome
+    from openpyxl import load_workbook
+    spool = ResultSpool.create(tmp_path / '.processing', 'configuration_backup', 2)
+    row = ['example', '192.0.2.1', 'synthetic', 'cisco_ios', 'connect', 'Device connection failed.']
+    with spool.collection():
+        spool.append(DeviceOutcome(1, None), payload={'failure': row}, target='192.0.2.1', failed=True)
+        spool.append(DeviceOutcome(2, None), payload={'failure': None}, target='192.0.2.2')
+    monkeypatch.setattr(backup, 'connect_device', lambda *a, **k: pytest.fail('network forbidden'))
+    destination = tmp_path / 'failed_devices.xlsx'
+    backup.recover_failed_devices(spool.path, destination)
+    previous = destination.read_bytes()
+    book = load_workbook(destination, read_only=True)
+    assert list(book.active.values) == [backup.FAILURE_COLUMNS, tuple(row)]
+    book.close()
+    original_save = backup.Workbook.save
+    monkeypatch.setattr(backup.Workbook, 'save', lambda *a, **k: (_ for _ in ()).throw(OSError('synthetic disk full')))
+    with pytest.raises(OSError):
+        backup.recover_failed_devices(spool.path, destination)
+    assert destination.read_bytes() == previous
+    assert ResultSpool(spool.path).manifest['status'] == 'output_failed'
+    monkeypatch.setattr(backup.Workbook, 'save', original_save)
+    backup.recover_failed_devices(spool.path, destination)
+    assert ResultSpool(spool.path).manifest['status'] == 'consumed'

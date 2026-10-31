@@ -234,3 +234,14 @@ def test_missing_checks_manual_commands_and_ipv6(context, request_data):
     request_data["source"]["kind"] = "spreadsheet"
     plan = create_plan(request_data, [replace(context, management_ip="::1")])
     assert plan.to_dict()["targets"][0]["identity"]["management_ip"] == "::1"
+
+
+def test_v1_file_reads_bounded_before_decode(tmp_path, monkeypatch):
+    import orbitflow.configuration.plans as plans
+    path = tmp_path / 'oversized.json'
+    path.write_bytes(b' ' * 129)
+    monkeypatch.setattr(plans, 'MAX_INPUT_BYTES', 128)
+    monkeypatch.setattr(plans, 'decode', lambda value: pytest.fail('oversized input must not decode'))
+    with pytest.raises(PlanError, match='input size'):
+        load_plan(path)
+    assert main(['create', str(path), '--inventory', str(tmp_path / 'inventory.json')]) == 2

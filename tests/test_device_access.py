@@ -257,7 +257,10 @@ def test_enable_backup_end_to_end(tmp_path, monkeypatch, device):
     with ZipFile(folder/'failed_devices.xlsx') as archive:
         safe += ''.join(archive.read(name).decode() for name in archive.namelist())
     assert SECRET not in safe and 'synthetic-login-password' not in safe
-    assert not list(tmp_path.rglob('results.jsonl'))
+    spools = list(tmp_path.rglob('results.jsonl'))
+    assert len(spools) == 1
+    import json
+    assert json.loads(spools[0].read_text())['payload'] == {'failure': None}
 
 
 @pytest.mark.parametrize('cli_type', [DeviceCLI, CiscoIOSCLI])

@@ -6,6 +6,8 @@ import re
 import sys
 from threading import Lock
 from uuid import uuid4
+from tempfile import NamedTemporaryFile
+from orbitflow.result_spool import ResultSpool
 
 from paramiko import AuthenticationException, SSHException
 
@@ -161,9 +163,10 @@ def run_backup(targets, transport_config, *, inventory_path='data/inventory/inve
     store = JsonInventoryStore(inventory_path)
     status = Progress(output if output is not None else sys.stdout)
     completed = failed = 0
-    workbook = Workbook(write_only=True)
-    sheet = workbook.create_sheet('Failed Devices')
-    sheet.append(FAILURE_COLUMNS)
+    # This private nested processing run needs the shared collision-safe short
+    # name on Windows; capture/report paths and the backup run name stay stable.
+    spool = ResultSpool.create(writer.path / '.processing', 'configuration_backup', len(targets),
+                               clean=clean, short_name=True)
 
     def failure_row(target, context, stage, error=None):
         values = (context.hostname if context else '',
@@ -212,6 +215,8 @@ def run_backup(targets, transport_config, *, inventory_path='data/inventory/inve
             completed += 1
             row = (failure_row(targets[outcome.position - 1], None, 'worker')
                    if outcome.error_category else outcome.value)
+            spool.append(outcome, payload=dict(failure=list(row) if row else None),
+                         target=clean(targets[outcome.position - 1].get('management_ip', '')), failed=bool(row))
             category = row[4] + '_failed' if row else ''
             if row:
                 category = {
@@ -222,12 +227,6 @@ def run_backup(targets, transport_config, *, inventory_path='data/inventory/inve
                 }.get(row[-1], category)
             if category:
                 failed += 1
-                cells = []
-                for value in row:
-                    cell = WriteOnlyCell(sheet, value=value)
-                    cell.data_type = 's'
-                    cells.append(cell)
-                sheet.append(cells)
                 logger.error(f'Configuration backup target {outcome.position} failed', extra={'error_category': category})
             else:
                 logger.info(f'Configuration backup target {outcome.position} saved')
@@ -237,13 +236,50 @@ def run_backup(targets, transport_config, *, inventory_path='data/inventory/inve
                 display.outcome(outcome.position, bool(category))
             status(f'[{outcome.position}/{len(targets)}]: ' + (f'failed ({category})' if category else 'saved'))
 
-        try:
+        with spool.collection():
             execute_devices(targets, capture, config=execution_config, on_outcome=record)
-            workbook.save(writer.path / 'failed_devices.xlsx')
+        recover_failed_devices(spool.path, writer.path / 'failed_devices.xlsx')
+        logger.info('Configuration backup completed')
+    status(f'Devices: {completed}; saved: {completed - failed}; failed: {failed}; folder: {clean(str(writer.path))}')
+    return writer.path
+
+
+def recover_failed_devices(run_path, output):
+    """Read-only export of retained safe backup failures; never recapture devices.
+
+    run_path is a configuration_backup ResultSpool directory in the backup run's
+    .processing folder. output is the exact destination XLSX path. Atomic replace
+    preserves an existing report on export failure; complete outcomes are required.
+    """
+    spool = ResultSpool(run_path)
+    if spool.manifest.get('task') != 'configuration_backup':
+        raise ValueError('Wrong backup result task')
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    def export(source):
+        workbook = Workbook(write_only=True)
+        sheet = workbook.create_sheet('Failed Devices')
+        sheet.append(FAILURE_COLUMNS)
+        temporary = None
+        try:
+            for record in source.records():
+                row = record['payload']['failure']
+                if row is not None:
+                    cells = []
+                    for value in row:
+                        cell = WriteOnlyCell(sheet, value=value)
+                        cell.data_type = 's'
+                        cells.append(cell)
+                    sheet.append(cells)
+            with NamedTemporaryFile(suffix='.xlsx', dir=output.parent, delete=False) as stream:
+                temporary = Path(stream.name)
+                workbook.save(stream)
+            temporary.replace(output)
+            return output
         finally:
             if not sheet.closed:
                 sheet.close()
             workbook.close()
-        logger.info('Configuration backup completed')
-    status(f'Devices: {completed}; saved: {completed - failed}; failed: {failed}; folder: {clean(str(writer.path))}')
-    return writer.path
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+    return spool.consume(export, cleanup=False)

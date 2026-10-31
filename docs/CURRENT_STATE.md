@@ -1176,3 +1176,92 @@ full evidence is in the October devlog. Grouped live hardware validation,
 native Windows execution and controller-environment validation remain pending.
 See the [grouped validation procedure](user_manual/manual-configuration.md#grouped-session-validation-issue-158)
 and [protected-skill handoff](operations/issue-158-atlas-handoff.md).
+
+## Issue #162 shared processing revision (acceptance pending)
+
+Shared spool consumption uses a leased bounded-cache SQLite offset index. New
+writers mark their 64 MiB envelope limit; historical manifests without that marker
+or source binding use a finite 256 MiB reader allowance. Disk safety remains
+64 GiB. Historical 65 MiB captures are tested independently of new writer bounds.
+Shared `indexed_json` infrastructure holds per-device observations and ordered
+planning results on disk, streams canonical JSON and loads public artifacts
+without collecting observations into a full-run dictionary. The former 16/32 MiB
+aggregate planning limits are removed. Public `content`/`to_dict` compatibility
+accessors explicitly materialize JSON; internal planning/review consumers use
+indexed views. Requests and execution summaries retain bounded row metadata.
+
+New confirmations bind a separate complete public plan JSON in the existing
+protected authority directory; old inline-plan confirmations remain readable.
+Digest revalidation and transactional claim/replay behavior are preserved.
+Execution report event offsets/references use the shared SQLite journal index.
+Journal encoding stages to disk before append; both readers and writers enforce
+finite 256 MiB event/64 GiB total limits and preserve committed prefixes.
+Backup outcomes now retain sanitized failure metadata in a shared spool inside
+`.processing` beneath the existing backup run; raw captures stay separate. Its
+failure workbook has an offline atomic regeneration API. Prompt and save reads
+reject responses above 64 MiB; literal Manual Configuration receive callbacks
+continue to stream transcript bytes to disk with their existing pending-line bound.
+
+Future collections bind exact workbook/request digests before networking.
+Offline recovery preserves freshness/identity checks; explicitly requested legacy
+diagnostics remain unverified and cannot authorize execution. No historical source
+association is inferred. Two-file recovery publication is not crash-atomic across
+both names. V1 request and plan files now have a 16 MiB pre-decode byte bound while signed
+authority and closed schemas remain unchanged. Canonical inventory snapshots
+and Manual Configuration source metadata
+retain their existing public formats and bounded-workflow contracts.
+
+See the [module audit and test ledger](operations/issue-162-processing-audit.md)
+for final automated results and remaining gates. Owner private-spool, live-device,
+native Windows and controller-safe full-suite validation remain pending.
+
+Final fifth-review deterministic suite: **3,837 passed / 25 failed / 0 skipped /
+0 errors**, 1,004.99 seconds. The 25 failed IDs exactly match the previous
+orchestration temp-root guard set: 17 direct guard errors and eight downstream
+assertions after early rejection. A green controller-safe owner-host run remains
+pending. Synthetic 88/~79 MB, 500 and 1,500 retained-run pipelines pass complete
+export/load/protected review/decision/preparation and mocked confirmation/replay.
+Final-suite Python allocation peaks are 16,871,804 / 20,227,621 / 37,199,492 bytes,
+all below 96 MiB. Earlier Linux RSS measurements are qualified to their recorded
+source in the audit; no new RSS, Windows or live-device result is inferred.
+
+Issue #162 fifth-review hardening adds deterministic scratch cleanup on failed
+stream parsing, public plan load/build and recovery export, including retained
+tracebacks. Nested `observations`/`results` field names cannot create scratch
+indexes before containing-observation validation. Orphan JSON/XLSX publication is
+rejected by the existing destination check; read-only retry uses a fresh basename.
+Two-file crash atomicity and historical records above 256 MiB remain unsupported;
+the owner capacity decision is pending. Final revision test counts are recorded in
+the processing audit ledger; controller-safe owner-host, native Windows and actual
+device/private-spool validation remain separate pending gates.
+
+
+The 2026-10-31 fresh-collection revision audits existing Excel-driven entry points:
+normal interface/VLAN, compliance, MAC, inventory refresh and planning calls create
+new spools and invoke fresh workers. SQLite is run-isolated internal processing;
+no database input or Web GUI is introduced. Added consecutive-run regressions cover
+prior success followed by current connection failure and explicit historical export
+without collection. Inventory preserves its labelled latest-known stable-facts
+semantics. No collection/input behavior, protective limits or authorization gates changed.
+See the processing audit ledger for this revision's test results and pending owner gates.
+
+Windows synthetic validation additionally fixes ordered IndexedJSON finalization
+and suspended-iterator cursor cleanup: scratch files close before removal,
+including export failures with retained tracebacks. ResultIndex uses bounded
+256-offset batches; public spool formats, report paths and safety limits are unchanged.
+
+Backup's private .processing child now uses the existing collision-safe short
+spool name on Windows and Linux; public backup output paths remain unchanged.
+111 synthetic backup tests pass on this Windows worker. Owner actual-device
+validation is still pending; automated Windows evidence is recorded in the audit.
+
+
+Final fresh-collection revision Windows gate: **3,870 passed / 0 failed / 0 errors /
+0 skipped**, 1,828.45 seconds, no warnings. All controller tests pass here with the
+original guard; owner Linux controller-safe validation remains pending. Full
+88/~79 MB, 500 and 1,500 pipelines pass with peak Python allocations of
+10,688,863 / 9,909,794 / 26,441,712 bytes (<96 MiB). Manual Configuration test
+fixtures now preserve authored CRLF, decode Windows file URIs portably and avoid
+oversized pytest IDs; execution behavior is unchanged. Actual-device/private-spool
+validation and historical-capacity acceptance remain pending. See the audit ledger
+for exact commands, scope, limitations and retained prior-run failure evidence.

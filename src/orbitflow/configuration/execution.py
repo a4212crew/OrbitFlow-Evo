@@ -106,12 +106,16 @@ class ExecutionService:
 
     def prepare(self, original, decisions, *, expected_digest, settings=ApplySettings()):
         """No connection. Return exact summary/reference; decisions is row-ID mapping."""
-        original = BulkPlan(original.content)
+        original = original.revalidate()
         require(original.digest == expected_digest, 'source digest mismatch')
         settings = ApplySettings(**asdict(settings))
-        data = original.to_dict()
-        intent = evaluate_decisions(original, decisions, expected_digest=expected_digest,
-                                    now=datetime.fromisoformat(data['evaluated_at'])).to_dict()
+        data = original.view()
+        from orbitflow.configuration.v2.planning import UNVERIFIED_SOURCE
+        require(not data['source'].startswith(UNVERIFIED_SOURCE),
+                'unverified historical recovery cannot authorize execution')
+        evaluation = evaluate_decisions(original, decisions, expected_digest=expected_digest,
+                                        now=datetime.fromisoformat(data['evaluated_at']))
+        intent = evaluation.view() if hasattr(evaluation, 'view') else evaluation.to_dict()
         selected, skipped = [], []
         results = {r['row_id']: r for r in intent['results']}
         for request in data['requests']:
@@ -154,17 +158,30 @@ class ExecutionService:
                        settings=asdict(settings),
                        save_behavior='Save entire running configuration once after attempted writes, including partial changes. EdgeSwitch may interrupt management; recognized save question is answered y.')
         digest = hashlib.sha256(canonical(summary).encode()).hexdigest()
-        payload = canonical(dict(summary=summary, plan=data, decisions=intent['decisions']))
         reference = uuid4().hex
+        # Keep the immutable source in its unchanged public JSON format. The
+        # transactional confirmation binds its digest; source observations never
+        # pass through a single aggregate SQLite text parameter.
+        from orbitflow.configuration.v2.planning import save as save_plan
+        plan_name = 'confirmation-' + reference + '.json'
+        plan_path = self.path / plan_name
+        save_plan(original, plan_path)
+        payload = canonical(dict(summary=summary, plan_file=plan_name, decisions=intent['decisions']))
         # Added presentation metadata must not make a consumed pre-revision
         # confirmation executable again. Reuse its exact original bound payload.
         legacy = dict(summary, skipped=[{k: v for k, v in e.items() if k not in {'request', 'identity'}} for e in skipped])
         legacy_digest = hashlib.sha256(canonical(legacy).encode()).hexdigest()
-        with self._db() as db:
-            row = db.execute("SELECT reference, state, run_path, digest, payload FROM confirmations WHERE digest IN (?, ?) ORDER BY CASE WHEN state='awaiting_confirmation' THEN 1 ELSE 0 END", (digest, legacy_digest)).fetchone()
-            if row is None:
-                db.execute('INSERT OR IGNORE INTO confirmations VALUES (?, ?, ?, ?, ?)', (reference, digest, payload, 'awaiting_confirmation', ''))
-                row = db.execute('SELECT reference, state, run_path, digest, payload FROM confirmations WHERE digest=?', (digest,)).fetchone()
+        try:
+            with self._db() as db:
+                row = db.execute("SELECT reference, state, run_path, digest, payload FROM confirmations WHERE digest IN (?, ?) ORDER BY CASE WHEN state='awaiting_confirmation' THEN 1 ELSE 0 END", (digest, legacy_digest)).fetchone()
+                if row is None:
+                    db.execute('INSERT OR IGNORE INTO confirmations VALUES (?, ?, ?, ?, ?)', (reference, digest, payload, 'awaiting_confirmation', ''))
+                    row = db.execute('SELECT reference, state, run_path, digest, payload FROM confirmations WHERE digest=?', (digest,)).fetchone()
+        except BaseException:
+            plan_path.unlink(missing_ok=True)
+            raise
+        if row[0] != reference:
+            plan_path.unlink(missing_ok=True)
         digest = row[3]
         summary = decode(row[4])['summary']
         with module_logger('configuration', 'execution') as (logger, _):
@@ -174,7 +191,7 @@ class ExecutionService:
     def prepare_workbook(self, original, workbook, *, expected_digest, settings=ApplySettings()):
         from orbitflow.configuration.v2.workbook import consume_decisions
         intent = consume_decisions(original, workbook, expected_digest=expected_digest,
-                                   now=datetime.fromisoformat(original.to_dict()['evaluated_at']))
+                                   now=datetime.fromisoformat(original.view()['evaluated_at']))
         return self.prepare(original, intent.to_dict()['decisions'], expected_digest=expected_digest, settings=settings)
 
     def confirm(self, reference, *, summary_digest, apply=False, credentials=None,
@@ -194,7 +211,17 @@ class ExecutionService:
             payload = decode(record[1])
             require(hashlib.sha256(canonical(payload['summary']).encode()).hexdigest() == summary_digest, 'corrupt confirmation')
             # Revalidate immutable content before claiming; authority state is local, not authentication.
-            original = BulkPlan(canonical(payload['plan']))
+            if 'plan_file' in payload:
+                name = payload['plan_file']
+                require(type(name) is str and re.fullmatch(r'[0-9a-f]{32}', reference) is not None
+                        and name == 'confirmation-' + reference + '.json',
+                        'corrupt confirmation source reference')
+                source_path = self.path / name
+                require(not source_path.is_symlink(), 'corrupt confirmation source reference')
+                from orbitflow.configuration.v2.planning import load as load_plan
+                original = load_plan(source_path)
+            else:
+                original = BulkPlan(canonical(payload['plan']))
             require(original.digest == payload['summary']['source_digest'], 'confirmation source mismatch')
             db.execute("UPDATE confirmations SET state='claimed' WHERE reference=?", (reference,))
         summary = payload['summary']
@@ -915,6 +942,11 @@ def export_results(run_path, output):
 
 
 def _export_results(run_path, output):
+    with ResultJournal(Path(run_path) / 'events.jsonl').indexed() as events:
+        return _export_indexed_results(run_path, output, events)
+
+
+def _export_indexed_results(run_path, output, events):
     """Offline literal report grouped by original template, from retained journal only."""
     from openpyxl import Workbook
     from openpyxl.cell import WriteOnlyCell
@@ -959,11 +991,11 @@ def _export_results(run_path, output):
     literal_row(summary, ['Run', run_id])
     literal_row(summary, ['Plan digest', source['source_digest']])
     literal_row(summary, ['Save policy', source.get('save_behavior', '')])
-    saves, backups, row_offsets, detail_refs = {}, {}, {}, {}
+    saves, backups = {}, {}
     row_counts, device_counts = {}, {}
-    for index, event in enumerate(ResultJournal(run_path / 'events.jsonl').records(), 1):
+    for index, event in events.entries():
         stage, ip, rid = event['stage'], event.get('management_ip', ''), event.get('row_id')
-        detail_refs[index] = sheet_rows.get(details.title, 1) + 1
+        events.set_reference(index, sheet_rows.get(details.title, 1) + 1)
         literal_row(details, [f'Event {index}', stage, 1, readable(event)], f'Event {index}')
         if stage in {'row_result', 'save_result'}:
             counts = row_counts if stage == 'row_result' else device_counts
@@ -973,9 +1005,6 @@ def _export_results(run_path, output):
             saves[ip] = {k: event[k] for k in ('status', 'explicit_error', 'error_category') if k in event}
         elif stage == 'backup_complete':
             backups[ip] = event.get('backup_reference', '')
-        elif rid:
-            # Only journal positions are retained across the run; evidence is read per row.
-            row_offsets.setdefault(rid, []).append(index)
     for ip in dict.fromkeys([e['request']['inputs']['management_ip'] for e in source['selected']]):
         literal_row(summary, [ip, 'Save: ' + readable(saves.get(ip, {'status': 'Not recorded'})), 'Backup: ' + backups.get(ip, 'Not recorded')])
     literal_row(summary, ['Selected / skipped rows', f"{len(source['selected'])} / {len(source['skipped'])}"])
@@ -1004,10 +1033,9 @@ def _export_results(run_path, output):
         rid = entry.get('row_id', r.get('row_id'))
         ip = r.get('inputs', {}).get('management_ip', '')
         event, pre_config, sent = {}, 'Not captured', []
-        positions = set(row_offsets.get(rid, []))
-        for index, item in enumerate(ResultJournal(run_path / 'events.jsonl').records(), 1):
-            if index not in positions:
-                continue
+        positions = []
+        for index, item in events.entries(target=rid):
+            positions.append(index)
             stage = item['stage']
             if stage == 'pre_row_evidence':
                 pre_config = item['evidence']
@@ -1051,7 +1079,7 @@ def _export_results(run_path, output):
             detail_start = sheet_rows.get(details.title, 1) + 1
             literal_row(details, [rid, 'Retained source / review', 1, readable(entry)], rid)
         else:
-            detail_start = detail_refs[min(positions)]
+            detail_start = events.reference(min(positions))
         input_values = [compact((r.get('source_inputs') or r.get('inputs', {})).get(k, '')) for k in (t.columns if t else [])]
         literal_row(sheets[title], values[:9] + input_values + values[9:] + [f"Evidence Details!A{detail_start}"], rid)
     with Path(output).open('xb') as stream:

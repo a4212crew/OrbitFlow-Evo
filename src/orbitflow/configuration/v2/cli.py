@@ -58,12 +58,27 @@ def _main(argv, logger, progress):
     generate.add_argument("--config", default="orbitflow.toml")
     generate.add_argument("--teleport-key-path", type=Path)
     generate.add_argument("--teleport-cert-path", type=Path)
+    recovery = sub.add_parser("recover", help="offline export from a complete retained observation spool")
+    recovery.add_argument("workbook", type=Path)
+    recovery.add_argument("spool", type=Path)
+    recovery.add_argument("output", type=Path)
+    recovery.add_argument("--allow-unverified-legacy", action="store_true")
+    recovery.add_argument("--max-evidence-age", type=int, default=3600)
     args = parser.parse_args(argv)
     stage = "input" if args.command == "input" else "validation"
     try:
         if args.command == "input":
             create_input(args.path)
             location('Input workbook saved', args.path)
+            return
+        if args.command == "recover":
+            from .recovery import recover
+            result = recover(args.workbook, args.spool, args.output,
+                             allow_unverified_legacy=args.allow_unverified_legacy,
+                             max_evidence_age=args.max_evidence_age)
+            location('Immutable plan saved', args.output)
+            location('Decision workbook saved', args.output.with_suffix('.xlsx'))
+            progress(f"Plan {result.digest}; offline recovery only; device execution is not authorized.")
             return
         if args.output is not None:
             require(args.output.suffix == ".json", "plan output must use .json")

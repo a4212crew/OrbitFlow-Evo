@@ -2,6 +2,8 @@
 from dataclasses import asdict, replace
 from orbitflow.vendors.aggregation import from_facts
 import re
+import hashlib
+import json
 
 from orbitflow.capabilities.interfaces import InterfaceService
 from orbitflow.capabilities.vlans import VlanService
@@ -63,7 +65,14 @@ def collect(requests, credentials, transport_config, *, inventory_path="data/inv
     def clean(text):
         text = sanitize_text(text)
         return pattern.sub("[REDACTED]", text) if pattern else text
-    spool = ResultSpool.create(spool_root, "configuration_observation_v2", len(ips), clean=clean)
+    source_digest = getattr(requests, 'source_digest', None)
+    require(source_digest is None or type(source_digest) is str and re.fullmatch('[0-9a-f]{64}', source_digest) is not None,
+            'invalid source workbook digest')
+    # Binding contains only digests, not credential-bearing text. Do not apply
+    # runtime substring redaction to hashes (a short credential can match hex).
+    spool = ResultSpool.create(spool_root, "configuration_observation_v2", len(ips))
+    spool.bind(dict(request_digest=request_digest(requests), workbook_digest=source_digest))
+    spool.clean = clean
     store = JsonInventoryStore(inventory_path)
 
     def event(stage, ip="-", category="-", identity="-"):
@@ -135,6 +144,17 @@ def collect(requests, credentials, transport_config, *, inventory_path="data/inv
     return spool
 
 
+def request_digest(requests):
+    """Bind canonical requests, layout and invalid rows without storing credentials."""
+    value = dict(requests=sorted(requests, key=lambda r: (r['sheet_order'], r['row'])),
+                 layout=getattr(requests, 'layout', None), errors=getattr(requests, 'errors', []))
+    digest = hashlib.sha256()
+    encoder = json.JSONEncoder(sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False)
+    for chunk in encoder.iterencode(value):
+        digest.update(chunk.encode('ascii'))
+    return digest.hexdigest()
+
+
 def observations(spool):
     """Stream persisted observations; consumers can plan one target at a time."""
     for record in spool.records():
@@ -142,16 +162,10 @@ def observations(spool):
 
 
 def bounded_observations(spool):
-    """Bound the adapter's immutable artifact size; the shared spool remains recoverable.
+    """Detach observations into the shared per-device SQLite working set.
 
-    Large API consumers can use observations() to plan/export one device at a
-    time instead. No worker accumulates results or writes shared artifacts.
+    The historical helper name is retained for callers. No aggregate observation
+    ceiling applies; individual record and disk bounds remain effective.
     """
-    from .planning import MAX_CONTENT
-    from orbitflow.configuration.plans import canonical
-    result, size = {}, 0
-    for ip, payload in observations(spool):
-        size += len(canonical(payload).encode())
-        require(size <= MAX_CONTENT // 2, "observation bundle too large; plan devices in smaller batches")
-        result[ip] = payload
-    return result
+    from orbitflow.indexed_json import IndexedJSON
+    return IndexedJSON(observations(spool))

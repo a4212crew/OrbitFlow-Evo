@@ -135,7 +135,7 @@ def _safe_source(text, platform=None):
     # Description/evidence are the only arbitrary source strings retained.
     # Also cover CLI-style secret labels separated by whitespace, not just '='.
     text = sanitize_text(text)
-    if any(ord(c) < 32 and c not in "\t\n\r" for c in text) or "\x7f" in text:
+    if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", text):
         return "[configuration evidence omitted: unsafe control characters]"
     match = _CREDENTIAL.search(text)
     if platform:

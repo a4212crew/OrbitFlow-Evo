@@ -1,5 +1,7 @@
 """Deterministic ordered planning and decision intent, independent of adapters."""
-from dataclasses import dataclass
+from collections.abc import Mapping
+from copy import deepcopy
+from orbitflow.indexed_json import IndexedJSON, IndexedList, HashedList, MAX_TOTAL_BYTES, MAX_WORKING_VALUE_BYTES, chunks, digest as json_digest
 from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
@@ -18,7 +20,7 @@ from .catalogue import BY_ID, BY_SHEET, FAMILIES, VERSION, safe, normalize_displ
 
 DECISIONS = ("Pending", "Approve", "Reject")
 MAX_ROWS = 5000
-MAX_CONTENT = 32 * 1024 * 1024
+UNVERIFIED_SOURCE = "historical-unverified:"
 
 
 def request(template_id, inputs, *, sheet_order=0, row=3, row_id=None, source_inputs=None):
@@ -32,6 +34,18 @@ def request(template_id, inputs, *, sheet_order=0, row=3, row_id=None, source_in
     row_id = row_id or hashlib.sha256(canonical([template_id, sheet_order, row, inputs]).encode()).hexdigest()[:24]
     label(row_id)
     return dict(template_id=template_id, inputs=inputs, source_inputs=source_inputs, sheet_order=sheet_order, row=row, row_id=row_id)
+
+
+def _checked_observations(entries):
+    """Reject secrets before creating any disk-backed planning state."""
+    for key, obs in entries:
+        import ipaddress
+        try:
+            require(type(key) is str and str(ipaddress.ip_address(key)) == key, "invalid observation target")
+        except ValueError:
+            require(False, "invalid observation target")
+        _validate_observation(obs)
+        yield key, obs
 
 
 def _safe_keys(value):
@@ -231,7 +245,7 @@ def _row(r, observation, prior, decision, now, max_age):
     return out
 
 
-def _classify_overlap(group):
+def _classify_overlap(group, budget):
     index = len(group) - 1
     r, result = group[index]
     t, p = BY_ID[r["template_id"]], r["inputs"]
@@ -282,6 +296,8 @@ def _classify_overlap(group):
                 effective_result=result.get("projected_state") if compatible else None,
                 explanation="Later description wins; projected result follows worksheet/row order." if compatible and t.function == "Interface Description" else
                             "Sequential membership evaluated against preceding projected state." if compatible else "Conflicting intent or unresolved safety prerequisites.")
+            budget[0] += 2 * sum(len(part) for part in chunks(detail)) + 512
+            require(budget[0] <= MAX_WORKING_VALUE_BYTES, "device projection size limit exceeded")
             for item, counterpart in ((result, q), (other, r)):
                 item.setdefault("overlaps", []).append(detail)
                 item["findings"] = sorted(set(item["findings"]) | {code})
@@ -294,45 +310,49 @@ def _classify_overlap(group):
                         item["blockers"] = sorted(set(item["blockers"]) | {code})
 
 
-def _build(requests, observations, decisions, now, max_age):
+def _validate_observation(obs):
+    require(safe_data(obs, _safe_source) == obs, "unsafe observation content")
+    _safe_keys(obs)
+    require(type(obs) is dict, "invalid observation")
+    if obs.get("status") == "live_read_only":
+        keys({k: v for k, v in obs.items() if k not in {"vlan_lookups", "service_details", "configuration_reliable", "aggregation"}}, "identity observed_at interfaces vlans objects facts evidence audit problems methodologies status")
+        require("configuration_reliable" not in obs or type(obs["configuration_reliable"]) is bool, "invalid configuration reliability")
+        require(type(obs.get("vlan_lookups", {})) is dict, "invalid VLAN lookups")
+        for vid, lookup in obs.get("vlan_lookups", {}).items():
+            require(type(vid) is str and vid.isdigit() and 1 <= int(vid) <= 4094, "invalid lookup VLAN")
+            keys({k: v for k, v in lookup.items() if k not in {'ports', 'evidence', 'vlan_id', 'vlan_type', 'ports_complete'}}, "status name operational_status")
+            require(lookup["status"] in {"present", "absent", "unknown", "error"}
+                    and type(lookup["name"]) is str and type(lookup["operational_status"]) is str, "invalid VLAN lookup")
+            require(set(lookup) <= {'status', 'name', 'operational_status', 'ports', 'evidence', 'vlan_id', 'vlan_type', 'ports_complete'}, 'invalid VLAN lookup')
+            require('vlan_id' not in lookup or type(lookup['vlan_id']) is int and lookup['vlan_id'] == int(vid), 'invalid lookup identity')
+            require('vlan_type' not in lookup or type(lookup['vlan_type']) is str, 'invalid VLAN type')
+            require('ports_complete' not in lookup or type(lookup['ports_complete']) is bool, 'invalid port completeness')
+            require(type(lookup.get('ports', [])) is list and type(lookup.get('evidence', [])) is list, 'invalid VLAN lookup details')
+        require(type(obs.get('service_details', {})) is dict, 'invalid service details')
+        for target, detail in obs.get('service_details', {}).items():
+            safe(target)
+            keys({k: v for k, v in detail.items() if k not in {'service_instance_id', 'interface', 'identity_status'}}, 'status facts evidence operational_status')
+            require('service_instance_id' not in detail or type(detail['service_instance_id']) is int and detail['service_instance_id'] > 0, 'invalid service identity')
+            require('interface' not in detail or type(detail['interface']) is str and bool(detail['interface']), 'invalid service interface')
+            require('identity_status' not in detail or detail['identity_status'] in {'matched', 'contradictory'}, 'invalid service identity status')
+            require(detail['status'] in {'present', 'absent', 'unknown', 'error'} and type(detail['facts']) is list
+                    and type(detail['evidence']) is list and type(detail['operational_status']) is str, 'invalid service detail')
+        keys(obs["identity"], IDENTITY_FIELDS)
+        platform = obs["identity"]["platform"]
+        require(platform in {v[0] for v in FAMILIES.values()}, "invalid observation platform")
+        require(safe_data(obs, lambda text: _safe_source(text, platform)) == obs, "unsafe vendor observation content")
+    else:
+        keys(obs, "status")
+        require(obs["status"] == "evidence_unavailable", "invalid observation status")
+
+
+def _build_device(requests, observations, decisions, now, max_age, *, diagnostic=False):
     require(type(requests) is list and 0 <= len(requests) <= MAX_ROWS, "invalid row count")
-    require(type(observations) is dict and type(decisions) is dict, "invalid planning inputs")
-    require(safe_data(observations, _safe_source) == observations, "unsafe observation content")
-    _safe_keys(observations)
+    require(isinstance(observations, Mapping) and type(decisions) is dict, "invalid planning inputs")
     live_ips = {r["inputs"]["management_ip"] for r in requests if BY_ID.get(r["template_id"]) and BY_ID[r["template_id"]].family != "All"}
     require(set(observations) <= live_ips, "unexpected observation target")
     for obs in observations.values():
-        require(type(obs) is dict, "invalid observation")
-        if obs.get("status") == "live_read_only":
-            keys({k: v for k, v in obs.items() if k not in {"vlan_lookups", "service_details", "configuration_reliable", "aggregation"}}, "identity observed_at interfaces vlans objects facts evidence audit problems methodologies status")
-            require("configuration_reliable" not in obs or type(obs["configuration_reliable"]) is bool, "invalid configuration reliability")
-            require(type(obs.get("vlan_lookups", {})) is dict, "invalid VLAN lookups")
-            for vid, lookup in obs.get("vlan_lookups", {}).items():
-                require(type(vid) is str and vid.isdigit() and 1 <= int(vid) <= 4094, "invalid lookup VLAN")
-                keys({k: v for k, v in lookup.items() if k not in {'ports', 'evidence', 'vlan_id', 'vlan_type', 'ports_complete'}}, "status name operational_status")
-                require(lookup["status"] in {"present", "absent", "unknown", "error"}
-                        and type(lookup["name"]) is str and type(lookup["operational_status"]) is str, "invalid VLAN lookup")
-                require(set(lookup) <= {'status', 'name', 'operational_status', 'ports', 'evidence', 'vlan_id', 'vlan_type', 'ports_complete'}, 'invalid VLAN lookup')
-                require('vlan_id' not in lookup or type(lookup['vlan_id']) is int and lookup['vlan_id'] == int(vid), 'invalid lookup identity')
-                require('vlan_type' not in lookup or type(lookup['vlan_type']) is str, 'invalid VLAN type')
-                require('ports_complete' not in lookup or type(lookup['ports_complete']) is bool, 'invalid port completeness')
-                require(type(lookup.get('ports', [])) is list and type(lookup.get('evidence', [])) is list, 'invalid VLAN lookup details')
-            require(type(obs.get('service_details', {})) is dict, 'invalid service details')
-            for target, detail in obs.get('service_details', {}).items():
-                safe(target)
-                keys({k: v for k, v in detail.items() if k not in {'service_instance_id', 'interface', 'identity_status'}}, 'status facts evidence operational_status')
-                require('service_instance_id' not in detail or type(detail['service_instance_id']) is int and detail['service_instance_id'] > 0, 'invalid service identity')
-                require('interface' not in detail or type(detail['interface']) is str and bool(detail['interface']), 'invalid service interface')
-                require('identity_status' not in detail or detail['identity_status'] in {'matched', 'contradictory'}, 'invalid service identity status')
-                require(detail['status'] in {'present', 'absent', 'unknown', 'error'} and type(detail['facts']) is list
-                        and type(detail['evidence']) is list and type(detail['operational_status']) is str, 'invalid service detail')
-            keys(obs["identity"], IDENTITY_FIELDS)
-            platform = obs["identity"]["platform"]
-            require(platform in {v[0] for v in FAMILIES.values()}, "invalid observation platform")
-            require(safe_data(obs, lambda text: _safe_source(text, platform)) == obs, "unsafe vendor observation content")
-        else:
-            keys(obs, "status")
-            require(obs["status"] == "evidence_unavailable", "invalid observation status")
+        _validate_observation(obs)
     require(type(max_age) is int and 1 <= max_age <= 86400, "invalid evidence age")
     rows, ids, positions = [], set(), set()
     for r in requests:
@@ -346,13 +366,16 @@ def _build(requests, observations, decisions, now, max_age):
     ordered = sorted(requests, key=lambda r: (r["sheet_order"], r["row"]))
     require(ordered == requests, "requests not in workbook order")
     prior = {}
+    budget = [0]
     for r in ordered:
         ip = r["inputs"]["management_ip"]
         previous = prior.setdefault(ip, [])
         result = _row(r, observations.get(ip), previous, decisions.get(r["row_id"], "Pending"), now, max_age)
+        budget[0] += sum(len(part) for part in chunks(result))
+        require(budget[0] <= MAX_WORKING_VALUE_BYTES, "device projection size limit exceeded")
         previous.append((r, result))
         rows.append(result)
-        _classify_overlap(previous)
+        _classify_overlap(previous, budget)
     # A later overlap can invalidate an earlier prerequisite.
     by_id = {r["row_id"]: r for r in rows}
     requests_by_id = {r["row_id"]: r for r in ordered}
@@ -380,16 +403,112 @@ def _build(requests, observations, decisions, now, max_age):
     for result in rows:
         if "blockers" in result:
             result["blockers"] = sorted(set(result["findings"]) - set(result["warnings"]))
+    if diagnostic:
+        for result in rows:
+            result["findings"] = sorted(set(result["findings"]) | {"UNVERIFIED_HISTORICAL_PROVENANCE"})
+            if "blockers" in result:
+                result["blockers"] = sorted(set(result["blockers"]) | {"UNVERIFIED_HISTORICAL_PROVENANCE"})
+            result.update(deployment_ready=False, execution_authorized=False)
     return rows
 
 
-@dataclass(frozen=True)
-class BulkPlan:
-    content: str
+def _build(requests, observations, decisions, now, max_age, *, diagnostic=False):
+    """Evaluate complete same-device groups and spool results in workbook order."""
+    require(type(requests) is list and len(requests) <= MAX_ROWS, "invalid row count")
+    require(isinstance(observations, Mapping) and type(decisions) is dict, "invalid planning inputs")
+    require(type(max_age) is int and 1 <= max_age <= 86400, "invalid evidence age")
+    ids, positions, groups = set(), set(), {}
+    for position, r in enumerate(requests):
+        keys(r, "template_id inputs source_inputs sheet_order row row_id")
+        require(request(**r) == r, "noncanonical request")
+        require(r['row_id'] not in ids and (r['sheet_order'], r['row']) not in positions,
+                "duplicate row identity or position")
+        ids.add(r['row_id'])
+        positions.add((r['sheet_order'], r['row']))
+        groups.setdefault(r['inputs']['management_ip'], []).append((position, r))
+    require(requests == sorted(requests, key=lambda r: (r['sheet_order'], r['row'])),
+            "requests not in workbook order")
+    require(set(decisions) <= ids and all(v in DECISIONS for v in decisions.values()), "invalid review decisions")
+    live_ips = {r['inputs']['management_ip'] for r in requests if BY_ID[r['template_id']].family != 'All'}
+    require(set(observations) <= live_ips, "unexpected observation target")
+    identities, collisions = {}, set()
+    for ip, obs in observations.items():
+        require(type(obs) is dict, "invalid observation")
+        for field in ('inventory_id', 'serial_number', 'hostname'):
+            identity = obs.get('identity', {}).get(field)
+            if identity:
+                previous = identities.setdefault((field, identity), ip)
+                if previous != ip:
+                    collisions.update((previous, ip))
+    def evaluated():
+        for ip, group in groups.items():
+            rows = [r for _, r in group]
+            local = {ip: observations[ip]} if ip in observations else {}
+            result = _build_device(rows, local,
+                {r['row_id']: decisions[r['row_id']] for r in rows if r['row_id'] in decisions},
+                now, max_age, diagnostic=diagnostic)
+            for (position, _), item in zip(group, result):
+                if ip in collisions:
+                    item['findings'] = sorted(set(item['findings']) | {'TARGET_IDENTITY_COLLISION'})
+                    item.update(deployment_ready=False, consistency='unresolved')
+                    if 'blockers' in item:
+                        item['blockers'] = sorted(set(item['findings']) - set(item['warnings']))
+                yield position, item
+    return IndexedList(evaluated())
 
-    def __post_init__(self):
-        require(isinstance(self.content, str) and len(self.content.encode()) <= MAX_CONTENT, "plan size limit exceeded")
-        d = decode(self.content)
+
+class BulkPlan:
+    """Immutable plan with a disk-backed observation working set.
+
+    content and to_dict retain their historical materializing API. Application
+    consumers use view()/revalidate() and streaming save instead.
+    """
+    def __init__(self, content):
+        require(isinstance(content, str), "invalid plan content")
+        d = decode(content)
+        require(type(d) is dict, "invalid v2 contract")
+        require(type(d.get("observations")) is dict, "invalid planning inputs")
+        d['observations'] = IndexedJSON(_checked_observations(d.get('observations', {}).items()))
+        try:
+            self._initialize(d)
+        except BaseException:
+            d['observations'].close()
+            raise
+
+    @classmethod
+    def from_data(cls, data):
+        result = cls.__new__(cls)
+        result._initialize(data)
+        return result
+
+    def _initialize(self, data):
+        require(type(data) is dict, "invalid v2 contract")
+        d = {k: v if isinstance(v, (IndexedJSON, IndexedList, HashedList)) else deepcopy(v) for k, v in data.items()}
+        keys(d, "schema_version catalogue_version source layout input_errors evaluated_at max_evidence_age requests observations decisions results execution_authorized")
+        safe(d['source'])
+        if isinstance(d.get('results'), HashedList):
+            expected = _build(d['requests'], d['observations'], d['decisions'],
+                datetime.fromisoformat(d['evaluated_at']), d['max_evidence_age'],
+                diagnostic=d['source'].startswith(UNVERIFIED_SOURCE))
+            try:
+                require(d['results'].matches(expected), "tampered planning result")
+            except BaseException:
+                expected.values.close()
+                raise
+            finally:
+                d['results'].hashes.values.close()
+            d['results'] = expected
+        try:
+            self._validate(d)
+            self._data = d
+            self._digest = json_digest(d)
+        except BaseException:
+            if isinstance(data.get('results'), HashedList):
+                d['results'].values.close()
+            raise
+
+    @staticmethod
+    def _validate(d):
         keys(d, "schema_version catalogue_version source layout input_errors evaluated_at max_evidence_age requests observations decisions results execution_authorized")
         require(d["schema_version"] == 2 and d["catalogue_version"] == VERSION and d["execution_authorized"] is False, "invalid v2 contract")
         safe(d["source"])
@@ -405,12 +524,24 @@ class BulkPlan:
                     and error["reason"] == "INVALID_INPUT_ROW", "invalid input error")
         now = datetime.fromisoformat(d["evaluated_at"])
         timestamp(now)
-        require(d["results"] == _build(d["requests"], d["observations"], d["decisions"], now, d["max_evidence_age"]), "tampered planning result")
-        object.__setattr__(self, "content", canonical(d))
+        require(_build(d["requests"], d["observations"], d["decisions"], now, d["max_evidence_age"], diagnostic=d["source"].startswith(UNVERIFIED_SOURCE)) == d["results"], "tampered planning result")
+
+    def revalidate(self):
+        self._validate(self._data)
+        require(json_digest(self._data) == self._digest, "plan digest mismatch")
+        return self
+
+    def view(self):
+        """Return independent metadata and an immutable indexed observation view."""
+        return {k: v if isinstance(v, (IndexedJSON, IndexedList)) else deepcopy(v) for k, v in self._data.items()}
+
+    @property
+    def content(self):
+        return ''.join(chunks(self._data))
 
     @property
     def digest(self):
-        return hashlib.sha256(self.content.encode()).hexdigest()
+        return self._digest
 
     def to_dict(self):
         return decode(self.content)
@@ -424,52 +555,101 @@ def plan(requests, observations=None, *, decisions=None, source="api", now=None,
     requests = sorted(requests, key=lambda r: (r["sheet_order"], r["row"]))
     # Manual evidence is deliberately excluded, even in mixed runs.
     live_ips = {r["inputs"]["management_ip"] for r in requests if BY_ID[r["template_id"]].family != "All"}
-    observations = {k: v for k, v in (observations or {}).items() if k in live_ips}
-    decisions = {**{r["row_id"]: "Pending" for r in requests}, **(decisions or {})}
-    return BulkPlan(canonical(dict(schema_version=2, catalogue_version=VERSION, source=source, layout=layout, input_errors=input_errors,
-        evaluated_at=timestamp(now), max_evidence_age=max_evidence_age, requests=requests,
-        observations=observations, decisions=decisions,
-        results=_build(requests, observations, decisions, now, max_evidence_age), execution_authorized=False)))
+    observations = IndexedJSON(_checked_observations((k, v) for k, v in (observations or {}).items() if k in live_ips))
+    results = None
+    try:
+        decisions = {**{r["row_id"]: "Pending" for r in requests}, **(decisions or {})}
+        results = _build(requests, observations, decisions, now, max_evidence_age,
+                         diagnostic=isinstance(source, str) and source.startswith(UNVERIFIED_SOURCE))
+        return BulkPlan.from_data(dict(schema_version=2, catalogue_version=VERSION, source=source, layout=layout, input_errors=input_errors,
+            evaluated_at=timestamp(now), max_evidence_age=max_evidence_age, requests=requests,
+            observations=observations, decisions=decisions,
+            results=results, execution_authorized=False))
+    except BaseException:
+        observations.close()
+        if results is not None:
+            results.values.close()
+        raise
 
 
-@dataclass(frozen=True)
 class DecisionEvaluation:
     """Unauthenticated decision intent bound to an unchanged source plan."""
-    source_digest: str
-    content: str
+    def __init__(self, source_digest, content):
+        self._source_digest = source_digest
+        self._data = decode(content) if isinstance(content, str) else content
+
+    @property
+    def source_digest(self):
+        return self._source_digest
 
     @property
     def digest(self):
-        """Matching source digest only; decision intent is not signed content."""
         return self.source_digest
+
+    @property
+    def content(self):
+        return ''.join(chunks(self._data))
+
+    def view(self):
+        return {k: v if isinstance(v, IndexedList) else deepcopy(v) for k, v in self._data.items()}
 
     def to_dict(self):
         return decode(self.content)
 
 
 def evaluate_decisions(original, decisions, *, expected_digest, now=None):
-    original = BulkPlan(original.content)
+    original = original.revalidate()
     require(original.digest == expected_digest, "decision source digest mismatch")
-    d = original.to_dict()
+    d = original.view()
     now = now or datetime.now(timezone.utc)
     intent = {**d["decisions"], **decisions}
-    results = _build(d["requests"], d["observations"], intent, now, d["max_evidence_age"])
-    return DecisionEvaluation(original.digest, canonical(dict(
+    results = _build(d["requests"], d["observations"], intent, now, d["max_evidence_age"], diagnostic=d["source"].startswith(UNVERIFIED_SOURCE))
+    return DecisionEvaluation(original.digest, dict(
         source_digest=original.digest, decisions=intent, results=results,
-        evaluated_at=timestamp(now), authenticated=False, execution_authorized=False)))
+        evaluated_at=timestamp(now), authenticated=False, execution_authorized=False))
 
 
 def save(plan, path):
-    plan = BulkPlan(plan.content)
+    plan = plan.revalidate()
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("x", encoding="utf-8") as stream:
-        stream.write(canonical(dict(digest=plan.digest, plan=plan.to_dict())) + "\n")
+    import os
+    from tempfile import NamedTemporaryFile
+    temporary = None
+    try:
+        with NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            for part in chunks(dict(digest=plan.digest, plan=plan.view())):
+                stream.write(part)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def load(path):
-    d = decode(Path(path).read_text(encoding="utf-8"))
-    keys(d, "digest plan")
-    result = BulkPlan(canonical(d["plan"]))
-    require(result.digest == d["digest"], "plan digest mismatch")
-    return result
+    from orbitflow.indexed_json import read_json, close_json_resources
+    from orbitflow.configuration.plans import PlanError
+    d = result = None
+    succeeded = False
+    try:
+        require(Path(path).stat().st_size <= MAX_TOTAL_BYTES, "plan input size limit exceeded")
+        with Path(path).open(encoding="utf-8") as stream:
+            d = read_json(stream, validate_observations=_checked_observations, hash_results=True)
+        keys(d, "digest plan")
+        result = BulkPlan.from_data(d["plan"])
+        require(result.digest == d["digest"], "plan digest mismatch")
+        succeeded = True
+        return result
+    except (ValueError, TypeError, RecursionError) as error:
+        if isinstance(error, PlanError):
+            raise
+        raise PlanError("invalid plan JSON") from None
+    finally:
+        if not succeeded:
+            close_json_resources(d)
+            if result is not None:
+                close_json_resources(result.view())

@@ -30,7 +30,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "create":
-            request = decode(args.request.read_text(encoding="utf-8"))
+            from .plans import _read_input
+            request = _read_input(args.request)
             plan = create_plan(request, JsonInventoryStore(args.inventory).contexts())
             output = args.output or Path("outputs/runs/configuration") / plan.to_dict()["change_id"] / "plan.json"
             save_plan(plan, output)

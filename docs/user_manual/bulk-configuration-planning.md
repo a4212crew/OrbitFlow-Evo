@@ -401,11 +401,17 @@ Collection persists sanitized results through caller-owned `ResultSpool` sinks
 under `outputs/runs/configuration_observation`. Failures retain fixed status
 without exception text. These spools remain available for recovery; use the
 existing shared spool lifecycle tools to manage retention. The `observations`
-iterator supports per-device API consumption. The single-workbook adapter limits
-input to 5,000 occupied rows, row positions through 5,002, observation bundles to
-16 MiB and canonical plans to 32 MiB. Larger runs should consume the shared spool
-per device or use smaller review batches; workers never retain a full-run result
-set. Oversized artifacts fail explicitly instead of silently truncating evidence.
+iterator supports per-device API consumption. The single-workbook adapter retains its 5,000 occupied-row limit and row
+positions through 5,002. Observations and results use shared SQLite working sets;
+JSON save/load and workbook output stream. There is no aggregate 16/32 MiB gate.
+New observation envelopes are limited to 64 MiB; historical unmarked envelopes
+and individual JSON working values have a finite 256 MiB allowance. Disk input
+is limited to 64 GiB. Explicit oversized-record errors retain the source spool.
+Requests, same-device projections and execution summaries remain row metadata;
+Plan JSON save uses exclusive hard-link publication after complete serialization
+and fsync; its output filesystem must support hard links. Public
+`BulkPlan.content` and `to_dict()` explicitly materialize full JSON for
+compatibility and should be avoided by large-run application consumers.
 
 Platform bounds include VLANs 1â€“4094 (EdgeSwitch 2â€“4093), Catalyst/ME reserved
 1002â€“1005, EVC service-instance IDs 1â€“4000, NCS540 subinterfaces 0â€“2147483647,
@@ -747,3 +753,274 @@ planning entry points use the same planner; this correction adds no new workflow
 
 
 Issue #156: newly generated planning input contains 21 predefined worksheets and omits legacy Manual CLI/navigation without changing catalogue identifiers or v1/v2 plan integrity. Historical Manual CLI workbook/plan/report reading remains supported and non-executable. Use the separate [Manual Configuration workflow](manual-configuration.md) for new literal command blocks. Existing examples of Manual CLI sheets describe legacy inputs. Canonical v2 plan layouts retain the empty retired slot for compatibility.
+
+## Retained observations and Issue #162 status
+
+New read-only collections record canonical request and source workbook SHA-256
+metadata in their spool manifest before networking. API request lists without a
+workbook record a null workbook digest. Legacy observations have no source binding;
+a workbook match cannot be asserted retrospectively. This metadata does not
+authorize execution or relax freshness checks.
+
+The shared spool has lease-protected SQLite point/target/batch retrieval, with
+explicit 64 MiB new-envelope and 64 GiB spool limits. Historical unmarked
+envelopes have a finite 256 MiB reader allowance. Planning uses indexed observations
+and results rather than aggregate size gates. A failure retains the spool; it does not reconnect or replay.
+The optional offline recovery command is described below; it uses the same indexed planning pipeline.
+See [Linux/Windows tests and read-only inspection](../operations/issue-162-processing-audit.md).
+The end-to-end large-plan Issue is not complete.
+
+## Offline retained-observation recovery (Issue #162 revision)
+
+Recovery is read-only with respect to devices: it does not connect, request
+credentials, refresh inventory, execute commands or change the retained manifest
+and observations. It writes a new immutable JSON and decision workbook. The
+indexed pipeline removes aggregate observation/plan limits. Synthetic large-run
+verification is recorded in the audit ledger; the owner's private run has not
+been accessed or validated.
+
+Linux (from the repository root):
+
+```bash
+PYTHONPATH=src python -m orbitflow.configuration.v2.cli recover input.xlsx OWNER_SELECTED_RETAINED_RUN outputs/reports/configuration/recovered/plan.json
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m orbitflow.configuration.v2.cli recover input.xlsx OWNER_SELECTED_RETAINED_RUN outputs/reports/configuration/recovered/plan.json
+```
+
+The three positional arguments are the original source workbook, the retained
+`configuration_observation_v2` run directory, and a new `.json` destination.
+`--max-evidence-age SECONDS` accepts integers 1–86400, default 3600. Bound runs
+require the exact persisted workbook and request digests, complete ordered target
+records, matching management identities and successful evidence within that age.
+A different workbook is rejected even if its request cells are unchanged.
+Failed device outcomes remain unavailable evidence, rather than being recollected.
+
+Legacy runs without binding require `--allow-unverified-legacy`. This is an
+explicit historical diagnostic mode, never proof that the workbook originally
+produced those observations. The source is labelled `historical-unverified:`;
+every result has `UNVERIFIED_HISTORICAL_PROVENANCE`, remains deployment-unready,
+and is rejected by confirmed-execution preparation even after Approve decisions.
+Existing identity and stale-evidence findings remain visible. The option never
+bypasses a mismatching binding on a newer run. Do not use recovery to replay
+completed or Unknown device changes.
+
+Expected outputs: `plan.json` and sibling `plan.xlsx` with the existing schemas,
+sheets and columns. Both are completely generated in a temporary directory
+before exclusive publication; an ordinary second-file publication failure removes
+only the JSON published by this attempt. Existing files are never overwritten.
+A process crash between the two publications can leave JSON alone; retain or move
+it for inspection and retry into a new destination. Filesystem hard-link support
+and writable output/spool scratch space are required. Recovery does not provide
+a crash-atomic two-file transaction.
+
+Wrong task, incomplete/corrupt/duplicate records, source/target mismatch, stale
+bound evidence, existing outputs and size-limit errors fail without networking.
+The CLI returns status 2 with a sanitized category; configuration module logs
+identify the failing stage. The Python API below raises fixed `PlanError`
+diagnostics for validation failures and filesystem exceptions for I/O failures.
+The retained source remains available for another attempt.
+
+Supported Python API:
+
+```python
+from orbitflow.configuration.v2.recovery import recover
+result = recover("input.xlsx", "OWNER_SELECTED_RETAINED_RUN", "new-output/plan.json",
+                 allow_unverified_legacy=False, max_evidence_age=3600, now=None)
+print(result.digest)
+```
+
+`now=None` uses current timezone-aware UTC; a supplied timezone-aware datetime
+supports deterministic offline validation. The return value is the existing
+`BulkPlan`. This optional direct recovery entry point leaves interactive menus
+unchanged, as required by Issue #162's explicit interface constraint.
+
+Automated Linux validation:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_configuration_recovery.py tests/test_result_spool.py tests/test_result_index.py tests/test_bulk_configuration_v2.py tests/test_configuration_execution.py -q
+PYTHONPATH=src python -m pytest -q
+```
+
+PowerShell validation uses the same commands after setting `PYTHONPATH` as above
+and omitting the Linux `PYTHONPATH=src` prefix. Run the full suite with OS temp
+outside every Git checkout; never remove Git markers or weaken controller guards
+to make it pass. Owner validation should use an owner-selected sanitized retained
+run and fresh output path, verify matching digest and expected workbook contents,
+then check wrong-workbook rejection and explicit legacy diagnostic rejection by
+execution preparation. No device access is needed. Private-spool, actual device
+and native Windows validation remain owner-controlled and pending.
+
+
+For owner-run full-suite validation when the inherited temp environment points
+inside a checkout, select a writable directory outside all Git ancestors first.
+For example on Linux (assuming `/var/tmp` has no Git ancestor):
+
+```bash
+validation_temp=$(mktemp -d /var/tmp/orbitflow-validation.XXXXXX)
+TMPDIR="$validation_temp" TMP="$validation_temp" TEMP="$validation_temp" PYTHONPATH=src python -m pytest -q
+```
+
+PowerShell (assuming LocalAppData is outside every Git checkout):
+
+```powershell
+$validationTemp = Join-Path $env:LOCALAPPDATA ('OrbitFlow-validation-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $validationTemp | Out-Null
+$env:TEMP = $validationTemp
+$env:TMP = $validationTemp
+$env:TMPDIR = $validationTemp
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m pytest -q
+```
+
+These are owner-host commands, not a workaround applied inside the managed
+implementation sandbox. Retain test artifacts for inspection; do not alter Git
+markers, weaken guards or replay configuration to validate recovery.
+
+
+### Review workbook writer validation (third-review increment)
+
+Workbook export now streams proposal rows and Evidence Details to temporary XML
+files, removing those files on ordinary success or failure. Sheet order, columns,
+editable decisions, literal text, digest references, header comments, navigation,
+validation lists and row presentation remain unchanged. The public
+`export_plan(plan, path)` signature is unchanged. It consumes indexed plan observations/results. Freshness, provenance and
+protected workbook checks described above remain effective.
+
+Run the synthetic writer checks on Linux:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_configuration_streaming_workbook.py tests/test_configuration_recovery.py tests/test_result_index.py -q
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m pytest tests/test_configuration_streaming_workbook.py tests/test_configuration_recovery.py tests/test_result_index.py -q
+```
+
+Expected writer checks cover 88, 500 and 1,500 proposal rows, 50 evidence lines
+per row, complete ordered evidence output and less than 16 MiB additional peak
+Python allocations. They isolate the writer using already-decoded synthetic
+inputs; they do not measure full-pipeline memory, RSS, or a 77 MB recovery.
+The historical-envelope test directly constructs a sanitized 65 MiB JSONL record
+and verifies successful indexed retrieval under the finite 256 MiB legacy
+allowance. New marked/bound spools retain their 64 MiB limit. Legacy records above
+256 MiB still fail explicitly and remain retained; no unbounded decoder is used.
+Do not split or edit evidence to bypass provenance/digest checks. No native
+Windows, private-spool or live-device validation has occurred.
+
+
+### Complete synthetic pipeline validation (fourth revision)
+
+Linux:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_configuration_indexed_pipeline.py -q -o junit_family=legacy --junitxml=pipeline-results.xml
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m pytest tests/test_configuration_indexed_pipeline.py -q -o junit_family=legacy --junitxml=pipeline-results.xml
+```
+
+The three target-scale cases cover 88 (~79 MB), 500 and 1,500 targets with plans
+above 32 MiB, complete offline export/load, protected unchanged-workbook review,
+decision evaluation, preparation, mocked confirmation and replay rejection. They
+assert peak Python allocations below 96 MiB and record measured bytes in JUnit
+properties. The transport consumer is mocked; this does not perform a write or
+validate equipment. Run the full suite using the controller-safe temp-root
+instructions above. See the audit ledger for observed results.
+
+For owner-controlled read-only validation, use an exact retained source workbook
+and a **new** destination in the recovery command above. Bound sources must match
+both digests and pass freshness. Historical unbound captures require the explicit
+`--allow-unverified-legacy` diagnostic option and must remain non-executable.
+Inspect all expected JSON requests/results and protected Evidence Details against
+the source workbook; do not approve or execute changes to test recovery. Keep
+private captures outside Git, and never upload them. Native Windows and actual
+private-spool validation are pending. Ordinary export errors clean scratch files;
+a process crash between publishing JSON and XLSX can leave one name published.
+Retain source evidence and select a new destination when retrying that case.
+
+Optional Linux absolute-RSS validation uses GNU `/usr/bin/time`; each selected
+node also asserts its Python allocation budget. Run from the checkout with
+requirements installed:
+
+```bash
+set -e
+mkdir -p outputs/validation/configuration_processing
+/usr/bin/time -f '%M' -o outputs/validation/configuration_processing/88.rss_kib env PYTHONPATH=src python -m pytest 'tests/test_configuration_indexed_pipeline.py::test_full_recovery_review_preparation_pipeline[88-900000]' -q
+/usr/bin/time -f '%M' -o outputs/validation/configuration_processing/500.rss_kib env PYTHONPATH=src python -m pytest 'tests/test_configuration_indexed_pipeline.py::test_full_recovery_review_preparation_pipeline[500-72000]' -q
+/usr/bin/time -f '%M' -o outputs/validation/configuration_processing/1500.rss_kib env PYTHONPATH=src python -m pytest 'tests/test_configuration_indexed_pipeline.py::test_full_recovery_review_preparation_pipeline[1500-24000]' -q
+python -c "from pathlib import Path; root=Path('outputs/validation/configuration_processing'); peaks={n:int((root/(n+'.rss_kib')).read_text()) for n in ('88','500','1500')}; assert all(v<262144 for v in peaks.values()), peaks; print(peaks)"
+```
+
+Expected: one passing test per invocation and all recorded RSS values below
+262,144 KiB (256 MiB). Worker measurements and final suite counts are in the
+[audit ledger](../operations/issue-162-processing-audit.md). The PowerShell
+pipeline-test command above runs the portable Python allocation assertions;
+GNU time/RSS checks are Linux-specific. Native Windows measurements remain
+owner-controlled and pending.
+
+### Fifth-review recovery and capacity decisions
+
+Recovery publishes `plan.json` and `plan.xlsx` under their existing names, one
+exclusive link at a time. Each export completes before publication, but the pair
+is **not crash-atomic**. Before review, verify both files exist. A process killed
+between links can leave only JSON. Retrying the same output rejects with
+`output already exists`, including when only one file exists; it never overwrites
+that artifact. Preserve the partial output for inspection and repeat the same
+read-only `recover` command with a **fresh output basename**. With unchanged
+inputs, evidence time and evaluation time, the digest is identical. With the CLI's
+current evaluation time, a new evaluation timestamp legitimately changes the
+digest; review the new matched pair together. Do not combine files from different
+attempts, authorize execution from an orphan, or recollect to repair publication.
+An ordinary second-link exception removes only this attempt's JSON; it preserves
+an XLSX created by another process. Tests cover both collision and orphan states.
+
+Historical compatibility is finite: new/marked spool envelopes allow 64 MiB;
+unmarked historical envelopes allow 256 MiB. A single envelope is decoded and
+validated in memory, with temporary JSON/SQLite copies, so peak memory can exceed
+its encoded size (the synthetic 65 MiB legacy test measured about 274 MB of Python
+allocations). Raising the limit increases memory exhaustion and oversized-input
+exposure; the 64 GiB total disk bound does not prevent that. Larger legacy records
+are rejected explicitly and retained untouched. **Owner decision requested:**
+accept this finite compatibility limit, or require a separately approved capacity
+design before declaring support above 256 MiB. No universal historical-size
+compatibility or automatic record splitting is claimed.
+
+For a reviewable full-suite result, use the safe Linux/PowerShell temp setup above
+and run the following from the checkout (both shells, after setting `PYTHONPATH`):
+
+```text
+python -m pytest -q -o junit_family=legacy --junitxml=outputs/validation/configuration_processing/full-regression.xml
+```
+
+Create `outputs/validation/configuration_processing` first (`mkdir -p` on Linux,
+`New-Item -ItemType Directory -Force` in PowerShell). Record the exit status and
+pass/fail/skip counts; only exit zero with no failures meets the regression gate.
+The selected temp root **and every ancestor** must lack a `.git` marker. If that
+check fails, select a different owner-host directory; never remove the marker.
+The managed worker cannot use `/var/tmp` because it is outside its writable roots.
+Owner-host Linux, native Windows, private-spool and live/read-only checks remain
+pending until their actual results are supplied. Full-suite tests use mocks for
+network execution; they do not authorize or demonstrate device writes.
+
+
+### Fresh collection and retained evidence (2026-10-31)
+
+Continue using the existing Excel inputs, columns and selections. Every normal
+collection execution contacts its requested devices again in a distinct run;
+prior observations do not repair a failed current collection. Inventory exports
+retain explicitly labelled latest-known stable facts after failure. Deliberate
+offline export/recovery uses only the selected historical run, without reconnecting;
+planning binding, age, trust and authorization restrictions still apply.
+See the [audit and owner validation steps](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).

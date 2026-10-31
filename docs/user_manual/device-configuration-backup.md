@@ -33,3 +33,52 @@ output, phase-specific counters, saved paths, partial/interrupted/export-failure
 semantics and the coverage table (including specialist/lifecycle exemptions).
 Device/workflow semantics and existing arguments are unchanged. Deterministic
 terminal fixtures are separate from pending owner-operated Linux/Windows validation.
+
+## Offline failure report recovery
+
+Backup runs keep their existing capture files and `failed_devices.xlsx`. Shared
+spool metadata is retained in `.processing/<run-id>/` beneath that same backup
+folder. It contains sanitized failure columns and success markers; configuration
+captures and supplied credentials never enter the spool. An interrupted collection
+is incomplete and cannot be treated as a complete backup report. No automatic
+recapture occurs.
+
+The optional read-only API is
+`orbitflow.configuration_backup.recover_failed_devices(run_path, output)`.
+Both arguments are required paths: `run_path` selects the retained processing run,
+and `output` selects the destination XLSX. It returns that destination `Path`.
+The single `Failed Devices` sheet retains the six existing columns; retained
+failures are emitted in target-input order. A completed
+collection is required. Export failures retain the spool and existing report;
+retry atomically replaces the destination without connecting. Wrong tasks,
+incomplete/corrupt outcomes and filesystem errors fail explicitly. Spool status
+records consuming/consumed/output_failed accurately. Keep raw capture access
+protected and manage retention through the existing shared spool lifecycle.
+
+Linux, from the repository root (replace the two example paths):
+
+```bash
+PYTHONPATH=src python -c "from orbitflow.configuration_backup import recover_failed_devices; recover_failed_devices('BACKUP_RUN/.processing/RUN_ID', 'BACKUP_RUN/failed_devices.xlsx')"
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -c "from orbitflow.configuration_backup import recover_failed_devices; recover_failed_devices('BACKUP_RUN/.processing/RUN_ID', 'BACKUP_RUN/failed_devices.xlsx')"
+```
+
+The optional recovery API leaves menus/default arguments unchanged as required
+by Issue #162. Automated tests use synthetic safe failure metadata and prohibit
+connections, including export failure/retry. Actual captures and native Windows
+validation remain owner-controlled and pending.
+
+
+### Windows internal processing (2026-10-31)
+
+Each backup still collects its requested Excel targets anew. Its private
+`.processing` spool uses a timestamp and collision suffix to avoid nested UUID
+path overflow on Windows; public backup folders, captures and failure workbook
+paths are unchanged. Explicit failure-workbook recovery reads the selected backup
+run without recapturing devices. Very long owner-selected parent paths remain
+subject to OS limits. See the [revision audit](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).

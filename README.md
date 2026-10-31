@@ -862,3 +862,30 @@ config entry failures. Completed/Saved evidence survives later setup/cleanup
 failures. See [tests and fresh owner lab checks](docs/user_manual/manual-configuration.md#fresh-connections-and-setup-diagnostics-issue-158).
 Linux deterministic validation is recorded there; Windows and live validation of
 this correction remain pending.
+
+Issue #162 adds shared SQLite working sets for retained observations and ordered
+planning results, streamed immutable JSON loading/saving and XLSX export, and
+digest-bound source files for new execution confirmations. The former 16/32 MiB
+aggregate v2 planning gates are removed; small-contract v1 input files have a
+16 MiB pre-decode byte bound. Public plan JSON, workbooks, digests and
+approval/replay safeguards remain unchanged. See the
+[offline recovery instructions](docs/user_manual/bulk-configuration-planning.md#offline-retained-observation-recovery-issue-162-revision)
+and [module audit and validation ledger](docs/operations/issue-162-processing-audit.md).
+New spool records retain a 64 MiB envelope limit; historical unmarked records have
+a finite 256 MiB read allowance. Configuration backup failure reports can be
+[regenerated offline](docs/user_manual/device-configuration-backup.md#offline-failure-report-recovery).
+Owner private-spool, live-device and native Windows validation remain pending.
+
+Issue #162 fifth-review hardening explicitly releases scratch SQLite files on
+failed parsing, loading, planning and recovery export, even with retained error
+tracebacks. Recovery detects an existing orphan output; retry uses a fresh
+basename because publication of the JSON/XLSX pair is not crash-atomic. The
+[planning guide](docs/user_manual/bulk-configuration-planning.md#fifth-review-recovery-and-capacity-decisions)
+records safe regression commands and the outstanding owner decision for historical
+records above 256 MiB; that compatibility is not claimed.
+
+
+Existing Excel-driven workflows continue to use their supported workbooks. Normal
+reports collect fresh device evidence for each run; SQLite indexes only that run.
+Explicit offline recovery uses the selected historical evidence without connecting.
+See the [fresh-collection audit and validation instructions](docs/operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).
