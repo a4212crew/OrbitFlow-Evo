@@ -6,6 +6,7 @@ existing normalized VLAN state. Inventory resolution precedes collection on the 
 
 from __future__ import annotations
 
+from orbitflow.run_timing import timed
 import getpass
 import platform as host_platform
 import sys
@@ -73,6 +74,7 @@ def _format_observation(observation: InterfaceVlanObservation) -> str:
     )
 
 
+@timed('total')
 def run_live_validation(
     device_host: str,
     platform: str | None,
@@ -120,6 +122,7 @@ def run_live_validation(
     return state
 
 
+@timed('total')
 def main() -> None:
     """Prompt only for the target password and validate the configured target."""
     password = getpass.getpass("Device password: ")

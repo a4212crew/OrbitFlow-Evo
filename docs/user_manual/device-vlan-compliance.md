@@ -79,3 +79,18 @@ retain their recorded finding text; policy is not re-evaluated during export.
 
 See [validation checks](aggregation-validation.md#summary-and-overflow-review-checks)
 for automated commands and owner read-only/offline review steps on both shells.
+
+
+### Fresh collection and retained evidence (2026-10-31)
+
+Continue using the existing Excel inputs, columns and selections. Every normal
+collection execution contacts its requested devices again in a distinct run;
+prior observations do not repair a failed current collection. Inventory exports
+retain explicitly labelled latest-known stable facts after failure. Deliberate
+offline export/recovery uses only the selected historical run, without reconnecting;
+planning binding, age, trust and authorization restrictions still apply.
+See the [audit and owner validation steps](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).
+
+## Shared run processing (Issue #162)
+
+New applicable run results use direct run-specific SQLite persistence and sanitized stage timing. Existing inputs, arguments, menus and public outputs remain unchanged; explicit historical recovery never recollects. See the [processing/recovery guide](run-processing.md) for storage, retention, timing fields, Linux/Windows checks and limitations.

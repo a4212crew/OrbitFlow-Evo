@@ -18,7 +18,7 @@ Executable guides are indexed below. Source/test-linked reference documents rema
 - [Device inventory refresh](device-inventory-refresh.md) — CLI, options, report output and failures.
 - [Interface/VLAN observation report](device-interface-vlan-report.md) — read-only collection and Excel reporting.
 - [VLAN compliance](device-vlan-compliance.md) — collection, methodology report, and offline re-export.
-- [Configuration backup](device-configuration-backup.md) — sensitive read-only backup collection.
+- [Configuration backup](device-configuration-backup.md) — sensitive read-only backup collection and offline failure-report recovery API.
 - [Retired v1 operator guide (compatibility link)](configuration-plan.md) — historical offline-plan CLI pointer; do not use as the current bulk workflow.
 - [Development orchestration controller](orchestration-controller.md) — dry-run, watch and task lifecycle.
 - [Live validation utilities](live-validation.md) — single-device inventory/VLAN and batch inventory validation helpers.
@@ -70,3 +70,5 @@ For the configuration-v2 module, ensure the package is installed or `src` is in 
 
 - [Manual Configuration](manual-configuration.md): separate multiline-row workflow, blank separators, numbered selection, one immediately refreshed batch report/named capture links, platform matrix, authorization and owner lab validation.
 - [Manual Configuration API](../operations/manual-configuration-api.md): public Python interface.
+
+- [Run processing, SQLite recovery and stage timing](run-processing.md)

@@ -20,6 +20,8 @@ CELL_FRAGMENT = 30000
 SHEET_ROWS = 1048576  # Includes the header; continuation sheets repeat it.
 
 
+from orbitflow.run_timing import timed
+
 def _json_fragments(row):
     """Avoid constructing a second whole serialized record during export."""
     pending = ""
@@ -48,6 +50,7 @@ def _paged_tables(tables):
             part += 1
 
 
+@timed('sqlite_project_excel_publication')
 def export_methodology_spool(spool_path, path, *, cleanup=False, allow_partial=False):
     """Recover independently without network access; keep spool by default for compliance."""
     spool = ResultSpool(spool_path)

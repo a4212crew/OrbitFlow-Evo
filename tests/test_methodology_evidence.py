@@ -63,7 +63,7 @@ def test_credential_values_never_enter_snapshot_spool_or_workbook(tmp_path, fami
     spool = ResultSpool.create(tmp_path / 'runs', 'vlan_compliance', 1)
     with spool.collection():
         spool.append(DeviceOutcome(1), payload={'methodologies': rows})
-    assert sentinel not in (spool.path / 'results.jsonl').read_text()
+    assert sentinel.encode() not in (spool.path / 'r.db').read_bytes()
     book = report.export_methodology_spool(spool.path, tmp_path / 'safe.xlsx')
     with zipfile.ZipFile(book) as archive:
         assert all(sentinel.encode() not in archive.read(n) for n in archive.namelist())

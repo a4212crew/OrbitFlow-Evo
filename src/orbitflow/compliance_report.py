@@ -23,6 +23,8 @@ DETAIL_COLUMNS = ("Input Position", "Finding", "Field", "Part", "JSON Fragment")
 INLINE_LIMIT = 30000
 
 
+from orbitflow.run_timing import timed
+
 def _cell(value):
     """Sanitize complete values before measuring or losslessly splitting them."""
     return ILLEGAL_CHARACTERS_RE.sub("", sanitize_text(value))
@@ -61,6 +63,7 @@ def configuration_evidence(finding):
                       for name, refs in zip(names, references)))
 
 
+@timed('sqlite_project_excel_publication')
 def export_compliance_spool(spool_path, path, *, cleanup=True, allow_partial=False):
     """Retry output without loading policy or contacting devices. Partial runs are opt-in.
 

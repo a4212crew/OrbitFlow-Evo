@@ -487,7 +487,8 @@ def test_manifest_failure_partial_compliance_export_without_reconnect(tmp_path, 
         app.collect_compliance(targets(), None, **opts)
     assert len(closed) == 1
     spool = ResultSpool(next((tmp_path / 'runs').iterdir()))
-    assert spool.manifest['completed_count'] == 0
+    # SQLite commits count metadata with the outcome, before the JSON mirror.
+    assert spool.manifest['completed_count'] == 1
     records = list(spool.records())
     assert [r['input_position'] for r in records] == [1]
     monkeypatch.setattr(Path, 'replace', original)

@@ -9,6 +9,7 @@ For the concise current implementation and validation baseline, read:
 For detailed historical development records, read only the month relevant to the task:
 
 - `2026-09.md` — September 2026 implementation history.
+- `2026-11.md` ? November 2026 implementation history.
 - `2026-10.md` — October 2026 implementation history.
 
 ## Logging Rule

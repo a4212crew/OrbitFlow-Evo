@@ -26,3 +26,10 @@ output, phase-specific counters, saved paths, partial/interrupted/export-failure
 semantics and the coverage table (including specialist/lifecycle exemptions).
 Device/workflow semantics and existing arguments are unchanged. Deterministic
 terminal fixtures are separate from pending owner-operated Linux/Windows validation.
+
+## Iteration versus final acceptance
+
+The controller retains its full, unfiltered pytest gate, including all nine scale
+cases. For explicit fast local revision commands and mandatory final evidence see
+[run processing](run-processing.md#issue-162-revision-fast-iteration-and-required-final-gate-2026-11-01).
+Fast results alone never authorize controller progression.

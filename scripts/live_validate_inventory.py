@@ -7,6 +7,7 @@ automatic platform and device-family detection are part of the validation.
 
 from __future__ import annotations
 
+from orbitflow.run_timing import timed
 import getpass
 import platform as host_platform
 import sys
@@ -103,6 +104,7 @@ def _print_inventory_state(
             )
 
 
+@timed('total')
 def run_live_validation(
     device_host: str,
     credentials: DeviceCredentials,
@@ -124,6 +126,7 @@ def run_live_validation(
     return context
 
 
+@timed('total')
 def main() -> None:
     """Prompt only for the target password and validate the configured target."""
     password = getpass.getpass("Device password: ")

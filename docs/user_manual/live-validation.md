@@ -149,3 +149,7 @@ output, phase-specific counters, saved paths, partial/interrupted/export-failure
 semantics and the coverage table (including specialist/lifecycle exemptions).
 Device/workflow semantics and existing arguments are unchanged. Deterministic
 terminal fixtures are separate from pending owner-operated Linux/Windows validation.
+
+## Shared run processing (Issue #162)
+
+New applicable run results use direct run-specific SQLite persistence and sanitized stage timing. Existing inputs, arguments, menus and public outputs remain unchanged; explicit historical recovery never recollects. See the [processing/recovery guide](run-processing.md) for storage, retention, timing fields, Linux/Windows checks and limitations.

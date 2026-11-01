@@ -241,3 +241,29 @@ def test_run_log_emit_failure_has_no_raw_logging_traceback(tmp_path, monkeypatch
     monkeypatch.setattr(module._SafeRotatingFileHandler, 'shouldRollover', denied)
     assert module.log_run_failure(ValueError('private exception'), log_root=tmp_path) is False
     assert capsys.readouterr() == ('', '')
+
+
+@pytest.mark.parametrize('denials', [1, 4])
+def test_handler_allocation_retries_transient_permission_only(tmp_path, monkeypatch, denials):
+    import orbitflow.logging as module
+    original = module._SafeRotatingFileHandler
+    attempts, delays = [], []
+    def allocate(*args, **kwargs):
+        attempts.append(True)
+        if len(attempts) <= denials:
+            raise PermissionError('private path must not be logged')
+        return original(*args, **kwargs)
+    monkeypatch.setattr(module, '_SafeRotatingFileHandler', allocate)
+    monkeypatch.setattr(module, 'sleep', delays.append)
+    if denials == 4:
+        with pytest.raises(PermissionError):
+            with module.module_logger('fixture', log_root=tmp_path):
+                pytest.fail('must not continue without required logger')
+        assert delays == [0.1, 0.2, 0.4]
+    else:
+        with module.module_logger('fixture', log_root=tmp_path) as (logger, path):
+            logger.info('safe')
+        assert delays == [0.1]
+        assert 'private path' not in path.read_text()
+    assert len(attempts) == min(denials + 1, 4)
+    assert not module._writers

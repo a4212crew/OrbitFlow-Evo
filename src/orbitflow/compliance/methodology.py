@@ -3,6 +3,7 @@
 No template decisions, CLI parsing, execution or modification of compliance facts.
 """
 
+from orbitflow.run_timing import timed
 from dataclasses import asdict, replace
 import hashlib
 import json
@@ -267,6 +268,7 @@ def resolved_records(resolver):
     return records
 
 
+@timed('methodology_evaluation')
 def resolve_methodologies(context, interfaces, vlans, *, management_ip="", clean=sanitize_text, planning=False):
     """Public single-device review API using the same family resolver and snapshot."""
     device = dict(device_id=context.device_id if context else "", hostname=context.hostname if context else "",

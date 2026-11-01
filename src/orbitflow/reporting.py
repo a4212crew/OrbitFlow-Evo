@@ -32,6 +32,8 @@ DATABASE_COLUMNS = (
 ERROR_COLUMNS = ("Device IP", "Device Name", "Stage", "Error Category", "Time")
 
 
+from orbitflow.run_timing import timed
+
 def build_rows(context, interfaces, vlans, aggregation=None):
     """Present actual interface facts with reversible numeric/identity ranges.
 
@@ -113,6 +115,7 @@ def _compact_field(field, value):
     return separator.join(result)
 
 
+@timed('excel_render_publication')
 def write_workbook(path, interfaces, database, errors, *, clean=sanitize_text, evidence=()):
     """Atomically stream report sheets and optional chunked configuration evidence.
 
@@ -147,6 +150,7 @@ def write_workbook(path, interfaces, database, errors, *, clean=sanitize_text, e
                         comments=lambda title, col: comments.get(col) if title == "Interfaces" else None)
 
 
+@timed('total')
 def run_report(targets, transport_config, *, inventory_path="data/inventory/inventory.json",
                reports_dir="outputs/reports/interface_vlan", log_root="outputs/logs", output=None, clock=None,
                execution_config=None, spool_root=None):
@@ -282,6 +286,7 @@ def run_report(targets, transport_config, *, inventory_path="data/inventory/inve
     return path
 
 
+@timed('offline_report_total')
 def export_report_spool(spool_path, path, *, cleanup=True, allow_partial=False):
     """Regenerate offline, including expanded legacy rows, without connections.
 

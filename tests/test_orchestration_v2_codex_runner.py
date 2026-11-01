@@ -81,6 +81,8 @@ def test_pytest_uses_external_basetemp_and_cleans_on_exit(monkeypatch, tmp_path,
     from types import SimpleNamespace
     captured = {}
     def run(args, **kwargs):
+        assert args[:4] == [codex_runner.sys.executable, '-m', 'pytest', '-q']
+        assert '-m' not in args[4:] and '-k' not in args[4:]  # final gate includes scale
         temp = Path(kwargs['env']['TEMP'])
         assert temp.is_dir() and tmp_path not in temp.parents
         assert kwargs['env']['TMP'] == kwargs['env']['TMPDIR'] == str(temp)

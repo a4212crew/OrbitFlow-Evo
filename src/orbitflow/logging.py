@@ -13,6 +13,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import re
 from threading import RLock
+from time import sleep
 
 _root = ContextVar("orbitflow_log_root", default=Path("outputs/logs"))
 MAX_BYTES = 2 * 1024 * 1024
@@ -72,6 +73,7 @@ class SafeFormatter(logging.Formatter):
             "message": message,
         }
         for key in ('run_id', 'row_id', 'stage_id', 'digest', 'interface', 'command', 'stage', 'elapsed_seconds', 'outcome',
+                    'evidence_run_id', 'input_position', 'workflow', 'started_at', 'ended_at', 'status', 'completed_count',
                     'device_family', 'template_id', 'command_index', 'command_category', 'device_wait_seconds', 'work_seconds'):
             if hasattr(record, key):
                 data[key] = _safe(getattr(record, key))
@@ -140,8 +142,17 @@ def module_logger(module, filename=None, *, log_root=None):
     writer_key = path.resolve()
     with _writers_lock:
         if writer_key not in _writers:
-            handler = _SafeRotatingFileHandler(path, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT,
-                                          encoding="utf-8")
+            # A just-closed/rotated Windows file can be briefly held by another
+            # filesystem reader. Retry allocation only; never retry device work.
+            for delay in (0.1, 0.2, 0.4, None):
+                try:
+                    handler = _SafeRotatingFileHandler(path, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT,
+                                                       encoding="utf-8")
+                    break
+                except PermissionError:
+                    if delay is None:
+                        raise
+                    sleep(delay)
             handler.setFormatter(SafeFormatter())
             _writers[writer_key] = [handler, 0]
         handler, users = _writers[writer_key]

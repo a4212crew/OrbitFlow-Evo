@@ -147,3 +147,7 @@ same read-only fixture workbook with repeated target rows for direct CLI and men
 compare recorded counts with spool input positions (or backup records), include a
 failed target, and confirm collection and export remain distinct. Planning observes
 one target per distinct IP by design. Do not replay interrupted configuration work.
+
+## Shared run processing (Issue #162)
+
+New applicable run results use direct run-specific SQLite persistence and sanitized stage timing. Existing inputs, arguments, menus and public outputs remain unchanged; explicit historical recovery never recollects. See the [processing/recovery guide](run-processing.md) for storage, retention, timing fields, Linux/Windows checks and limitations.

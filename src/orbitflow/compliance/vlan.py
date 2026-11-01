@@ -1,5 +1,6 @@
 """Common policy engine over family-validated saved-configuration audit facts."""
 
+from orbitflow.run_timing import timed
 import re
 
 from orbitflow.logging import sanitize_text
@@ -35,6 +36,7 @@ def _summary(value):
     return text if len(text) <= 100 else text[:100] + "... (see Details)"
 
 
+@timed('evaluation')
 def evaluate_vlan_compliance(context, interfaces, vlans, policy, *, management_ip="",
                              clean=sanitize_text):
     """Evaluate both rule families from one snapshot; no collection or mutation.

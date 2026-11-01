@@ -35,3 +35,18 @@ output, phase-specific counters, saved paths, partial/interrupted/export-failure
 semantics and the coverage table (including specialist/lifecycle exemptions).
 Device/workflow semantics and existing arguments are unchanged. Deterministic
 terminal fixtures are separate from pending owner-operated Linux/Windows validation.
+
+
+### Fresh collection and retained evidence (2026-10-31)
+
+Continue using the existing Excel inputs, columns and selections. Every normal
+collection execution contacts its requested devices again in a distinct run;
+prior observations do not repair a failed current collection. Inventory exports
+retain explicitly labelled latest-known stable facts after failure. Deliberate
+offline export/recovery uses only the selected historical run, without reconnecting;
+planning binding, age, trust and authorization restrictions still apply.
+See the [audit and owner validation steps](../operations/issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).
+
+## Shared run processing (Issue #162)
+
+New applicable run results use direct run-specific SQLite persistence and sanitized stage timing. Existing inputs, arguments, menus and public outputs remain unchanged; explicit historical recovery never recollects. See the [processing/recovery guide](run-processing.md) for storage, retention, timing fields, Linux/Windows checks and limitations.

@@ -485,7 +485,7 @@ def test_real_report_recovery_and_corrupt_spool(settings):
     book = load_workbook(result, read_only=True)
     assert len(book.sheetnames) == 3
     book.close()
-    assert (spool.path / 'results.jsonl').exists()
+    assert (spool.path / 'r.db').exists()
     (spool.path / 'manifest.json').write_text('corrupt token=hidden')
     ui, output = console([str(spool.path), 'n'])
     ui.safe(lambda: ui.recover('interface_vlan'))

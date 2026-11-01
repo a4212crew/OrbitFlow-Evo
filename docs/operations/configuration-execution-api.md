@@ -199,8 +199,9 @@ and `DeviceCLI.save_configuration` implement synchronization internally; prefer 
 capability wrapper for supported application use.
 
 `ResultJournal(path, *, clean=sanitize_text)` in `orbitflow.result_spool` owns
-synchronized fsynced JSONL append; `append(json_value)` sanitizes recursively and
-`records()` streams complete lines for recovery. It does not retry failed writes or
+synchronized transactional event append in the containing new run SQLite database;
+standalone/legacy JSONL journals retain fsynced complete-line recovery.
+`append(json_value)` sanitizes recursively and `records()` streams retained events. It does not retry failed writes or
 retain full runs. Callers must never submit sensitive raw backup content. The executor
 uses it for incremental progress alongside the existing central ResultSpool.
 
@@ -512,3 +513,40 @@ blocker remains `NOT_ALLOW_ON_CHILD_PORT_CHANNEL`. See the existing validation
 matrix for Linux/Windows read-only reproduction; live validation remains pending.
 
 Issue #156 adds the explicit `manual=True` opt-in for the separate [Manual Configuration application](manual-configuration-api.md): identified IOS/IOS-XE/EdgeSwitch platform framing beyond predefined family profiles, with rejection detection before response redaction. Default predefined family restrictions and partial-save behavior are unchanged. The application, not this persistence capability, owns password authorization, backup, row success and durable evidence gates. XR/Huawei manual persistence remains unsupported.
+
+### Indexed source retention (Issue #162)
+
+The `prepare`, `prepare_workbook` and `confirm` signatures and returned summary
+fields remain unchanged. New confirmation rows reference a separately saved,
+complete public plan JSON named `confirmation-<reference>.json` in the existing
+protected authority directory. Keep this file with its SQLite confirmation row;
+missing, altered or linked sources fail before claiming or connecting. Preparation
+and confirmation stream/revalidate indexed observations instead of storing the
+whole plan inside one SQLite text parameter. Existing inline-plan confirmations
+remain supported. Exact source and summary digests and atomic replay claims are
+unchanged; recovered unverified historical plans cannot authorize execution.
+
+`BulkPlan.content` and `to_dict()` are explicit materializing compatibility APIs;
+large-run applications should use the existing `save`/`load` and workbook/service
+consumers, which use indexed internal views. Execution summary return values
+still contain bounded source-row/command metadata. Offline execution report
+recovery queries the shared run SQLite event table directly, preserving complete
+detail references through a temporary reference table. Legacy JSONL journals alone
+use the compatible event-offset index; new runs never rebuild one.
+Prompt/save exchanges above 64 MiB fail explicitly and leave the session unsafe;
+there is no retry of writes. Synthetic confirmation tests mock the device runner;
+owner-operated live and native Windows validation remain pending.
+
+
+### Collection versus historical consumption (2026-10-31 audit)
+
+Normal planning collection reads the existing workbook, binds its requests before
+networking and creates a new observation run on every call. It does not load an
+older successful run when a device is unreachable. Explicit recovery and immutable
+plan review remain offline operations; preparation/confirmation retain their existing
+freshness, identity, approval and replay checks. No API signatures or defaults changed.
+See the [source/test audit](issue-162-processing-audit.md#fresh-collection-contract-revision-2026-10-31).
+
+See [run processing and stage timing](../user_manual/run-processing.md) for direct SQLite lifecycle, historical evidence correlation and unchanged authorization/replay safeguards.
+
+Execution XLSX export now stages/fsyncs a complete workbook and publishes without overwriting a destination. A save failure leaves the destination unpublished; offline retry does not reconnect. Rendering/publication and cleanup are timed through the existing module logs.

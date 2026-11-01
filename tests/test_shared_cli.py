@@ -204,3 +204,20 @@ def test_report_real_capabilities_one_shell_and_failure_isolation(tmp_path, monk
     finally:
         with_workbook.close()
     assert (client.opens, client.closes, channel.close_calls) == (1, 1, 1)
+
+
+def test_response_limit_stops_without_accepting_a_prompt(monkeypatch):
+    import orbitflow.vendors.common as common
+    cli = common.PromptCLI.__new__(common.PromptCLI)
+    class Channel:
+        def settimeout(self, timeout):
+            pass
+        def recv(self, size):
+            return b'x' * 9
+    cli._channel = Channel()
+    cli._platform_name = 'synthetic'
+    cli._detect_prompt = lambda text: None
+    monkeypatch.setattr(common, 'MAX_RESPONSE_BYTES', 16)
+    with pytest.raises(common.InteractiveCLIError, match='size limit'):
+        cli._read_until_prompt(10)
+    assert len(cli.last_response) == 9

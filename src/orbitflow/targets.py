@@ -1,5 +1,6 @@
 """Shared approved Excel target input; no device discovery or output logging."""
 
+from orbitflow.run_timing import timed
 from pathlib import Path
 from openpyxl import load_workbook
 
@@ -7,6 +8,7 @@ REQUIRED_COLUMNS = ("management_ip", "username", "password")
 OPTIONAL_COLUMNS = ("secret",)
 
 
+@timed('excel_input_validation')
 def load_targets(path: str | Path, *, isolate_invalid: bool = False) -> list[dict[str, str]]:
     """Load required fields and optional secret, ignoring unknown columns.
 
